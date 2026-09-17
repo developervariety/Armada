@@ -199,7 +199,7 @@ variable named by `apiKeyEnv`, or from the key file
 `<data directory>/secrets/typesafe-api-key` that `PUT /api/v1/typed-decisions/key`
 writes; adding or removing it takes effect without a restart. The decision
 catalogue and its principles are documented in
-[docs/design/typed-decisions.md](docs/design/typed-decisions.md).
+[archive/design/typed-decisions.md](archive/design/typed-decisions.md).
 When a decision is enabled it can only make a call
 more conservative, never lands or dispatches, gates only at or above the
 confidence threshold, fails closed to the deterministic rule, and never egresses
@@ -227,7 +227,7 @@ effective and stored modes, key presence and source, and every decision;
 `typed_decision.gated`, `typed_decision.shadow`, or `typed_decision.unavailable`
 event carrying the decision, verdicts, confidences, tokens, latency, and the
 state's hash and byte count — never the state itself. See
-[Typed decisions](docs/ops/08-configuration-and-administration.md) for the full
+[Typed decisions](docs/TYPED_DECISIONS.md) for the full
 contract.
 
 ### Code Index, Context Packs, and Graph Search

@@ -219,6 +219,7 @@ namespace Armada.Core.Context
             {
                 string name = Path.GetFileName(f);
                 if (name.StartsWith("._", StringComparison.Ordinal)) continue; // macOS AppleDouble sidecar.
+                if (name.EndsWith(".example.md", StringComparison.OrdinalIgnoreCase)) continue; // A template to copy, not guidance.
                 yield return f;
             }
         }

@@ -18,6 +18,21 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The operator guide chapters under `docs/ops/` are operator-local and no longer tracked: a filled chapter names a
+  deployment's real hosts, vessels, accounts, and policy. The repository tracks a template per chapter
+  (`docs/ops/NN-<chapter>.example.md`), the folder README, and `INDEX.example.json`; copy a template without
+  `.example` to start a deployment's guide. The context index skips `*.example.md`, so a template is never indexed
+  as guidance. Shared product reference moved out of the chapters and stays tracked: the complete MCP tool catalog
+  (`docs/MCP_TOOL_CATALOG.md`, now naming every registered tool on its own), the typed-decision reference
+  (`docs/TYPED_DECISIONS.md`), and model routing and dispatch policy (appended to `docs/USAGE_ROUTING.md`). The
+  duplicate chunked copy of the standard-workflow chapter is removed.
+
+- The four identical `docs/INSTRUCTIONS_FOR_*.md` prompt bootstraps are one runtime-neutral
+  `docs/ORCHESTRATOR_INSTRUCTIONS.md`, which also carries the operator-surfaces and concurrent-session sections the
+  four `*_AS_ORCHESTRATOR.md` guides each repeated; those guides keep only runtime-specific setup.
+
+- The design documents moved from `docs/design/` to `archive/design/`.
+
 - Dispatch treats a stale code index as relevant only when the diff since the indexed commit touches indexable
   source. A docs-only or excluded-only landing marks the index stale but no longer triggers a refresh or a wait at
   the next dispatch (under any policy, `Block` included), because the indexed content is unchanged. The rule is

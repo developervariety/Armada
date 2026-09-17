@@ -72,7 +72,7 @@ The eligible captains are ordered by these keys, first key first:
 
 A retry avoids the captains on its retry skip list while another eligible
 captain remains. A requested captain and a fallback tier are applied before
-this layer; see [Requested captain and fallback tier](ops/08-configuration-and-administration.md#requested-captain-and-fallback-tier).
+this layer; see [Requested captain and fallback tier](#requested-captain-and-fallback-tier).
 `reservedHighTierSlots` holds idle Premium captains for specialist missions.
 
 ## Retired tier settings and the one-time migration
@@ -533,3 +533,117 @@ A File snapshot has this form (supply current UTC timestamps):
 
 Write exports atomically. The observation time must reflect the measurement,
 not the time the file was copied. Missing percentages must be null, not zero.
+
+## Model routing and dispatch policy
+
+Product defaults are policy-neutral: no persona is a specialist, no captain
+has a pinned tier or a rank, and the stage-persona title guard is off. A
+captain's tier and preference rank are fields on the captain record, and a
+persona's specialist flag is a field on the persona record; see
+[the three routing layers](#smart-routing). Edit these keys in
+`settings.json` or on the Dashboard Settings page:
+
+| Setting | Hot-reload | Product default | Dashboard control |
+| --- | --- | --- | --- |
+| `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native captains first |
+| `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved Premium slots |
+| `modelTier.modelCapabilityProfiles` / `capabilityHintDimensionMap` | Yes | empty / built-in hint map | `settings.json` only |
+| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Smart Routing: accounts, usage filter, persona model lists, routes, and preview](#smart-routing) |
+| `modelTier.tierRecordsMigratedUtc` | Yes | unset | Written by the one-time tier record migration |
+| `voyageDispatch.rejectStagePersonaTitlePrefixes` | Yes | `false` | Reject stage-persona title prefixes |
+| `voyageDispatch.stagePersonaTitlePrefixes` | Yes | empty | Prefix list |
+| `modelProviders` | No (startup) | empty | modelProviders JSON |
+| `additionalPromptTemplates` / `additionalPersonas` / `additionalPipelines` | No (startup) | empty | Additional-asset JSON |
+
+| Record field | Default | Dashboard control |
+| --- | --- | --- |
+| Captain `tier` (`Economy`, `Standard`, `Premium`) | null: classified from the model name | Captain modal and detail page: Capability tier |
+| Captain `preferenceRank` (-1000 to 1000) | `0` | Captain modal and detail page: Preference rank |
+| Persona `specialist` | `false` | Persona detail page: Specialist |
+
+`modelTier.midTierModels`, `highTierModels`, `familyClassificationRules`,
+`specialistPersonas`, `withinTierStrategy`, and `withinTierPreferenceOrder` are
+retired. At the first startup that finds them, Armada moves them onto captain
+tiers, captain ranks, and persona flags, writes a settings backup, removes the
+keys, and stamps `tierRecordsMigratedUtc`. See
+[Retired tier settings and the one-time migration](#retired-tier-settings-and-the-one-time-migration).
+
+**Legacy Routing** is layers 1 and 2 while `modelTier.usageRouting.enabled`
+is false: persona locks and the tier floor decide eligibility, then tier,
+capability scoring, preference rank, non-native-first, and the preferred
+persona order the eligible captains; the persona default captain and the
+Premium slot reserve also apply. **Smart Routing**
+(`modelTier.usageRouting.enabled` true) keeps that order and adds the usage
+filter (Exhausted removed, Low and Reserve demoted), per-persona `default`,
+`lighter`, and `stronger` model lists (`modelTier.usageRouting.personaModels`),
+the `capacity_escalation` typed decision that chooses which list goes first,
+and optional `personaRoutes` that restrict a persona to named accounts. Routes
+never order captains, and nothing in Smart Routing changes the tier floor. See
+[Smart Routing](#smart-routing).
+
+A `modelTier.usageRouting` account can also own a separate captain login.
+Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
+`CODEX_HOME`, OpenCode `XDG_DATA_HOME`), or `launchCredentialEnv` or
+`launchCredentialFile` for Cursor (`CURSOR_API_KEY`). The Routing tab's
+**Subscription accounts** section creates any number of accounts per runtime
+under `<data directory>/accounts/<id>`, runs each runtime's login from the
+browser (Codex device code, Claude Code sign-in with a pasted code, OpenCode and
+Cursor API keys), assigns or clones captains, refreshes one account's usage on demand (bypassing
+`refreshIntervalMinutes`, still honouring a provider retry-after), and deletes
+an account with no captains together with its server-derived folder; see
+[Logging in from the Dashboard](#logging-in-from-the-dashboard). An account without those fields launches its captains on
+the shared login, as before. A missing login blocks the account with a named
+reason. Claude Code and Codex accounts also run the runtime's login status
+command in the background, so an expired or revoked login reads
+`account_login_expired`. When such an account removes every remaining captain, the
+routing decision reason (usage preview `reason`, and the deferred-mission log)
+is that account code. A quota, billing, or authentication failure on one captain holds the
+whole account Exhausted and quarantines its idle captains until the retry time.
+Rollout of any second subscription account needs an owner decision under the
+provider's terms. See [Account logins](#account-logins).
+
+### Requested captain and fallback tier
+
+A mission can store a requested captain (`RequestedCaptainId`) and a
+fallback tier (`Tier`). They come from the mission itself, a voyage captain
+override (`captainAssignments` with `captainId` and `fallbackTier`), or a
+persona `DefaultCaptainId`. Every assignment path applies one rule:
+
+1. The captain pool keeps only captains that are Idle, in the mission's
+   tenant, not quarantined, not excluded after a policy refusal, and not
+   reserved by another assignment. When Smart Routing is enabled, the pool
+   also drops captains outside the persona's routes and captains the usage
+   filter removes (Exhausted or at the account concurrency limit). No request
+   overrides these gates. A demoted (Low or Reserve) requested captain is
+   still assigned.
+2. If the requested captain is in that pool, it is assigned. This is an
+   explicit choice. It wins over persona preference, model-tier selection
+   and the captain's `AllowedPersonas` fence.
+3. If the requested captain is not in the pool, normal routing runs over the
+   captains at or above the fallback tier. The fallback tier is the stored
+   `Tier`, or the requested captain's own effective tier when no tier is
+   stored. The lowest tier at or above that floor is preferred. A stored tier
+   with no requested captain applies the same floor.
+4. If no captain meets the floor, the mission stays Pending with
+   `WaitingForIdleCaptain`. It is never given to a lower-tier substitute.
+5. If the requested captain no longer exists and no tier is stored, normal
+   routing applies.
+
+Rules 3, 4 and 5 record a `mission.requested_captain` event. The event names
+the requested captain, why it was not used, and the tier. Read these events
+when a mission with a requested captain waits. A wait that does not change is
+recorded once. A mission with neither field set is assigned exactly as
+before.
+
+With no pinned tier on any captain, each captain's tier is classified from
+its model name, and a model the classifier does not know is Standard.
+
+`factory/settings.fleet.example.json` holds the fleet routing policy, guard,
+and specialist-reviewer assets. Captain tiers, ranks, and specialist flags are
+not settings: set them on the records, or let the one-time migration derive
+them from a settings file that still carries the retired tier keys. The live
+`~/.armada/settings.json` is not in the repository.
+
+The `docker/` image pins (agent CLI set, `CLI_REFRESH`, `@latest`) are
+project infra for this deployment. They are not product defaults. Gate
+them with build args when you ship a generic image.

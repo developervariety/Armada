@@ -59,7 +59,7 @@ Cursor will call `armada_status` and report active captains, missions, and voyag
 
 ## Giving Cursor Full Instructions
 
-Use [`INSTRUCTIONS_FOR_CURSOR.md`](INSTRUCTIONS_FOR_CURSOR.md) as the Cursor
+Use [`ORCHESTRATOR_INSTRUCTIONS.md`](ORCHESTRATOR_INSTRUCTIONS.md) as the Cursor
 prompt bootstrap. The canonical workflow and complete MCP catalog are in
 [`armada-ops.md`](armada-ops.md). Live tool schemas come from paginated
 `tools/list` discovery.
@@ -71,22 +71,6 @@ prompt bootstrap. The canonical workflow and complete MCP catalog are in
 > "Check on voyage vyg_abc123. If any missions failed, look at the events and redispatch with better prompts."
 
 > "Refactor the authentication system. Decompose into parallel missions and dispatch them."
-
-## Concurrent Sessions And Autonomous Cycles
-
-Use one stable coordination participant key. Read and heartbeat before work,
-drain full `UnreadWakes` payloads between monitor iterations, and acknowledge
-each processed Wake. Addressed notes always retain a signal and can also start
-the effective AgentWake process owner in `SpawnProcess` or `Both` mode. A
-persistent settings key survives restarts; a transient registration can
-override it. OpenCode
-wakes are fresh sessions, so the note carries the task and the session rebuilds
-state from the board and durable memory.
-
-The objective scheduler is the built-in unattended dispatcher.
-Bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`; `offer` mode
-allows a bounded operator reassignment window before fallback work. Do not assign
-one participant key to both a resident helper and AgentWake.
 
 ---
 

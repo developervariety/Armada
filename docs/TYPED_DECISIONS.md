@@ -1,165 +1,6 @@
----
-topic: "Configuration And Administration"
-summary: "Administrator surfaces: migrations, Harbor, per-captain credentials, the AI-Memory folder, the typed-decision system, and model routing policy."
-read_when: "Changing settings, routing, migrations, or the typed-decision configuration."
-applies_to: orchestrator
-tier: leaf
----
-# Configuration And Administration
+# Typed Decisions
 
-Treat fleet, vessel, captain, persona, pipeline, playbook, runbook, workflow
-profile, environment, template, backup, and server-stop tools as administrator
-surfaces. Read the existing record first. Use
-`armada_audit_operational_assets` before and after asset changes. Validate
-provider models with a live provider call before putting them in a tier.
-
-### Schema migration ledger
-
-Each provider driver applies only migrations above the highest version in
-`schema_migrations`. A migration numbered below an applied version would
-never run. This happens when parallel branches land out of numeric order.
-Every driver therefore reads the ledger through one shared rule before any
-migration, schema guard or prerequisite step. If a known migration below the
-applied maximum has no row, startup fails with
-`SkippedMigrationVersionsException`. The message starts with
-`skipped_migration_versions:` and names the provider, the applied maximum and
-each missing version. Nothing is written, so every restart refuses the same
-way. Version numbers retired from the code's list are not gaps, and neither
-are ledger versions the code does not know.
-
-The runner refuses; it does not apply the missing migration late. Reasons:
-
-- A late migration runs against a schema its author never saw. The higher
-  versions may have dropped, renamed or backfilled objects it touches, and a
-  data statement can then succeed with the wrong result. Nothing reports that.
-- A fresh install applies the same versions in the other order, so fresh-
-  install schema checks no longer describe the upgraded database.
-- MySQL DDL commits statement by statement, so a late migration that fails
-  partway leaves partial schema outside a transaction.
-- Per-version schema guards (model endpoints, captain endpoint links, Harbor
-  enrollment) and the migration checkpoints assume ascending application.
-
-Interrupted migrations do not trip the rule. Each migration records its row
-only after its last statement, so an interrupted run leaves the maximum below
-it, and the restart resumes normally.
-
-The fix belongs in source, before the migration ships: renumber the unapplied
-migration above the highest version any deployed database has applied, on
-every provider. A self-deploy candidate check or an isolated-restore boot runs
-the same startup, so it reports this refusal and leaves the running admiral in
-place. If a build with the lower number already ran against a database, the
-owner decides the recovery. Restore from a backup taken before the higher
-version, or apply and record the migration by hand after review. Never insert
-a ledger row without its schema change.
-
-`scripts/common/verify-fork-migrations.py` is the source-side check. It
-refuses a new declaration at or below the fixed manifest baseline. It also
-hashes every class member that supplies statements to a protected declaration
-on any provider, including shared schema classes and the MySQL and SQL Server
-initial statements, and names the member when its body changes, it disappears
-or it is renamed. A new member with a new migration passes. `--explain` says,
-for each changed declaration, whether only its description or member names
-changed while the statement content stayed the same; such a change still fails
-until a reviewed manifest rewrite accepts it. It cannot
-see two unlanded branches that both number above that baseline; the startup
-rule covers that case.
-
-### Harbor runners (disabled by default)
-
-`Harbor.Enabled` defaults to false. While false the Admiral registers no Harbor link route and no Harbor
-enrollment routes, and local captain execution is the only execution path. Keep it false on the production
-Admiral until the Harbor acceptance is recorded; the current container deployment needs no change.
-
-To evaluate Harbor on an isolated Admiral, set `Harbor.Enabled` to true in `settings.json` and restart.
-`WebSocketEnabled` must stay true, or the Admiral logs that Harbor was not registered. The link path
-(`Harbor.LinkPath`, default `/harbor/link`) is served on the existing REST port, so the container's published
-port and TLS termination apply unchanged. Enroll each runner against a bearer credential with
-`POST /api/v1/harbor-runners/enrollments` and revoke with `.../{runnerId}/revoke`.
-
-The link authenticates only through the standard credential headers; tenant, user and access-key headers are
-ignored. Each job is bound to one runner, its enrollment generation and its connection generation, so a stale or
-foreign link cannot report for it. Every job frame and heartbeat is revalidated against durable enrollment, so a
-runner revoked or re-enrolled on any Admiral is refused by name on its next frame and its link closes. The wire
-contract is `docs/HARBOR_PROTOCOL.md`; ownership and revocation are `docs/HARBOR_IDENTITY.md`.
-
-Mission launch stays local unless a route opts a captain or a vessel in. `Harbor.MissionRoutes` entries name a
-`RunnerId` and either a `CaptainId` or a `VesselId`; a captain route wins over a vessel route. The mission owner
-must be the runner's enrolled tenant and user. The runner works in the Admiral's dock path unchanged (a shared
-mount), or under `RunnerWorkingDirectoryRoot` when `AdmiralWorkingDirectoryRoot` is also set. A routed launch is
-refused by name and never falls back to a local process: owner mismatch, a captain of another tenant
-(`harbor_captain_tenant_mismatch`), an account-login captain, a provider-key
-captain (its variables may not leave the Admiral), a dock outside the directory map, or Harbor execution not
-registered. The dock, branch and landing stay on the Admiral. A Harbor job appears to process liveness, stall
-detection, stop and recovery as a synthetic process id, so a runner job that is lost reads as a dead process.
-
-Jobs are durable. At start the Admiral fails every job an earlier process left unfinished
-(`harbor_admiral_restarted`). A runner disconnected longer than `Harbor.DisconnectedJobGraceSeconds` loses its jobs
-(`harbor_runner_disconnected`). List, inspect and stop jobs with `GET /api/v1/harbor-runners/jobs`,
-`GET .../jobs/{jobId}` and `POST .../jobs/{jobId}/stop`, or the MCP tools `armada_harbor_jobs`,
-`armada_harbor_job` and `armada_harbor_job_stop`. Enabling mission routes in production needs a separate,
-owner-approved rollout.
-
-### Runtime MCP startup
-
-Ask starts a separate temporary runtime with its own MCP launch configuration.
-The dashboard calls the captain tools endpoint with `context=ask` to check the
-planned endpoint. A successful probe proves tool discovery from the server,
-not a connection from a running chat process. Failed and empty probes show
-the returned reason. See [Ask MCP availability](../reference/ask-mcp.md).
-An API-endpoint captain has no MCP client: its tools response lists the
-built-in workspace tools it actually runs, and Ask applies the launch endpoint
-admission rule before starting it.
-
-**Cursor captains need `--approve-mcps`.** cursor-agent discovers a workspace
-`.cursor/mcp.json` but leaves its servers "not loaded (needs approval)" in a
-non-interactive `--print` run; `--trust` covers the workspace only. The runtime
-passes `--approve-mcps` so the dock's Armada server loads. Proof is a Research
-smoke mission whose report lists the Armada server by name; the file on disk
-proves nothing by itself.
-
-**Send Claude prompts on stdin.** `claude --mcp-config` accepts multiple
-values. A positional prompt after it can be read as another config path.
-OpenCode accepts the prompt as its `run` argument.
-
-### Per-captain provider credentials
-
-A captain whose model is served by an external provider (a `provider/model` id such as `example-provider/claude-fable-5`) normally uses
-the provider's host-level environment variable (for example `EXAMPLE_PROVIDER_KEY`). To point a captain at a
-different base URL or key, reference an enabled **Inference `ModelEndpoint`** on
-the captain: an API-endpoint captain requires one, and a native-runtime captain
-(ClaudeCode, Codex, OpenCode, …) may optionally reference one, in which case the
-runtime resolves its base URL, key, and model from the endpoint at launch
-instead of the host default. This lets captains on separate provider
-subscriptions run side by side on one Admiral; burn down each subscription, then
-delete its captains. Endpoints are managed under Configuration > Endpoints.
-
-The key lives on the endpoint, never inline on the captain: the dashboard no
-longer offers per-captain credential fields. The captain record's `apiKey` and
-`apiBaseUrl` are internal launch-snapshot fields populated from the referenced
-endpoint at launch and never persisted back onto the captain row.
-
-Vessel instruction files and generated briefing files are protected paths.
-Captains must propose instruction changes. The orchestrator reviews and applies
-them outside the mission dock.
-
-### AI-Memory repository folder
-
-When `aiMemoryRoot` is set, every captain brief carries a Shared Memory
-section. It names the vessel's own folder under `<aiMemoryRoot>/repos/` when
-one resolves. The admiral reduces the vessel name and each folder name to
-lower-case letters and digits and compares them, so vessel `SomeVessel`
-resolves to folder `some-vessel`, `somevessel`, or `Some_Vessel`. The brief and
-the `deferred-facts.md` lookup use the folder's real name.
-
-- No match: the brief says the vessel has no folder, and the admiral logs it
-  at Info once per vessel per process.
-- Two or more folders reduce to the same name: no folder is chosen, the brief
-  names the ambiguity, and the admiral logs it at Warn. Rename or remove one
-  folder.
-- The root cannot be read: no folder is chosen, the brief and a Warn log line
-  give the error, and the dispatch continues.
-
-### Typed decisions
+The typed-decision system: calibrated closed-question answers from a decision provider, used as a tie-breaker behind deterministic rules. This reference covers settings, modes, the kill switch, events, the captain tool, and every decision point.
 
 The typed-decision system (TypeSafe Jev) is an advisory classifier the admiral
 can consult at a decision point. It is **Off unless a provider key is
@@ -206,7 +47,7 @@ The safety contract holds whenever it is enabled:
   truncates to the state cap. The Bearer key is never logged, recorded, stored
   in settings, or returned by any response.
 
-#### The provider key
+### The provider key
 
 The key resolves in this order:
 
@@ -294,9 +135,9 @@ build failure.
 
 Two decision points are described as design documents before any code lands,
 reviewed by the owner before implementation:
-[`leak_hunk`](design/typed-decision-leak-hunk.md) (an advisory per-hunk leak
+[`leak_hunk`](../archive/design/typed-decision-leak-hunk.md) (an advisory per-hunk leak
 classifier behind the deterministic dock-boundary scanner) and
-[`log_watch`](design/typed-decision-log-watch.md) (a read-only screen over a
+[`log_watch`](../archive/design/typed-decision-log-watch.md) (a read-only screen over a
 running mission's log that posts a voyage-tagged board note and a
 `captain.course_flag` event). Neither blocks, stops, or dispatches; each only
 flags.
@@ -410,7 +251,7 @@ Two decision points recover captain time at the pipeline level (both ship
   With the decision `Off` the preview lists every stage. Auto-skip is not taken:
   a stage is dropped only when an operator names it in `skipStages` at dispatch
   or in a confirmed `preparation.stageSkip` (see
-  [05 Standard workflow](05-standard-workflow.md)).
+  [05 Standard workflow](armada-ops.md)).
 - `handoff_outcome` (D20) sits on the stage handoff, before the next mission's
   brief is frozen, and turns "failed at the Judge after four stages" into "held
   after one". A `blocked_missing_context`, `blocked_owner_question`, or
@@ -625,133 +466,3 @@ and no new persona (ships `Gate`):
     and the Judge still judges.
   With the decision `Off` every seam runs its deterministic path unchanged, and a
   seam with no retrieved candidate never calls the model.
-
-### Vessel Workspace
-
-The Workspace surface (dashboard `Workspace` page, `POST
-/api/v1/workspace/vessels/{vesselId}/exec`, and the diff/file/tree/status REST
-routes) operates on a vessel's configured working directory. Use it to browse,
-edit, search, review a working-tree diff, or run a one-shot shell command.
-Workspace shell commands run through the platform shell, are killed with their
-process tree when they exceed the timeout, and are restricted to tenant
-administrators. Every git invocation the workspace performs is bounded by a
-30-second timeout that kills the process tree and suppresses the pager and
-credential prompts, so a wedged git cannot hang the endpoints.
-
-Backups can contain operational state. Store them in an approved location and
-apply retention limits. Restore, delete, purge, stop, and bulk operations need
-an explicit operator decision.
-
-### Model routing and dispatch policy
-
-Product defaults are policy-neutral: no persona is a specialist, no captain
-has a pinned tier or a rank, and the stage-persona title guard is off. A
-captain's tier and preference rank are fields on the captain record, and a
-persona's specialist flag is a field on the persona record; see
-[the three routing layers](../USAGE_ROUTING.md). Edit these keys in
-`settings.json` or on the Dashboard Settings page:
-
-| Setting | Hot-reload | Product default | Dashboard control |
-| --- | --- | --- | --- |
-| `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native captains first |
-| `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved Premium slots |
-| `modelTier.modelCapabilityProfiles` / `capabilityHintDimensionMap` | Yes | empty / built-in hint map | `settings.json` only |
-| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Smart Routing: accounts, usage filter, persona model lists, routes, and preview](../USAGE_ROUTING.md) |
-| `modelTier.tierRecordsMigratedUtc` | Yes | unset | Written by the one-time tier record migration |
-| `voyageDispatch.rejectStagePersonaTitlePrefixes` | Yes | `false` | Reject stage-persona title prefixes |
-| `voyageDispatch.stagePersonaTitlePrefixes` | Yes | empty | Prefix list |
-| `modelProviders` | No (startup) | empty | modelProviders JSON |
-| `additionalPromptTemplates` / `additionalPersonas` / `additionalPipelines` | No (startup) | empty | Additional-asset JSON |
-
-| Record field | Default | Dashboard control |
-| --- | --- | --- |
-| Captain `tier` (`Economy`, `Standard`, `Premium`) | null: classified from the model name | Captain modal and detail page: Capability tier |
-| Captain `preferenceRank` (-1000 to 1000) | `0` | Captain modal and detail page: Preference rank |
-| Persona `specialist` | `false` | Persona detail page: Specialist |
-
-`modelTier.midTierModels`, `highTierModels`, `familyClassificationRules`,
-`specialistPersonas`, `withinTierStrategy`, and `withinTierPreferenceOrder` are
-retired. At the first startup that finds them, Armada moves them onto captain
-tiers, captain ranks, and persona flags, writes a settings backup, removes the
-keys, and stamps `tierRecordsMigratedUtc`. See
-[Retired tier settings and the one-time migration](../USAGE_ROUTING.md#retired-tier-settings-and-the-one-time-migration).
-
-**Legacy Routing** is layers 1 and 2 while `modelTier.usageRouting.enabled`
-is false: persona locks and the tier floor decide eligibility, then tier,
-capability scoring, preference rank, non-native-first, and the preferred
-persona order the eligible captains; the persona default captain and the
-Premium slot reserve also apply. **Smart Routing**
-(`modelTier.usageRouting.enabled` true) keeps that order and adds the usage
-filter (Exhausted removed, Low and Reserve demoted), per-persona `default`,
-`lighter`, and `stronger` model lists (`modelTier.usageRouting.personaModels`),
-the `capacity_escalation` typed decision that chooses which list goes first,
-and optional `personaRoutes` that restrict a persona to named accounts. Routes
-never order captains, and nothing in Smart Routing changes the tier floor. See
-[Smart Routing](../USAGE_ROUTING.md).
-
-A `modelTier.usageRouting` account can also own a separate captain login.
-Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
-`CODEX_HOME`, OpenCode `XDG_DATA_HOME`), or `launchCredentialEnv` or
-`launchCredentialFile` for Cursor (`CURSOR_API_KEY`). The Routing tab's
-**Subscription accounts** section creates any number of accounts per runtime
-under `<data directory>/accounts/<id>`, runs each runtime's login from the
-browser (Codex device code, Claude Code sign-in with a pasted code, OpenCode and
-Cursor API keys), assigns or clones captains, refreshes one account's usage on demand (bypassing
-`refreshIntervalMinutes`, still honouring a provider retry-after), and deletes
-an account with no captains together with its server-derived folder; see
-[Logging in from the Dashboard](USAGE_ROUTING.md#logging-in-from-the-dashboard). An account without those fields launches its captains on
-the shared login, as before. A missing login blocks the account with a named
-reason. Claude Code and Codex accounts also run the runtime's login status
-command in the background, so an expired or revoked login reads
-`account_login_expired`. When such an account removes every remaining captain, the
-routing decision reason (usage preview `reason`, and the deferred-mission log)
-is that account code. A quota, billing, or authentication failure on one captain holds the
-whole account Exhausted and quarantines its idle captains until the retry time.
-Rollout of any second subscription account needs an owner decision under the
-provider's terms. See [Account logins](USAGE_ROUTING.md#account-logins).
-
-#### Requested captain and fallback tier
-
-A mission can store a requested captain (`RequestedCaptainId`) and a
-fallback tier (`Tier`). They come from the mission itself, a voyage captain
-override (`captainAssignments` with `captainId` and `fallbackTier`), or a
-persona `DefaultCaptainId`. Every assignment path applies one rule:
-
-1. The captain pool keeps only captains that are Idle, in the mission's
-   tenant, not quarantined, not excluded after a policy refusal, and not
-   reserved by another assignment. When Smart Routing is enabled, the pool
-   also drops captains outside the persona's routes and captains the usage
-   filter removes (Exhausted or at the account concurrency limit). No request
-   overrides these gates. A demoted (Low or Reserve) requested captain is
-   still assigned.
-2. If the requested captain is in that pool, it is assigned. This is an
-   explicit choice. It wins over persona preference, model-tier selection
-   and the captain's `AllowedPersonas` fence.
-3. If the requested captain is not in the pool, normal routing runs over the
-   captains at or above the fallback tier. The fallback tier is the stored
-   `Tier`, or the requested captain's own effective tier when no tier is
-   stored. The lowest tier at or above that floor is preferred. A stored tier
-   with no requested captain applies the same floor.
-4. If no captain meets the floor, the mission stays Pending with
-   `WaitingForIdleCaptain`. It is never given to a lower-tier substitute.
-5. If the requested captain no longer exists and no tier is stored, normal
-   routing applies.
-
-Rules 3, 4 and 5 record a `mission.requested_captain` event. The event names
-the requested captain, why it was not used, and the tier. Read these events
-when a mission with a requested captain waits. A wait that does not change is
-recorded once. A mission with neither field set is assigned exactly as
-before.
-
-With no pinned tier on any captain, each captain's tier is classified from
-its model name, and a model the classifier does not know is Standard.
-
-`factory/settings.fleet.example.json` holds the fleet routing policy, guard,
-and specialist-reviewer assets. Captain tiers, ranks, and specialist flags are
-not settings: set them on the records, or let the one-time migration derive
-them from a settings file that still carries the retired tier keys. The live
-`~/.armada/settings.json` is not in the repository.
-
-The `docker/` image pins (agent CLI set, `CLI_REFRESH`, `@latest`) are
-project infra for this deployment. They are not product defaults. Gate
-them with build args when you ship a generic image.

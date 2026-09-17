@@ -233,6 +233,30 @@ namespace Armada.Test.Unit.Suites.Context
                 finally { SafeDelete(root); }
             });
 
+            await RunTest("Build_DocsTemplate_IsNotIndexed_FilledCopyIs", () =>
+            {
+                string root = CreateFakeMemoryTree();
+                string docs = NewTempDir("ctxdocs");
+                try
+                {
+                    // A tracked template and the operator's filled copy carry the same front-matter shape;
+                    // only the filled copy is guidance, so only it becomes a chunk.
+                    Directory.CreateDirectory(Path.Combine(docs, "ops"));
+                    File.WriteAllText(Path.Combine(docs, "armada-ops.md"), "# Operator Guide\n\nIndex.\n");
+                    File.WriteAllText(Path.Combine(docs, "ops", "05-standard-workflow.md"),
+                        "---\ntopic: ops.filled-chapter\nsummary: Filled.\ntier: leaf\n---\nFilled body.\n");
+                    File.WriteAllText(Path.Combine(docs, "ops", "05-standard-workflow.example.md"),
+                        "---\ntopic: ops.template-chapter\nsummary: Template.\ntier: leaf\n---\nTemplate body.\n");
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    ContextIndex index = gen.Build(root, docs);
+                    AssertTrue(index.Chunks.Any(x => x.Topic == "ops.filled-chapter"), "the filled chapter should be indexed");
+                    AssertFalse(index.Chunks.Any(x => x.Topic == "ops.template-chapter"), "a *.example.md template must not be indexed");
+                    AssertFalse(index.Chunks.Any(x => x.Path.EndsWith(".example.md", StringComparison.Ordinal)), "no chunk may come from a template file");
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); SafeDelete(docs); }
+            });
+
             await RunTest("Generate_WritesArtifacts", () =>
             {
                 string root = CreateFakeMemoryTree();

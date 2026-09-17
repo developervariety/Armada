@@ -24,3 +24,11 @@ node_modules/
 docs/context-index/*
 !docs/context-index/chunk-metadata.example.json
 docs/baselines/
+
+# Operator guide chapters are operator-local: a filled chapter names real hosts, vessels,
+# accounts, and policy. Only the templates, the folder README, and the example index are tracked.
+docs/ops/*
+!docs/ops/README.md
+!docs/ops/*.example.md
+!docs/ops/INDEX.example.json
+docs/ops/._*

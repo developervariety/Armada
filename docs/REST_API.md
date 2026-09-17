@@ -5000,7 +5000,7 @@ in request history.
 
 The key is never returned, logged, or stored in settings. The environment
 variable named by `typedDecisions.apiKeyEnv` wins over the file. See
-[typed decisions](ops/08-configuration-and-administration.md#typed-decisions).
+[typed decisions](TYPED_DECISIONS.md).
 
 ### Subscription account logins
 

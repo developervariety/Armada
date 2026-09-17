@@ -1,10 +1,3 @@
----
-topic: "Complete MCP Tool Catalog"
-summary: "Every built-in MCP tool by risk class, plus the coordination board, native memory, the review stages, and the maintenance sweeps."
-read_when: "Choosing a tool, or checking what a tool family does and its risk."
-applies_to: orchestrator
-tier: leaf
----
 # Complete MCP Tool Catalog
 
 The built-in catalog contains 195 names, counted as the registration names in
@@ -195,10 +188,15 @@ for the complete record, or `outputTailLines` to widen the tail.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_get_merge_entry`, `armada_drain_audit_queue` |
-| Write | `armada_enqueue_merge`, `armada_record_audit_verdict` |
+| Write | `armada_enqueue_merge`, `armada_record_audit_verdict`, `armada_backfill_judge_followups` |
 | Execute | `armada_process_merge_entry`, `armada_process_merge_queue` |
 | Interrupt | `armada_cancel_merge` |
 | Destructive | `armada_delete_merge`, `armada_purge_merge_queue`, `armada_purge_merge_entry`, `armada_purge_merge_entries` |
+
+`armada_backfill_judge_followups` repairs Judge follow-ups lost to a transient
+write fault. Pass an explicit `fromUtc` (and optional `toUtc`), run with
+`dryRun: true` first, check `incomplete` and `errors`, then run the same range
+with `dryRun: false`. A second write pass must report zero `created` rows.
 
 ### 8.9 Docks, Signals, And Events
 
@@ -229,6 +227,11 @@ voyage-tagged notes can enter the next stage brief on supported providers.
   your participant key: PAUSE and address those before continuing, then
   acknowledge each with `armada_mark_signal_read`. This is how a session inside
   a blocking loop learns it was handed work at the next tool boundary.
+- `armada_coordination_claim` — claim a vessel or objective before non-trivial
+  work so peers see who owns it; heartbeats keep the claim alive, and a claim
+  expires unless refreshed.
+- `armada_campaign_status` — return a campaign's whole matrix (lanes, slices,
+  status, evidence) in one call.
 
 #### Identify your session so wakes reach you on any tool
 

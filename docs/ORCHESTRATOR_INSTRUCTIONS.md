@@ -1,4 +1,8 @@
-# Armada Instructions For Cursor
+# Armada Orchestrator Instructions
+
+The prompt bootstrap for any orchestrator runtime (Claude Code, Codex, Cursor,
+Gemini, Mux, OpenCode). Runtime setup lives in the `*_AS_ORCHESTRATOR.md` guide
+for each runtime; the operating rules below are the same for all of them.
 
 Use Armada as the structured work and delivery system. You are the
 orchestrator. Captains perform mission work in isolated docks.
@@ -102,3 +106,30 @@ private operational identifiers in public artifacts.
 Tool names can have a client-specific server prefix. Use the live tool
 description and input schema. Follow every `nextCursor` returned by
 `tools/list`.
+
+## Operator Surfaces
+
+For non-trivial work, prefer this flow:
+
+1. Create or find an objective/backlog item first.
+2. Use objective refinement, Planning, Workspace, and context packs to scope the mission set.
+3. Dispatch with objective IDs, selected playbooks, workflow profile/check expectations, and explicit file boundaries.
+4. Monitor through voyage/mission status, structured check runs, request history, and timeline history.
+5. Use review gates for human approval points, then let merge queue/audit/PR fallback handle landing safety.
+6. Link releases, deployments, incidents, runbooks, and GitHub evidence back to the objective before closing it.
+
+## Concurrent Sessions And Autonomous Cycles
+
+Use one stable coordination participant key. Read and heartbeat before work,
+drain full `UnreadWakes` payloads between monitor iterations, and acknowledge
+each processed Wake. Addressed notes always retain a signal and can also start
+the effective AgentWake process owner in `SpawnProcess` or `Both` mode. A
+persistent settings key survives restarts; a transient registration can
+override it. OpenCode
+wakes are fresh sessions, so the note carries the task and the session rebuilds
+state from the board and durable memory.
+
+The objective scheduler is the built-in unattended dispatcher.
+Bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`; `offer` mode
+allows a bounded operator reassignment window before fallback work. Do not assign
+one participant key to both a resident helper and AgentWake.

@@ -2,7 +2,7 @@
 
 The admiral generates a **context index** at startup. It is the first, additive
 piece of the progressive-disclosure context system (design:
-`docs/design/context-system.md`). This piece builds the generator and its
+`archive/design/context-system.md`). This piece builds the generator and its
 startup wiring only. Retrieval, per-persona brief slimming, and any loader
 change are later work. Nothing here changes how memory loads today.
 
@@ -103,7 +103,7 @@ inline, always).
 
 ## What is core
 
-Core is an explicit, owner-approved allowlist (see `docs/design/context-system.md`,
+Core is an explicit, owner-approved allowlist (see `archive/design/context-system.md`,
 "Approved core allowlist"). A model never promotes or demotes a chunk; only the
 tier configuration does, and only the owner edits it. A rule is core only when
 its absence on a task could cause a leak, an unsafe or unauthorized outward

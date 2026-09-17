@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "generated_from": "docs/ops/standard-workflow.md front-matter",
+  "generated_from": "docs/ops/05-standard-workflow.md front-matter",
   "note": "Worked-example manifest slice. The real manifest is generated across docs/**/*.md and AI-Memory/**/*.md; this file shows the entries produced by the one chunked chapter, plus one memory-sourced core entry for shape.",
   "chunks": [
     {
       "topic": "ops.standard-workflow",
-      "path": "docs/ops/standard-workflow.md",
+      "path": "docs/ops/05-standard-workflow.md",
       "summary": "The operator's standard voyage workflow, chapter 4, as retrievable sub-topic leaves.",
       "read_when": "You operate Armada and need the capture-to-close workflow, or one step of it.",
       "applies_to": ["orchestrator"],
@@ -14,7 +14,7 @@
     },
     {
       "topic": "ops.standard-workflow.capture",
-      "path": "docs/ops/standard-workflow.md#41-capture-the-work",
+      "path": "docs/ops/05-standard-workflow.md#41-capture-the-work",
       "summary": "Find or create an objective before dispatch; add acceptance criteria; separate deferred work.",
       "read_when": "You are starting non-trivial work and need a durable record before dispatch.",
       "applies_to": ["orchestrator"],
@@ -23,7 +23,7 @@
     },
     {
       "topic": "ops.standard-workflow.inspect",
-      "path": "docs/ops/standard-workflow.md#42-inspect-before-dispatch",
+      "path": "docs/ops/05-standard-workflow.md#42-inspect-before-dispatch",
       "summary": "Read the target repo rules and history; read the coordination board; record prepared facts and preflight.",
       "read_when": "You are about to dispatch and must confirm the work is real, not already done, and not claimed.",
       "applies_to": ["orchestrator"],
@@ -32,7 +32,7 @@
     },
     {
       "topic": "ops.standard-workflow.mission-shape",
-      "path": "docs/ops/standard-workflow.md#43-select-the-mission-shape",
+      "path": "docs/ops/05-standard-workflow.md#43-select-the-mission-shape",
       "summary": "Implementation vs Audit/Research mode; how mode derives from objective Kind; the objective brief; preflight.",
       "read_when": "You are choosing a mission mode or pipeline, or a report-only voyage armed code Checks unexpectedly.",
       "applies_to": ["orchestrator"],
@@ -41,7 +41,7 @@
     },
     {
       "topic": "ops.standard-workflow.dispatch",
-      "path": "docs/ops/standard-workflow.md#44-dispatch",
+      "path": "docs/ops/05-standard-workflow.md#44-dispatch",
       "summary": "armada_dispatch is durable-first; the tenant-scoped admission lease; the dispatch hold; data expiry.",
       "read_when": "You are calling armada_dispatch, or a dispatch returned an admission, hold, or already-dispatched code.",
       "applies_to": ["orchestrator"],
@@ -50,7 +50,7 @@
     },
     {
       "topic": "ops.standard-workflow.dispatch.parallel",
-      "path": "docs/ops/standard-workflow.md#controlled-parallel-dispatch",
+      "path": "docs/ops/05-standard-workflow.md#controlled-parallel-dispatch",
       "summary": "maxConcurrentVoyages is a ceiling, not a rule to run one at a time; the sibling lane rule and its leases.",
       "read_when": "You are enabling a second lane, or a dispatch was refused lane_busy or waited on a vessel mutex.",
       "applies_to": ["orchestrator"],
@@ -59,7 +59,7 @@
     },
     {
       "topic": "ops.standard-workflow.dispatch.start-ref",
-      "path": "docs/ops/standard-workflow.md#start-ref-continue-from-an-accepted-tip",
+      "path": "docs/ops/05-standard-workflow.md#start-ref-continue-from-an-accepted-tip",
       "summary": "startFromRef cuts the first stage's branch from an accepted tip; both resolution failures are loud.",
       "read_when": "You are re-dispatching from a recover/ ref, or a dispatch failed start_from_ref_missing.",
       "applies_to": ["orchestrator"],
@@ -68,7 +68,7 @@
     },
     {
       "topic": "ops.standard-workflow.dispatch.model-pin",
-      "path": "docs/ops/standard-workflow.md#model-pinning",
+      "path": "docs/ops/05-standard-workflow.md#model-pinning",
       "summary": "preferredModel takes a tier or a literal model name; a literal pin is best-effort, not a guarantee.",
       "read_when": "You need a specific model for one mission and must know whether the pin holds.",
       "applies_to": ["orchestrator"],
@@ -77,7 +77,7 @@
     },
     {
       "topic": "ops.standard-workflow.dispatch.readonly-pipeline",
-      "path": "docs/ops/standard-workflow.md#read-only-pipeline-resolution",
+      "path": "docs/ops/05-standard-workflow.md#read-only-pipeline-resolution",
       "summary": "An explicit pipeline keeps all stages for Audit/Research; only the core fallback collapses to one stage.",
       "read_when": "A report-only voyage lost its review stages, or you are resolving a pipeline for read-only work.",
       "applies_to": ["orchestrator"],
@@ -86,7 +86,7 @@
     },
     {
       "topic": "ops.standard-workflow.stage-handoff",
-      "path": "docs/ops/standard-workflow.md#stage-handoff-is-verified-not-assumed",
+      "path": "docs/ops/05-standard-workflow.md#stage-handoff-is-verified-not-assumed",
       "summary": "A stage proves it contains the upstream commit; stage_base_missing is a provisioning fault, not the stage's.",
       "read_when": "A stage failed stage_base_missing, or a downstream stage looks like it is missing upstream work.",
       "applies_to": ["orchestrator"],
@@ -95,7 +95,7 @@
     },
     {
       "topic": "ops.standard-workflow.brief-budget",
-      "path": "docs/ops/standard-workflow.md#the-captain-brief-is-bounded-as-a-whole",
+      "path": "docs/ops/05-standard-workflow.md#the-captain-brief-is-bounded-as-a-whole",
       "summary": "One bounded description feeds every module; the backstop elides content then reference modules, never the skeleton.",
       "read_when": "A brief reads OverBudget, or you are reasoning about what a captain actually received.",
       "applies_to": ["orchestrator"],
@@ -104,7 +104,7 @@
     },
     {
       "topic": "ops.standard-workflow.authorization",
-      "path": "docs/ops/standard-workflow.md#authorization-reaches-every-captain-the-same-way",
+      "path": "docs/ops/05-standard-workflow.md#authorization-reaches-every-captain-the-same-way",
       "summary": "Authorization policy renders verbatim in every brief with fixed hard limits; the refusal classifier and re-route.",
       "read_when": "You are setting an authorization policy, or a mission was recorded as a policy refusal.",
       "applies_to": ["orchestrator"],
@@ -114,7 +114,7 @@
     },
     {
       "topic": "ops.standard-workflow.execution-requirements",
-      "path": "docs/ops/standard-workflow.md#a-readable-file-is-not-a-runnable-one",
+      "path": "docs/ops/05-standard-workflow.md#a-readable-file-is-not-a-runnable-one",
       "summary": "preparation.executionRequirements are checked against the captain launch environment, not just an Admiral-readable path.",
       "read_when": "A dispatch was blocked with an execution_* finding, or a mission needs a runtime or licensed context.",
       "applies_to": ["orchestrator"],
@@ -123,7 +123,7 @@
     },
     {
       "topic": "core.quiet-host-gate",
-      "path": "docs/ops/standard-workflow.md#a-quiet-host-gate-enumerates-terminal-states-core",
+      "path": "docs/ops/05-standard-workflow.md#a-quiet-host-gate-enumerates-terminal-states-core",
       "summary": "Test \"is it safe to act?\" by the FINISHED set, never the busy set; a status added later then reads as active.",
       "read_when": "Always, before restarting the Admiral, rebuilding its image, or reclaiming docks.",
       "applies_to": ["orchestrator"],
@@ -132,7 +132,7 @@
     },
     {
       "topic": "ops.standard-workflow.monitor",
-      "path": "docs/ops/standard-workflow.md#45-monitor",
+      "path": "docs/ops/05-standard-workflow.md#45-monitor",
       "summary": "Subscribe to the watcher, not a foreground poll; signals reach a Pending stage only; the three-signal stall rule.",
       "read_when": "You are monitoring a live voyage, deciding whether a captain stalled, or sending a Mail/Nudge.",
       "applies_to": ["orchestrator"],
@@ -141,7 +141,7 @@
     },
     {
       "topic": "ops.standard-workflow.checks",
-      "path": "docs/ops/standard-workflow.md#46-verify-with-checks",
+      "path": "docs/ops/05-standard-workflow.md#46-verify-with-checks",
       "summary": "The host interlock; the Judge PASS real-signal gate; arming, staleness, supersession; resolve every failed Check.",
       "read_when": "You are creating or reading Checks, or a Judge PASS was held or rejected over a Check.",
       "applies_to": ["orchestrator"],
@@ -150,7 +150,7 @@
     },
     {
       "topic": "ops.standard-workflow.checks.slop",
-      "path": "docs/ops/standard-workflow.md#the-slop-check",
+      "path": "docs/ops/05-standard-workflow.md#the-slop-check",
       "summary": "A native reward-hacking Check on .NET vessels; added-line rules, FAIL vs WARN, and per-site slop-allow markers.",
       "read_when": "A Slop Check failed, or you must know what the reward-hacking gate flags and how to suppress a byte-exact case.",
       "applies_to": ["orchestrator"],
@@ -159,7 +159,7 @@
     },
     {
       "topic": "ops.standard-workflow.checks.consumer",
-      "path": "docs/ops/standard-workflow.md#definition-of-done-and-consumer-verification",
+      "path": "docs/ops/05-standard-workflow.md#definition-of-done-and-consumer-verification",
       "summary": "The DoD gate skips a read-only no-commit mission and builds (and conditionally tests) every declared consumer.",
       "read_when": "A producer change may break a sibling consumer, or a gate failed consumer_tests_failed or consumer-build.",
       "applies_to": ["orchestrator"],
@@ -168,7 +168,7 @@
     },
     {
       "topic": "ops.standard-workflow.review-land",
-      "path": "docs/ops/standard-workflow.md#47-review-and-land",
+      "path": "docs/ops/05-standard-workflow.md#47-review-and-land",
       "summary": "Judge follow-ups are durable; the landing-mode table; LocalMerge drift and the recover branch; merge-queue verification.",
       "read_when": "You are reviewing a mission, processing a merge entry, or a landing reported diverged or not-found.",
       "applies_to": ["orchestrator"],
@@ -177,7 +177,7 @@
     },
     {
       "topic": "ops.standard-workflow.close",
-      "path": "docs/ops/standard-workflow.md#48-close-the-record-chain",
+      "path": "docs/ops/05-standard-workflow.md#48-close-the-record-chain",
       "summary": "The six steps to close an objective: link voyages, Checks, release, incidents; record deferred work and the outcome.",
       "read_when": "A voyage landed and you are closing its objective.",
       "applies_to": ["orchestrator"],
@@ -186,7 +186,7 @@
     },
     {
       "topic": "ops.standard-workflow.papercuts",
-      "path": "docs/ops/standard-workflow.md#49-sweep-the-papercuts",
+      "path": "docs/ops/05-standard-workflow.md#49-sweep-the-papercuts",
       "summary": "Read papercut reports on a schedule; the distinct-captain count is the signal; route by category; keep promotion manual.",
       "read_when": "A voyage closed, or it is the weekly sweep, and you are triaging captain friction reports.",
       "applies_to": ["orchestrator"],
@@ -195,7 +195,7 @@
     },
     {
       "topic": "ops.standard-workflow.campaign",
-      "path": "docs/ops/standard-workflow.md#410-campaign-work",
+      "path": "docs/ops/05-standard-workflow.md#410-campaign-work",
       "summary": "An opt-in objective tree for one large effort; optional fair-share scheduling; the five operating rules.",
       "read_when": "You are running or scheduling a multi-slice campaign, or reading armada_campaign_status.",
       "applies_to": ["orchestrator"],
@@ -204,7 +204,7 @@
     },
     {
       "topic": "ops.standard-workflow.helpers",
-      "path": "docs/ops/standard-workflow.md#411-helper-sessions-and-operator-ownership",
+      "path": "docs/ops/05-standard-workflow.md#411-helper-sessions-and-operator-ownership",
       "summary": "An operator owns its host-side helpers' full lifecycle; the bounded spawn-helper launcher; strict MCP delivery; one owner per key.",
       "read_when": "You are spawning or managing bounded host-side helpers, or a helper has no Armada tools.",
       "applies_to": ["orchestrator"],

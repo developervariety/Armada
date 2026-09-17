@@ -32,10 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string[] files =
                 {
-                    "docs/INSTRUCTIONS_FOR_CLAUDE_CODE.md",
-                    "docs/INSTRUCTIONS_FOR_CODEX.md",
-                    "docs/INSTRUCTIONS_FOR_CURSOR.md",
-                    "docs/INSTRUCTIONS_FOR_GEMINI.md"
+                    "docs/ORCHESTRATOR_INSTRUCTIONS.md"
                 };
 
                 foreach (string file in files)
@@ -99,12 +96,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("OperatorGuide_NamesEveryRegisteredMcpTool", () =>
             {
-                // The operator guide is split into per-chapter files under docs/ops/;
-                // the thin docs/armada-ops.md index links them. Read the whole set.
-                string guide = File.ReadAllText("docs/armada-ops.md");
-                foreach (string chapter in Directory.GetFiles(
-                    "docs/ops", "*.md", SearchOption.TopDirectoryOnly))
-                    guide += "\n" + File.ReadAllText(chapter);
+                // The operator guide chapters are operator-local and untracked; the complete tool
+                // catalog is the tracked product reference, so it alone must name every tool.
+                string guide = File.ReadAllText("docs/MCP_TOOL_CATALOG.md");
                 string[] sourceFiles = Directory.GetFiles(
                     "src/Armada.Server/Mcp/Tools",
                     "Mcp*Tools.cs",
