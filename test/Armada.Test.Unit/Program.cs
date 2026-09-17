@@ -127,6 +127,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SettingsTests());
             runner.AddSuite(new UsageRoutingTests());
             runner.AddSuite(new SmartRoutingTests());
+            runner.AddSuite(new TierRoutingCharacterizationTests());
             runner.AddSuite(new CaptainAccountLaunchTests());
             runner.AddSuite(new AccountLoginServiceTests());
             runner.AddSuite(new ReleaseVersionTests());
