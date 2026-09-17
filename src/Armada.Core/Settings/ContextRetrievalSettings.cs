@@ -61,6 +61,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Absolute path to the chunk-metadata sidecar (the file that carries the must_retrieve safety
+        /// leaves and read_when triggers). When set, the context index generator loads the sidecar from
+        /// this path instead of the default <c>&lt;docs root&gt;/context-index/chunk-metadata.json</c>. It
+        /// lets the real, operator-local sidecar live at a stable path outside the git checkout, where a
+        /// <c>git clean</c> cannot remove it. Null (the default) keeps the docs-root default.
+        /// </summary>
+        public string? ChunkMetadataPath { get; set; } = null;
+
+        /// <summary>
         /// Copy the runtime-tunable values from another instance in place, so a live service that
         /// captured this nested object at construction observes a hot reload. Null is ignored.
         /// </summary>
@@ -73,6 +82,7 @@ namespace Armada.Core.Settings
             BriefLeafBudgetBytes = source.BriefLeafBudgetBytes;
             MaxLeafBytesPerCall = source.MaxLeafBytesPerCall;
             MaxCallsPerMission = source.MaxCallsPerMission;
+            ChunkMetadataPath = source.ChunkMetadataPath;
         }
 
         private int _BriefLeafBudgetBytes = 24000;

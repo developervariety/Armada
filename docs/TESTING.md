@@ -25,6 +25,114 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type sql
 dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mysql --hostname localhost --port 3306 --username root --password secret --database armada_test
 ```
 
+## Combined Gate Script
+
+`scripts/macos/run-tests.sh` and `scripts/linux/run-tests.sh` build the four console runners in sequence, then run them at the same time, each writing its own log. Sharded and concurrent runs are the default.
+
+```bash
+scripts/macos/run-tests.sh                              # unit shards, automated, runtimes, shared
+scripts/macos/run-tests.sh unit                         # one runner (unit|automated|runtimes|shared)
+scripts/macos/run-tests.sh --shards 4                   # unit shard count; flags go before the runner name
+ARMADA_TEST_UNIT_SHARDS=1 scripts/macos/run-tests.sh    # unit as one process
+scripts/macos/run-tests.sh unit --suite "Git Service"   # one runner with its own arguments, never sharded
+```
+
+The script prints one summary line per process, the summed unit totals, and one combined `RESULT: PASS` or `RESULT: FAIL`. It fails when any process exits non-zero or prints no `Total:` line. For the unit shards it also fails when a shard's last `RESULT:` line is not `PASS`, when fewer shards summarised than were started, or when the per-shard suite counts do not add up to the registered suite count. A shard that crashed or executed nothing therefore fails the gate. The logs stay in the printed directory on failure, and on success when `ARMADA_TEST_KEEP_LOGS` is set. `ARMADA_TEST_LOG_DIR` names the log directory instead of a new temp directory; a directory named that way is never deleted. The script unsets `ANTHROPIC_*` for every child. When `ARMADA_TEST_RESULTS_DIRECTORY` is set, the unit runner runs as one process, because a results manifest is keyed by executable.
+
+Use the script locally for quick runs of one runner or one suite. The full gate runs on a Linux host; see [Gate Host](#gate-host).
+
+## Gate Host
+
+The gate is the four runners together: `unit` (sharded), `automated`, `runtimes` and `shared`. A commit passes only when all four pass in one combined run. Run the gate on a Linux host, not on a macOS workstation.
+
+**Why.** Many unit suites start git thousands of times. Process start-up is far slower on macOS than on Linux, and that overhead, not git's own work, dominates the git-heavy suites. The other suites take about the same time on both.
+
+**Measurements.** Same commit, serial runs:
+
+| Runner or suite | Linux server, 16 cores, idle | macOS workstation, under load |
+|-----------------|------------------------------|-------------------------------|
+| Build from a clean clone | 23 s | — |
+| `unit` | 177 s | 541 s |
+| `automated` | 50 s | 160 s |
+| `runtimes` | 24 s | 25 s |
+| Merge Queue Branch Cleanup | 5 s | 99 s |
+| Branch Cleanup Sweep | 2 s | 55 s |
+| Vessel Branch Write Service | under 2 s | 28 s |
+| Git Service | under 2 s | 26 s |
+| Self Deploy Cutover (no git) | 25 s | 25 s |
+| Harbor Transport (no git) | 10 s | 10 s |
+
+A git trace of Branch Cleanup Sweep on the macOS workstation recorded 21 tests, 45 s of wall time and 1884 git processes, but only 10 s inside git (4.6 ms per process on average). About 35 s was process start-up outside git. 259 of the processes were `git maintenance` runs that git starts by itself after commits; the test hosts now turn those off (see [Git in test processes](#git-in-test-processes)).
+
+Sharded combined run on the Linux server (16 cores), measured with `server-gate.sh`: build 24 s, then all four suites in **59 s** wall clock — unit 4878 tests in six shards (slowest shard 40 s), automated 1050 in 49 s, runtimes 184 in 24 s, and shared 2504, all at once. The whole run from a workstation, including push and build, took 116 s. The same four suites run serially on the macOS workstation took about 12 minutes.
+
+**Running the gate.** `scripts/linux/server-gate.sh` runs the gate for one commit from a workstation:
+
+```bash
+scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>] [--shards <n>]
+
+# host and scratch directory from the environment
+export ARMADA_GATE_SSH_HOST=<server-host>
+export ARMADA_GATE_SCRATCH_DIR=<scratch-dir>
+scripts/linux/server-gate.sh HEAD
+```
+
+The script:
+
+1. Refuses to run while tracked files have uncommitted changes. The gate tests a commit, so commit first.
+2. Creates `<scratch-dir>/repo.git` on the host when it is absent, and pushes the commit to it under `refs/gate/<sha>`. No branch moves.
+3. Clones or fetches into `<scratch-dir>/worktree`, checks the commit out detached, and removes untracked build output.
+4. Builds `src/Armada.sln`, then runs `scripts/common/run-tests.sh` with its logs kept.
+5. Prints the combined summary and exits non-zero when the build or any runner fails. The build log, the combined log and every runner log (`runners/`) stay on the host under `<scratch-dir>/logs/<time>-<sha>/`.
+
+Only one gate runs per scratch directory at a time. The host needs git, bash and the .NET SDK; `~/.dotnet` is added to `PATH` when `dotnet` is not already on it.
+
+**Rules.**
+
+- The gate tests a commit pushed to the scratch repository. It never runs in a shared checkout, a deployed checkout, or any directory outside the scratch directory, and it never touches a running service.
+- Keep the host alias and the scratch path out of the repository. Pass them as arguments or through `ARMADA_GATE_SSH_HOST` and `ARMADA_GATE_SCRATCH_DIR`.
+- Only ssh reaches the network; every other step runs locally or on the host.
+
+## Git in Test Processes
+
+Every test host (`unit`, `automated`, `runtimes` and `shared`) calls `TestGitEnvironment.DisableAutoMaintenance()` before any test runs. It sets `maintenance.auto=false`, `gc.auto=0` and `receive.autogc=false` for every git process the host starts: test helpers and the production code under test (for example `GitService`) inherit them. Production defaults are unchanged.
+
+The settings use two layers:
+
+- `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n`, appended after any entries already set, so the settings have command-line precedence for the processes the host starts.
+- `GIT_CONFIG_SYSTEM`, pointed at a generated file in the temp directory that includes the original system configuration and adds the same settings. Git's local transport clears the `GIT_CONFIG_COUNT` entries before it starts `git-receive-pack` in the other repository, so without this layer a push to a file-path remote still runs maintenance there.
+
+The `Test runner contracts` suite asserts both: git reads the settings, and a traced commit and push to a file-path remote start no `git maintenance` or `git gc`.
+
+## Sharded Unit Runs
+
+`test/Armada.Test.Unit` accepts `--shard <index>/<count>` (1-based) and runs only the suites assigned to that shard. `--list-suites` prints the suite names a run would execute, one per line; with `--shard` it prints that shard's names. A shard cannot be combined with `--suite`. A shard assigned no suites fails like any other empty selection.
+
+```bash
+dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0 -- --shard 2/6
+dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0 -- --list-suites --shard 2/6
+```
+
+Each shard prints `Shard i/N: k of m suites` and the normal summary.
+
+- **Assignment.** `SuiteShardPlan` (in `Armada.Test.Common`) is deterministic. Serial suites go to shard 1. The other suites are placed heaviest first on the shard with the least expected time, ties broken by suite name and then by the lowest shard index. Each shard keeps registration order. Every suite lands on exactly one shard, so the union of the shards' `--list-suites` output is the full list with no duplicates.
+- **Weights.** `test/Armada.Test.Unit/shard-weights.json` maps suite name to expected seconds; a suite it does not name gets `DefaultSeconds`. Regenerate it from one or more unit logs (serial or shard logs); the largest total per suite wins:
+
+  ```bash
+  dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0 --no-build -- --list-suites > suites.txt
+  python3 scripts/common/generate-shard-weights.py unit-shard-*.log --suites suites.txt > test/Armada.Test.Unit/shard-weights.json
+  ```
+
+- **Serial suites.** `test/Armada.Test.Unit/serial-suites.json` names each suite that always runs on shard 1, with its reason: it touches machine-wide state (for example the shared temp directory), asserts a wall-clock bound, or changes process-global state (environment variables, `HOME`, `PATH`, `TZ`, static registries). Each shard is its own process, so process-global state cannot leak between shards; keeping these suites together keeps them out of the balanced split and in one place to review. Every run loads the list, and a name that is not a registered suite fails the run, so a rename cannot silently unpin a suite. A new suite of this kind is added to the list in the same change.
+
+## Tests That Wait On Time
+
+A test does not wait out a real timeout, interval or retry backoff. When production code has one, it exposes an injectable value with the production default unchanged, and the test passes a short value or a fake clock:
+
+- a constructor `TimeSpan` or settable interval (for example `SelfDeployNativeCommandRunner(TimeSpan)`, `ArmadaServer.HealthLoopInterval`, `AgentLifecycleHandler.ProcessLivenessInterval`);
+- a `TimeProvider` paired with a delay that advances it (`FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing`, as in `OpenCodeServerLauncher`);
+- a delay function that records the requested wait and returns at once, so the test asserts the backoff instead of sleeping (`ReleaseWebhookDispatcher`, `DeepSeekInferenceClient`, `VoyageEmbeddingClient`).
+
 ## Test Projects
 
 | Project | Tests | What It Covers |

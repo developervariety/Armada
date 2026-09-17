@@ -562,6 +562,8 @@ dotnet run --project src/Test.Automated/Test.Automated.csproj --framework net10.
 
 The last command runs the shared suites in `src/Test.Shared` and lists every skipped case with its reason; see [Testing](docs/TESTING.md#shared-suite-runner).
 
+`scripts/macos/run-tests.sh` (or `scripts/linux/run-tests.sh`) runs all four at once, with the unit runner split into shards, and prints one combined result; see [Testing](docs/TESTING.md#sharded-unit-runs).
+
 Dashboard asset changes require:
 
 ```bash

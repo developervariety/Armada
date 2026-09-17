@@ -12,6 +12,7 @@ namespace Armada.Test.Common
         private List<TestSuite> _Suites = new List<TestSuite>();
         private List<TestResult> _AllResults = new List<TestResult>();
         private string _Title;
+        private TestShard? _Shard = null;
 
         #endregion
 
@@ -58,12 +59,49 @@ namespace Armada.Test.Common
                     + "; unexpected: " + String.Join(", ", registered.Except(expected).Select(type => type.FullName)));
         }
 
+        /// <summary>Registered suite names in registration order.</summary>
+        public List<string> GetSuiteNames()
+        {
+            return _Suites.Select(suite => suite.Name).ToList();
+        }
+
+        /// <summary>
+        /// Print the names of the suites a run with the same shard would execute, one per line, and return the
+        /// exit code (0 = listed, 1 = the shard plan is invalid).
+        /// </summary>
+        public int ListSuites(TestShard? shard = null, SuiteShardPlan? plan = null)
+        {
+            List<TestSuite> suites;
+            try
+            {
+                suites = SelectShard(shard, plan);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return 1;
+            }
+
+            foreach (TestSuite suite in suites) Console.WriteLine(suite.Name);
+            return 0;
+        }
+
         /// <summary>
         /// Run all suites sequentially, print results, and return the exit code (0 = pass, 1 = fail).
         /// </summary>
-        public async Task<int> RunAllAsync(IEnumerable<string>? suiteFilters = null)
+        public Task<int> RunAllAsync(IEnumerable<string>? suiteFilters = null)
+        {
+            return RunAllAsync(suiteFilters, null, null);
+        }
+
+        /// <summary>
+        /// Run the suites selected by the filters and, when a shard is given, only the suites the plan assigns
+        /// to that shard. A shard that is assigned no suites fails like any other empty selection.
+        /// </summary>
+        public async Task<int> RunAllAsync(IEnumerable<string>? suiteFilters, TestShard? shard, SuiteShardPlan? plan)
         {
             _AllResults.Clear();
+            _Shard = shard;
             Console.WriteLine();
             Console.WriteLine("================================================================================");
             Console.WriteLine(_Title);
@@ -71,6 +109,13 @@ namespace Armada.Test.Common
 
             Stopwatch totalTimer = Stopwatch.StartNew();
             List<string> filters = suiteFilters?.ToList() ?? new List<string>();
+            if (shard != null && filters.Count > 0)
+            {
+                Console.Error.WriteLine("A shard cannot be combined with suite filters.");
+                WriteManifest(filters, new List<TestSuite>(), 0, "Shard combined with suite filters");
+                return 1;
+            }
+
             foreach (string filter in filters)
             {
                 if (String.IsNullOrWhiteSpace(filter) || !_Suites.Any(suite => Matches(suite, filter.Trim())))
@@ -80,9 +125,28 @@ namespace Armada.Test.Common
                     return 1;
                 }
             }
-            List<TestSuite> suites = _Suites
-                .Where(suite => filters.Count == 0 || filters.Any(filter => Matches(suite, filter.Trim())))
-                .ToList();
+
+            List<TestSuite> suites;
+            try
+            {
+                suites = SelectShard(shard, plan)
+                    .Where(suite => filters.Count == 0 || filters.Any(filter => Matches(suite, filter.Trim())))
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException)
+            {
+                Console.Error.WriteLine("Invalid shard plan: " + ex.Message);
+                WriteManifest(filters, new List<TestSuite>(), 0, "Invalid shard plan");
+                return 1;
+            }
+
+            if (shard != null)
+            {
+                // The combined runner sums these counts across shards and fails when they do not add up to the
+                // registered total, so a suite dropped or duplicated by the split cannot pass unnoticed.
+                Console.WriteLine("Shard " + shard + ": " + suites.Count + " of " + _Suites.Count + " suites");
+            }
+
             if (suites.Count == 0)
             {
                 Console.Error.WriteLine("No test suites were selected.");
@@ -133,7 +197,17 @@ namespace Armada.Test.Common
                 Cases = _AllResults.Select(result => new { result.SuiteId, CaseId = result.Name,
                     result.SourcePath, result.SourceLine, Outcome = result.SkipReason != null ? "skipped" : result.Passed ? "passed" : "failed", result.SkipReason, result.ElapsedMs })
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(Path.Combine(directory, executable + ".json"), json);
+            string fileName = _Shard == null ? executable : executable + ".shard-" + _Shard.Index + "-of-" + _Shard.Count;
+            File.WriteAllText(Path.Combine(directory, fileName + ".json"), json);
+        }
+
+        private List<TestSuite> SelectShard(TestShard? shard, SuiteShardPlan? plan)
+        {
+            if (shard == null) return _Suites.ToList();
+            if (plan == null) throw new InvalidOperationException("A shard run requires a shard plan.");
+            List<List<string>> assignment = plan.Assign(GetSuiteNames(), shard.Count);
+            HashSet<string> names = new HashSet<string>(assignment[shard.Index - 1], StringComparer.Ordinal);
+            return _Suites.Where(suite => names.Contains(suite.Name)).ToList();
         }
 
         private static bool Matches(TestSuite suite, string filter)

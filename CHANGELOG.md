@@ -53,6 +53,7 @@ All notable changes to Armada are documented in this file.
   from captain models, and the preview table shows each verdict's layer.
 - Conflict recovery requests the `high` tier selector instead of a concrete
   model, and its inline playbook no longer names models.
+- The server gate script runs builds and tests with MSBuild node reuse off and without the gate lock descriptor, and shuts build servers down afterwards, so a finished gate no longer leaves workers holding the lock that refuses the next gate.
 - Dashboard: Settings > Routing has a Legacy Routing / Smart Routing mode
   switch, a persona model lists table (Default, Lighter, Stronger model chips
   with captain counts and an all-accounts-exhausted warning), collapsed
@@ -95,6 +96,30 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>]` runs the full test gate for one
+  committed ref on a Linux gate host over ssh. It pushes the commit to a scratch bare repository on the host under a
+  gate-only ref, checks it out detached in a scratch worktree, builds, runs the sharded combined runner with the logs
+  kept on the host, prints the combined summary, and exits non-zero on any failure. The host and scratch directory
+  come from the arguments or `ARMADA_GATE_SSH_HOST` / `ARMADA_GATE_SCRATCH_DIR`; it refuses to run while tracked files
+  have uncommitted changes. A Linux host is now the recommended gate host (`docs/TESTING.md`, "Gate Host").
+  `run-tests.sh` accepts `ARMADA_TEST_LOG_DIR` to write the runner logs to a named directory, which it never deletes.
+- Test hosts (unit, automated, runtimes and shared) turn off git auto maintenance, auto gc and `receive.autogc` for
+  every git process they start, including the production code under test and the receiving side of a push to a
+  file-path remote, through `GIT_CONFIG_COUNT` entries plus a generated `GIT_CONFIG_SYSTEM` file that includes the
+  original system configuration. Production git defaults are unchanged. A traced Branch Cleanup Sweep run went from
+  259 `git maintenance` processes to none.
+- The unit test runner can be split into shards. `test/Armada.Test.Unit` accepts `--shard <index>/<count>` and
+  `--list-suites`; suites are assigned deterministically, balanced by the committed
+  `test/Armada.Test.Unit/shard-weights.json` (regenerated from unit logs by `scripts/common/generate-shard-weights.py`),
+  and every suite named in `test/Armada.Test.Unit/serial-suites.json` runs on shard 1 with its recorded reason.
+  `scripts/{macos,linux}/run-tests.sh` now runs the unit shards (min(cores/2, 6) by default, `--shards N` or
+  `ARMADA_TEST_UNIT_SHARDS` to override), the automated, runtimes and shared runners at the same time, sums the unit
+  totals, and fails when a shard crashes, prints no summary, or the shard suite counts do not add up to the registered
+  suites. Extra arguments after a runner name run that one runner unsharded. Tests that waited out real timeouts,
+  intervals or retry backoffs now inject the delay: `ArmadaServer.HealthLoopInterval`,
+  `AgentLifecycleHandler.ProcessLivenessInterval`, a `SelfDeployNativeCommandRunner` pipe drain timeout, a
+  `TimeProvider` for the `OpenCodeServerLauncher` startup deadline, and retry-wait functions for
+  `ReleaseWebhookDispatcher`, `DeepSeekInferenceClient` and `VoyageEmbeddingClient`. Production defaults are unchanged.
 - Administrator routes for typed decisions: `GET /api/v1/typed-decisions`,
   `PUT /api/v1/typed-decisions` (global and per-decision modes and thresholds,
   validated and saved), `PUT /api/v1/typed-decisions/key` (writes the key file,
@@ -119,6 +144,12 @@ All notable changes to Armada are documented in this file.
   and the values are ignored.
 
 ### Fixed
+
+- The model-endpoint health sweep now runs the same real provider request as a
+  manual validation, so a registered embedding or inference endpoint whose base
+  URL rejects a bare GET (VoyageAI, OpenAI) is no longer read as Unhealthy while
+  its model answers correctly. The recorded health error carries the specific
+  probe reason instead of a generic message.
 
 - Deleting a captain no longer reports an error when the captain is actually
   removed. Dependent cleanup (telemetry events, planning sessions) after the row
@@ -166,6 +197,21 @@ All notable changes to Armada are documented in this file.
 - Typed decisions never read a noul answer's confidence as its probability. The provider returns a noul with no
   confidence; five adapters fell back to confidence and could merge, nominate, flag, link, or mark a default safe on a
   confident answer that carried no probability.
+- The context-index chunk-metadata sidecar can live at a stable path outside the
+  git checkout, set by `contextRetrieval.chunkMetadataPath`. When set, the index
+  generator loads the must_retrieve safety leaves and read_when triggers from that
+  path instead of the default `<docs root>/context-index/chunk-metadata.json`, so
+  the operator-local sidecar is not lost to a `git clean` of the checkout. A
+  scrubbed `docs/context-index/chunk-metadata.example.json` documents the format.
+
+- A native-runtime captain (Claude Code, Codex, and the other CLI runtimes) can
+  reference a registered inference model endpoint. When a captain has a model
+  endpoint id, the launch resolves the endpoint’s base URL, key, and model onto
+  the run instead of the inline captain credentials, so an external captain’s
+  provider and key are managed on the model-endpoints surface. The endpoint must
+  be an enabled inference endpoint the captain can see; a captain with no
+  endpoint id keeps using its inline credentials unchanged.
+
 - Typed decisions now parse TypeSafe score answers. The provider returns a score `legend` as an index-keyed
   object; the client expected a list, so every decision that asked a score question (`review_substance`,
   `lint_finding`, `flake_score`, `owner_digest`, `inbox_triage`, and the captain tool) failed with

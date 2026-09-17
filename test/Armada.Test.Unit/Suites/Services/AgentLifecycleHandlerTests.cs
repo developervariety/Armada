@@ -265,12 +265,11 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 using (CursorShimScope shim = CursorShimScope.Create())
                 {
-                    // The hang-model shim blocks ~4s. The production ceiling is 30s, so with the
-                    // default this validation SUCCEEDS and the timeout path is never reached -- which
-                    // is why this test could not pass on any platform since it was written. Drive a
-                    // short ceiling instead of making the fake runtime outlast 30 seconds.
+                    // The hang-model shim blocks longer than this ceiling but far shorter than the 30 s
+                    // production ceiling, under which the validation would succeed and never reach the
+                    // timeout path. Drive a short ceiling instead of making the fake runtime outlast 30 seconds.
                     AgentLifecycleHandler handler = CreateHandler(
-                        testDb.Driver, out _, TimeSpan.FromSeconds(2));
+                        testDb.Driver, out _, TimeSpan.FromSeconds(1));
                     Captain captain = new Captain("timeout-captain", AgentRuntimeEnum.Cursor)
                     {
                         Model = "hang-model"
@@ -340,6 +339,77 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(error, "Mux validation should fail when runtime options JSON is invalid");
                     AssertContains("invalid JSON", error!, "Mux validation should report invalid JSON");
                 }
+            });
+
+            await RunTest("ValidateNativeEndpointAdmission accepts an enabled inference endpoint and rejects the wrong kind, disabled, and a model mismatch", () =>
+            {
+                Captain captain = new Captain("external-judge", AgentRuntimeEnum.ClaudeCode)
+                {
+                    TenantId = "ten_ep",
+                    UserId = "usr_ep",
+                    ModelEndpointId = "mep_native",
+                    Model = "claude-fable-5"
+                };
+                ModelEndpoint endpoint = new ModelEndpoint
+                {
+                    Id = "mep_native",
+                    TenantId = "ten_ep",
+                    UserId = "usr_ep",
+                    Name = "External Fable",
+                    Provider = ModelProviderEnum.Anthropic,
+                    Kind = ModelEndpointKindEnum.Inference,
+                    Scope = ScopeEnum.TenantWide,
+                    BaseUrl = "https://api.example.com/v1",
+                    ApiKey = "sk-endpoint",
+                    Model = "claude-fable-5",
+                    Enabled = true
+                };
+
+                AssertNull(AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint), "an enabled inference endpoint the captain owns is admitted");
+                AssertNotNull(AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, null), "a missing endpoint is rejected");
+
+                endpoint.Kind = ModelEndpointKindEnum.Embedding;
+                AssertContains("inference", AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint)!, "an embedding endpoint is rejected");
+                endpoint.Kind = ModelEndpointKindEnum.Inference;
+
+                endpoint.Enabled = false;
+                AssertContains("disabled", AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint)!, "a disabled endpoint is rejected");
+                endpoint.Enabled = true;
+
+                captain.Model = "some-other-model";
+                AssertContains("must match", AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint)!, "a model mismatch is rejected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A native captain's referenced inference endpoint drives the runtime provider resolver", () =>
+            {
+                Captain captain = new Captain("external-judge", AgentRuntimeEnum.ClaudeCode)
+                {
+                    TenantId = "ten_ep",
+                    ModelEndpointId = "mep_native",
+                    Model = "claude-fable-5"
+                };
+                ModelEndpoint endpoint = new ModelEndpoint
+                {
+                    Id = "mep_native",
+                    TenantId = "ten_ep",
+                    Provider = ModelProviderEnum.Anthropic,
+                    Kind = ModelEndpointKindEnum.Inference,
+                    BaseUrl = "https://api.example.com/v1",
+                    ApiKey = "sk-endpoint",
+                    Model = "claude-fable-5",
+                    Enabled = true
+                };
+
+                AgentLifecycleHandler.ApplyNativeEndpointCredentials(captain, endpoint);
+                AssertEqual("https://api.example.com/v1", captain.ApiBaseUrl!, "the endpoint base URL is carried onto the launch snapshot");
+                AssertEqual("sk-endpoint", captain.ApiKey!, "the endpoint key is carried onto the launch snapshot");
+
+                ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, null, new ModelProvidersSettings());
+                AssertNotNull(resolved, "the runtime provider resolver must resolve from the endpoint credentials");
+                AssertEqual("https://api.example.com/v1", resolved!.BaseUrl, "the runtime uses the endpoint base URL");
+                AssertEqual("sk-endpoint", resolved.ApiKey, "the runtime uses the endpoint key");
+                return Task.CompletedTask;
             });
 
             await RunTest("HandleLaunchAgentAsync passes captain model to runtime startup", async () =>
@@ -578,6 +648,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
                     settings.HeartbeatIntervalSeconds = 5;
+                    // Several liveness ticks fit well inside the wait below; the production floor is five seconds.
+                    handler.ProcessLivenessInterval = TimeSpan.FromMilliseconds(200);
 
                     Captain captain = new Captain("silent-heartbeat-captain", AgentRuntimeEnum.Cursor);
                     await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
@@ -1718,9 +1790,9 @@ namespace Armada.Test.Unit.Suites.Services
                     "  exit 3\n" +
                     "fi\n" +
                     "if [ \"$model\" = \"hang-model\" ]; then\n" +
-                    // Only has to outlast the 2s ceiling the timeout test drives. It used to
-                    // sleep 10s, so the test spent 8s waiting on a result it already had.
-                    "  sleep 4\n" +
+                    // Only has to outlast the 1 s ceiling the timeout test drives, with margin for a
+                    // loaded host; every second beyond that is time the test waits on a result it has.
+                    "  sleep 3\n" +
                     "  exit 0\n" +
                     "fi\n" +
                     "if [ \"$model\" = \"slow-launch-model\" ]; then\n" +

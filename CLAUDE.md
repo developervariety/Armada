@@ -66,6 +66,40 @@ also unsets `ANTHROPIC_*` for the child, because `ClaudeCodeProviderRoutingTests
 asserts on the environment a captain process would inherit and fails when the
 caller exports those variables.
 
+**The gate runs on a Linux host.** The gate is all four runners (unit, automated,
+runtimes, shared) passing in one combined run. Git-heavy unit suites start git
+thousands of times, and process start-up on macOS dominates them: measured on the
+same commit, a 16-core idle Linux server ran unit in 177 s and automated in 50 s,
+a loaded macOS workstation took 541 s and 160 s (Branch Cleanup Sweep 2 s vs 55 s;
+non-git suites are equal). Run the gate for a commit with
+`scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>]`
+(or `ARMADA_GATE_SSH_HOST` / `ARMADA_GATE_SCRATCH_DIR`). It pushes the commit to a
+scratch bare repository on the host, tests it detached in a scratch worktree, and
+prints the combined result; it refuses to run with uncommitted tracked changes.
+The gate always tests a commit pushed to scratch, never a shared or deployed
+checkout. Never commit a real host alias or scratch path. Measured sharded gate on the
+Linux host (16 cores): build 24 s, then all four suites in 59 s (six unit
+shards plus automated, runtimes and shared at once). Use `run-tests.sh` locally for
+quick single-runner or single-suite runs. Details: `docs/TESTING.md`, "Gate Host".
+
+Sharded and concurrent runs are the default. The script splits the unit runner
+into N shard processes (`--shard i/N`, N = min(cores/2, 6); override with
+`--shards N` before the suite name or `ARMADA_TEST_UNIT_SHARDS`), sums their
+totals, and fails when a shard crashes, prints no summary, or the shard suite
+counts do not add up to the registered suites. Extra arguments after the suite
+name run that one runner unsharded:
+`scripts/macos/run-tests.sh unit --suite "Git Service"`. `--list-suites` prints
+the suite names a run (or one shard) would execute.
+
+Shards are balanced by `test/Armada.Test.Unit/shard-weights.json`; regenerate it
+with `scripts/common/generate-shard-weights.py` from unit logs. A suite that
+touches process-global or machine-wide state, or asserts a wall-clock bound, is
+listed with its reason in `test/Armada.Test.Unit/serial-suites.json` and always
+runs on shard 1. A new suite of that kind goes in that list in the same change.
+A test that waits on a real timeout, interval or retry backoff takes the delay
+through an injectable parameter (constructor `TimeSpan`, `TimeProvider`, or delay
+function) with the production default unchanged, rather than waiting it out.
+
 **A test runs only when `RunTest` is called for it.** `TestSuite` has no
 reflection-based discovery, so a `public async Task` method that is never
 registered in `RunTestsAsync` never executes, never fails, and never appears in
@@ -155,12 +189,6 @@ you want:
 **Sync baseline:** fork `ae0431ad1` against upstream `d92e1dce6`. Each sync starts
 from this line, so a pass only reviews the new upstream delta, never the whole
 history. This is the record that used to live in `docs/upstream-review/`.
-
-**Branch retention:** keep `origin/fix/memory-dashboard-oom` until upstream
-merges or explicitly rejects the upstream memory/OOM PR. Do not delete it during
-cleanup just because the fork has already absorbed the fixes; we previously lost
-a Cursor-related bug branch by cleaning it up before the upstream disposition
-was settled.
 
 **Any commit that merges `upstream/main`, cherry-picks an upstream commit, or
 reverts a previously-absorbed upstream feature MUST also update the

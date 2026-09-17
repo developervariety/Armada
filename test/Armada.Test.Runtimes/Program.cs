@@ -10,6 +10,8 @@ namespace Armada.Test.Runtimes
             // Adapter tests assert on the environment a captain process inherits, so the developer's provider
             // variables must not be present unless a test sets them.
             global::Test.Shared.Infrastructure.TestProcessEnvironment.RemoveProviderVariablesAndReport();
+            // Test repositories are short-lived, so git auto maintenance after commits is start-up cost only.
+            global::Test.Shared.Infrastructure.TestGitEnvironment.DisableAutoMaintenance();
 
             List<string> suiteFilters;
             try

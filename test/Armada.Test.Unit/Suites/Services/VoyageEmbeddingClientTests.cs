@@ -133,13 +133,16 @@ namespace Armada.Test.Unit.Suites.Services
                     EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http, RecordingDelay(waits));
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
                 AssertEqual(1, result.Length);
                 AssertEqual(0.75f, result[0]);
                 AssertEqual(2, handler.RequestCount);
+                AssertEqual(1, waits.Count, "one backoff wait before each retry");
+                AssertTrue(waits[0] >= TimeSpan.FromMilliseconds(500), "the first backoff is at least 500 ms");
             });
 
             await RunTest("EmbedAsync_5xxExhausted_TriesThreeTimesAndReturnsEmpty", async () =>
@@ -154,12 +157,15 @@ namespace Armada.Test.Unit.Suites.Services
                     EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http, RecordingDelay(waits));
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
                 AssertEqual(0, result.Length);
                 AssertEqual(3, handler.RequestCount);
+                AssertEqual(2, waits.Count, "one backoff wait before each retry");
+                AssertTrue(waits[0] >= TimeSpan.FromMilliseconds(500), "the first backoff is at least 500 ms");
             });
 
             await RunTest("EmbedAsync_EmptyApiKey_OmitsAuthorizationHeader", async () =>
@@ -443,6 +449,16 @@ namespace Armada.Test.Unit.Suites.Services
                     cancellationToken.ThrowIfCancellationRequested();
                 throw _Exception;
             }
+        }
+
+        /// <summary>A retry wait that records the requested backoff and returns at once.</summary>
+        private static Func<TimeSpan, CancellationToken, Task> RecordingDelay(List<TimeSpan> waits)
+        {
+            return (delay, token) =>
+            {
+                waits.Add(delay);
+                return Task.CompletedTask;
+            };
         }
     }
 }

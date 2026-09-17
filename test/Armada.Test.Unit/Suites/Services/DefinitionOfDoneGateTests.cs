@@ -1223,8 +1223,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "\" && timeout /t 2 /nobreak > nul && del \"" + lockPath + "\")";
             }
 
+            // Both gates start together, so a hold of one second is far longer than the gap between their
+            // starts and any overlap still finds the sentinel.
             return "if [ -e '" + lockPath + "' ]; then exit 1; fi; touch '" + lockPath +
-                "'; sleep 2; rm -f '" + lockPath + "'";
+                "'; sleep 1; rm -f '" + lockPath + "'";
         }
 
         /// <summary>

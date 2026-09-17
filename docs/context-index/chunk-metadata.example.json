@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "_about": "Example chunk-metadata sidecar for the context index. Maps a chunk id (manifest id, equal to the chunk topic) to hand-authored retrieval metadata the ContextIndexGenerator merges over the auto-derived metadata. This is a scrubbed reference using ExampleVessel; the real, operator-local sidecar names real repositories and lives at contextRetrieval.chunkMetadataPath, a stable path outside the git checkout. Metadata ABOUT the memory and docs, never their content.",
+  "chunks": {
+    "memory.shared.index": {
+      "summary": "Map of the durable memory layout: shared rules, per-repo rules, and per-host notes.",
+      "read_when": "You are locating which memory file owns a rule, or deciding where a new memory belongs.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.examplevessel.readme": {
+      "summary": "Platform and operating rules for ExampleVessel: where it runs, its deploy steps, and its hard-won defects.",
+      "read_when": "You are about to dispatch, land, edit, or deploy ExampleVessel.",
+      "applies_to": [
+        "vessel:ExampleVessel"
+      ],
+      "must_retrieve": [
+        "examplevessel"
+      ]
+    }
+  }
+}

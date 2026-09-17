@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="shard-weights.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="serial-suites.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

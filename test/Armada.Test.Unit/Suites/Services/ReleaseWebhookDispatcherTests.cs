@@ -41,11 +41,14 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.InternalServerError, "server error");
                 using HttpClient http = new HttpClient(handler);
-                ReleaseWebhookDispatcher dispatcher = CreateDispatcher(http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                ReleaseWebhookDispatcher dispatcher = CreateDispatcher(http, waits);
 
                 WebhookDispatchResult result = await dispatcher.DispatchAsync(MakePayload()).ConfigureAwait(false);
 
                 AssertEqual(WebhookDispatchOutcome.RetriableFailure, result.Outcome);
+                AssertEqual(1, waits.Count, "one retry waits once");
+                AssertEqual(TimeSpan.FromSeconds(2), waits[0], "the default backoff is two seconds");
                 AssertEqual(500, result.StatusCode);
                 AssertNotNull(result.ErrorMessage);
                 AssertContains("5xx", result.ErrorMessage!);
@@ -68,11 +71,14 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.Unauthorized, "{\"error\":\"invalid token\"}");
                 using HttpClient http = new HttpClient(handler);
                 CdWebhookSettings settings = new CdWebhookSettings { Enabled = true, Url = "https://cd.example.test/hook", BearerToken = "token-123" };
-                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http, RecordingDelay(waits));
 
                 WebhookDispatchResult result = await dispatcher.DispatchAsync(MakePayload()).ConfigureAwait(false);
 
                 AssertEqual(WebhookDispatchOutcome.RetriableFailure, result.Outcome);
+                AssertEqual(2, result.Attempts, "an auth failure is retried");
+                AssertEqual(1, waits.Count, "the retry waits for the backoff");
                 AssertContains("auth failure", result.ErrorMessage!);
             }).ConfigureAwait(false);
 
@@ -130,11 +136,14 @@ namespace Armada.Test.Unit.Suites.Services
                     MaxRetries = 2,
                     RetryBackoffSeconds = 1
                 };
-                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http, RecordingDelay(waits));
 
                 WebhookDispatchResult result = await dispatcher.DispatchAsync(MakePayload()).ConfigureAwait(false);
 
                 AssertEqual(WebhookDispatchOutcome.Success, result.Outcome);
+                AssertEqual(1, waits.Count, "only the failed attempt waits before retrying");
+                AssertEqual(TimeSpan.FromSeconds(1), waits[0], "the configured backoff is honoured");
                 AssertEqual(2, result.Attempts);
                 AssertEqual(2, handler.RequestCount);
             }).ConfigureAwait(false);
@@ -178,11 +187,13 @@ namespace Armada.Test.Unit.Suites.Services
                     MaxRetries = 2,
                     RetryBackoffSeconds = 1
                 };
-                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                ReleaseWebhookDispatcher dispatcher = new ReleaseWebhookDispatcher(settings, CreateLogging(), http, RecordingDelay(waits));
 
                 WebhookDispatchResult result = await dispatcher.DispatchAsync(MakePayload()).ConfigureAwait(false);
 
                 AssertEqual(WebhookDispatchOutcome.RetriableFailure, result.Outcome);
+                AssertEqual(2, waits.Count, "each retry waits once and the final attempt does not wait");
                 AssertEqual(3, result.Attempts);
                 AssertEqual(3, handler.RequestCount);
             }).ConfigureAwait(false);
@@ -202,6 +213,22 @@ namespace Armada.Test.Unit.Suites.Services
         {
             CdWebhookSettings settings = new CdWebhookSettings { Enabled = true, Url = "https://cd.example.test/hook" };
             return new ReleaseWebhookDispatcher(settings, CreateLogging(), http);
+        }
+
+        private static ReleaseWebhookDispatcher CreateDispatcher(HttpClient http, List<TimeSpan> waits)
+        {
+            CdWebhookSettings settings = new CdWebhookSettings { Enabled = true, Url = "https://cd.example.test/hook" };
+            return new ReleaseWebhookDispatcher(settings, CreateLogging(), http, RecordingDelay(waits));
+        }
+
+        /// <summary>A retry wait that records the requested backoff and returns at once.</summary>
+        private static Func<TimeSpan, CancellationToken, Task> RecordingDelay(List<TimeSpan> waits)
+        {
+            return (delay, token) =>
+            {
+                waits.Add(delay);
+                return Task.CompletedTask;
+            };
         }
 
         private static LoggingModule CreateLogging()

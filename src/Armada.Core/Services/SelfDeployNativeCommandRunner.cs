@@ -21,7 +21,27 @@ namespace Armada.Core.Services
         /// <summary>Marker appended when a native output stream exceeds its capture limit.</summary>
         public const string OutputTruncationMarker = "[ARMADA: native command output truncated]";
 
-        private static readonly TimeSpan OutputDrainTimeout = TimeSpan.FromSeconds(5);
+        /// <summary>Default time to wait for redirected pipes to drain after the utility exits.</summary>
+        public static readonly TimeSpan DefaultOutputDrainTimeout = TimeSpan.FromSeconds(5);
+
+        private readonly TimeSpan _OutputDrainTimeout;
+
+        /// <summary>Create a runner with the default pipe drain timeout.</summary>
+        public SelfDeployNativeCommandRunner()
+            : this(DefaultOutputDrainTimeout)
+        {
+        }
+
+        /// <summary>
+        /// Create a runner with an explicit pipe drain timeout: how long to wait for redirected pipes to close after
+        /// the utility exits before failing with <c>native_command_io_drain_timeout</c>.
+        /// </summary>
+        public SelfDeployNativeCommandRunner(TimeSpan outputDrainTimeout)
+        {
+            if (outputDrainTimeout <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(outputDrainTimeout), "Must be positive.");
+            _OutputDrainTimeout = outputDrainTimeout;
+        }
 
         /// <inheritdoc />
         public async Task<SelfDeployNativeCommandResult> RunAsync(
@@ -177,12 +197,12 @@ namespace Armada.Core.Services
             return output.ToString();
         }
 
-        private static async Task<bool> AwaitIoAsync(Task inputTask, Task stdoutTask, Task stderrTask)
+        private async Task<bool> AwaitIoAsync(Task inputTask, Task stdoutTask, Task stderrTask)
         {
             try
             {
                 await Task.WhenAll(inputTask, stdoutTask, stderrTask)
-                    .WaitAsync(OutputDrainTimeout).ConfigureAwait(false);
+                    .WaitAsync(_OutputDrainTimeout).ConfigureAwait(false);
                 return true;
             }
             catch (TimeoutException)
@@ -198,7 +218,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private static async Task<Exception?> ObserveIoAfterCloseAsync(
+        private async Task<Exception?> ObserveIoAfterCloseAsync(
             Task inputTask,
             Task stdoutTask,
             Task stderrTask)
@@ -206,7 +226,7 @@ namespace Armada.Core.Services
             try
             {
                 await Task.WhenAll(inputTask, stdoutTask, stderrTask)
-                    .WaitAsync(OutputDrainTimeout).ConfigureAwait(false);
+                    .WaitAsync(_OutputDrainTimeout).ConfigureAwait(false);
                 return null;
             }
             catch (TimeoutException ex)
