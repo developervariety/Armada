@@ -146,7 +146,23 @@ run_gate() {
 
   echo "Building $sha on $(uname -sm), $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo '?') cores"
   build_start=$(date +%s)
-  dotnet build src/Armada.sln < /dev/null > "$logs/build.log" 2>&1 9>&-
+  # The .NET host occasionally aborts with an internal runtime error while restore starts its MSBuild
+  # worker processes, before anything compiles. That abort is retried, at most twice, and only when the
+  # log holds nothing else; every other build failure fails the gate at once. A crash report is written
+  # to the log directory for each abort, and each retry is printed.
+  local attempt
+  for attempt in 1 2 3; do
+    DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=1 DOTNET_EnableCrashReport=1 \
+      DOTNET_DbgMiniDumpName="$logs/build-abort-$attempt.%p" \
+      dotnet build src/Armada.sln < /dev/null > "$logs/build.log" 2>&1 9>&-
+    if ! grep -q 'Internal CLR error' "$logs/build.log" || grep -q -E 'Determining projects to restore|Restored |Build succeeded| error ' "$logs/build.log"; then
+      break
+    fi
+    # Keep the crash report; the dump beside it is large and only the report is read.
+    find "$logs" -maxdepth 1 -name "build-abort-$attempt.*" ! -name '*.crashreport.json' -delete
+    cp "$logs/build.log" "$logs/build-abort-$attempt.log"
+    if [ "$attempt" -lt 3 ]; then echo "Build aborted by an internal .NET runtime error before compiling; retrying ($attempt of 2)."; fi
+  done
   if ! grep -q 'Build succeeded' "$logs/build.log" || grep -q ' error ' "$logs/build.log"; then
     grep ' error ' "$logs/build.log" | sort -u | head -40
     echo "RESULT: FAIL (build)"

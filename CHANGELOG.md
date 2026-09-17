@@ -199,6 +199,10 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- The server gate retries a build that the .NET host aborted with an internal
+  runtime error before compiling, at most twice, and keeps the runtime crash
+  report. Such an abort had failed the gate with no build output; other build
+  failures still fail it at once.
 - The dashboard shows the Captains "Stop All" and Merge Queue "Process All"
   buttons only to a global administrator. Both routes act on every tenant and
   refuse anyone else with 403, so other users saw a button that always failed.

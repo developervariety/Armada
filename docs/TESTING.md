@@ -66,6 +66,8 @@ A git trace of Branch Cleanup Sweep on the macOS workstation recorded 21 tests, 
 
 Sharded combined run on the Linux server (16 cores), measured with `server-gate.sh`: build 24 s, then all four suites in **59 s** wall clock — unit 4878 tests in six shards (slowest shard 40 s), automated 1050 in 49 s, runtimes 184 in 24 s, and shared 2504, all at once. The whole run from a workstation, including push and build, took 116 s. The same four suites run serially on the macOS workstation took about 12 minutes.
 
+The .NET host on the gate host occasionally aborts with `Internal CLR error. (0x80131506)` while restore starts its MSBuild worker processes, before anything compiles. It is a runtime abort, not a repository or test failure, and it does not depend on standard input. `server-gate.sh` retries that abort at most twice, and only when the build log holds nothing else; it prints each retry and keeps the runtime crash report (`build-abort-<n>.<pid>.crashreport.json`) and the aborted log in the gate log directory. Any other build failure fails the gate at once.
+
 **Running the gate.** `scripts/linux/server-gate.sh` runs the gate for one commit from a workstation:
 
 ```bash
