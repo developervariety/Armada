@@ -14,8 +14,11 @@ runs at its own mode. Per decision group:
   and records the rule's verdict and the model's on every call, so a post-gate
   review can move a threshold or set one decision `Off` without a deploy. This
   includes `capacity_escalation`, the Smart Routing model group choice.
-- `leak_hunk` and `log_watch` are design documents with no adapter yet, so their
-  `Gate` setting has no effect until one is wired.
+- `leak_hunk` is a design document with no adapter yet, so its `Gate` setting
+  has no effect until one is wired.
+- `log_watch` is wired as the model pass of the read-only captain-log screen
+  (`captainLogScreening`). The screen reads the tail; the decision reads it for
+  drift. With the screen off it is never called, whatever its mode says.
 
 **`capacity_escalation`** (ships `Gate`, threshold `0.90`) runs at assignment
 under Smart Routing, only for a persona whose `personaModels` entry has a
@@ -163,14 +166,28 @@ provider reports a model version that has not been evaluated
 case is a finding to review — a threshold, a question, or the model — not a
 build failure.
 
-Two decision points are described as design documents before any code lands,
-reviewed by the owner before implementation:
 [`leak_hunk`](../archive/design/typed-decision-leak-hunk.md) (an advisory per-hunk leak
-classifier behind the deterministic dock-boundary scanner) and
-[`log_watch`](../archive/design/typed-decision-log-watch.md) (a read-only screen over a
-running mission's log that posts a voyage-tagged board note and a
-`captain.course_flag` event). Neither blocks, stops, or dispatches; each only
-flags.
+classifier behind the deterministic dock-boundary scanner) is described as a
+design document before any code lands, reviewed by the owner before
+implementation. It neither blocks, stops, nor dispatches; it only flags.
+
+**`log_watch`** (ships `Gate`, threshold `0.90`) is the model pass of the
+read-only captain-log screen, beside the deterministic pass. Over the bounded
+tail the screen already read, it asks one Choice `off_course` (`on_track`,
+`wrong_premise`, `wrong_base`, `misread_stage`, `blocked_unstated`, `unclear`)
+and one Noul `correctable_now`. At or above the threshold with a class other
+than `on_track`, it returns one finding, so the screen posts its single
+voyage-tagged board note naming the drift class with one line of evidence, and
+the decision emits one `captain.course_flag` event carrying the mission, the
+voyage, the class and the reading. That event is deliberately distinct from the
+typed-decision bookkeeping events, so an operator query for course flags is
+clean. Off, below threshold, or unavailable reports nothing and records the
+decision's own shadow or unavailable event. The screen never stops a captain:
+its only writes are the note and the events, and the deterministic stall and
+overdue rules are untouched. The questions state the domain — the captains do
+authorized engineering on owned systems, so authentication and access-control
+work in a log is ordinary engineering and never a drift.
+
 The typed-decision system is also offered to captains directly, through four
 mission-scoped MCP tools next to the memory tools: `armada_typed_decision` and
 its three pre-shaped helpers `armada_check_premise` (a captain checks its own
