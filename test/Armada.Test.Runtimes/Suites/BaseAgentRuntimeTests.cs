@@ -404,6 +404,48 @@ namespace Armada.Test.Runtimes.Suites
                 }
             });
 
+            await RunTest("RedirectedStdin_EncodingWritesNoByteOrderMark", async () =>
+            {
+                // Process.Start writes the stdin encoding's preamble and flushes it before returning. A byte-order
+                // mark would reach the agent ahead of its prompt, and against an agent that has already exited
+                // that write makes Start itself throw a broken pipe.
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CaptureStartInfoAndThrow = true;
+                try { await runtime.StartAsync(Path.GetTempPath(), "test prompt"); } catch (InvalidOperationException) { }
+                AssertNotNull(runtime.CapturedStartInfo, "the start info is captured");
+                AssertNotNull(runtime.CapturedStartInfo!.StandardInputEncoding, "redirected stdin names its encoding");
+                AssertEqual(0, runtime.CapturedStartInfo.StandardInputEncoding!.GetPreamble().Length, "the stdin encoding writes no preamble");
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("UsePromptStdin_AgentReceivesExactlyThePromptBytes", "the stdin capture child is a POSIX shell script");
+            }
+            else await RunTest("UsePromptStdin_AgentReceivesExactlyThePromptBytes", async () =>
+            {
+                string scratch = Path.Combine(Path.GetTempPath(), "armada_stdin_bytes_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(scratch);
+                try
+                {
+                    string output = Path.Combine(scratch, "stdin.bin");
+                    TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                    runtime.UsePromptStdinOverride = true;
+                    runtime.CommandOverride = "/bin/sh";
+                    runtime.ArgsOverride = new List<string> { "-c", "cat > \"$STDIN_CAPTURE.tmp\" && mv \"$STDIN_CAPTURE.tmp\" \"$STDIN_CAPTURE\"" };
+                    string prompt = "Role: worker. Mission: caf\u00e9 \u2014 exact bytes.";
+                    await runtime.StartAsync(scratch, prompt, environment: new Dictionary<string, string> { ["STDIN_CAPTURE"] = output });
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+                    while (!File.Exists(output) && DateTime.UtcNow < deadline) await Task.Delay(50);
+                    AssertTrue(File.Exists(output), "the child wrote what it read from stdin");
+                    byte[] received = File.ReadAllBytes(output);
+                    AssertEqual(Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(prompt)), Convert.ToHexString(received), "the agent reads the prompt's UTF-8 bytes and nothing before them");
+                }
+                finally
+                {
+                    try { Directory.Delete(scratch, true); } catch { }
+                }
+            });
+
             await RunTest("WriteStderrToLogFile False Preserves Standalone Reset Time Line", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());

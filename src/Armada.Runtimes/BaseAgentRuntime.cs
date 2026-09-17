@@ -159,8 +159,11 @@ namespace Armada.Runtimes
                 StandardErrorEncoding = Encoding.UTF8,
                 CreateNoWindow = true
             };
+            // UTF-8 without a byte-order mark. Process.Start writes the stdin encoding's preamble and flushes it
+            // before returning, so Encoding.UTF8 put a BOM ahead of every stdin prompt, and against an agent that
+            // had already exited that write made Start itself throw a broken pipe.
             if (RedirectStdin)
-                startInfo.StandardInputEncoding = Encoding.UTF8;
+                startInfo.StandardInputEncoding = new UTF8Encoding(false);
 
             foreach (string arg in args)
             {

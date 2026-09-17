@@ -199,6 +199,11 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- An agent that reads its prompt from standard input (Cursor, OpenCode, Mux) no
+  longer receives a UTF-8 byte-order mark before the prompt. The stdin encoding
+  was `Encoding.UTF8`, whose preamble `Process.Start` writes at launch; against
+  an agent that had already exited, that write also made the launch throw a
+  broken pipe.
 - The server gate uses Microsoft's .NET SDK in `~/.dotnet` when present, before
   a distribution `dotnet` on `PATH`, and warns when the selected runtime links
   the system libunwind. A distribution runtime built that way can abort at a
