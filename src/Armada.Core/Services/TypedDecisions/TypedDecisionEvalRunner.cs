@@ -162,7 +162,26 @@ namespace Armada.Core.Services
                     caseResult.Failures.Add(label + ": expected score >= " + Number(want.ScoreAtLeast) + ", got " + Number(answer.Score));
                 if (want.ScoreAtMost.HasValue && !(answer.Score <= want.ScoreAtMost.Value))
                     caseResult.Failures.Add(label + ": expected score <= " + Number(want.ScoreAtMost) + ", got " + Number(answer.Score));
+                if (want.ScoreLevelsUpTo.HasValue && want.ScoreLevelsProbabilityAtLeast.HasValue)
+                {
+                    double? mass = LevelsProbability(answer, want.ScoreLevelsUpTo.Value);
+                    if (!(mass >= want.ScoreLevelsProbabilityAtLeast.Value))
+                        caseResult.Failures.Add(label + ": expected P(level <= " + want.ScoreLevelsUpTo.Value.ToString(CultureInfo.InvariantCulture)
+                            + ") >= " + Number(want.ScoreLevelsProbabilityAtLeast) + ", got " + Number(mass));
+                }
             }
+        }
+
+        private static double? LevelsProbability(TypedAnswer answer, int upTo)
+        {
+            if (answer.Probabilities == null || answer.Probabilities.Count == 0) return null;
+            double mass = 0.0;
+            foreach (KeyValuePair<string, double> entry in answer.Probabilities)
+            {
+                if (!Int32.TryParse(entry.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out int level)) return null;
+                if (level <= upTo) mass += entry.Value;
+            }
+            return mass;
         }
 
         private static void CheckConsistency(

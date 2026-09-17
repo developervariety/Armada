@@ -215,6 +215,18 @@ namespace Armada.Core.Services
         /// <summary>The typed questions this decision asks, keyed by question id.</summary>
         protected abstract IReadOnlyDictionary<string, TypedQuestion> BuildQuestions();
 
+        /// <summary>
+        /// The typed questions this decision asks about one input. Override when the question set depends
+        /// on the input (for example one question per listed item); the default asks
+        /// <see cref="BuildQuestions()"/>.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>The questions, keyed by question id. Empty means the decision is not consulted.</returns>
+        protected virtual IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(TInput input)
+        {
+            return BuildQuestions();
+        }
+
         /// <summary>Interpret an available result into this decision's reading.</summary>
         protected abstract TModel Interpret(TypedDecisionResult result);
 
@@ -251,9 +263,14 @@ namespace Armada.Core.Services
         {
             try
             {
+                IReadOnlyDictionary<string, TypedQuestion> questions = BuildQuestions(input);
+
+                // Nothing to ask means nothing to send: the rule stands and no event is recorded.
+                if (questions == null || questions.Count == 0) return null;
+
                 return new TypedDecisionBatchItem(
                     DecisionStateRedactor.RedactState(BuildState(input), _Settings.MaxStateChars),
-                    BuildQuestions());
+                    questions);
             }
             catch (Exception ex)
             {

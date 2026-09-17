@@ -74,6 +74,34 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("B.cause: expected choice work_defect, got environmental", fail.Cases[0].Failures[0]);
             });
 
+            await RunTest("Runner_ScoreLevelsProbability_SumsTheLowLevels", async () =>
+            {
+                TypedDecisionEvalCase evalCase = new TypedDecisionEvalCase
+                {
+                    Id = "test.levels",
+                    DecisionPoint = "review_substance",
+                    VariantA = Item("substantiated"),
+                    ExpectedA = new Dictionary<string, TypedDecisionExpectation>
+                    {
+                        ["substantiated"] = new TypedDecisionExpectation { ScoreLevelsUpTo = 1, ScoreLevelsProbabilityAtLeast = 0.85 }
+                    }
+                };
+                TypedDecisionResult split = new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = new Dictionary<string, TypedAnswer>
+                    {
+                        ["substantiated"] = new TypedAnswer { Type = "score", Score = 1.06, Probabilities = new Dictionary<string, double> { ["0"] = 0.52, ["1"] = 0.18, ["2"] = 0.02, ["3"] = 0.28 } }
+                    }
+                };
+
+                TypedDecisionEvalReport report = await TypedDecisionEvalRunner.RunAsync(
+                    new ScriptedClient(split), new List<TypedDecisionEvalCase> { evalCase }, "operator", CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(1, report.Failed);
+                AssertContains("expected P(level <= 1) >= 0.85, got 0.70", report.Cases[0].Failures[0]);
+            });
+
             await RunTest("Runner_ConsistencyCase_FailsWhenAnIrrelevantChangeFlipsTheAnswer", async () =>
             {
                 TypedDecisionEvalCase evalCase = new TypedDecisionEvalCase
@@ -155,7 +183,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
             if (expectation.NoulAtLeast.HasValue || expectation.NoulAtMost.HasValue)
                 AssertTrue(question is NoulQuestion, label + " " + questionId + " is a noul question");
-            if (expectation.ScoreAtLeast.HasValue || expectation.ScoreAtMost.HasValue)
+            if (expectation.ScoreAtLeast.HasValue || expectation.ScoreAtMost.HasValue || expectation.ScoreLevelsProbabilityAtLeast.HasValue)
                 AssertTrue(question is ScoreQuestion, label + " " + questionId + " is a score question");
         }
 

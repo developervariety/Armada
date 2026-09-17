@@ -216,14 +216,15 @@ namespace Armada.Core.Services
                 "review_substance.evidenced_vs_headings_only",
                 "review_substance",
                 TypedDecisionEvalCaseKindEnum.Reference,
-                "The first review cites the change, the tests, and a real residual risk; the second only names the headings.",
+                "The first review cites the change, the tests, and a real residual risk; the second only names the headings. "
+                    + "The decision holds a thin PASS when the probability of the two lowest levels reaches its threshold (0.85).",
                 adapter.DescribeRequest(substantive),
                 adapter.DescribeRequest(headingsOnly),
                 Expect(
                     "substantiated", new TypedDecisionExpectation { ScoreAtLeast = 2.0 },
                     "section_1", new TypedDecisionExpectation { NoulAtLeast = 0.6 }),
                 Expect(
-                    "substantiated", new TypedDecisionExpectation { ScoreAtMost = 1.0 },
+                    "substantiated", new TypedDecisionExpectation { ScoreLevelsUpTo = 1, ScoreLevelsProbabilityAtLeast = 0.85 },
                     "section_1", new TypedDecisionExpectation { NoulAtMost = 0.4 })));
         }
 
