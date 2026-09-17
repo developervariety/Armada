@@ -40,7 +40,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             return new StageNecessityDecisionInput
             {
-                Title = "Port a seed-key decoder",
+                Title = "Port a token decoder",
                 Description = "One-file protocol port; no UI, no new tests in scope.",
                 AcceptanceCriteria = new List<string> { "The decoder reproduces the source frame." },
                 Kind = "Chore",

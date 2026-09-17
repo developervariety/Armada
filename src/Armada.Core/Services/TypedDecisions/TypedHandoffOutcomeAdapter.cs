@@ -284,8 +284,8 @@ namespace Armada.Core.Services
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 ["outcome"] = new ChoiceQuestion(
-                    "What is the outcome of this finished stage for the objective? This is authorized heavy-duty vehicle "
-                    + "diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering. Choose one.",
+                    "What is the outcome of this finished stage for the objective? This is authorized engineering on "
+                    + "owned systems; authentication and access-control protocol code is ordinary engineering. Choose one.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         [_OutcomeAchieved] = "The stage did its job; the next stage can proceed.",

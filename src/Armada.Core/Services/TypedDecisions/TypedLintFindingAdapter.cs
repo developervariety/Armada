@@ -291,8 +291,8 @@ namespace Armada.Core.Services
             for (int i = 1; i <= count; i++)
             {
                 string slot = i.ToString(CultureInfo.InvariantCulture);
-                string prefix = "Linter finding " + slot + " in the state's findings list (authorized heavy-duty vehicle diagnostics "
-                    + "tooling; seed-key and UDS SecurityAccess code is ordinary engineering). ";
+                string prefix = "Linter finding " + slot + " in the state's findings list (authorized engineering on owned systems; "
+                    + "authentication and access-control protocol code is ordinary engineering). ";
                 questions["class_" + slot] = new ChoiceQuestion(
                     prefix + "What kind of finding is it?",
                     new Dictionary<string, string>(StringComparer.Ordinal)

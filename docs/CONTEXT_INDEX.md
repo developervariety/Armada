@@ -66,18 +66,18 @@ the sole durable memory source. The sidecar is an operator-local, gitignored fil
 file under the docs root (an explicit path may be passed to the generator).
 
 It is a JSON object with a `chunks` map from a chunk **id** (the manifest `id`,
-which equals the chunk `topic`, for example `memory.repos.eculink.readme`) to an
+which equals the chunk `topic`, for example `memory.repos.examplevessel.readme`) to an
 override with any of `summary`, `read_when`, `applies_to`, and `must_retrieve`:
 
 ```json
 {
   "version": 1,
   "chunks": {
-    "memory.repos.eculink.readme": {
-      "summary": "EcuLink porting rules: source fidelity, reproduce-the-defect, seed-key ground truth, and escalate a hang.",
-      "read_when": "You are porting an EcuLink decoder, seed-key, or command, or reviewing an EcuLink port.",
-      "applies_to": ["vessel:EcuLink"],
-      "must_retrieve": ["eculink"]
+    "memory.repos.examplevessel.readme": {
+      "summary": "ExampleVessel porting rules: source fidelity, reproduce-the-defect, ground-truth vectors, and escalate a hang.",
+      "read_when": "You are porting an ExampleVessel decoder or command, or reviewing an ExampleVessel port.",
+      "applies_to": ["vessel:ExampleVessel"],
+      "must_retrieve": ["examplevessel"]
     }
   }
 }
@@ -94,9 +94,10 @@ malformed sidecar is ignored and the index still generates.
 `must_retrieve` is set only on a small set of safety-shaped per-vessel leaves
 whose absence on a task is costly. The retrieval layer force-includes such a
 leaf whenever the request's vessel, persona, or a requested topic matches one of
-its domain tokens, even with no keyword match. The shipped sidecar tags the
-EcuLink memory leaf `must_retrieve: ["eculink"]`, so its source-fidelity and
-hang-escalation rules are always retrieved for an EcuLink task. Ordinary leaves
+its domain tokens, even with no keyword match. A sidecar can tag a
+vessel's memory leaf `must_retrieve` with that vessel's token, so its
+source-fidelity and hang-escalation rules are always retrieved for that vessel's
+task. Ordinary leaves
 leave `must_retrieve` empty, and core rules are never listed (core already ships
 inline, always).
 
@@ -115,7 +116,7 @@ dispatching Armada work that must be direct-edit. The v1 core is eleven chunks:
 4. Unified-memory Boundaries (keys stay in the environment; stop before
    outward actions).
 5. Unified-memory Proving-a-fix.
-6. Unified-memory Domain-scope (the UDS `0x34` reflash ban).
+6. Unified-memory Domain-scope (the firmware reflash ban).
 7. The Armada direct-edit rule (README "Where Armada runs").
 8. Unified-memory Reporting-style (ASD-STE100).
 9. The sole-memory-source pointer.

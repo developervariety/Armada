@@ -223,8 +223,8 @@ namespace Armada.Core.Services
                 string slot = i.ToString(CultureInfo.InvariantCulture);
                 questions["item_" + slot] = new ChoiceQuestion(
                     "Revision item number " + slot + " (see revision_items in the state, in order): what kind of change does the "
-                    + "Judge require? This is authorized heavy-duty vehicle diagnostics tooling; seed-key exchange and UDS "
-                    + "SecurityAccess are ordinary engineering. If the state lists fewer than " + _MaxItems
+                    + "Judge require? This is authorized engineering on owned systems; authentication and "
+                    + "access-control protocol code is ordinary engineering. If the state lists fewer than " + _MaxItems
                     + " items and this slot has none, choose " + _KindCommentOnly + ".",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {

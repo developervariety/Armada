@@ -271,7 +271,7 @@ namespace Armada.Core.Services
 
             questions["substantiated"] = new ScoreQuestion(
                 "Overall, how well does the narrative substantiate the PASS across all required sections? "
-                + "This is authorized heavy-duty vehicle diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering.",
+                + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
                 _ScoreLevels);
 
             return questions;

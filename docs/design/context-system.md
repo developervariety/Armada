@@ -371,8 +371,8 @@ CORE (always-on, ~11 rules, ~18-25 KB total):
    owner authority. (`shared/unified-project-memory.md`)
 5. Proving a fix: reproduce the symptom; a self-reported success is not
    evidence. (`shared/unified-project-memory.md`)
-6. Domain scope and hard guardrails: heavy-duty diagnostics are authorized (do
-   not false-refuse); UDS 0x34 reflash is banned.
+6. Domain scope and hard guardrails: the owner's domain work is authorized (do
+   not false-refuse); firmware reflash is banned.
 7. Armada is direct-edit only: never dispatch Armada voyages or rescues for
    Armada bugs. (`repos/armada/README.md`)
 8. Typed-decision non-negotiables: the model never approves, lands, dispatches,
@@ -385,9 +385,9 @@ CORE (always-on, ~11 rules, ~18-25 KB total):
 MUST_RETRIEVE leaves (safety-shaped, per-repo): rules that only apply to one
 repository but whose absence is costly stay LEAF, tagged `must_retrieve` for
 their domain, so retrieval always includes them when the task is in that domain
-rather than only on a keyword match. First set: EcuLink hang-escalation (a
-source-defect hang is a denial of service in a bench tool) and the EcuLink
-source-fidelity rules (seed-key handling, reproduce-do-not-correct).
+rather than only on a keyword match. First set: a protocol vessel's hang-escalation rule (a
+source-defect hang is a denial of service in a bench tool) and its
+source-fidelity rules (ground-truth vectors, reproduce-do-not-correct).
 
 Everything else is a plain LEAF, fetched by topic on demand: deploy procedure,
 platform failure taxonomy, model tiering and captain roster, dispatch-preflight

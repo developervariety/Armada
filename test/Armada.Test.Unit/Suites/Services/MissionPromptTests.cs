@@ -251,8 +251,8 @@ namespace Armada.Test.Unit.Suites.Services
                         voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
 
                         Objective objective = new Objective();
-                        objective.Title = "Scope the seed-key port";
-                        objective.Description = "Port the seed-key exchange to the extractor.";
+                        objective.Title = "Scope the token port";
+                        objective.Description = "Port the token exchange to the extractor.";
                         objective.AcceptanceCriteria = new List<string> { "The exchange round-trips 128 seeds.", "No secret bytes enter the manifest." };
                         objective.NonGoals = new List<string> { "No reflash support." };
                         objective.VoyageIds = new List<string> { voyage.Id };
@@ -260,15 +260,15 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Vessel vessel = new Vessel("ScopeVessel", "https://github.com/test/repo");
                         Mission mission = new Mission();
-                        mission.Title = "Port seed-key";
-                        mission.Description = "Implement the seed-key exchange per the objective.";
+                        mission.Title = "Port token";
+                        mission.Description = "Implement the token exchange per the objective.";
                         mission.VoyageId = voyage.Id;
 
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertContains("## Objective Scope (Definition of Done)", content);
-                        AssertContains("Port the seed-key exchange to the extractor.", content);
+                        AssertContains("Port the token exchange to the extractor.", content);
                         AssertContains("The exchange round-trips 128 seeds.", content);
                         AssertContains("No secret bytes enter the manifest.", content);
                         AssertContains("No reflash support.", content);
@@ -2529,7 +2529,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string segment =
                     "id: M1\n" +
-                    "title: fix(bundlesources): fail closed on malformed vehicle-info rows\n" +
+                    "title: fix(bundlesources): fail closed on malformed device-info rows\n" +
                     "preferredModel: mid\n" +
                     "dependsOnMissionId: M2\n" +
                     "description: |\n" +
@@ -2538,7 +2538,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 MissionService.SplitArchitectMarkerSegment(segment, out string title, out string description);
 
-                AssertEqual("fix(bundlesources): fail closed on malformed vehicle-info rows", title, "the title comes from the title: line, never from id: M1");
+                AssertEqual("fix(bundlesources): fail closed on malformed device-info rows", title, "the title comes from the title: line, never from id: M1");
                 AssertFalse(description.Contains("title:"), "the title line leaves the description");
                 AssertContains("dependsOnMissionId: M2", description, "the remaining front-matter stays for the dependency extractor");
                 AssertContains("**Goal:** reject the four malformed-row cases.", description, "the body survives");

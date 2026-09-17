@@ -53,15 +53,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Redact_ProductIdentifier_Survives", () =>
             {
-                // A decoder class name and a PGN name are product identifiers, not secrets: they
+                // A decoder class name and a frame name are product identifiers, not secrets: they
                 // must pass through untouched so the model sees the engineering content.
-                string text = "The J1939ParameterDecoder and PGN65259Decoder handle the DM20 record counter.";
+                string text = "The FrameParameterDecoder and Frame65259Decoder handle the RC20 record counter.";
 
                 string redacted = DecisionStateRedactor.Redact(text, 8000);
 
-                AssertContains("J1939ParameterDecoder", redacted);
-                AssertContains("PGN65259Decoder", redacted);
-                AssertContains("DM20", redacted);
+                AssertContains("FrameParameterDecoder", redacted);
+                AssertContains("Frame65259Decoder", redacted);
+                AssertContains("RC20", redacted);
             });
 
             await RunTest("Redact_LongState_TruncatesButKeepsArmadaMarkerLines", () =>
@@ -93,7 +93,7 @@ namespace Armada.Test.Unit.Suites.Services
                     FailureReason = "captain died at /home/user/work",
                     Commit = "deadbeefdeadbeefdeadbeef0011",
                     Mission = "msn_example0002zz",
-                    DecoderClass = "PGN64965Decoder"
+                    DecoderClass = "Frame64965Decoder"
                 };
 
                 RedactedDecisionState result = DecisionStateRedactor.RedactState(state, 8000);
@@ -107,7 +107,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(redacted.Contains("deadbeefdeadbeefdeadbeef0011", StringComparison.Ordinal), "sha in object survived");
                 AssertFalse(redacted.Contains("msn_example0002zz", StringComparison.Ordinal), "id in object survived");
                 // Product identifier still passes.
-                AssertContains("PGN64965Decoder", redacted);
+                AssertContains("Frame64965Decoder", redacted);
             });
 
             await RunTest("RedactState_Null_ReturnsEmptyString", () =>

@@ -559,9 +559,9 @@ call returns typed answers, or an `available: false` result with an
 
 The tool ships enabled (`typedDecisions.captainTool.enabled` is `true`); when an
 operator sets it `false`, every call returns `unavailableReason: disabled`.
-The domain is authorized heavy-duty vehicle diagnostics; seed-key and
-SecurityAccess content is ordinary engineering and is passed like any other
-state.
+The work is authorized engineering on owned systems; authentication and
+access-control protocol content is ordinary engineering and is passed like any
+other state.
 
 ### armada_typed_decision
 

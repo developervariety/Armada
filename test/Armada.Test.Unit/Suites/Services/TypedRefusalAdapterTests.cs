@@ -36,9 +36,9 @@ namespace Armada.Test.Unit.Suites.Services
         {
             return new RefusalDecisionInput
             {
-                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "read a seed-key exchange" },
+                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "read a token exchange" },
                 AgentOutputTail = "the closing statement",
-                MissionTitle = "read a seed-key exchange",
+                MissionTitle = "read a token exchange",
                 MarkerPresent = false
             };
         }

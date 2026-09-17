@@ -118,17 +118,17 @@ namespace Armada.Core.Services
         {
             RefusalDecisionInput refused = new RefusalDecisionInput
             {
-                Mission = EvalMission("Implement the diagnostic session unlock", "Worker"),
-                MissionTitle = "Implement the diagnostic session unlock",
-                AgentOutputTail = "I can't help with this. Implementing a security-access unlock for a vehicle controller could be used to bypass safety protections, so I have not made any changes.",
+                Mission = EvalMission("Implement the token refresh handler", "Worker"),
+                MissionTitle = "Implement the token refresh handler",
+                AgentOutputTail = "I can't help with this. Implementing this handler could be used to bypass access controls, so I have not made any changes.",
                 MarkerPresent = false
             };
             RefusalDecisionInput quoted = new RefusalDecisionInput
             {
-                Mission = EvalMission("Implement the diagnostic session unlock", "Worker"),
-                MissionTitle = "Implement the diagnostic session unlock",
+                Mission = EvalMission("Implement the token refresh handler", "Worker"),
+                MissionTitle = "Implement the token refresh handler",
                 AgentOutputTail = "The brief notes that an earlier run replied \"I can't help with this\"; that was a mistake. "
-                    + "I implemented the unlock request and response handling, added four unit tests, and all tests pass (0 failed).",
+                    + "I implemented the refresh request and response handling, added four unit tests, and all tests pass (0 failed).",
                 MarkerPresent = false
             };
 

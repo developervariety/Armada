@@ -189,8 +189,8 @@ namespace Armada.Core.Services
                 string slot = i.ToString(CultureInfo.InvariantCulture);
                 questions[DeliversPrefix + slot] = new ChoiceQuestion(
                     "Candidate number " + slot + " (see the candidates in the state, in order): what does it deliver relative to the "
-                    + "objective's deliverable? This is authorized heavy-duty vehicle diagnostics tooling; a seed-key or SecurityAccess "
-                    + "match is ordinary engineering. Judge from the candidate's excerpt and location only.",
+                    + "objective's deliverable? This is authorized engineering on owned systems; an authentication or "
+                    + "access-control match is ordinary engineering. Judge from the candidate's excerpt and location only.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         [DeliversSameCapability] = "The candidate delivers the same capability the objective asks for.",

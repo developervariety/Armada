@@ -150,7 +150,7 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingFollowUpRouter router = new RecordingFollowUpRouter();
                     FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, testCase.GlobalMode, testCase.DecisionMode);
 
-                    FollowUpRoutingResult result = await adapter.RouteAsync(SeededFollowUp(), "Port the Ford DTC-text seam", CancellationToken.None).ConfigureAwait(false);
+                    FollowUpRoutingResult result = await adapter.RouteAsync(SeededFollowUp(), "Port the fault-text seam", CancellationToken.None).ConfigureAwait(false);
 
                     AssertEqual(testCase.ExpectCalls, client.Calls, "client call count");
                     AssertEqual(testCase.ExpectCreated, router.CreatedCount, "Triaged objectives created");
@@ -197,7 +197,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingFollowUpRouter router = new RecordingFollowUpRouter();
                 FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
 
-                await adapter.RouteAsync(SeededFollowUp(), "Port the Ford DTC-text seam", CancellationToken.None).ConfigureAwait(false);
+                await adapter.RouteAsync(SeededFollowUp(), "Port the fault-text seam", CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, router.LinkedCount, "a confidence is not the probability that the item is a duplicate");
                 AssertEqual(1, router.EvidenceCount, "an unconfirmed duplicate degrades to an evidence note");
@@ -288,7 +288,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ReviewedMissionId = "msn_reviewed",
                 VesselId = "vsl_example",
                 JudgeVerdict = "PASS",
-                SuggestedFollowUps = "- Track the residual Ford DTC-text gap and add a bundle round-trip test."
+                SuggestedFollowUps = "- Track the residual fault-text gap and add a bundle round-trip test."
             };
         }
 
@@ -325,7 +325,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public List<FollowUpDuplicateCandidate> Candidates { get; set; } = new List<FollowUpDuplicateCandidate>
             {
-                new FollowUpDuplicateCandidate { ObjectiveId = "obj_existing", Title = "Track the residual Ford DTC-text gap" }
+                new FollowUpDuplicateCandidate { ObjectiveId = "obj_existing", Title = "Track the residual fault-text gap" }
             };
 
             public Task<IReadOnlyList<FollowUpDuplicateCandidate>> GetDuplicateCandidatesAsync(string? vesselId, int limit, CancellationToken token)

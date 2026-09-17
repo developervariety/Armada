@@ -228,7 +228,7 @@ namespace Armada.Core.Services
             {
                 ["substance"] = new ChoiceQuestion(
                     "Read the added hunks (not the file extensions) and choose what the change set actually is. "
-                    + "This is authorized heavy-duty vehicle diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering.",
+                    + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
                     substanceCriteria),
                 ["risky"] = new NoulQuestion(
                     "The added hunks change a SAFETY step (an ECU disable, a session exit, a fail-closed guard), a security or "
