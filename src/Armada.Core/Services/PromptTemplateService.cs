@@ -83,6 +83,36 @@ namespace Armada.Core.Services
             "line followed by the specific blocker or question, instead of `[ARMADA:RESULT] COMPLETE`. Use " +
             "`[ARMADA:RESULT] REFUSED` only when the request is unsafe or disallowed. Never report COMPLETE " +
             "for work you did not finish.\n";
+
+        /// <summary>Heading of the coverage-evidence section on the TestEngineer template (the D22 ask).</summary>
+        private const string _TestCoverageEvidenceMarker = "## Coverage Evidence";
+
+        /// <summary>
+        /// The D22 ask added to the TestEngineer persona: name the symptom each added test covers and
+        /// that it fails without the change, so the test_covers decision reasons over real evidence.
+        /// </summary>
+        private const string _TestCoverageEvidence =
+            "\n" +
+            _TestCoverageEvidenceMarker + "\n" +
+            "For each test you add, include one line naming the specific symptom or behavior it covers and " +
+            "stating that it fails without the change under test. This lets the reviewer confirm the test " +
+            "proves the fix rather than only that the code runs.\n";
+
+        /// <summary>Heading of the finding-format section on the Linter template (the D24 ask).</summary>
+        private const string _LintFindingFormatMarker = "## Finding Format";
+
+        /// <summary>
+        /// The D24 ask added to the Linter persona: tag each finding with a class and severity in its own
+        /// words, so the finding router classifies from the Linter rather than a bare bullet. The existing
+        /// section headings the finding parser reads are left unchanged.
+        /// </summary>
+        private const string _LintFindingFormat =
+            "\n" +
+            _LintFindingFormatMarker + "\n" +
+            "Tag each finding you report with an explicit class and severity so the review router classifies " +
+            "from your own words: begin the finding bullet with `[<class> | <severity>]`. Class is one of " +
+            "correctness, safety, consistency, or style_preference. Severity is one of cosmetic, should_fix, " +
+            "must_fix, or blocks_merge. Keep each finding under its existing section heading.\n";
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -112,6 +142,8 @@ namespace Armada.Core.Services
             AddMemoryRecallGuidance();
             AddFleetGuardRules();
             AddBlockedPathGuidance();
+            AddTestCoverageEvidence();
+            AddLintFindingFormat();
         }
 
         #endregion
@@ -218,6 +250,8 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInMissionRuleFleetGuardsAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaBlockedPathAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestCoverageEvidenceMarker, _TestCoverageEvidence, "coverage-evidence").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintFindingFormatMarker, _LintFindingFormat, "finding-format").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -394,6 +428,43 @@ namespace Armada.Core.Services
                 await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "added blocked-path guidance to built-in template '" + template.Name + "'");
             }
+        }
+
+        /// <summary>Append a named section to one embedded default if it is absent, so seeding and reset carry it.</summary>
+        private void AddSectionToEmbedded(string name, string marker, string section)
+        {
+            if (!_EmbeddedDefaults.TryGetValue(name, out EmbeddedTemplate? template)) return;
+            if (template.Content != null && template.Content.Contains(marker, StringComparison.Ordinal)) return;
+            template.Content = (template.Content ?? String.Empty) + section;
+        }
+
+        /// <summary>Add the TestEngineer coverage-evidence section (the D22 ask) to the embedded default.</summary>
+        private void AddTestCoverageEvidence()
+        {
+            AddSectionToEmbedded("persona.test_engineer", _TestCoverageEvidenceMarker, _TestCoverageEvidence);
+        }
+
+        /// <summary>Add the Linter finding-format section (the D24 ask) to the embedded default.</summary>
+        private void AddLintFindingFormat()
+        {
+            AddSectionToEmbedded("persona.linter", _LintFindingFormatMarker, _LintFindingFormat);
+        }
+
+        /// <summary>
+        /// Append a named section to an existing built-in row for one template that predates the section.
+        /// Seeding only creates an absent template, so an existing row would otherwise never receive it.
+        /// This appends the missing text and changes nothing else, so an operator edit is kept.
+        /// </summary>
+        private async Task UpgradeBuiltInPersonaSectionAsync(CancellationToken token, string name, string marker, string section, string label)
+        {
+            PromptTemplate? template = await _Database.PromptTemplates.ReadByNameAsync(name, token).ConfigureAwait(false);
+            if (template == null || !template.IsBuiltIn) return;
+            if (!String.IsNullOrEmpty(template.Content) && template.Content.Contains(marker, StringComparison.Ordinal)) return;
+
+            template.Content = (template.Content ?? String.Empty) + section;
+            template.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "added " + label + " section to built-in template '" + name + "'");
         }
 
         /// <summary>

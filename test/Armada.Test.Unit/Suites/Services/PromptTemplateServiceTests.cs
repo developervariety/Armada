@@ -288,6 +288,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("D22/D24 asks reach the TestEngineer and Linter, preserve operator edits, and keep the finding headings", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate linterEdit = new PromptTemplate("persona.linter", "You are a linter. OPERATOR CUSTOM.\n## Code Style\nNone\n");
+                    linterEdit.Category = "persona";
+                    linterEdit.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(linterEdit).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? testEngineer = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
+                    AssertContains("## Coverage Evidence", testEngineer!.Content, "the D22 coverage-evidence ask reaches the TestEngineer");
+                    AssertContains("fails without the change", testEngineer.Content, "the D22 ask names the failing-without-change requirement");
+
+                    PromptTemplate? linter = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
+                    AssertStartsWith("You are a linter. OPERATOR CUSTOM.", linter!.Content, "the operator edit is preserved");
+                    AssertContains("## Finding Format", linter.Content, "the D24 finding-format ask reaches the Linter");
+                    AssertContains("style_preference", linter.Content, "the D24 ask names the finding classes");
+                    AssertContains("blocks_merge", linter.Content, "the D24 ask names the severities");
+                    // The section headings the finding parser (ExtractLintFindings) reads are untouched.
+                    AssertContains("## Code Style", linter.Content, "the finding-section headings are preserved");
+
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplate? again = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
+                    AssertEqual(1, again!.Content.Split(new[] { "## Finding Format" }, StringSplitOptions.None).Length - 1, "the finding-format section is added once");
+                }
+            });
+
             await RunTest("Working persona templates carry the memory-recall note; the Recorder does not", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -8,6 +8,14 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The TestEngineer and Linter personas ask for structured evidence the typed
+  decisions read: the TestEngineer names, per added test, the symptom it covers
+  and that it fails without the change (feeding `test_covers`); the Linter tags
+  each finding with a class (`correctness | safety | consistency |
+  style_preference`) and severity (`cosmetic | should_fix | must_fix |
+  blocks_merge`) in its own words (feeding `lint_finding`), while keeping the
+  section headings the finding parser reads. Both are added to the embedded
+  defaults and to existing built-in rows via an append-if-missing upgrader.
 - Every working persona now carries a blocked path: a mission a captain cannot
   achieve (missing context, a false premise, or a question only the owner can
   answer) ends with `[ARMADA:RESULT] BLOCKED` and the blocker instead of a false
