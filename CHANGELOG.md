@@ -8,6 +8,13 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Retired the three orphan reviewer pipelines (`MigrationDataTested`, `PerformanceMemoryTested`,
+  `FrontendWorkflowTested`) and their specialist reviewer personas (`MigrationDataReviewer`,
+  `PerformanceMemoryReviewer`, `FrontendWorkflowReviewer`): deactivated (not deleted, so a row can be restored);
+  no voyage had used them and they were already removed from the seed. docs/PERSONAS.md and docs/PIPELINES.md now
+  match the live seed — PERSONAS.md lists `PriorArtAnalyst` and the correct twelve-persona count, and PIPELINES.md
+  lists `ReferencePortingReview`.
+
 - Voyage dispatch no longer blocks on a stale code index by default. A landing moves the branch and marks the
   vessel's index stale, which previously refused the next dispatch until a manual `armada_index_update`. The new
   `codeIndex.dispatchStalenessPolicy` governs this: `Proceed` (default) dispatches against the current index and

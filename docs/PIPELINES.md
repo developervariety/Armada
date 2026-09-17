@@ -32,10 +32,14 @@ concurrently.
 | `DiagnosticProtocolTested` | Worker, DiagnosticProtocolReviewer, TestEngineer, Judge |
 | `TenantSecurityTested` | Worker, TenantSecurityReviewer, TestEngineer, Judge |
 | `ReferencePortingTested` | Worker, PortingReferenceAnalyst, TestEngineer, Linter, Judge |
+| `ReferencePortingReview` | PortingReferenceAnalyst, TestEngineer, Judge (review-only: used when the Worker deliverable is already landed operator-side) |
 | `Recorded` | Worker, Recorder |
 
 The startup seed service creates or reconciles these definitions. Built-in
-pipelines cannot be deleted.
+pipelines cannot be deleted. Three reviewer pipelines, `MigrationDataTested`,
+`PerformanceMemoryTested` and `FrontendWorkflowTested`, were retired on
+2026-09-17 (deactivated, not deleted) with their specialist reviewer personas;
+no voyage used them.
 
 ## Resolution
 

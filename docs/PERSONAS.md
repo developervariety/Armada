@@ -16,8 +16,11 @@ A persona has a stable ID, tenant, unique name, description, prompt-template
 name, built-in flag, active flag, and default playbooks. A prompt template has
 its own versioned content. A pipeline stage refers to a persona by name.
 
-Armada seeds eight built-in personas on startup. The three specialist
-reviewers in this table are seeded only from settings:
+Armada seeds twelve built-in personas on startup: the eleven in this table plus
+`PriorArtAnalyst` (documented under *Prior-art analyst stage* below). Three
+earlier specialist reviewers, `MigrationDataReviewer`, `PerformanceMemoryReviewer`
+and `FrontendWorkflowReviewer`, were retired on 2026-09-17 (deactivated, not
+deleted) together with their `*Tested` pipelines; no voyage used them:
 
 | Persona | Purpose |
 | --- | --- |
@@ -32,6 +35,7 @@ reviewers in this table are seeded only from settings:
 | `TenantSecurityReviewer` | Review authentication, authorization, isolation, and secrets. |
 | `PortingReferenceAnalyst` | Compare approved references and parity evidence. |
 | `Recorder` | Review the finished work of a voyage and record what is worth remembering into native captain memory. Writes memory only; never changes the repository or shared memory. |
+| `PriorArtAnalyst` | Read-only Research analyst that settles whether an objective’s deliverable already exists before a Worker builds it; commits nothing. Conditional stage, not in a default pipeline (see below). |
 
 The seed service reconciles built-in definitions. Built-in personas cannot be
 deleted. Custom personas can be created, updated, or deleted.
@@ -146,7 +150,7 @@ outcome.
 
 Before release, confirm:
 
-1. All 11 built-in personas (8 seeded, plus the 3 specialist reviewers from settings) exist and are active.
+1. All 12 built-in personas exist and are active. The three orphan reviewers (MigrationDataReviewer, PerformanceMemoryReviewer, FrontendWorkflowReviewer) were retired 2026-09-17 and are inactive.
 2. Each active persona refers to an active prompt template.
 3. Every pipeline stage refers to an active persona.
 4. Default playbook references exist and are active.
