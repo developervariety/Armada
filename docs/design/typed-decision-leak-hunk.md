@@ -3,7 +3,8 @@
 Status: design only. This document describes a decision point. It wires no code,
 changes no test, and adds no migration. Implementation is a later row, opened
 only after the owner reviews this design. Decision id: `leak_hunk`. Default
-mode: **Off** (already `Off` in the shipped settings default).
+mode: **Gate** in the shipped settings default, with no effect until an adapter
+is wired for this decision.
 
 ## Purpose
 
@@ -34,7 +35,7 @@ on.
 3. **The model informs; it never blocks, deletes, or dispatches.** A model
    concern becomes a flag on the record and, at most, a board note. It cannot
    fail a mission, fail a merge entry, or stop a landing on its own.
-4. **Off by default.** The decision ships `Off`. In `Gate` mode it flags; it
+4. **Gate flags only.** The settings default is `Gate`. In `Gate` mode it flags; it
    never becomes a hard block for a landing without a separate owner decision
    recorded on the row.
 

@@ -25,6 +25,28 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Every typed decision ships in `Gate`, and the captain typed-decision tool ships enabled. Each decision still acts
+  only at or above its `gateThreshold`, only in its conservative direction (hold, flag, escalate, annotate, order),
+  and never approves, lands, dispatches, deletes, or writes memory; the per-decision `mode` and the global cap stop a
+  decision without a deploy.
+- A synthetic typed-decision evaluation set covers `failure_cause`, `refusal`, `runtime_failure`,
+  `review_substance`, and `lint_finding`. Each case builds its requests through the decision's own adapter; reference
+  pairs state the answer for each variant, and consistency pairs require an irrelevant change not to move the answer.
+  `armada_typed_decision_eval` (operator, global administrator) runs it and returns the report; it also runs in the
+  background when the provider reports a model version not yet evaluated (`typedDecisions.evalOnModelChange`, default
+  `true`). Each run records a `typed_decision.eval` event.
+- Decisions that ask about several independent items (`criteria_lint`, `inbox_triage`, `memory_candidate`,
+  `followup_routing`, `memory_review`, `owner_digest`) share provider requests: items are packed into requests of at
+  most 100 questions within the per-request state budget, and each item is still gated and recorded on its own event,
+  which carries `batch_size` and its share of the request's tokens.
+- Typed-decision state is sent as a JSON object instead of an escaped JSON string. Property names and string values
+  are redacted in place, and an oversized object has its longest strings shortened until it fits, so the provider
+  always receives valid structured JSON.
+- A rejected typed-decision request records the provider's redacted explanation (`unavailable_detail`), so a 422 for
+  a malformed question names the field instead of reading like an outage.
+- Typed decisions never read a noul answer's confidence as its probability. The provider returns a noul with no
+  confidence; five adapters fell back to confidence and could merge, nominate, flag, link, or mark a default safe on a
+  confident answer that carried no probability.
 - Typed decisions now parse TypeSafe score answers. The provider returns a score `legend` as an index-keyed
   object; the client expected a list, so every decision that asked a score question (`review_substance`,
   `lint_finding`, `flake_score`, `owner_digest`, `inbox_triage`, and the captain tool) failed with

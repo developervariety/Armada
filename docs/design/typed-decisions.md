@@ -42,7 +42,7 @@ mode. Names, not index numbers, are the stable identifiers.
 | `papercut_merge` | Whether two papercut reports describe the same underlying issue and should merge. |
 | `lint_finding` | How a Linter finding routes to the next stage: only `correctness`/`safety` at `must_fix` or above is marked blocking; a `style_preference` becomes an evidence note. |
 
-### Available, off until enabled (`Off`)
+### Also shipped in `Gate`
 
 | Name | What it decides |
 | --- | --- |

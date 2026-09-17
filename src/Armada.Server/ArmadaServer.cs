@@ -695,10 +695,8 @@ namespace Armada.Server
                 _ObjectiveDispatchPreviewService.PreflightAdapter = new PreflightTextAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, ownerNotePoster, _Logging);
 
-                // D19 stage necessity (dispatch preview) and D20 handoff outcome (stage handoff). Both
-                // ship Off in the decisions map, so with the live client present but the decision Off the
-                // adapter still returns the deterministic rule; they are wired so a later Gate flip is a
-                // settings change, not a code change. The D20 owner note reuses the same poster as D5.
+                // D19 stage necessity (dispatch preview) and D20 handoff outcome (stage handoff). Each
+                // follows its mode in the decisions map; set Off, the adapter returns the deterministic rule. The D20 owner note reuses the same poster as D5.
                 _ObjectiveDispatchPreviewService.StageNecessityAdapter = new TypedStageNecessityAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
@@ -709,9 +707,8 @@ namespace Armada.Server
                 if (admiralService.RuntimeFailureAdapter != null)
                     admiralService.RuntimeFailureAdapter.NotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging);
                 // D21 revision_kind (Judge NEEDS_REVISION), D22 test_covers (TestEngineer handoff), and
-                // D24 lint_finding (Linter handoff). All three ship Off in the decisions map, so with the
-                // live client present but the decision Off the seam still runs its deterministic path;
-                // they are wired so a later Gate flip is a settings change, not a code change.
+                // D24 lint_finding (Linter handoff). Each follows its mode in the decisions map; set Off,
+                // the seam runs its deterministic path.
                 missionService.RevisionKindAdapter = new TypedRevisionKindAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.TestCoversAdapter = new TypedTestCoversAdapter(
@@ -721,10 +718,8 @@ namespace Armada.Server
 
                 // D26 prior_art. One adapter over a deterministic retriever feeds two admiral seams: the
                 // dispatch preflight (already_done / integrate / uncertain-band analyst issues) and the
-                // Worker->Judge handoff (a re-implementation review instruction). It ships Off in the
-                // decisions map, so with the live client present but the decision Off both seams run their
-                // deterministic path unchanged; wired so a later Gate flip is a settings change, not a code
-                // change. The retriever reads the four surfaces through the git service (a GitService is
+                // Worker->Judge handoff (a re-implementation review instruction). It follows its mode in
+                // the decisions map; set Off, both seams run their deterministic path unchanged. The retriever reads the four surfaces through the git service (a GitService is
                 // also the branch inventory) and the objective store.
                 if (_Git is IBranchInventory priorArtBranchInventory)
                 {
@@ -758,7 +753,7 @@ namespace Armada.Server
                 // D18 memory_candidate and D23 seam B memory_review. Both store proposals in the database
                 // through one writer, because the AI-Memory folder is read-only to the admiral. The weekly
                 // papercut sweep is driven by the health loop; the Recorder review runs when a Recorder
-                // stage finishes. Both ship Off, so each is dormant until its decision is enabled.
+                // stage finishes. Each is dormant while its decision is Off.
                 DatabaseMemoryCandidateProposalWriter memoryProposalWriter = new DatabaseMemoryCandidateProposalWriter(_Database, _Logging);
                 MemoryCandidateAdapter memoryCandidateAdapter = new MemoryCandidateAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, memoryProposalWriter, _Logging);

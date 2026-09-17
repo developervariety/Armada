@@ -187,8 +187,8 @@ off). A deployment applies fleet policy from settings, not from C#.
 ### Typed decisions (gate-enforced, operationally off until keyed)
 
 A calibrated classifier (TypeSafe Jev) the admiral can consult at a decision
-point, behind the deterministic rules it never replaces. Six decisions ship in `Gate` from the first deploy, and the rest stay `Off`
-until enabled. The decision catalogue and its principles are documented in
+point, behind the deterministic rules it never replaces. Every decision ships in `Gate` from the first deploy and records the
+rule's verdict and the model's on every call. The decision catalogue and its principles are documented in
 [docs/design/typed-decisions.md](docs/design/typed-decisions.md). No key means the null
 client whatever the mode, so the system is operationally off until the key is
 confirmed in the container. When a decision is enabled it can only make a call
@@ -206,8 +206,9 @@ unredacted state. Captains can consult read-only, per-mission-budgeted tools
 | `apiKeyEnv` | `ARMADA_TYPESAFE_KEY` | Environment variable holding the Bearer key. The key is read from the environment only. |
 | `timeoutSeconds` | `10` | Per-request timeout; a slower decision is unavailable, not late. |
 | `maxStateChars` | `8000` | Character cap on redacted state per request. |
-| `decisions` | six `Gate`, rest `Off` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
-| `captainTool` | disabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
+| `decisions` | all `Gate` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
+| `evalOnModelChange` | `true` | Run the synthetic evaluation set in the background when the provider reports a model version not yet evaluated. |
+| `captainTool` | enabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
 
 The system is operationally off until the key is confirmed in the container: no
 key means the null client, whatever the mode, and no consumer calls the client

@@ -28,7 +28,7 @@ namespace Armada.Core.Services
     /// and records one unavailable event; a below-threshold answer appends nothing and records one
     /// shadow event. Only in Gate mode, and only for a criterion whose worst defect answer is at or
     /// above the decision threshold, are review lines appended. The adapter never throws into the
-    /// caller. This decision ships Off.
+    /// caller. This decision ships in Gate.
     /// </summary>
     public sealed class CriteriaLintAdapter
     {

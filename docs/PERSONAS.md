@@ -45,8 +45,8 @@ findings for the next stage: only `correctness` or `safety` findings the model
 scores at `must_fix` or above are marked **blocking** for the Judge, and a
 `style_preference` finding becomes an **evidence note**. The Linter's own output
 is unchanged — the decision prepends a routing note to the next brief so taste is
-not presented to the Judge as a defect. The decision ships `Off` (the Linter
-output flows unchanged); a Gate flip is a settings change, not a persona change.
+not presented to the Judge as a defect. The decision ships `Gate`; setting it
+`Off` lets the Linter output flow unchanged, a settings change, not a persona change.
 The deterministic Slop Check (`SlopDiffClassifier`) is unaffected.
 
 ### Prior-art analyst stage (`prior_art`)
@@ -67,7 +67,7 @@ objective's deliverable already exist?") and write its finding into the brief. T
 stage is read-only (it commits nothing) and runs only in that band, which is the
 DRY answer to "more personas": the analyst runs when the question is genuinely
 open and never otherwise. The recommendation is advisory — the operator confirms
-it; the adapter never inserts a stage by itself. The decision ships `Off`.
+it; the adapter never inserts a stage by itself. The decision ships `Gate`.
 
 ## Prompt Assembly
 

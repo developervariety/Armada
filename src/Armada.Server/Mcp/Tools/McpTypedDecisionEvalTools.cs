@@ -17,6 +17,9 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Registered name of the evaluation tool.</summary>
         public const string ToolName = "armada_typed_decision_eval";
 
+        /// <summary>Reason returned when a caller other than a global administrator calls the tool.</summary>
+        public const string GlobalAdministratorRequiredReason = "global_administrator_required";
+
         #endregion
 
         #region Public-Methods
@@ -51,6 +54,10 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    AuthContext caller = McpCallerContext.Require();
+                    if (!caller.IsAdmin)
+                        return (object)new { Error = "Running the typed-decision evaluation requires a global administrator.", Reason = GlobalAdministratorRequiredReason };
+
                     string? decision = null;
                     if (args.HasValue && args.Value.ValueKind == JsonValueKind.Object)
                     {

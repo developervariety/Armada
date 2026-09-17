@@ -44,7 +44,7 @@ namespace Armada.Core.Services
     /// duplicate, a stale fact, or a wrong type), link a duplicate to the record it repeats with a
     /// <c>duplicate-of:</c> tag, and store a D18 memory proposal for a record that belongs in
     /// AI-Memory. It never deletes a record, never changes a record's content, summary, type, topic, or
-    /// key, never raises salience, and never writes AI-Memory. The decision ships Off; Off calls
+    /// key, never raises salience, and never writes AI-Memory. The decision ships in Gate; Off calls
     /// nothing and reads nothing. An unavailable model stops the pass and changes nothing. Never throws.
     /// </summary>
     public sealed class RecorderMemoryReviewAdapter

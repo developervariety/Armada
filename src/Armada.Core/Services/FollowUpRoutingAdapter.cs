@@ -24,7 +24,7 @@ namespace Armada.Core.Services
     /// creating one; <c>evidence_note</c> appends a note. The deterministic behaviour (no routing) is
     /// the fallback in every non-gate case: Off, an unavailable model, a Shadow-mode call, and a
     /// below-threshold answer all route nothing. The adapter never throws into the caller. This
-    /// decision ships Off.
+    /// decision ships in Gate.
     /// </summary>
     public sealed class FollowUpRoutingAdapter
     {

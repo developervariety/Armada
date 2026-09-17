@@ -3,7 +3,8 @@
 Status: design only. This document describes a decision point. It wires no code,
 changes no test, and adds no migration. Implementation is a later row, opened
 only after the owner reviews this design. Decision id: `log_watch`. Default
-mode: **Off** (already `Off` in the shipped settings default).
+mode: **Gate** in the shipped settings default, with no effect until an adapter
+is wired for this decision.
 
 ## Purpose
 
@@ -34,7 +35,7 @@ the drift early. It never touches the captain.
 4. **The model informs; it never blocks or dispatches.** A flag is a note plus
    an event for the operator. The deterministic escalation rules (stall,
    overdue) are unchanged and independent.
-5. **Off by default.** The decision ships `Off`.
+5. **Gate by default.** The settings default is `Gate`; the decision only flags.
 
 ## Seams at the base tip
 

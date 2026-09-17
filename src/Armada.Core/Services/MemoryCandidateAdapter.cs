@@ -20,7 +20,7 @@ namespace Armada.Core.Services
     /// The model never writes memory: it only nominates a candidate into the proposal store, never into
     /// the AI-Memory folder, and it never dismisses a proposal. The deterministic behaviour (no nomination) is always
     /// the fallback: an Off decision, an unavailable model, a below-threshold answer, and a
-    /// <c>not_memory</c> scope all leave the memory untouched. This decision ships Off.
+    /// <c>not_memory</c> scope all leave the memory untouched. This decision ships in Gate.
     /// </summary>
     public sealed class MemoryCandidateAdapter
     {

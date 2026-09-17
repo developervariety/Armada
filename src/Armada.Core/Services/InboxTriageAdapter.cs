@@ -22,7 +22,7 @@ namespace Armada.Core.Services
     /// an unavailable model, a Shadow-mode call, and a below-threshold answer all return the input in
     /// its deterministic order with no <c>attention</c> set, so turning the decision off restores the
     /// severity ordering exactly. The model can only add a field and change the sort; it can never
-    /// remove an item. The adapter never throws into the caller. This decision ships Off.
+    /// remove an item. The adapter never throws into the caller. This decision ships in Gate.
     /// </summary>
     public sealed class InboxTriageAdapter
     {
