@@ -8,6 +8,13 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Every working persona now carries a blocked path: a mission a captain cannot
+  achieve (missing context, a false premise, or a question only the owner can
+  answer) ends with `[ARMADA:RESULT] BLOCKED` and the blocker instead of a false
+  COMPLETE, and `[ARMADA:RESULT] REFUSED` covers an unsafe or disallowed request.
+  It is added to the embedded working-persona defaults and an append-if-missing
+  upgrader adds it to existing built-in rows without disturbing an operator edit;
+  the Recorder and Judge (whose outcome is a verdict) are excluded.
 - Every mission's rules now carry two standing fleet rules: never delete a
   `recover/` ref (the operator retires them) and never write a mission, voyage,
   or objective id into committed content. They are added to the `mission.rules`

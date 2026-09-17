@@ -253,6 +253,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Blocked-path guidance reaches working personas, not the Recorder or Judge, and preserves operator edits", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate workerEdit = new PromptTemplate("persona.worker", "You are a worker. OPERATOR CUSTOM.\n");
+                    workerEdit.Category = "persona";
+                    workerEdit.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(workerEdit).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? worker = await service.ResolveAsync("persona.worker").ConfigureAwait(false);
+                    AssertStartsWith("You are a worker. OPERATOR CUSTOM.", worker!.Content, "the operator edit is preserved");
+                    AssertContains("## When You Cannot Finish", worker.Content, "the worker gains the blocked path");
+                    AssertContains("`[ARMADA:RESULT] BLOCKED`", worker.Content, "the blocked path names the BLOCKED signal");
+
+                    PromptTemplate? testEngineer = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
+                    AssertContains("## When You Cannot Finish", testEngineer!.Content, "the test engineer gains the blocked path");
+
+                    PromptTemplate? recorder = await service.ResolveAsync("persona.recorder").ConfigureAwait(false);
+                    AssertTrue(!recorder!.Content.Contains("## When You Cannot Finish"), "the Recorder does not get the blocked path");
+                    PromptTemplate? judge = await service.ResolveAsync("persona.judge").ConfigureAwait(false);
+                    AssertTrue(!judge!.Content.Contains("## When You Cannot Finish"), "the Judge does not get the blocked path");
+
+                    // Idempotent.
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplate? again = await service.ResolveAsync("persona.worker").ConfigureAwait(false);
+                    AssertEqual(1, again!.Content.Split(new[] { "## When You Cannot Finish" }, StringSplitOptions.None).Length - 1, "the blocked path is added once");
+                }
+            });
+
             await RunTest("Working persona templates carry the memory-recall note; the Recorder does not", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

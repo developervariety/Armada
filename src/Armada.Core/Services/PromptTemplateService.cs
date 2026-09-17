@@ -64,6 +64,25 @@ namespace Armada.Core.Services
         private const string _FleetGuardRules =
             "- " + _FleetGuardMarker + "; the operator retires them.\n" +
             "- Never write a mission, voyage, or objective id into committed content -- code, comments, tests, commit messages, or branch names.\n";
+
+        /// <summary>
+        /// Heading of the blocked-path section. Presence means a template already carries the guidance.
+        /// </summary>
+        private const string _BlockedPathMarker = "## When You Cannot Finish";
+
+        /// <summary>
+        /// The D20 blocked path added to every working persona: a mission a captain cannot achieve ends
+        /// with `[ARMADA:RESULT] BLOCKED` and the blocker, not a false COMPLETE. Added once, so a row
+        /// carrying the marker is left as it is and an operator edit is kept.
+        /// </summary>
+        private const string _BlockedPathGuidance =
+            "\n" +
+            _BlockedPathMarker + "\n" +
+            "If you cannot achieve the mission's goal -- missing context, a false premise, or a question " +
+            "only the owner can answer -- end your final response with a standalone `[ARMADA:RESULT] BLOCKED` " +
+            "line followed by the specific blocker or question, instead of `[ARMADA:RESULT] COMPLETE`. Use " +
+            "`[ARMADA:RESULT] REFUSED` only when the request is unsafe or disallowed. Never report COMPLETE " +
+            "for work you did not finish.\n";
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -92,6 +111,7 @@ namespace Armada.Core.Services
             MergeAdditionalTemplates(additionalTemplates);
             AddMemoryRecallGuidance();
             AddFleetGuardRules();
+            AddBlockedPathGuidance();
         }
 
         #endregion
@@ -197,6 +217,7 @@ namespace Armada.Core.Services
             await UpgradeLegacyPersonaTemplateReferencesAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInMissionRuleFleetGuardsAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInPersonaBlockedPathAsync(token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -326,6 +347,52 @@ namespace Armada.Core.Services
                 template.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "added fleet guard rules to built-in template '" + template.Name + "'");
+            }
+        }
+
+        /// <summary>Whether a template takes the blocked path: a working persona, but not the Recorder or the Judge.</summary>
+        private static bool TakesBlockedPathGuidance(string? name, string? category)
+        {
+            if (!String.Equals(category, "persona", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.Equals(name, "persona.recorder", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.Equals(name, "persona.judge", StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Append the blocked-path guidance to the embedded working-persona defaults, so seeding,
+        /// fallback resolution and reset all deliver the same text.
+        /// </summary>
+        private void AddBlockedPathGuidance()
+        {
+            foreach (KeyValuePair<string, EmbeddedTemplate> pair in _EmbeddedDefaults)
+            {
+                EmbeddedTemplate template = pair.Value;
+                if (!TakesBlockedPathGuidance(pair.Key, template.Category)) continue;
+                if (template.Content != null && template.Content.Contains(_BlockedPathMarker, StringComparison.Ordinal)) continue;
+                template.Content = (template.Content ?? String.Empty) + _BlockedPathGuidance;
+            }
+        }
+
+        /// <summary>
+        /// Append the blocked-path guidance to an existing built-in working-persona row that predates it.
+        /// Seeding only creates an absent template, so an existing row would otherwise never receive it.
+        /// This appends the missing section and changes nothing else, so an operator edit is kept.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        private async Task UpgradeBuiltInPersonaBlockedPathAsync(CancellationToken token)
+        {
+            List<PromptTemplate> templates = await _Database.PromptTemplates.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (PromptTemplate template in templates)
+            {
+                if (!template.IsBuiltIn) continue;
+                if (!TakesBlockedPathGuidance(template.Name, template.Category)) continue;
+                if (!String.IsNullOrEmpty(template.Content) && template.Content.Contains(_BlockedPathMarker, StringComparison.Ordinal)) continue;
+
+                template.Content = (template.Content ?? String.Empty) + _BlockedPathGuidance;
+                template.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "added blocked-path guidance to built-in template '" + template.Name + "'");
             }
         }
 
