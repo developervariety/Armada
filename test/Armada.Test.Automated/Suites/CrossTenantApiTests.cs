@@ -387,6 +387,74 @@ using System.IO;
 
             #endregion
 
+            #region Persona-Default-Captain
+
+            // A persona's default captain is chosen by id. The update resolves the id inside the
+            // persona's tenant and refuses a captain whose allow-list excludes the persona.
+            string defaultedPersonaName = "xt-defaulted-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string tenantBPersonaName = "xt-defaulted-b-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+            await RunTest("PersonaDefaultCaptain_SetReadAndClear_RoundTrips", async () =>
+            {
+                HttpResponseMessage created = await _ClientA!.PostAsync("/api/v1/personas",
+                    JsonHelper.ToJsonContent(new { Name = defaultedPersonaName, PromptTemplateName = "persona.worker" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, created.StatusCode);
+
+                HttpResponseMessage set = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
+                    JsonHelper.ToJsonContent(new { DefaultCaptainId = captainAId, Specialist = true })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, set.StatusCode);
+                Persona read = await JsonHelper.DeserializeAsync<Persona>(await _ClientA!.GetAsync("/api/v1/personas/" + defaultedPersonaName).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(captainAId, read.DefaultCaptainId, "The default captain is stored");
+                AssertTrue(read.Specialist, "The specialist flag in the same update is stored");
+
+                HttpResponseMessage describe = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
+                    JsonHelper.ToJsonContent(new { Description = "described" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, describe.StatusCode);
+                Persona kept = await JsonHelper.DeserializeAsync<Persona>(await _ClientA!.GetAsync("/api/v1/personas/" + defaultedPersonaName).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(captainAId, kept.DefaultCaptainId, "An update that omits the default captain keeps it");
+
+                HttpResponseMessage clear = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
+                    new StringContent("{\"defaultCaptainId\":null}", System.Text.Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, clear.StatusCode);
+                Persona cleared = await JsonHelper.DeserializeAsync<Persona>(await _ClientA!.GetAsync("/api/v1/personas/" + defaultedPersonaName).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertNull(cleared.DefaultCaptainId, "A null default captain clears it");
+            }).ConfigureAwait(false);
+
+            await RunTest("PersonaDefaultCaptain_UnknownOrOtherTenantCaptain_Returns400NotFound", async () =>
+            {
+                HttpResponseMessage unknown = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
+                    JsonHelper.ToJsonContent(new { DefaultCaptainId = "cpt_examplemissing" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, unknown.StatusCode);
+                AssertContains("default_captain_not_found", await unknown.Content.ReadAsStringAsync().ConfigureAwait(false));
+
+                HttpResponseMessage createdB = await _ClientB!.PostAsync("/api/v1/personas",
+                    JsonHelper.ToJsonContent(new { Name = tenantBPersonaName, PromptTemplateName = "persona.worker" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, createdB.StatusCode);
+                HttpResponseMessage foreign = await _ClientB!.PutAsync("/api/v1/personas/" + tenantBPersonaName,
+                    JsonHelper.ToJsonContent(new { DefaultCaptainId = captainAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, foreign.StatusCode, "Another tenant's captain counts as not found");
+                AssertContains("default_captain_not_found", await foreign.Content.ReadAsStringAsync().ConfigureAwait(false));
+            }).ConfigureAwait(false);
+
+            await RunTest("PersonaDefaultCaptain_PersonaLockedCaptain_Returns400", async () =>
+            {
+                HttpResponseMessage lockedResponse = await _ClientA!.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new { Name = "xt-locked-" + Guid.NewGuid().ToString("N").Substring(0, 8), AllowedPersonas = "[\"Worker\"]" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, lockedResponse.StatusCode);
+                Captain locked = await JsonHelper.DeserializeAsync<Captain>(lockedResponse).ConfigureAwait(false);
+
+                HttpResponseMessage refused = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
+                    JsonHelper.ToJsonContent(new { DefaultCaptainId = locked.Id })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, refused.StatusCode);
+                AssertContains("default_captain_persona_locked", await refused.Content.ReadAsStringAsync().ConfigureAwait(false));
+
+                await _ClientA!.DeleteAsync("/api/v1/captains/" + locked.Id).ConfigureAwait(false);
+                await _ClientA!.DeleteAsync("/api/v1/personas/" + defaultedPersonaName).ConfigureAwait(false);
+                await _ClientB!.DeleteAsync("/api/v1/personas/" + tenantBPersonaName).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            #endregion
+
             #region Backlog-And-Refinement-Isolation
 
             string objectiveAId = null!;

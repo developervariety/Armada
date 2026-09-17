@@ -3189,9 +3189,15 @@ Update an existing persona.
 | `Description` | string | no | Updated description |
 | `PromptTemplateName` | string | no | Updated prompt template name |
 | `Specialist` | boolean | no | Updated specialist flag; omitted leaves it unchanged |
+| `DefaultCaptainId` | string | no | Captain id missions of this persona prefer; `null` or `""` clears it, omitted leaves it unchanged |
 
 **Response:** `200 OK` - Persona
+**Error:** `400` - `default_captain_not_found`: no captain with that id exists in the persona's tenant (a captain in another tenant counts as not found)
+**Error:** `400` - `default_captain_persona_locked`: the captain's `AllowedPersonas` excludes the persona
 **Error:** `404` - Persona not found
+
+A refused update writes nothing. The MCP `update_persona` tool and the WebSocket
+`update_persona` command apply the same default-captain rule.
 
 ```bash
 curl -X PUT http://localhost:7890/api/v1/personas/reviewer \

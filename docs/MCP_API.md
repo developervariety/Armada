@@ -692,6 +692,13 @@ left out keeps its stored value; an empty string clears a string field.
 persona's missions are routed only to Premium captains. `update_persona` leaves the
 flag unchanged when it is omitted.
 
+`update_persona` also accepts `defaultCaptainId` (string), the captain that missions
+of this persona prefer. `null` or an empty string clears it; an omitted field leaves
+it unchanged. An id that names no captain in the persona's tenant returns a tool
+error that starts with `default_captain_not_found:`, and a captain whose
+`AllowedPersonas` excludes the persona returns one that starts with
+`default_captain_persona_locked:`. A refused call writes nothing.
+
 Both tools apply the same rule as the REST and WebSocket captain writes. Captain
 state, assignment, process, recovery, heartbeat, quarantine, identity and
 timestamps are server-owned: `id`, `tenantId`, `userId`, `state`,

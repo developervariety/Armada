@@ -102,6 +102,7 @@ namespace Armada.Server.Mcp.Tools
                         description = new { type = "string", description = "New description" },
                         promptTemplateName = new { type = "string", description = "New prompt template name" },
                         specialist = new { type = "boolean", description = "When true, missions of this persona are routed only to Premium captains. Null leaves it unchanged." },
+                        defaultCaptainId = new { type = "string", description = "Captain id missions of this persona prefer. Null or empty clears it; omit to leave it unchanged. Refused with default_captain_not_found for an id outside the persona's tenant and default_captain_persona_locked for a captain whose AllowedPersonas excludes the persona." },
                         defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "name" }
@@ -124,6 +125,12 @@ namespace Armada.Server.Mcp.Tools
                         persona.Specialist = request.Specialist.Value;
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
+                    PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(args!.Value, _JsonOptions) ?? new PersonaRoutingUpdate();
+                    if (routing.DefaultCaptainIdSupplied)
+                    {
+                        string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(database, persona, routing.DefaultCaptainId).ConfigureAwait(false);
+                        if (defaultCaptainError != null) return (object)new { Error = defaultCaptainError };
+                    }
                     persona.LastUpdateUtc = DateTime.UtcNow;
                     persona = await database.Personas.UpdateAsync(persona).ConfigureAwait(false);
                     return (object)persona;

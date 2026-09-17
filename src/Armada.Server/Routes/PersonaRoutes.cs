@@ -171,6 +171,15 @@ namespace Armada.Server.Routes
                 if (body.PromptTemplateName != null) existing.PromptTemplateName = body.PromptTemplateName;
                 PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(req.Http.Request.DataAsString, _jsonOptions) ?? new PersonaRoutingUpdate();
                 if (routing.Specialist.HasValue) existing.Specialist = routing.Specialist.Value;
+                if (routing.DefaultCaptainIdSupplied)
+                {
+                    string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_database, existing, routing.DefaultCaptainId).ConfigureAwait(false);
+                    if (defaultCaptainError != null)
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = defaultCaptainError };
+                    }
+                }
                 existing.LastUpdateUtc = DateTime.UtcNow;
                 Persona updated = await _database.Personas.UpdateAsync(existing).ConfigureAwait(false);
                 return (object)updated;
@@ -178,10 +187,11 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Personas")
                 .WithSummary("Update a persona")
-                .WithDescription("Updates an existing persona by name. Only supplied fields are updated: Description, PromptTemplateName, and Specialist (true routes the persona's missions only to Premium captains).")
+                .WithDescription("Updates an existing persona by name. Only supplied fields are updated: Description, PromptTemplateName, Specialist (true routes the persona's missions only to Premium captains), and DefaultCaptainId (null or empty clears it). A DefaultCaptainId that names no captain in the persona's tenant returns 400 default_captain_not_found; a captain whose AllowedPersonas excludes the persona returns 400 default_captain_persona_locked.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Persona>("Updated persona data", true))
                 .WithResponse(200, OpenApiJson.For<Persona>("Updated persona"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

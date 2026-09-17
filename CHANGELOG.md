@@ -145,6 +145,13 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- A persona update now saves `DefaultCaptainId`, so the dashboard's Default
+  Captain edit takes effect. The REST `PUT /api/v1/personas/{name}`, the MCP
+  `update_persona` tool and the WebSocket `update_persona` command share one rule:
+  `null` or empty clears the default, an omitted field keeps it, an id outside the
+  persona's tenant returns `default_captain_not_found`, and a captain whose
+  `AllowedPersonas` excludes the persona returns `default_captain_persona_locked`
+  (REST 400). A refused update writes nothing.
 - The model-endpoint health sweep now runs the same real provider request as a
   manual validation, so a registered embedding or inference endpoint whose base
   URL rejects a bare GET (VoyageAI, OpenAI) is no longer read as Unhealthy while
