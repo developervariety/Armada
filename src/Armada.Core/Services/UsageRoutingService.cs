@@ -249,7 +249,9 @@ namespace Armada.Core.Services
         {
             lock (_StateLock)
             {
-                if (_InFlight.TryGetValue(account.Id, out Task? running)) return running;
+                // A finished read is not in flight, even before its clean-up continuation has run: reusing it would
+                // skip the read a later caller asked for.
+                if (_InFlight.TryGetValue(account.Id, out Task? running) && !running.IsCompleted) return running;
                 // The read never takes a caller's token: another caller may be waiting on it.
                 Task started = Task.Run(() => CollectOnceAsync(account));
                 _InFlight[account.Id] = started;

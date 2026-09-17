@@ -357,6 +357,17 @@ namespace Armada.Test.Unit.Suites.Services
                 await service.RefreshAsync(policy);
                 AssertEqual(3, calls, "a hard refresh does not reset the timed throttle into an extra read");
             });
+            await RunTest("Back-to-back hard refreshes each read the provider, never reusing the read that just finished", async () =>
+            {
+                UsageAccountSettings account = new UsageAccountSettings { Id = "claude-sequential", Collector = "Claude" };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                int calls = 0;
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (a, t) => { Interlocked.Increment(ref calls); return Task.FromResult(MeasuredSnapshot(40)); } };
+                const int refreshes = 500;
+                for (int i = 0; i < refreshes; i++)
+                    await service.RefreshAccountAsync(policy, "claude-sequential");
+                AssertEqual(refreshes, calls, "a hard refresh that starts after the previous one finished reads the provider again");
+            });
             await RunTest("Hard refresh honours an active provider retry-after and does not call the provider", async () =>
             {
                 UsageAccountSettings account = new UsageAccountSettings { Id = "claude-limited", Collector = "Claude" };

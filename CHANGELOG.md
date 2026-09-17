@@ -199,6 +199,9 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- A subscription-account hard refresh that started right after another one
+  finished could reuse the finished read and skip the provider call it asked
+  for. A finished read is no longer treated as in flight.
 - A persona update now saves `DefaultCaptainId`, so the dashboard's Default
   Captain edit takes effect. The REST `PUT /api/v1/personas/{name}`, the MCP
   `update_persona` tool and the WebSocket `update_persona` command share one rule:
