@@ -180,14 +180,14 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "client threw, deterministic preview stands: " + ex.Message);
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(objective, vessel, ExceptionResult(), null, null, redacted), token)).ConfigureAwait(false);
+                    BuildContext(objective, vessel, TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
                 return;
             }
 
             if (decision == null || !decision.Available)
             {
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(objective, vessel, decision ?? ExceptionResult(), null, null, redacted), token)).ConfigureAwait(false);
+                    BuildContext(objective, vessel, decision ?? TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
                 return;
             }
 
@@ -367,17 +367,9 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task SafeRecordAsync(Func<Task> record)
+        private Task SafeRecordAsync(Func<Task> record)
         {
-            try
-            {
-                await record().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // Recording is observability only; a recorder failure must never change the preview.
-                _Logging.Warn(_Header + "event record failed: " + ex.Message);
-            }
+            return TypedDecisionRecording.SafeRecordAsync(record, _Logging, _Header);
         }
 
         private static TypedDecisionEventContext BuildContext(
@@ -397,11 +389,6 @@ namespace Armada.Core.Services
                 Result = result,
                 RedactedState = redactedState
             };
-        }
-
-        private static TypedDecisionResult ExceptionResult()
-        {
-            return new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
         }
 
         private static void AddIssue(

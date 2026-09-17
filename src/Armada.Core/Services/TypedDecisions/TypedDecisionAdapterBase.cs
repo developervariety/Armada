@@ -339,17 +339,9 @@ namespace Armada.Core.Services
                 BuildContext(input, ruleVerdict, model, result, redacted), token));
         }
 
-        private async Task SafeRecordAsync(Func<Task> record)
+        private Task SafeRecordAsync(Func<Task> record)
         {
-            try
-            {
-                await record().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // Recording is observability only; a recorder failure must never change the outcome.
-                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' event record failed: " + ex.Message);
-            }
+            return TypedDecisionRecording.SafeRecordAsync(record, _Logging, _Header + "decision '" + DecisionPoint + "' ");
         }
 
         private TypedDecisionEventContext BuildContext(TInput input, TVerdict ruleVerdict, TModel? model, TypedDecisionResult result, string redacted)

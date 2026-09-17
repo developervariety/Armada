@@ -372,16 +372,9 @@ namespace Armada.Core.Services
             };
         }
 
-        private async Task SafeRecordAsync(Func<Task<ArmadaEvent?>> record)
+        private Task SafeRecordAsync(Func<Task> record)
         {
-            try
-            {
-                await record().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "event record failed: " + ex.Message);
-            }
+            return TypedDecisionRecording.SafeRecordAsync(record, _Logging, _Header);
         }
 
         private static void AddIssue(

@@ -180,7 +180,7 @@ namespace Armada.Core.Services
             if (result == null || !result.Available)
             {
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(followUp, "unrouted", null, null, result ?? ExceptionResult(), redacted), token)).ConfigureAwait(false);
+                    BuildContext(followUp, "unrouted", null, null, result ?? TypedDecisionResult.Exception(), redacted), token)).ConfigureAwait(false);
                 return new FollowUpItemOutcome { Available = false };
             }
 
@@ -387,17 +387,9 @@ namespace Armada.Core.Services
             return 0.0;
         }
 
-        private async Task SafeRecordAsync(Func<Task> record)
+        private Task SafeRecordAsync(Func<Task> record)
         {
-            try
-            {
-                await record().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // Recording is observability only; a recorder failure must never change the routing.
-                _Logging.Warn(_Header + "event record failed: " + ex.Message);
-            }
+            return TypedDecisionRecording.SafeRecordAsync(record, _Logging, _Header);
         }
 
         private static TypedDecisionEventContext BuildContext(
@@ -417,11 +409,6 @@ namespace Armada.Core.Services
                 Result = result,
                 RedactedState = redactedState
             };
-        }
-
-        private static TypedDecisionResult ExceptionResult()
-        {
-            return new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
         }
 
         #endregion
