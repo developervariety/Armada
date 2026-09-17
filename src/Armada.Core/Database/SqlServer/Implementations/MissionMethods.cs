@@ -141,8 +141,22 @@ namespace Armada.Core.Database.SqlServer.Implementations
         /// <inheritdoc />
         public async Task<Mission> UpdateAsync(Mission mission, CancellationToken token = default)
         {
+            await UpdateCoreAsync(mission, null, token).ConfigureAwait(false);
+            return mission;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TryUpdateIfStatusAsync(Mission mission, MissionStatusEnum expectedStatus, CancellationToken token = default)
+        {
+            return await UpdateCoreAsync(mission, expectedStatus, token).ConfigureAwait(false) > 0;
+        }
+
+        private async Task<int> UpdateCoreAsync(Mission mission, MissionStatusEnum? expectedStatus, CancellationToken token)
+        {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
+            DateTime previousUpdateUtc = mission.LastUpdateUtc;
             mission.LastUpdateUtc = DateTime.UtcNow;
+            int affected = 0;
 
             using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
             {
@@ -191,7 +205,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         started_utc = @started_utc,
                         completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
-                        WHERE id = @id;";
+                        WHERE id = @id" + (expectedStatus.HasValue ? " AND status = @expected_status" : "") + ";";
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
@@ -237,13 +251,15 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(mission.LastUpdateUtc));
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    if (expectedStatus.HasValue) cmd.Parameters.AddWithValue("@expected_status", expectedStatus.Value.ToString());
+                    affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
-                await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
+                if (affected > 0) await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
             }
 
-            return mission;
+            if (affected == 0) mission.LastUpdateUtc = previousUpdateUtc;
+            return affected;
         }
 
         /// <inheritdoc />

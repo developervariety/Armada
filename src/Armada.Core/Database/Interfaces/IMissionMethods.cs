@@ -58,6 +58,17 @@ namespace Armada.Core.Database.Interfaces
         Task<Mission> UpdateAsync(Mission mission, CancellationToken token = default);
 
         /// <summary>
+        /// Update a mission only while its stored status still equals <paramref name="expectedStatus"/>. A writer that
+        /// loaded the mission earlier uses this so it cannot overwrite a status another writer set in the meantime,
+        /// such as a cancellation.
+        /// </summary>
+        /// <param name="mission">Mission to write.</param>
+        /// <param name="expectedStatus">Status the stored row must still have.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the row was written; false when the stored status had changed and nothing was written.</returns>
+        Task<bool> TryUpdateIfStatusAsync(Mission mission, MissionStatusEnum expectedStatus, CancellationToken token = default);
+
+        /// <summary>
         /// Update the mission heartbeat timestamp without rewriting the full record.
         /// Implementations should also advance the parent voyage LastUpdateUtc when applicable.
         /// </summary>

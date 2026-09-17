@@ -207,6 +207,15 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- A mission cancelled while an assignment pass was working on it stays
+  cancelled. The pass held its own copy of the mission and wrote the whole row
+  back (to record a waiting state, or to roll back a failed provisioning or
+  launch), which turned a voyage cancellation back into Pending so the mission
+  could be dispatched again. Those writes now go through the new
+  `TryUpdateIfStatusAsync`, which writes only while the stored status is still
+  the one the pass saw; if the mission changed after its agent launched, the
+  agent is recalled. This was the intermittent "Cancel Voyage Cancels All
+  Pending Missions" failure.
 - An agent that reads its prompt from standard input (Cursor, OpenCode, Mux) no
   longer receives a UTF-8 byte-order mark before the prompt. The stdin encoding
   was `Encoding.UTF8`, whose preamble `Process.Start` writes at launch; against

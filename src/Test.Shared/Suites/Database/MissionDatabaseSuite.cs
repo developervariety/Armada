@@ -116,6 +116,40 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("mission_try_update_if_status", "Mission_TryUpdateIfStatus_WritesOnlyWhileTheStoredStatusMatches", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+
+                    Mission mission = new Mission("Conditional write");
+                    mission.VesselId = prereqs.Vessel.Id;
+                    mission.VoyageId = prereqs.Voyage.Id;
+                    await db.Missions.CreateAsync(mission);
+
+                    // A writer that loaded the mission while it was Pending.
+                    Mission stale = (await db.Missions.ReadAsync(mission.Id))!;
+
+                    // Another writer cancels it.
+                    Mission cancelled = (await db.Missions.ReadAsync(mission.Id))!;
+                    cancelled.Status = MissionStatusEnum.Cancelled;
+                    await db.Missions.UpdateAsync(cancelled);
+
+                    stale.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
+                    bool staleWritten = await db.Missions.TryUpdateIfStatusAsync(stale, MissionStatusEnum.Pending);
+                    AssertFalse(staleWritten, "a write expecting Pending is refused once the stored status is Cancelled");
+                    Mission? afterStale = await db.Missions.ReadAsync(mission.Id);
+                    AssertEqual(MissionStatusEnum.Cancelled, afterStale!.Status, "the refused write changes nothing");
+                    AssertEqual(MissionAssignmentStateEnum.Pending, afterStale.AssignmentState, "the refused write changes no other column");
+
+                    afterStale.Title = "Written while Cancelled";
+                    bool matchingWritten = await db.Missions.TryUpdateIfStatusAsync(afterStale, MissionStatusEnum.Cancelled);
+                    AssertTrue(matchingWritten, "a write expecting the stored status is applied");
+                    AssertEqual("Written while Cancelled", (await db.Missions.ReadAsync(mission.Id))!.Title);
+                }
+            }));
+
             cases.Add(CaseAsync("mission_update", "Mission_Update", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

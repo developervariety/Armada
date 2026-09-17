@@ -277,6 +277,71 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_MissionCancelledWhileSelectingACaptain_StaysCancelled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+
+                    Vessel vessel = new Vessel("cancel-select-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = new Captain("cancel-select-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Cancelled while selecting") { VesselId = vessel.Id, Status = MissionStatusEnum.Pending }).ConfigureAwait(false);
+
+                    // The voyage cancel lands after the pass loaded the mission and before it records WaitingForIdleCaptain.
+                    CancellingQuarantineService quarantine = new CancellingQuarantineService(new CaptainQuarantineService(testDb.Driver, settings, logging), testDb.Driver, mission.Id);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, captainQuarantine: quarantine, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "a cancelled mission is not assigned");
+                    AssertTrue(quarantine.CancelledMission, "the cancellation landed inside the assignment pass");
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Cancelled, stored!.Status, "the pass must not write its stale Pending copy over the cancellation");
+                }
+            });
+
+            await RunTest("TryAssign_MissionCancelledDuringDockProvisioning_StaysCancelledAndReleasesTheCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("cancel-provision-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = new Captain("cancel-provision-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Cancelled while provisioning") { VesselId = vessel.Id, Status = MissionStatusEnum.Pending }).ConfigureAwait(false);
+
+                    CancelThenThrowDockService dock = new CancelThenThrowDockService(realDock, testDb.Driver, mission.Id);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dock);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "a mission cancelled during provisioning is not assigned");
+                    AssertTrue(dock.CancelledMission, "the cancellation landed during dock provisioning");
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Cancelled, stored!.Status, "the provisioning rollback must not revert the cancellation to Pending");
+                    Captain? released = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, released!.State, "the captain is released");
+                }
+            });
+
             await RunTest("Dispatch_DockProvisioningThrows_ShowsFailedThenRecoversOnRetry", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1609,6 +1674,81 @@ namespace Armada.Test.Unit.Suites.Services
         /// Dock service that throws InvalidOperationException on the first ProvisionAsync call,
         /// then delegates to a real DockService on subsequent calls.
         /// </summary>
+        /// <summary>Cancels one mission the first time a captain's quarantine is checked, then answers "quarantined".</summary>
+        private sealed class CancellingQuarantineService : ICaptainQuarantineService
+        {
+            private readonly ICaptainQuarantineService _Inner;
+            private readonly Armada.Core.Database.DatabaseDriver _Database;
+            private readonly string _MissionId;
+
+            public bool CancelledMission { get; private set; }
+
+            public CancellingQuarantineService(ICaptainQuarantineService inner, Armada.Core.Database.DatabaseDriver database, string missionId)
+            {
+                _Inner = inner;
+                _Database = database;
+                _MissionId = missionId;
+            }
+
+            public bool IsQuarantined(Captain captain)
+            {
+                if (!CancelledMission)
+                {
+                    CancelledMission = true;
+                    CancelMissionAsync(_Database, _MissionId).GetAwaiter().GetResult();
+                }
+                return true;
+            }
+
+            public Task QuarantineAsync(Captain captain, string reason, DateTime? retryAfterUtc, CancellationToken token = default) => _Inner.QuarantineAsync(captain, reason, retryAfterUtc, token);
+            public Task<bool> TryQuarantineCrashLoopAsync(string captainId, string reason, DateTime untilUtc, CancellationToken token = default) => _Inner.TryQuarantineCrashLoopAsync(captainId, reason, untilUtc, token);
+            public Task<CaptainQuarantineResult> QuarantineCaptainAsync(AuthContext auth, string captainId, string? reason, DateTime? untilUtc, CancellationToken token = default) => _Inner.QuarantineCaptainAsync(auth, captainId, reason, untilUtc, token);
+            public Task<CaptainQuarantineResult> ReleaseCaptainAsync(AuthContext auth, string captainId, CancellationToken token = default) => _Inner.ReleaseCaptainAsync(auth, captainId, token);
+            public Task RestoreExpiredQuarantinesAsync(CancellationToken token = default) => _Inner.RestoreExpiredQuarantinesAsync(token);
+            public Task<bool> TryProbeRestoreAsync(Captain captain, CancellationToken token = default) => _Inner.TryProbeRestoreAsync(captain, token);
+        }
+
+        /// <summary>Cancels one mission while its dock is provisioning, then fails the provisioning.</summary>
+        private sealed class CancelThenThrowDockService : IDockService
+        {
+            private readonly IDockService _Inner;
+            private readonly Armada.Core.Database.DatabaseDriver _Database;
+            private readonly string _MissionId;
+
+            public bool CancelledMission { get; private set; }
+
+            public CancelThenThrowDockService(IDockService inner, Armada.Core.Database.DatabaseDriver database, string missionId)
+            {
+                _Inner = inner;
+                _Database = database;
+                _MissionId = missionId;
+            }
+
+            public Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default) => Task.FromResult<string?>(null);
+
+            public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
+            {
+                CancelledMission = true;
+                await CancelMissionAsync(_Database, _MissionId).ConfigureAwait(false);
+                throw new InvalidOperationException("Simulated dock provisioning failure after the mission was cancelled");
+            }
+
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.RepairAsync(dockId, tenantId, token);
+            public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.UnstickAsync(dockId, tenantId, token);
+            public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.DeleteAsync(dockId, tenantId, token);
+            public Task PurgeAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.PurgeAsync(dockId, tenantId, token);
+        }
+
+        /// <summary>Cancel a mission the way the voyage cancel route does: read it and write Cancelled.</summary>
+        private static async Task CancelMissionAsync(Armada.Core.Database.DatabaseDriver database, string missionId)
+        {
+            Mission? current = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+            current!.Status = MissionStatusEnum.Cancelled;
+            current.CompletedUtc = DateTime.UtcNow;
+            await database.Missions.UpdateAsync(current).ConfigureAwait(false);
+        }
+
         private sealed class ThrowOnceThenSucceedDockService : IDockService
         {
             private readonly IDockService _Inner;
