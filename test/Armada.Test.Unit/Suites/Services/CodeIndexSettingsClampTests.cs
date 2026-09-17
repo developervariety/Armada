@@ -5,7 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Tests for the Layer 1/3/5 settings fields added in V2 Index M1: clamp ranges,
+    /// Tests for the Layer 1/3/5 settings fields added in the V2 index work: clamp ranges,
     /// null-string coalescing, and configured defaults.
     /// </summary>
     public class CodeIndexSettingsClampTests : TestSuite

@@ -104,6 +104,11 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- `docs/TYPED_DECISIONS.md` describes the captain-facing MCP tools the server actually registers, instead of a
+  stale count and a short helper list. The paragraph now names `armada_change_quality` and its `change_quality`
+  decision and `armada_run_custom_decision`, says which tools are caller-scoped and which needs an administrator
+  caller, and names each helper's decision beside the tool rather than in a separate trailing sentence.
+
 - The typed-decision captain tools (`armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`,
   `armada_memory_triage`, `armada_change_quality`) no longer cap calls per mission. The
   `typedDecisions.captainTool.maxCallsPerMission` setting, the `budget_exhausted` result, and the `callsUsed` and
@@ -291,6 +296,16 @@ All notable changes to Armada are documented in this file.
   without them the typed-decision client is not called.
 - A shipped typed decision that is missing from a stored
   `typedDecisions.decisions` map now runs at its shipped mode instead of `Off`.
+
+### Fixed
+
+- `armada_run_custom_decision` is now mission-scoped like the other captain typed-decision tools. It was registered
+  as a captain tool and documented as the `CaptainTool` surface's entry point, but was missing from the caller-scoped
+  MCP list, so a captain on a non-administrator token could neither list nor call it. Running a custom decision stays
+  advisory — a fixed non-approving binding, redacted state, one event per call — while creating or editing one
+  remains a settings write only an administrator may make. The class comment on the captain tools no longer says the
+  tool ships disabled; `typedDecisions.captainTool.enabled` has defaulted to true since the tools were enabled by
+  default.
 
 ### Added
 

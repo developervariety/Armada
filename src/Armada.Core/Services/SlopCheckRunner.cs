@@ -8,6 +8,7 @@ namespace Armada.Core.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -35,6 +36,7 @@ namespace Armada.Core.Services
         private const string _Header = "[SlopCheckRunner] ";
         private static readonly TimeSpan _GitTimeout = TimeSpan.FromMinutes(5);
         private readonly LoggingModule? _Logging;
+        private readonly Func<IReadOnlyList<BannedDiffPatternRule>>? _BannedDiffPatterns;
 
         #endregion
 
@@ -44,9 +46,13 @@ namespace Armada.Core.Services
         /// Instantiate.
         /// </summary>
         /// <param name="logging">Optional logging module.</param>
-        public SlopCheckRunner(LoggingModule? logging = null)
+        /// <param name="bannedDiffPatterns">Optional accessor for the operator-configured banned-diff
+        /// patterns, read on each run so a settings change takes effect without a restart. Null or an
+        /// empty list means no banned-diff guard.</param>
+        public SlopCheckRunner(LoggingModule? logging = null, Func<IReadOnlyList<BannedDiffPatternRule>>? bannedDiffPatterns = null)
         {
             _Logging = logging;
+            _BannedDiffPatterns = bannedDiffPatterns;
         }
 
         #endregion
@@ -110,6 +116,25 @@ namespace Armada.Core.Services
                 "-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "-U3", reviewBase, head).ConfigureAwait(false);
             if (diff.ExitCode != 0)
                 return SlopCheckOutcome.Failure("The Slop check could not read the reviewed diff " + Abbreviate(reviewBase) + ".." + Abbreviate(head) + ": " + diff.Describe() + " Nothing was examined.");
+
+            // The operator-configured banned-diff guard runs before the slop reading and is not
+            // suppressible: a change whose added lines match a configured banned pattern fails the
+            // check. The pattern list is empty by default, so this is a no-op until a deployment
+            // configures one; the product carries the mechanism and never a deployment's domain.
+            IReadOnlyList<BannedDiffPatternRule>? bannedRules = _BannedDiffPatterns?.Invoke();
+            if (bannedRules != null && bannedRules.Count > 0)
+            {
+                BannedDiffPatternResult banned = BannedDiffPatternClassifier.Classify(diff.StdOut, bannedRules);
+                if (banned.HasBanned)
+                {
+                    StringBuilder bannedReport = new StringBuilder();
+                    bannedReport.AppendLine("Banned-diff guard FAILED: the reviewed diff " + Abbreviate(reviewBase) + ".." + Abbreviate(head)
+                        + " adds a line matching a configured banned pattern.");
+                    bannedReport.AppendLine();
+                    bannedReport.Append(BannedDiffPatternClassifier.FormatFindings(banned));
+                    return SlopCheckOutcome.Failure(bannedReport.ToString());
+                }
+            }
 
             GitResult packages = await RunGitAsync(repoPath, token, "show", head + ":Directory.Packages.props").ConfigureAwait(false);
             bool centralPackageManagement = packages.ExitCode == 0 && SlopDiffClassifier.IsCentralPackageManagementEnabled(packages.StdOut);

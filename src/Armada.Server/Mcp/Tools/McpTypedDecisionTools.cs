@@ -15,13 +15,18 @@ namespace Armada.Server.Mcp.Tools
 
     /// <summary>
     /// Registers the captain-facing typed-decision tools: the general <c>armada_typed_decision</c>
-    /// tool and the pre-shaped helpers <c>armada_check_premise</c> (D9),
-    /// <c>armada_memory_triage</c> (D23 seam A) and <c>armada_corpus_prelabel</c> (D14). The system is offered to captains directly, but
-    /// authority does not travel with it: every call redacts its state before egress, writes exactly one
-    /// <c>typed_decision.captain</c> event carrying only a state hash and byte count, and has NO side
-    /// effect on any Armada record. The tool never dispatches, lands, Mails, edits an objective, or
-    /// writes memory. It returns typed answers, or an <c>unavailable</c> result the captain treats as
-    /// "decide it yourself" — which is the default, since the tool ships disabled.
+    /// tool, the pre-shaped helpers <c>armada_check_premise</c>, <c>armada_memory_triage</c>,
+    /// <c>armada_check_prior_art</c>, <c>armada_change_quality</c> and
+    /// <c>armada_corpus_prelabel</c>, and
+    /// <c>armada_run_custom_decision</c>, which runs a decision an operator defined. Every tool here
+    /// is mission-scoped: a non-administrator mission caller may list and call it. The system is
+    /// offered to captains directly, but authority does not travel with it: every call redacts its
+    /// state before egress, writes exactly one event carrying only a state hash and byte count, and
+    /// has NO side effect on any Armada record. The tools never dispatch, land, Mail, edit an
+    /// objective, or write memory. Each returns typed answers, or an <c>unavailable</c> result the
+    /// captain treats as "decide it yourself". The tools are enabled by default
+    /// (<c>typedDecisions.captainTool.enabled</c> is true); an operator setting it false makes every
+    /// call return <c>unavailable</c>, and a decision that is Off does the same for its own tool.
     /// </summary>
     public static class McpTypedDecisionTools
     {
@@ -30,13 +35,13 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Registered name of the general typed-decision tool.</summary>
         public const string TypedDecisionToolName = "armada_typed_decision";
 
-        /// <summary>Registered name of the D9 premise-check helper.</summary>
+        /// <summary>Registered name of the premise-check helper.</summary>
         public const string CheckPremiseToolName = "armada_check_premise";
 
-        /// <summary>Registered name of the D23a memory-triage helper.</summary>
+        /// <summary>Registered name of the memory-triage helper.</summary>
         public const string MemoryTriageToolName = "armada_memory_triage";
 
-        /// <summary>Registered name of the D26 prior-art premise helper.</summary>
+        /// <summary>Registered name of the prior-art premise helper.</summary>
         public const string CheckPriorArtToolName = "armada_check_prior_art";
 
         /// <summary>Registered name of the captain-facing change-quality review tool.</summary>
