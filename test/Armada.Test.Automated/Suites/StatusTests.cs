@@ -30,6 +30,7 @@ namespace Armada.Test.Automated.Suites
 
         private HttpClient _AuthClient;
         private HttpClient _UnauthClient;
+        private string _SettingsFilePath;
 
         #endregion
 
@@ -38,10 +39,17 @@ namespace Armada.Test.Automated.Suites
         /// <summary>
         /// Create a new StatusTests suite with shared HTTP clients.
         /// </summary>
-        public StatusTests(HttpClient authClient, HttpClient unauthClient)
+        /// <param name="authClient">Authenticated client.</param>
+        /// <param name="unauthClient">Unauthenticated client.</param>
+        /// <param name="settingsFilePath">Settings file the harness server is bound to. The persistence
+        /// assertion reads this file; reading the machine-wide default would assert on the host operator's
+        /// live settings, which the harness must neither read nor write.</param>
+        public StatusTests(HttpClient authClient, HttpClient unauthClient, string settingsFilePath)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
+            if (String.IsNullOrWhiteSpace(settingsFilePath)) throw new ArgumentNullException(nameof(settingsFilePath));
+            _SettingsFilePath = settingsFilePath;
         }
 
         #endregion
@@ -332,7 +340,7 @@ namespace Armada.Test.Automated.Suites
                     JsonElement flake = FindDecision(await ReadTypedDecisionsAsync().ConfigureAwait(false), "flake_score");
                     AssertEqual("Shadow", Prop(flake, "mode").GetString());
                     AssertEqual(0.7, Prop(flake, "threshold").GetDouble());
-                    Armada.Core.Settings.ArmadaSettings saved = await Armada.Core.Settings.ArmadaSettings.LoadAsync(Armada.Core.Settings.ArmadaSettings.DefaultSettingsPath).ConfigureAwait(false);
+                    Armada.Core.Settings.ArmadaSettings saved = await Armada.Core.Settings.ArmadaSettings.LoadAsync(_SettingsFilePath).ConfigureAwait(false);
                     AssertEqual(Armada.Core.Enums.TypedDecisionModeEnum.Shadow, saved.TypedDecisions.Decisions["flake_score"].Mode, "the update is saved through the settings file");
                 }
                 finally

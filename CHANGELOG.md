@@ -231,6 +231,25 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- The shared test runner (`src/Test.Automated`) redirects the default data directory to a per-run temp
+  root as its first statement, as the unit and automated runners already did. It was the one runner
+  without the redirect, so it alone resolved every default path -- settings, repos, docks, logs -- under
+  the live Armada home: its in-process servers watched the host operator's real `settings.json`, and one
+  end-to-end case asserted on it. `E2E.HarnessIsolation` now fails if that redirect is lost.
+- The Admiral now watches and writes the settings file its own settings are bound to
+  (`ArmadaSettings.SettingsFilePath`, default `~/.armada/settings.json`) rather than the machine-wide path.
+  Every server watched that one path, so a second server on the same host adopted the host operator's live
+  settings the moment anything rewrote that file. In a test run that replaced the harness's fleet capacity
+  limits with the operator's mid-run, and the shared suite's later mission creates were refused with
+  `fleet_capacity_reached`; the same path let a test process write the operator's settings file. Both test
+  harnesses and the in-process server unit test now bind their settings to their own temp file.
+- A refused MCP tool result in the shared end-to-end suites now fails naming the tool and the refusal
+  (`McpToolResults.RequireSuccess`). A refusal answers with a result object, so the seeding helpers
+  deserialized it as the entity and carried a blank id forward; the run then reported "Mission not found"
+  on every case that seeds a mission and never showed the one refusal that caused them.
+- The shared `E2E.McpTool` suite cancels its active missions and voyages after every case, as the mission
+  and voyage suites already do, so it no longer depends on fleet capacity outliving the whole suite or on
+  where a case sits in the order.
 - `armada_run_custom_decision` is now mission-scoped like the other captain typed-decision tools. It was registered
   as a captain tool and documented as the `CaptainTool` surface's entry point, but was missing from the caller-scoped
   MCP list, so a captain on a non-administrator token could neither list nor call it. Running a custom decision stays

@@ -75,6 +75,20 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         public string TempDir { get; private set; } = "";
 
+        /// <summary>
+        /// The live settings instance the server reads. The settings-file watcher mutates it in place, so a
+        /// test can assert what a settings-file edit actually reached.
+        /// </summary>
+        public ArmadaSettings Settings { get; private set; } = null!;
+
+        /// <summary>
+        /// The settings file this server is bound to: the file it watches and the only one it writes.
+        /// </summary>
+        public string SettingsFilePath
+        {
+            get { return Settings.SettingsFilePath; }
+        }
+
         #endregion
 
         #region Private-Members
@@ -228,21 +242,30 @@ namespace Test.Shared.Infrastructure
             if (suiteKey == null) throw new ArgumentNullException(nameof(suiteKey));
             E2EServerFixture? current = _Current;
             if (current == null || !ReferenceEquals(_CurrentKey, suiteKey)) return;
+            await current.CancelActiveWorkAsync().ConfigureAwait(false);
+        }
 
+        /// <summary>
+        /// Cancel every active voyage and mission on this server, whoever owns it. Every refused
+        /// cancellation is reported, never swallowed.
+        /// </summary>
+        /// <returns>Task.</returns>
+        public async Task CancelActiveWorkAsync()
+        {
             List<string> refused = new List<string>();
 
-            foreach (Voyage voyage in await EnumerateAllAsync<Voyage>(current.AuthClient, "/api/v1/voyages/enumerate").ConfigureAwait(false))
+            foreach (Voyage voyage in await EnumerateAllAsync<Voyage>(AuthClient, "/api/v1/voyages/enumerate").ConfigureAwait(false))
             {
                 if (voyage.Status != VoyageStatusEnum.Open && voyage.Status != VoyageStatusEnum.InProgress) continue;
-                HttpResponseMessage response = await current.AuthClient.DeleteAsync("/api/v1/voyages/" + voyage.Id).ConfigureAwait(false);
+                HttpResponseMessage response = await AuthClient.DeleteAsync("/api/v1/voyages/" + voyage.Id).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
                     refused.Add(voyage.Id + " (" + (int)response.StatusCode + ")");
             }
 
-            foreach (Mission mission in await EnumerateAllAsync<Mission>(current.AuthClient, "/api/v1/missions/enumerate").ConfigureAwait(false))
+            foreach (Mission mission in await EnumerateAllAsync<Mission>(AuthClient, "/api/v1/missions/enumerate").ConfigureAwait(false))
             {
                 if (!IsActiveMissionStatus(mission.Status)) continue;
-                HttpResponseMessage response = await current.AuthClient.DeleteAsync("/api/v1/missions/" + mission.Id).ConfigureAwait(false);
+                HttpResponseMessage response = await AuthClient.DeleteAsync("/api/v1/missions/" + mission.Id).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
                     refused.Add(mission.Id + " (" + (int)response.StatusCode + ")");
             }
@@ -312,6 +335,12 @@ namespace Test.Shared.Infrastructure
             settings.McpPort = McpPort;
             settings.ApiKey = ApiKey;
             settings.HeartbeatIntervalSeconds = 300;
+            // Bind this server's settings to its own temp file. The server watches its settings file and
+            // hot-reloads the runtime-tunable values from it, so a server left on the machine-wide default
+            // adopts the host operator's live settings the moment anything rewrites that file -- including
+            // its fleet capacity limits, which then refuse a suite's later mission creates. It also keeps a
+            // test run from writing the operator's settings file.
+            settings.SettingsFilePath = Path.Combine(TempDir, "settings.json");
             // CRUD and paging suites retain a bounded corpus of active rows until suite cleanup, so the
             // production fleet capacity limits (one active work unit) would refuse their second mission
             // with 409. Dedicated admission suites exercise those limits separately. Matches the legacy
@@ -326,6 +355,7 @@ namespace Test.Shared.Infrastructure
             settings.Rest.Hostname = "127.0.0.1";
             configure?.Invoke(settings);
             settings.InitializeDirectories();
+            Settings = settings;
 
             // Pre-seed the server's database from the shared migrated-and-seeded template so the server's
             // InitializeAsync finds the schema already at the current version and skips the full migration

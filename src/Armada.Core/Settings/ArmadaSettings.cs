@@ -857,6 +857,19 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Path of the settings file this instance is bound to. The settings-file watcher reads it and the
+        /// one-time tier-record migration writes it, so a process that gives its settings their own path
+        /// neither reacts to nor overwrites another process's settings file. Blank restores the default.
+        /// Bound at startup and excluded from hot reload, like the other path settings.
+        /// </summary>
+        [JsonIgnore]
+        public string SettingsFilePath
+        {
+            get => _SettingsFilePath;
+            set => _SettingsFilePath = String.IsNullOrWhiteSpace(value) ? DefaultSettingsPath : value;
+        }
+
+        /// <summary>
         /// Autonomous objective scheduler settings.
         /// </summary>
         public AutonomousObjectiveSchedulerSettings AutonomousObjectiveScheduler
@@ -990,6 +1003,7 @@ namespace Armada.Core.Settings
         private VoyageCheckArmingSettings _VoyageCheckArming = new VoyageCheckArmingSettings();
         private DiskLifecycleSettings _DiskLifecycle = new DiskLifecycleSettings();
         private TelemetrySettings _Telemetry = new TelemetrySettings();
+        private string _SettingsFilePath = DefaultSettingsPath;
         private bool _DatabasePathConfigured = false;
 
         #endregion
@@ -1156,11 +1170,12 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Save settings to a JSON file.
         /// </summary>
-        /// <param name="path">File path. Defaults to ~/.armada/settings.json.</param>
+        /// <param name="path">File path. Defaults to <see cref="SettingsFilePath"/>, the file this
+        /// instance is bound to, so a process never writes another process's settings file.</param>
         public async Task SaveAsync(string? path = null)
         {
             NormalizePaths();
-            path ??= DefaultSettingsPath;
+            path ??= SettingsFilePath;
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string json = JsonSerializer.Serialize(this, _SerializerOptions);
             await File.WriteAllTextAsync(path, json).ConfigureAwait(false);
@@ -1177,12 +1192,16 @@ namespace Armada.Core.Settings
             if (!File.Exists(path))
             {
                 ArmadaSettings defaults = new ArmadaSettings();
+                defaults.SettingsFilePath = path;
                 defaults.NormalizePaths();
                 return defaults;
             }
             string json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
             ArmadaSettings? settings = JsonSerializer.Deserialize<ArmadaSettings>(json, _SerializerOptions);
             settings ??= new ArmadaSettings();
+            // Bind the instance to the file it came from, so a later save, watch, or migration acts on that
+            // file rather than on the default one.
+            settings.SettingsFilePath = path;
             settings.NormalizePaths();
             return settings;
         }

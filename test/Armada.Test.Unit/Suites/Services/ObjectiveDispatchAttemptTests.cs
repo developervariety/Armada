@@ -92,6 +92,9 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 settings.Rest.Hostname = "127.0.0.1";
                 settings.AutonomousObjectiveScheduler.Enabled = false;
+                // Bind this server's settings to its own temp file: the server watches its settings file,
+                // so the machine-wide default would let the host operator's live settings reach this test.
+                settings.SettingsFilePath = Path.Combine(tempDir, "settings.json");
                 settings.InitializeDirectories();
                 SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
                 logging.Settings.EnableConsole = false;

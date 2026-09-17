@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Test.Shared\Test.Shared.csproj" />
+    <!-- For TestDataDirectory: the one copy of the live-Armada-home redirect the other runners use. -->
+    <ProjectReference Include="..\..\test\Armada.Test.Common\Armada.Test.Common.csproj" />
   </ItemGroup>
 
 </Project>

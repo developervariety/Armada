@@ -4,6 +4,7 @@ namespace Test.Automated
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading.Tasks;
+    using Armada.Test.Common;
     using Test.Shared;
     using Test.Shared.Infrastructure;
     using Touchstone.Cli;
@@ -35,6 +36,14 @@ namespace Test.Automated
         /// <returns>Process exit code: 0 when all tests pass, non-zero otherwise.</returns>
         public static async Task<int> Main(string[] args)
         {
+            // FIRST statement: point the default data directory at a per-run temp path. The unit and
+            // automated runners already do this. Without it this runner alone resolves the default
+            // settings, repos, docks and logs under the live Armada home, so an in-process server watches
+            // and can write the host operator's settings.json -- and adopts the operator's live limits
+            // (including fleet capacity) whenever anything rewrites that file mid-run.
+            TestDataDirectory.Redirect();
+            TestDataDirectory.Verify();
+
             string? resultsPath = null;
             TestProcessEnvironment.RemoveProviderVariablesAndReport();
             // Test repositories are short-lived, so git auto maintenance after commits is start-up cost only.
