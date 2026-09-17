@@ -152,6 +152,13 @@ All notable changes to Armada are documented in this file.
 - Typed decisions never read a noul answer's confidence as its probability. The provider returns a noul with no
   confidence; five adapters fell back to confidence and could merge, nominate, flag, link, or mark a default safe on a
   confident answer that carried no probability.
+- The context-index chunk-metadata sidecar can live at a stable path outside the
+  git checkout, set by `contextRetrieval.chunkMetadataPath`. When set, the index
+  generator loads the must_retrieve safety leaves and read_when triggers from that
+  path instead of the default `<docs root>/context-index/chunk-metadata.json`, so
+  the operator-local sidecar is not lost to a `git clean` of the checkout. A
+  scrubbed `docs/context-index/chunk-metadata.example.json` documents the format.
+
 - A native-runtime captain (Claude Code, Codex, and the other CLI runtimes) can
   reference a registered inference model endpoint. When a captain has a model
   endpoint id, the launch resolves the endpoint’s base URL, key, and model onto

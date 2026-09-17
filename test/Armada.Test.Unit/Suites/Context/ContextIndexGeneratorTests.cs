@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Context
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Context;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
 
     /// <summary>
@@ -28,6 +29,15 @@ namespace Armada.Test.Unit.Suites.Context
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ContextRetrievalSettings_CopyFrom_CopiesChunkMetadataPath", () =>
+            {
+                ContextRetrievalSettings source = new ContextRetrievalSettings { ChunkMetadataPath = "/srv/x/context-sidecar/chunk-metadata.json" };
+                ContextRetrievalSettings target = new ContextRetrievalSettings();
+                target.CopyFrom(source);
+                AssertEqual("/srv/x/context-sidecar/chunk-metadata.json", target.ChunkMetadataPath!);
+                return Task.CompletedTask;
+            });
+
             await RunTest("FrontMatter_Parse_ReadsAllFields", () =>
             {
                 string doc = "---\n" +

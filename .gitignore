@@ -21,5 +21,6 @@ node_modules/
 
 # Operator-local context-index sidecar/reports and weekly baselines.
 # Real content lives on the server at runtime and can name real vessels; never commit it.
-docs/context-index/
+docs/context-index/*
+!docs/context-index/chunk-metadata.example.json
 docs/baselines/

@@ -911,7 +911,7 @@ namespace Armada.Server
             {
                 string? docsRoot = ResolveDocsRoot();
                 Armada.Core.Context.ContextIndexGenerator generator = new Armada.Core.Context.ContextIndexGenerator(_Logging);
-                Armada.Core.Context.ContextIndex index = generator.Build(_Settings.AiMemoryRoot, docsRoot);
+                Armada.Core.Context.ContextIndex index = generator.Build(_Settings.AiMemoryRoot, docsRoot, _Settings.ContextRetrieval.ChunkMetadataPath);
                 Armada.Core.Context.ContextRetrievalService service =
                     new Armada.Core.Context.ContextRetrievalService(index.Chunks, null, _Logging);
                 _Logging.Info(_Header + "context retrieval service built: core=" + service.CoreCount +
@@ -938,7 +938,7 @@ namespace Armada.Server
                 string outputDirectory = Path.Combine(_Settings.DataDirectory, "context-index");
                 string? docsRoot = ResolveDocsRoot();
                 ContextIndexGenerator generator = new ContextIndexGenerator(_Logging);
-                ContextIndexGenerationSummary summary = generator.Generate(_Settings.AiMemoryRoot, docsRoot, outputDirectory);
+                ContextIndexGenerationSummary summary = generator.Generate(_Settings.AiMemoryRoot, docsRoot, outputDirectory, _Settings.ContextRetrieval.ChunkMetadataPath);
 
                 _Logging.Info(_Header + "context index generated: chunks=" + summary.ChunkCount +
                     " core=" + summary.CoreCount + " core_bytes=" + summary.CoreBundleBytes +
