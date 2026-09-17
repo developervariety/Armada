@@ -985,13 +985,116 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(entries.Objects[0].TenantId, "Differing mission and vessel tenants must leave the entry tenant unset");
                 }
             });
+
+            // === D7 leak_hunk advisory pass on the landing gate ===
+
+            await RunTest("Landing gate advisory leak flag does not hold the landing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    // The model reads the hunk as a leak at high confidence. The deterministic scan is
+                    // clean, so the landing still proceeds and only an advisory flag is raised.
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(LeakAnswer(0.97, "operator_note"));
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings, BuildLeakHunkAdapter(testDb, client));
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, null, null);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, CleanHunkDiff()).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? landed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(landed, "The mission still exists");
+                    AssertFalse(landed!.Status == MissionStatusEnum.Failed, "An advisory flag must never fail the mission");
+                    EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                        new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                    AssertEqual(1, entries.Objects.Count, "A flagged but deterministically clean mission still lands");
+                    AssertTrue(client.CallCount >= 1, "The landing gate consults the advisory pass");
+                    EnumerationResult<ArmadaEvent> gated = await testDb.Driver.Events.EnumerateAsync(
+                        new EnumerationQuery { EventType = TypedDecisionRecorder.EventTypeGated, PageNumber = 1, PageSize = 50 }).ConfigureAwait(false);
+                    AssertTrue(gated.Objects.Count >= 1, "The gated flag is recorded on the landing path");
+                }
+            });
+
+            await RunTest("Landing gate deterministic finding survives a clean model answer", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+
+                    // The model reads the hunk as ordinary product content. The deterministic finding on
+                    // the protected path is never demoted, so the landing still fails.
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(LeakAnswer(0.0, "none"));
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings, BuildLeakHunkAdapter(testDb, client));
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, null, null);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, ProtectedPathDiff()).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? blocked = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(blocked, "The mission still exists");
+                    AssertEqual(MissionStatusEnum.Failed, blocked!.Status, "A deterministic finding still fails the landing");
+                    AssertTrue(!String.IsNullOrEmpty(blocked.FailureReason), "The deterministic failure reason stands");
+                    EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                        new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                    AssertEqual(0, entries.Objects.Count, "A blocked mission never reaches the merge queue");
+                }
+            });
         }
 
-        private MissionLandingHandler CreateScopeHandler(TestDatabase testDb, StubGitService git, LoggingModule logging, ArmadaSettings settings)
+        private static LeakHunkAdapter BuildLeakHunkAdapter(TestDatabase testDb, FakeTypedDecisionClient client)
+        {
+            TypedDecisionSettings typed = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
+            typed.Decisions["leak_hunk"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 };
+            return new LeakHunkAdapter(client, new TypedDecisionRecorder(testDb.Driver, new LoggingModule()), typed, new LoggingModule());
+        }
+
+        private static TypedDecisionResult LeakAnswer(double leaks, string kind)
+        {
+            Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+            {
+                ["leaks_private_context"] = new TypedAnswer { Type = "noul", Noul = leaks },
+                ["leak_kind"] = new TypedAnswer { Type = "choice", Choice = kind, Confidence = leaks }
+            };
+            return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
+        }
+
+        private static string CleanHunkDiff()
+        {
+            return "diff --git a/src/Example/Widget.cs b/src/Example/Widget.cs\n"
+                + "--- a/src/Example/Widget.cs\n"
+                + "+++ b/src/Example/Widget.cs\n"
+                + "@@ -1,1 +1,2 @@\n"
+                + " public class Widget\n"
+                + "+    private int _Counter;\n";
+        }
+
+        private static string ProtectedPathDiff()
+        {
+            return "diff --git a/CLAUDE.md b/CLAUDE.md\n"
+                + "--- a/CLAUDE.md\n"
+                + "+++ b/CLAUDE.md\n"
+                + "@@ -1,1 +1,2 @@\n"
+                + " # Rules\n"
+                + "+A new rule line.\n";
+        }
+
+        private MissionLandingHandler CreateScopeHandler(
+            TestDatabase testDb,
+            StubGitService git,
+            LoggingModule logging,
+            ArmadaSettings settings,
+            LeakHunkAdapter? leakHunkAdapter = null)
         {
             IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
             ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
-            return new MissionLandingHandler(
+            MissionLandingHandler handler = new MissionLandingHandler(
                 logging,
                 testDb.Driver,
                 settings,
@@ -1006,6 +1109,8 @@ namespace Armada.Test.Unit.Suites.Services
                 dockService,
                 new NoOpRemoteTriggerService(),
                 null);
+            if (leakHunkAdapter != null) handler.SetLeakHunkAdapter(leakHunkAdapter);
+            return handler;
         }
 
         private static async Task<Mission> OwnMissionAsync(TestDatabase testDb, Mission mission, string diffSnapshot)

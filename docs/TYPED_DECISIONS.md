@@ -166,8 +166,9 @@ build failure.
 One decision point runs behind the deterministic dock-boundary scanner:
 
 - `leak_hunk` (D7, ships `Gate` at `0.90`) is an ADVISORY per-hunk leak
-  classifier that runs BEHIND the deterministic dock-boundary scanner, on the
-  merge-queue integration scan and on the pre-land mission scan. The scanner runs
+  classifier that runs BEHIND the deterministic dock-boundary scanner, at all
+  three of its gates: the merge-queue integration scan, the pre-land mission
+  scan, and the landing handler's gate. The scanner runs
   first and unconditionally and decides the block on its own; this pass then reads
   the added hunks of the same diff and asks one Noul (`leaks_private_context`)
   plus an advisory Choice (`leak_kind`: `operator_note`, `customer_detail`,

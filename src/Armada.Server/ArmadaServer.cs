@@ -748,6 +748,7 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.LeakHunkAdapter = leakHunkAdapter;
                 ((MergeQueueService)_MergeQueue).SetLeakHunkAdapter(leakHunkAdapter);
+                _MissionLanding.SetLeakHunkAdapter(leakHunkAdapter);
 
                 // D26 prior_art. One adapter over a deterministic retriever feeds two admiral seams: the
                 // dispatch preflight (already_done / integrate / uncertain-band analyst issues) and the

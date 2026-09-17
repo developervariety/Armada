@@ -9,8 +9,8 @@ All notable changes to Armada are documented in this file.
 ### Added
 
 - The `leak_hunk` typed decision (D7) is now wired: an ADVISORY per-hunk leak classifier that runs BEHIND the
-  deterministic dock-boundary scanner, on the merge-queue integration scan and on the pre-land mission scan. The
-  scanner runs first and unconditionally and decides the block alone; the model pass then reads the added hunks of
+  deterministic dock-boundary scanner, at all three of its gates: the merge-queue integration scan, the pre-land
+  mission scan, and the landing handler's gate. The scanner runs first and unconditionally and decides the block alone; the model pass then reads the added hunks of
   the same diff and asks one Noul (`leaks_private_context`) plus an advisory Choice (`leak_kind`). At or above the
   threshold it attaches a `leak_hunk_flag` advisory flag naming the file and the suspected class. It never fails a
   scan, a merge entry or a mission, and no answer at any confidence softens a deterministic finding, so a clean scan
