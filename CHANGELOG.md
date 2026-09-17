@@ -56,6 +56,7 @@ All notable changes to Armada are documented in this file.
   kept on the host, prints the combined summary, and exits non-zero on any failure. The host and scratch directory
   come from the arguments or `ARMADA_GATE_SSH_HOST` / `ARMADA_GATE_SCRATCH_DIR`; it refuses to run while tracked files
   have uncommitted changes. A Linux host is now the recommended gate host (`docs/TESTING.md`, "Gate Host").
+  `run-tests.sh` accepts `ARMADA_TEST_LOG_DIR` to write the runner logs to a named directory, which it never deletes.
 - Test hosts (unit, automated, runtimes and shared) turn off git auto maintenance, auto gc and `receive.autogc` for
   every git process they start, including the production code under test and the receiving side of a push to a
   file-path remote, through `GIT_CONFIG_COUNT` entries plus a generated `GIT_CONFIG_SYSTEM` file that includes the

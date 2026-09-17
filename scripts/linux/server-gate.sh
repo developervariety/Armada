@@ -126,7 +126,8 @@ fi
 
 run_gate() {
   if [ ! -d "$worktree/.git" ]; then
-    git clone -q --no-checkout "$repo" "$worktree" || { echo "RESULT: FAIL (clone)"; return 1; }
+    # The gate refs are not branches, so a clone would see an empty repository; add the remote instead.
+    { git init -q "$worktree" && git -C "$worktree" remote add origin "$repo"; } || { echo "RESULT: FAIL (worktree init)"; return 1; }
   fi
   cd "$worktree" || return 1
   git fetch -q origin "refs/gate/$sha:refs/gate/$sha" || { echo "RESULT: FAIL (fetch)"; return 1; }
@@ -147,7 +148,7 @@ run_gate() {
 
   declare -a gate_args=()
   if [ -n "$shards" ]; then gate_args=(--shards "$shards"); fi
-  ARMADA_TEST_KEEP_LOGS=1 scripts/common/run-tests.sh "${gate_args[@]}" > "$logs/run-tests.log" 2>&1
+  ARMADA_TEST_KEEP_LOGS=1 ARMADA_TEST_LOG_DIR="$logs/runners" scripts/common/run-tests.sh "${gate_args[@]}" > "$logs/run-tests.log" 2>&1
   status=$?
   cat "$logs/run-tests.log"
   echo "Gate logs: $logs"

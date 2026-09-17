@@ -18,6 +18,8 @@
 #                                                  # unit as a single process
 #   ARMADA_TEST_KEEP_LOGS=1 scripts/common/run-tests.sh
 #                                                  # keep the log directory on PASS (for shard weights)
+#   ARMADA_TEST_LOG_DIR=<dir> scripts/common/run-tests.sh
+#                                                  # write the per-runner logs to <dir> instead of a temp directory
 #
 # The full gate for a commit runs on a Linux host through scripts/linux/server-gate.sh, which builds the
 # commit in a scratch worktree there and runs this script (see docs/TESTING.md, "Gate Host"). Run this
@@ -38,7 +40,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 FRAMEWORK="${ARMADA_TEST_FRAMEWORK:-net10.0}"
-LOG_DIR="$(mktemp -d)"
+# ARMADA_TEST_LOG_DIR names the directory for the per-runner logs (created when absent); default: a new temp directory.
+if [ -n "${ARMADA_TEST_LOG_DIR:-}" ]; then
+  LOG_DIR="$ARMADA_TEST_LOG_DIR"
+  mkdir -p "$LOG_DIR"
+  LOG_DIR_OWNED=0
+else
+  LOG_DIR="$(mktemp -d)"
+  LOG_DIR_OWNED=1
+fi
 
 declare -a SUITE_NAMES=(unit automated runtimes shared)
 declare -a SUITE_PROJECTS=(
@@ -254,7 +264,8 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 echo "RESULT: PASS"
-if [ -n "${ARMADA_TEST_KEEP_LOGS:-}" ]; then
+# A log directory the caller named is never deleted.
+if [ -n "${ARMADA_TEST_KEEP_LOGS:-}" ] || [ "$LOG_DIR_OWNED" -eq 0 ]; then
   echo "Full output: $LOG_DIR"
 else
   rm -rf "$LOG_DIR"

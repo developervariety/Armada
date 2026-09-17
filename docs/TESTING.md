@@ -37,7 +37,7 @@ ARMADA_TEST_UNIT_SHARDS=1 scripts/macos/run-tests.sh    # unit as one process
 scripts/macos/run-tests.sh unit --suite "Git Service"   # one runner with its own arguments, never sharded
 ```
 
-The script prints one summary line per process, the summed unit totals, and one combined `RESULT: PASS` or `RESULT: FAIL`. It fails when any process exits non-zero or prints no `Total:` line. For the unit shards it also fails when a shard's last `RESULT:` line is not `PASS`, when fewer shards summarised than were started, or when the per-shard suite counts do not add up to the registered suite count. A shard that crashed or executed nothing therefore fails the gate. The logs stay in the printed directory on failure, and on success when `ARMADA_TEST_KEEP_LOGS` is set. The script unsets `ANTHROPIC_*` for every child. When `ARMADA_TEST_RESULTS_DIRECTORY` is set, the unit runner runs as one process, because a results manifest is keyed by executable.
+The script prints one summary line per process, the summed unit totals, and one combined `RESULT: PASS` or `RESULT: FAIL`. It fails when any process exits non-zero or prints no `Total:` line. For the unit shards it also fails when a shard's last `RESULT:` line is not `PASS`, when fewer shards summarised than were started, or when the per-shard suite counts do not add up to the registered suite count. A shard that crashed or executed nothing therefore fails the gate. The logs stay in the printed directory on failure, and on success when `ARMADA_TEST_KEEP_LOGS` is set. `ARMADA_TEST_LOG_DIR` names the log directory instead of a new temp directory; a directory named that way is never deleted. The script unsets `ANTHROPIC_*` for every child. When `ARMADA_TEST_RESULTS_DIRECTORY` is set, the unit runner runs as one process, because a results manifest is keyed by executable.
 
 Use the script locally for quick runs of one runner or one suite. The full gate runs on a Linux host; see [Gate Host](#gate-host).
 
@@ -83,7 +83,7 @@ The script:
 2. Creates `<scratch-dir>/repo.git` on the host when it is absent, and pushes the commit to it under `refs/gate/<sha>`. No branch moves.
 3. Clones or fetches into `<scratch-dir>/worktree`, checks the commit out detached, and removes untracked build output.
 4. Builds `src/Armada.sln`, then runs `scripts/common/run-tests.sh` with its logs kept.
-5. Prints the combined summary and exits non-zero when the build or any runner fails. The build log and every runner log stay on the host under `<scratch-dir>/logs/<time>-<sha>/`.
+5. Prints the combined summary and exits non-zero when the build or any runner fails. The build log, the combined log and every runner log (`runners/`) stay on the host under `<scratch-dir>/logs/<time>-<sha>/`.
 
 Only one gate runs per scratch directory at a time. The host needs git, bash and the .NET SDK; `~/.dotnet` is added to `PATH` when `dotnet` is not already on it.
 
