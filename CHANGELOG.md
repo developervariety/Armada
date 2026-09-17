@@ -377,6 +377,7 @@ All notable changes to Armada are documented in this file.
   census now PASSES and the brief-wiring step is unblocked.
 ### Documentation
 
+- The Postman collection carries requests for the subscription account routes (delete, usage refresh, login folder, login start, code, key, status, cancel), the typed-decision routes (read, update, key save and removal) and the in-place server restart, so the route contract covers every served API route.
 - Typed-decision hygiene, with no behaviour change. The configuration chapter no
   longer calls the typed-decision system off by default: the global mode ships
   `Gate` and the system is inert until the key is present; the recovery, review,
