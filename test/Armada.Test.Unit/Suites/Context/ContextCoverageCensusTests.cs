@@ -80,6 +80,12 @@ namespace Armada.Test.Unit.Suites.Context
             });
 
             // ---- Part 2: read_when recall (reported, not gated on the 90% target). ----
+            // AI-Memory leaves carry read_when only through the docs/context-index sidecar, which is
+            // operator-local and untracked. Without it there is nothing to measure, so the case is a
+            // named skip, never a pass that measured nothing and never a false failure.
+            if (String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ARMADA_CENSUS_DOCS_ROOT")) && FindDocsRoot() == null)
+                SkipTest("ReadWhenRecall_Reported", "docs/context-index/chunk-metadata.json sidecar not present in this checkout");
+            else
             await RunTest("ReadWhenRecall_Reported", () =>
             {
                 ContextIndex? live = TryBuildLiveIndex(out string note);
