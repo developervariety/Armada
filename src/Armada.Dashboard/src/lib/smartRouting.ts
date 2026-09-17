@@ -76,22 +76,14 @@ export function personaRows(catalogue: string[], entries: string[], extras: stri
   return rows;
 }
 
-/** Model options: every captain's model, then the tier model lists, without duplicates, in first-seen order. */
-export function modelOptions(captains: Captain[], tierModels: string[]): string[] {
+/** Model options: every captain's model, without duplicates, in first-seen order. */
+export function modelOptions(captains: Captain[]): string[] {
   const out: string[] = [];
-  for (const model of [...captains.map((c) => c.model ?? ''), ...tierModels]) {
+  for (const model of captains.map((c) => c.model ?? '')) {
     const m = model.trim();
     if (m && !out.includes(m)) out.push(m);
   }
   return out;
-}
-
-/** Tier model lists from a settings response (`modelTier.*Models`). */
-export function tierModels(settings: Record<string, unknown> | null): string[] {
-  const tier = (settings?.modelTier ?? {}) as Record<string, unknown>;
-  return Object.entries(tier)
-    .filter(([key, value]) => /Models$/.test(key) && Array.isArray(value))
-    .flatMap(([, value]) => stringList(value));
 }
 
 /** The account id that lists a captain, or null when the captain is on no account. */

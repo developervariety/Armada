@@ -8,6 +8,51 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Model-tier routing now uses the captain capability tier as the only source of
+  a captain's tier. `preferredModel` `low`, `mid`, and `high` name a tier floor
+  (Economy, Standard, Premium); Legacy Routing admits captains at or above the
+  floor, tries the lowest admitted tier first, then a higher captain
+  `preferenceRank` (new, -1000 to 1000, default 0), then non-native-first, the
+  preferred persona, and a random model among equal captains. A persona with the
+  new `specialist` flag always requires a Premium captain, even without a
+  preferred model. A concrete model pin that no idle captain runs takes the tier
+  of the roster captains on that model, else its built-in family tier, else no
+  floor. The legacy `low` selector no longer maps to `mid`.
+- Routing selects in three layers: eligibility (persona locks and the tier
+  floor), order (Legacy Routing), and choice (Smart Routing, when enabled).
+  Smart Routing only reorders the captains the first two layers admit: a
+  `lighter` model below the floor is never chosen, and the `capacity_escalation`
+  reading never raises or lowers the floor. The usage preview gives every
+  captain a verdict with a `layer` (`eligibility`, `routes`, `usage`); an
+  eligibility verdict has outcome `excluded` and reason `persona_not_allowed`,
+  `below_tier_floor`, or `model_pin_mismatch`.
+- `modelTier.midTierModels`, `highTierModels`, `familyClassificationRules`,
+  `specialistPersonas`, `withinTierStrategy`, and `withinTierPreferenceOrder`
+  are retired. On the first startup that finds them, Armada moves them onto
+  records once: listed and rule-matched models become captain tiers (high is
+  Premium, mid is Standard, an unclassified model is Economy), the preference
+  order becomes captain ranks (first listed ranks highest), and the specialist
+  list becomes persona flags. It logs every change, copies the settings file to
+  `settings.json.pre-tier-migration-<UTC time>.json`, removes the retired keys,
+  and stamps `modelTier.tierRecordsMigratedUtc`. A stamped file is never
+  migrated again, and retired keys in it load and are ignored. The settings API
+  ignores the retired keys. `reservedHighTierSlots` stays a setting and now
+  counts Premium captains.
+- Captains persist `preferenceRank` and personas persist `specialist` on every
+  provider (SQLite migration 105, PostgreSQL 106, SQL Server 100, MySQL 97).
+  REST captain create and update, `armada_create_captain`, and
+  `armada_update_captain` accept `preferenceRank`; the MCP captain tools also
+  accept `tier`. REST, MCP, and WebSocket persona writes accept `specialist`,
+  and an update that omits it keeps the stored flag. Armada reads captain and
+  persona routing records on every dispatch pass and for each usage preview.
+- Dashboard: the captain modal and captain detail page edit the preference
+  rank beside the capability tier, and the persona detail page shows and edits
+  the specialist flag. Settings > Routing no longer shows tier lists, family
+  rules, the within-tier strategy and order, or specialist personas; it keeps
+  reserved Premium slots and non-native-first. Persona model list options come
+  from captain models, and the preview table shows each verdict's layer.
+- Conflict recovery requests the `high` tier selector instead of a concrete
+  model, and its inline playbook no longer names models.
 - Dashboard: Settings > Routing has a Legacy Routing / Smart Routing mode
   switch, a persona model lists table (Default, Lighter, Stronger model chips
   with captain counts and an all-accounts-exhausted warning), collapsed

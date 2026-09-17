@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getSettings, listCaptains, listPersonas, updateSettings } from '../api/client';
 import type { Captain } from '../types/models';
-import { tierModels } from '../lib/smartRouting';
 import UsageRoutingEditor, { emptyUsageRouting } from '../components/UsageRoutingEditor';
 import RoutingPolicyEditor from '../components/RoutingPolicyEditor';
 import SubscriptionAccountsPanel from '../components/SubscriptionAccountsPanel';
@@ -123,7 +122,6 @@ export default function RoutingSettings() {
     setMessage(t('Subscription account saved.'));
   }, [t]);
 
-  const savedTierModels = useMemo(() => tierModels(saved), [saved]);
   const usageDirty = policy !== policyBaseRef.current;
   let savedPolicy: PolicyRecord | null = null;
   try { savedPolicy = JSON.parse(policyBaseRef.current) as PolicyRecord; } catch { /* The saved text is always server JSON. */ }
@@ -131,7 +129,7 @@ export default function RoutingSettings() {
   return <div>
     <PageHeader
       title={t('Routing')}
-      subtitle={t('Legacy Routing picks captains by tier and preference. Smart Routing adds usage, persona model lists, and the capacity decision. Each part saves only its own settings.')}
+      subtitle={t('Legacy Routing picks captains by capability tier and preference rank. Smart Routing adds usage, persona model lists, and the capacity decision. Each part saves only its own settings.')}
       actions={saved ? (
         <>
           <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
@@ -147,7 +145,7 @@ export default function RoutingSettings() {
         onSavePolicy={saveAccountChange} onRefresh={load} />
       <fieldset disabled={remoteProxyMode || saving} style={{ border: 0, padding: 0, minWidth: 0 }}>
         <UsageRoutingEditor value={policy} onChange={value => { setPolicy(value); setMessage(''); }} statuses={statuses}
-          personas={personas} captains={captains} tierModels={savedTierModels} />
+          personas={personas} captains={captains} />
         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', alignItems: 'center' }}>
           <button className="btn btn-primary" type="button" onClick={saveUsageRouting}>{saving ? t('Saving...') : t('Save routing policy')}</button>
           <button className="btn btn-secondary" type="button" onClick={() => setPolicy(policyBaseRef.current)} disabled={!usageDirty}>{t('Discard changes')}</button>

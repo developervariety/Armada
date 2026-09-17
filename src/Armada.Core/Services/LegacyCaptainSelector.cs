@@ -2,219 +2,106 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
 
     /// <summary>
-    /// Legacy Routing: the model-tier captain selector. It picks one captain from a gated pool by
-    /// model-tier selection, within-tier preference order, capability scoring, external-provider
-    /// preference, the persona fence, the retry skip list and persona preference. Smart Routing orders
-    /// captains with this same selector and only filters and groups its order; it never re-ranks it.
+    /// Legacy Routing: the tier captain selector. Selection runs in two layers. Eligibility admits a captain
+    /// when its persona lock allows the mission's persona and its Capability tier is at or above the mission's
+    /// tier floor (the preferredModel selector, or Premium for a specialist persona). Order then ranks the
+    /// eligible captains: the lowest admitted tier first, then higher preference rank, then (optionally) an
+    /// external-provider captain before a native one, then a captain whose preferred persona matches; among
+    /// equal captains a model is chosen at random. Smart Routing orders captains with this same selector and
+    /// only filters and groups its order; it never re-ranks it or admits a captain this selector excludes.
     /// </summary>
     public static class LegacyCaptainSelector
     {
+        #region Public-Members
+
+        /// <summary>Layer name for a captain the persona lock or tier floor excludes.</summary>
+        public const string LayerEligibility = "eligibility";
+
+        /// <summary>The captain's persona lock does not allow the mission's persona.</summary>
+        public const string ReasonPersonaNotAllowed = "persona_not_allowed";
+
+        /// <summary>The captain's tier is below the mission's tier floor.</summary>
+        public const string ReasonBelowTierFloor = "below_tier_floor";
+
+        /// <summary>The mission pins a concrete model that another idle captain runs.</summary>
+        public const string ReasonModelPinMismatch = "model_pin_mismatch";
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
-        /// Pick one captain from the pool, or null when none satisfies the mission's persona and model
+        /// Pick one captain from the pool, or null when none satisfies the mission's persona and tier
         /// constraints. The pool is never modified.
         /// </summary>
         /// <param name="tiers">Model tier settings.</param>
         /// <param name="mission">The mission being assigned.</param>
         /// <param name="idleCaptains">The gated, idle candidate pool.</param>
         /// <param name="narrowToLowestTier">True when a requested-captain tier fallback keeps only the lowest tier present.</param>
-        /// <param name="randomPick">Returns an index below its argument; used for equal peers within a tier.</param>
+        /// <param name="randomPick">Returns an index below its argument; used for equal peers.</param>
         /// <returns>The selected captain, or null.</returns>
         public static Captain? Select(ModelTierSettings tiers, Mission mission, List<Captain> idleCaptains, bool narrowToLowestTier, Func<int, int> randomPick)
         {
-            string? persona = mission.Persona;
-            string? preferredModel = mission.PreferredModel;
+            if (tiers == null) throw new ArgumentNullException(nameof(tiers));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (idleCaptains == null) throw new ArgumentNullException(nameof(idleCaptains));
+            if (randomPick == null) throw new ArgumentNullException(nameof(randomPick));
 
-            List<string> specialistPersonas = tiers.SpecialistPersonas;
-            IReadOnlyDictionary<string, List<string>> withinTierPreferenceOrder = tiers.WithinTierPreferenceOrder;
-            bool isSpecialist = tiers.IsSpecialistPersona(persona);
-
-            // Model filter: tier selector (random peer selection) or literal match
-            if (!String.IsNullOrEmpty(preferredModel))
-            {
-                if (PreferredModelTierSelector.IsTierSelector(preferredModel))
-                {
-                    string? selectedModel = PreferredModelTierSelector.SelectModel(
-                        preferredModel, idleCaptains, persona, randomPick, specialistPersonas, withinTierPreferenceOrder, tiers, mission?.CapabilityHint);
-                    if (selectedModel == null) return null;
-                    List<Captain> filtered = new List<Captain>();
-                    foreach (Captain captain in idleCaptains)
-                    {
-                        if (!String.IsNullOrEmpty(captain.Model) &&
-                            String.Equals(captain.Model, selectedModel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.Add(captain);
-                        }
-                    }
-                    if (filtered.Count == 0) return null;
-                    idleCaptains = filtered;
-                }
-                else
-                {
-                    // Literal/concrete model pin: try exact match first.
-                    List<Captain> filtered = new List<Captain>();
-                    foreach (Captain captain in idleCaptains)
-                    {
-                        if (!String.IsNullOrEmpty(captain.Model) &&
-                            String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.Add(captain);
-                        }
-                    }
-                    if (filtered.Count > 0)
-                    {
-                        idleCaptains = filtered;
-                    }
-                    else
-                    {
-                        // No exact match: classify the pinned model into a tier and re-resolve.
-                        string? classifiedTier = PreferredModelTierSelector.ClassifyModel(preferredModel, tiers);
-                        if (classifiedTier != null)
-                        {
-                            string? fallbackModel = PreferredModelTierSelector.SelectModel(
-                                classifiedTier, idleCaptains, persona, randomPick, specialistPersonas, withinTierPreferenceOrder, tiers, mission?.CapabilityHint);
-                            if (fallbackModel == null) return null;
-                            List<Captain> tierFiltered = new List<Captain>();
-                            foreach (Captain captain in idleCaptains)
-                            {
-                                if (!String.IsNullOrEmpty(captain.Model) &&
-                                    String.Equals(captain.Model, fallbackModel, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    tierFiltered.Add(captain);
-                                }
-                            }
-                            if (tierFiltered.Count == 0) return null;
-                            idleCaptains = tierFiltered;
-                        }
-                        // Else: unclassified concrete model -- leave idleCaptains unrestricted;
-                        // persona filtering below narrows to compatible candidates.
-                    }
-                }
-            }
-            else
-            {
-                // No preferredModel: route through the unified selector with a sensible
-                // default tier (high for specialists, mid for everyone else) so a non-specialist
-                // mission is never handed an idle high-tier captain while a mid/low one is free.
-                // If the selector finds no classified captain, fall through unrestricted so
-                // captains carrying custom/unclassified models still receive work.
-                string defaultTier = isSpecialist ? PreferredModelTierSelector.HighTier : PreferredModelTierSelector.MidTier;
-                string? defaultedModel = PreferredModelTierSelector.SelectModel(
-                    defaultTier, idleCaptains, persona, randomPick, specialistPersonas, withinTierPreferenceOrder, tiers, mission?.CapabilityHint);
-                if (defaultedModel != null)
-                {
-                    List<Captain> filtered = new List<Captain>();
-                    foreach (Captain captain in idleCaptains)
-                    {
-                        if (!String.IsNullOrEmpty(captain.Model) &&
-                            String.Equals(captain.Model, defaultedModel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.Add(captain);
-                        }
-                    }
-                    if (filtered.Count > 0)
-                        idleCaptains = filtered;
-                }
-            }
-
-            // Prefer external-provider-served captains over native ones: a captain carrying
-            // its own provider base URL on a non-OpenCode runtime consumes the alternate
-            // (cheaper) subscription, so it wins the tie for an equal model and saves the
-            // native provider's usage. OpenCode-runtime captains are treated as native.
-            // Native captains remain the fallback when no external captain is idle. Applied
-            // to the model-filtered set so both the no-persona shortcut and the persona
-            // path honor it.
-            {
-                List<Captain> external = new List<Captain>();
-                List<Captain> native = new List<Captain>();
-                foreach (Captain captain in idleCaptains)
-                {
-                    if (captain.Runtime != AgentRuntimeEnum.OpenCode &&
-                        !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
-                    {
-                        external.Add(captain);
-                    }
-                    else
-                    {
-                        native.Add(captain);
-                    }
-                }
-                idleCaptains = external;
-                idleCaptains.AddRange(native);
-            }
-
-            // If no persona requirement, return any idle captain
-            if (String.IsNullOrEmpty(persona))
-                return narrowToLowestTier ? RequestedCaptainAssignmentRule.NarrowToLowestTier(idleCaptains)[0] : idleCaptains[0];
-
-            // Filter by AllowedPersonas (null = any persona is allowed)
             List<Captain> eligible = new List<Captain>();
             foreach (Captain captain in idleCaptains)
             {
-                // Normalized match, so a captain whose allow-list carries the legacy spelling of a
-                // persona is still eligible for that persona's missions.
-                if (MissionService.CaptainAllowsPersona(captain, persona))
-                {
+                if (captain != null && MissionService.CaptainAllowsPersona(captain, mission.Persona))
                     eligible.Add(captain);
-                }
             }
 
-            if (eligible.Count == 0)
+            string? preferredModel = mission.PreferredModel;
+            if (IsConcretePin(preferredModel) && idleCaptains.Any(c => c != null && RunsModel(c, preferredModel!)))
             {
-                return null;
+                // An idle captain runs the pinned model: the pin is an explicit choice, honoured ahead of tiers.
+                List<Captain> pinned = eligible.Where(c => RunsModel(c, preferredModel!)).ToList();
+                if (pinned.Count == 0) return null;
+                if (narrowToLowestTier) pinned = RequestedCaptainAssignmentRule.NarrowToLowestTier(pinned);
+                return PickAvoidingRetrySkips(tiers, mission, pinned, randomPick);
             }
 
-            // In-place re-run routing: a mission whose judges produced empty output records the
-            // failing captain on RetrySkipCaptainIds. Exclude those captains from re-dispatch so
-            // the re-run routes to a different (native fallback) captain instead of re-selecting
-            // the same degraded provider. If the exclusion would empty the pool entirely (a
-            // single-captain fleet), fall back to the full eligible set so work is never stranded.
-            List<Captain> eligibleFiltersSkipped = new List<Captain>();
-            foreach (Captain captain in eligible)
+            if (eligible.Count == 0) return null;
+            if (narrowToLowestTier) eligible = RequestedCaptainAssignmentRule.NarrowToLowestTier(eligible);
+
+            List<CaptainTierEnum> order = TierOrderFor(tiers, mission);
+
+            // A retry avoids the captains on its skip list while any other admitted captain remains, so it
+            // routes away from a degraded provider; it reuses one only when nothing else can take the work.
+            foreach (bool allowSkipped in new[] { false, true })
             {
-                if (!MissionService.IsCaptainOnRetrySkipList(mission?.RetrySkipCaptainIds, captain.Id))
+                foreach (CaptainTierEnum tier in order)
                 {
-                    eligibleFiltersSkipped.Add(captain);
-                }
-            }
-            if (eligibleFiltersSkipped.Count > 0)
-            {
-                eligible = eligibleFiltersSkipped;
-            }
-
-            if (narrowToLowestTier)
-                eligible = RequestedCaptainAssignmentRule.NarrowToLowestTier(eligible);
-
-            // Prefer captains whose PreferredPersona matches
-            foreach (Captain captain in eligible)
-            {
-                if (!String.IsNullOrEmpty(captain.PreferredPersona) &&
-                    String.Equals(captain.PreferredPersona, persona, StringComparison.OrdinalIgnoreCase))
-                {
-                    return captain;
+                    List<Captain> inTier = eligible
+                        .Where(c => CaptainTierSelector.EffectiveTier(c) == tier)
+                        .Where(c => allowSkipped || !MissionService.IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, c.Id))
+                        .ToList();
+                    if (inTier.Count > 0) return Pick(tiers, mission, inTier, randomPick);
                 }
             }
 
-            // No preferred match -- return first eligible
-            return eligible[0];
+            return null;
         }
 
         /// <summary>
         /// The Legacy Routing order of the whole pool: the selector's first pick, then its pick from the
-        /// captains left, and so on until it picks none. A captain the selector would never pick (a model
-        /// or persona constraint) is not in the order.
+        /// captains left, and so on until it picks none. A captain the selector would never pick (a persona or
+        /// tier constraint) is not in the order.
         /// </summary>
         /// <param name="tiers">Model tier settings.</param>
         /// <param name="mission">The mission being assigned.</param>
         /// <param name="idleCaptains">The gated, idle candidate pool.</param>
         /// <param name="narrowToLowestTier">True when a requested-captain tier fallback keeps only the lowest tier present.</param>
-        /// <param name="randomPick">Returns an index below its argument; used for equal peers within a tier.</param>
+        /// <param name="randomPick">Returns an index below its argument; used for equal peers.</param>
         /// <returns>The captains in selection order.</returns>
         public static List<Captain> Order(ModelTierSettings tiers, Mission mission, List<Captain> idleCaptains, bool narrowToLowestTier, Func<int, int> randomPick)
         {
@@ -231,6 +118,168 @@ namespace Armada.Core.Services
                 remaining.Remove(next);
             }
             return ordered;
+        }
+
+        /// <summary>
+        /// Why the eligibility layer excludes each captain it excludes: its persona lock, its tier below the
+        /// mission's floor, or a concrete model pin another idle captain satisfies. Captains the layer admits
+        /// are absent from the result.
+        /// </summary>
+        /// <param name="tiers">Model tier settings.</param>
+        /// <param name="mission">The mission being assigned.</param>
+        /// <param name="idleCaptains">The gated, idle candidate pool.</param>
+        /// <returns>Exclusion reason keyed by captain identifier.</returns>
+        public static Dictionary<string, string> ExplainExclusions(ModelTierSettings tiers, Mission mission, List<Captain> idleCaptains)
+        {
+            if (tiers == null) throw new ArgumentNullException(nameof(tiers));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (idleCaptains == null) throw new ArgumentNullException(nameof(idleCaptains));
+            Dictionary<string, string> reasons = new Dictionary<string, string>(StringComparer.Ordinal);
+            string? preferredModel = mission.PreferredModel;
+            bool pinSatisfied = IsConcretePin(preferredModel) && idleCaptains.Any(c => c != null && RunsModel(c, preferredModel!));
+            List<CaptainTierEnum> order = TierOrderFor(tiers, mission);
+            foreach (Captain captain in idleCaptains)
+            {
+                if (captain == null) continue;
+                if (!MissionService.CaptainAllowsPersona(captain, mission.Persona))
+                    reasons[captain.Id] = ReasonPersonaNotAllowed;
+                else if (pinSatisfied && !RunsModel(captain, preferredModel!))
+                    reasons[captain.Id] = ReasonModelPinMismatch;
+                else if (!pinSatisfied && !order.Contains(CaptainTierSelector.EffectiveTier(captain)))
+                    reasons[captain.Id] = ReasonBelowTierFloor;
+            }
+            return reasons;
+        }
+
+        /// <summary>
+        /// The tiers the mission may land on, in the order they are tried: Premium only for a specialist
+        /// persona; otherwise the floor its preferredModel names (a tier selector, or the roster tier of a
+        /// pinned model no idle captain runs) and every tier above it.
+        /// </summary>
+        /// <param name="tiers">Model tier settings.</param>
+        /// <param name="mission">The mission being assigned.</param>
+        /// <returns>The ordered tiers.</returns>
+        public static List<CaptainTierEnum> TierOrderFor(ModelTierSettings tiers, Mission mission)
+        {
+            if (tiers == null) throw new ArgumentNullException(nameof(tiers));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            bool isSpecialist = tiers.IsSpecialistPersona(mission.Persona);
+            CaptainTierEnum? floor = null;
+            string? preferredModel = mission.PreferredModel;
+            if (!String.IsNullOrWhiteSpace(preferredModel))
+            {
+                floor = PreferredModelTierSelector.IsTierSelector(preferredModel)
+                    ? PreferredModelTierSelector.FloorOf(preferredModel)
+                    : PreferredModelTierSelector.TierOfModel(preferredModel, tiers);
+            }
+            return PreferredModelTierSelector.TierOrder(floor, isSpecialist);
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static bool IsConcretePin(string? preferredModel)
+        {
+            return !String.IsNullOrWhiteSpace(preferredModel) && !PreferredModelTierSelector.IsTierSelector(preferredModel);
+        }
+
+        private static bool RunsModel(Captain captain, string model)
+        {
+            return !String.IsNullOrEmpty(captain.Model) && String.Equals(captain.Model, model, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Captain PickAvoidingRetrySkips(ModelTierSettings tiers, Mission mission, List<Captain> candidates, Func<int, int> randomPick)
+        {
+            List<Captain> notSkipped = candidates.Where(c => !MissionService.IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, c.Id)).ToList();
+            return Pick(tiers, mission, notSkipped.Count > 0 ? notSkipped : candidates, randomPick);
+        }
+
+        // Rank candidates of one tier: capability-hint fit (when the hint maps to a profile dimension), then
+        // preference rank, then external-provider service (when preferred), then a matching preferred persona.
+        // Captains equal on every key are peers.
+        private static Captain Pick(ModelTierSettings tiers, Mission mission, List<Captain> candidates, Func<int, int> randomPick)
+        {
+            string? dimension = ResolveHintDimension(tiers, mission.CapabilityHint);
+            List<Captain> top = new List<Captain>();
+            List<long> best = new List<long>();
+            foreach (Captain captain in candidates)
+            {
+                List<long> key = new List<long>
+                {
+                    dimension == null ? 0 : ScoreOf(tiers, captain.Model, dimension),
+                    captain.PreferenceRank,
+                    tiers.PreferNonNativeFirst && IsExternalServed(captain) ? 1 : 0,
+                    PrefersPersona(captain, mission.Persona) ? 1 : 0
+                };
+                int comparison = best.Count == 0 ? 1 : Compare(key, best);
+                if (comparison > 0)
+                {
+                    best = key;
+                    top.Clear();
+                    top.Add(captain);
+                }
+                else if (comparison == 0)
+                {
+                    top.Add(captain);
+                }
+            }
+            if (top.Count == 1) return top[0];
+
+            // Equal captains are peers by model: a model is chosen at random, so a model that several captains
+            // run is not favoured by its captain count; the first of its captains takes the work.
+            List<string> models = new List<string>();
+            foreach (Captain captain in top)
+            {
+                string model = captain.Model ?? String.Empty;
+                if (!models.Contains(model, StringComparer.OrdinalIgnoreCase)) models.Add(model);
+            }
+            string chosen = models.Count == 1 ? models[0] : models[randomPick(models.Count)];
+            return top.First(c => String.Equals(c.Model ?? String.Empty, chosen, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static int Compare(List<long> left, List<long> right)
+        {
+            for (int i = 0; i < left.Count; i++)
+            {
+                if (left[i] != right[i]) return left[i] > right[i] ? 1 : -1;
+            }
+            return 0;
+        }
+
+        private static bool IsExternalServed(Captain captain)
+        {
+            return captain.Runtime != AgentRuntimeEnum.OpenCode && !String.IsNullOrWhiteSpace(captain.ApiBaseUrl);
+        }
+
+        private static bool PrefersPersona(Captain captain, string? persona)
+        {
+            return !String.IsNullOrEmpty(persona)
+                && !String.IsNullOrEmpty(captain.PreferredPersona)
+                && String.Equals(captain.PreferredPersona, persona, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? ResolveHintDimension(ModelTierSettings tiers, string? capabilityHint)
+        {
+            string? hint = PreferredModelTierSelector.NormalizeCapabilityHint(capabilityHint);
+            if (hint == null) return null;
+            foreach (KeyValuePair<string, string> entry in tiers.CapabilityHintDimensionMap)
+            {
+                if (String.Equals(entry.Key, hint, StringComparison.OrdinalIgnoreCase) && !String.IsNullOrWhiteSpace(entry.Value))
+                    return entry.Value;
+            }
+            return null;
+        }
+
+        private static long ScoreOf(ModelTierSettings tiers, string? model, string dimension)
+        {
+            if (String.IsNullOrEmpty(model)) return -1;
+            foreach (KeyValuePair<string, ModelCapabilityProfile> entry in tiers.ModelCapabilityProfiles)
+            {
+                if (String.Equals(entry.Key, model, StringComparison.OrdinalIgnoreCase))
+                    return entry.Value == null ? -1 : entry.Value.GetDimensionScore(dimension);
+            }
+            return -1;
         }
 
         #endregion

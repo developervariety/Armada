@@ -1,37 +1,47 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
-    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>
-    /// Unit tests for PreferredModelTierSelector: tier recognition, model selection,
-    /// persona eligibility filtering, upward fallback, and literal model passthrough.
+    /// Unit tests for tier routing: preferredModel tier selectors and the tier floors they name, the tier order,
+    /// Legacy Routing selection by Capability tier and preference rank, persona eligibility, specialist
+    /// personas from records, concrete model pins, and the eligibility-layer explanation.
     /// </summary>
     public class PreferredModelTierSelectorTests : TestSuite
     {
         /// <summary>Suite name.</summary>
         public override string Name => "Preferred Model Tier Selector";
 
-        private static Captain MakeCaptain(string model, string? allowedPersonas = null)
+        private static Captain MakeCaptain(string model, CaptainTierEnum tier, int rank = 0, string? allowedPersonas = null)
         {
             Captain c = new Captain("test-captain");
             c.Model = model;
+            c.Tier = tier;
+            c.PreferenceRank = rank;
             c.AllowedPersonas = allowedPersonas;
             c.State = CaptainStateEnum.Idle;
             return c;
         }
 
-        private static ModelTierSettings Fleet()
+        private static ModelTierSettings Settings(params string[] specialists)
         {
-            return FleetRoutingSettings.CreateModelTier();
+            ModelTierSettings settings = new ModelTierSettings();
+            settings.Records = TierRoutingRecords.ForSpecialists(specialists);
+            return settings;
+        }
+
+        private static string? Pick(ModelTierSettings settings, string? preferredModel, List<Captain> pool, string? persona, Func<int, int> randomPick)
+        {
+            Mission mission = new Mission { Persona = persona, PreferredModel = preferredModel };
+            return LegacyCaptainSelector.Select(settings, mission, pool, false, randomPick)?.Model;
         }
 
         /// <summary>Run all tests.</summary>
@@ -78,751 +88,356 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("NormalizeTier_Aliases_MapToCanonical", () =>
             {
-                AssertEqual(PreferredModelTierSelector.MidTier, PreferredModelTierSelector.NormalizeTier("quick"), "quick is a legacy low alias and maps to mid (no low tier)");
-                AssertEqual(PreferredModelTierSelector.MidTier, PreferredModelTierSelector.NormalizeTier("medium"), "medium should normalize to mid");
+                AssertEqual(PreferredModelTierSelector.LowTier, PreferredModelTierSelector.NormalizeTier("LOW"), "low normalizes to low");
+                AssertEqual(PreferredModelTierSelector.MidTier, PreferredModelTierSelector.NormalizeTier("quick"), "quick normalizes to mid");
+                AssertEqual(PreferredModelTierSelector.MidTier, PreferredModelTierSelector.NormalizeTier("medium"), "medium normalizes to mid");
                 return Task.CompletedTask;
             });
 
-            await RunTest("GetTierAndAboveModels_LowTier_IncludesAllTiers", () =>
+            await RunTest("NormalizeTier_UnknownSelector_Throws", () =>
             {
-                IReadOnlyList<string> models = PreferredModelTierSelector.GetTierAndAboveModels("low", Fleet());
-                AssertTrue(models.Count > 0, "Should have models in low tier and above");
-                bool hasMid = false;
-                bool hasHigh = false;
-                foreach (string m in models)
-                {
-                    if (m == "gpt-5.6-luna") hasMid = true;
-                    if (m == "claude-fable-5") hasHigh = true;
-                }
-                AssertTrue(hasMid, "Mid tier model gpt-5.6-luna should be included");
-                AssertTrue(hasHigh, "High tier model claude-fable-5 should be included");
+                AssertThrows<ArgumentException>(() => PreferredModelTierSelector.NormalizeTier("ultra"), "unknown tier selector throws");
+                AssertThrows<ArgumentException>(() => PreferredModelTierSelector.NormalizeTier(""), "empty tier selector throws");
                 return Task.CompletedTask;
             });
 
-            await RunTest("GetTierAndAboveModels_HighTier_IncludesOnlyHigh", () =>
+            await RunTest("FloorOf_LowMidHigh_MapToEconomyStandardPremium", () =>
             {
-                IReadOnlyList<string> lowModels = PreferredModelTierSelector.GetTierModels("low", Fleet());
-                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid", Fleet());
-                IReadOnlyList<string> highModels = PreferredModelTierSelector.GetTierAndAboveModels("high", Fleet());
-
-                foreach (string m in lowModels)
-                {
-                    bool found = false;
-                    foreach (string hm in highModels) { if (hm == m) { found = true; break; } }
-                    AssertFalse(found, "Low tier model " + m + " should NOT be in high-and-above");
-                }
-                foreach (string m in midModels)
-                {
-                    bool found = false;
-                    foreach (string hm in highModels) { if (hm == m) { found = true; break; } }
-                    AssertFalse(found, "Mid tier model " + m + " should NOT be in high-and-above");
-                }
+                AssertEqual(CaptainTierEnum.Economy, PreferredModelTierSelector.FloorOf("low"), "low is an Economy floor");
+                AssertEqual(CaptainTierEnum.Standard, PreferredModelTierSelector.FloorOf("mid"), "mid is a Standard floor");
+                AssertEqual(CaptainTierEnum.Premium, PreferredModelTierSelector.FloorOf("HIGH"), "high is a Premium floor");
+                AssertEqual(CaptainTierEnum.Standard, PreferredModelTierSelector.FloorOf("medium"), "an alias maps through its canonical tier");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_AllWorkerModelsEqual_RandomPick", () =>
+            await RunTest("TierOrder_Floor_TriesFloorThenHigherTiersLowestFirst", () =>
             {
-                // All worker models are equal: the default mid preference order is empty, so a
-                // mid request picks randomly among the eligible models. The stub random index
-                // drives the pick: 0 selects the first eligible model in captain order.
-                List<Captain> captains = new List<Captain>
+                AssertEqual("Economy,Standard,Premium", String.Join(",", PreferredModelTierSelector.TierOrder(CaptainTierEnum.Economy, false)), "Economy floor");
+                AssertEqual("Standard,Premium", String.Join(",", PreferredModelTierSelector.TierOrder(CaptainTierEnum.Standard, false)), "Standard floor");
+                AssertEqual("Premium", String.Join(",", PreferredModelTierSelector.TierOrder(CaptainTierEnum.Premium, false)), "Premium floor");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TierOrder_NoFloor_StandardThenPremiumThenEconomy", () =>
+            {
+                AssertEqual("Standard,Premium,Economy", String.Join(",", PreferredModelTierSelector.TierOrder(null, false)), "no floor");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TierOrder_Specialist_PremiumOnlyWhateverTheFloor", () =>
+            {
+                foreach (CaptainTierEnum? floor in new CaptainTierEnum?[] { null, CaptainTierEnum.Economy, CaptainTierEnum.Standard, CaptainTierEnum.Premium })
+                    AssertEqual("Premium", String.Join(",", PreferredModelTierSelector.TierOrder(floor, true)), "specialist with floor " + floor);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("CaptainMatchesTierOrAbove_RespectsUpwardChain", () =>
+            {
+                Captain standard = MakeCaptain("model-s", CaptainTierEnum.Standard);
+                AssertTrue(PreferredModelTierSelector.CaptainMatchesTierOrAbove(standard, "low"), "Standard satisfies low");
+                AssertTrue(PreferredModelTierSelector.CaptainMatchesTierOrAbove(standard, "mid"), "Standard satisfies mid");
+                AssertFalse(PreferredModelTierSelector.CaptainMatchesTierOrAbove(standard, "high"), "Standard does not satisfy high");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_LowestTierAtOrAboveTheFloor_Wins", () =>
+            {
+                List<Captain> pool = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna")
+                    MakeCaptain("model-p", CaptainTierEnum.Premium),
+                    MakeCaptain("model-s", CaptainTierEnum.Standard),
+                    MakeCaptain("model-e", CaptainTierEnum.Economy)
                 };
-
-                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? first = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder, Fleet());
-                AssertNotNull(first, "Should select a model when mid-tier captains are available");
-                AssertEqual("opencode-go/deepseek-v4-flash", first, "random stub 0 selects the first eligible worker model");
-                string? last = PreferredModelTierSelector.SelectModel("mid", captains, null, n => n - 1, null, defaultOrder, Fleet());
-                AssertEqual("gpt-5.6-luna", last, "a different random index selects a different equal worker model");
+                AssertEqual("model-e", Pick(Settings(), "low", pool, "Worker", n => 0), "low takes the Economy captain");
+                AssertEqual("model-s", Pick(Settings(), "mid", pool, "Worker", n => 0), "mid takes the Standard captain, not Premium");
+                AssertEqual("model-p", Pick(Settings(), "high", pool, "Worker", n => 0), "high takes the Premium captain");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_NonNativeModel_IsSelectedBeforeNativeOnlyModels", () =>
+            await RunTest("Select_NoCaptainAtTheFloor_FallsUpNeverDown", () =>
             {
-                // When an external-provider captain is idle for a model, that model wins the
-                // selection over native-only models: the external luna captains (Codex runtime,
-                // own base URL) make gpt-5.6-luna the first worker model. OpenCode-runtime
-                // captains (deepseek, mid-audit) are treated as native.
-                List<Captain> captains = new List<Captain>
+                List<Captain> premiumOnly = new List<Captain> { MakeCaptain("model-p", CaptainTierEnum.Premium) };
+                AssertEqual("model-p", Pick(Settings(), "mid", premiumOnly, "Worker", n => 0), "mid falls up to Premium");
+                List<Captain> belowHigh = new List<Captain> { MakeCaptain("model-s", CaptainTierEnum.Standard), MakeCaptain("model-e", CaptainTierEnum.Economy) };
+                AssertNull(Pick(Settings(), "high", belowHigh, "Worker", n => 0), "high never falls down");
+                AssertNull(Pick(Settings(), "mid", new List<Captain> { MakeCaptain("model-e", CaptainTierEnum.Economy) }, "Worker", n => 0), "mid never takes Economy");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_EqualPeers_RandomByModelNotByCaptainCount", () =>
+            {
+                List<Captain> pool = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna"),
-                    MakeCaptain("gpt-5.6-luna")
+                    MakeCaptain("model-a", CaptainTierEnum.Standard),
+                    MakeCaptain("model-a", CaptainTierEnum.Standard),
+                    MakeCaptain("model-a", CaptainTierEnum.Standard),
+                    MakeCaptain("model-b", CaptainTierEnum.Standard)
                 };
-                captains[2].Runtime = Armada.Core.Enums.AgentRuntimeEnum.Codex;
-                captains[2].ApiBaseUrl = "https://api.example.com/v1";
-                captains[3].Runtime = Armada.Core.Enums.AgentRuntimeEnum.Codex;
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("gpt-5.6-luna", selected,
-                    "the model with an idle non-native captain must be selected before native-only models");
+                List<int> bounds = new List<int>();
+                AssertEqual("model-a", Pick(Settings(), "mid", pool, "Worker", n => { bounds.Add(n); return 0; }), "random index 0 takes the first model");
+                AssertEqual("model-b", Pick(Settings(), "mid", pool, "Worker", n => n - 1), "the last random index takes the other model");
+                AssertEqual("2", String.Join(",", bounds), "the random pick is over the two models, not the four captains");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_NonNativeBusy_FallsBackToRandomNativePool", () =>
+            await RunTest("Select_HigherPreferenceRank_WinsRegardlessOfRandom", () =>
             {
-                // When the external captain is not idle, selection falls back to the native
-                // pool and stays truly random among the equal native models.
-                List<Captain> captains = new List<Captain>
+                List<Captain> pool = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna")
+                    MakeCaptain("model-low-rank", CaptainTierEnum.Premium, 1),
+                    MakeCaptain("model-high-rank", CaptainTierEnum.Premium, 3),
+                    MakeCaptain("model-unranked", CaptainTierEnum.Premium)
                 };
-
-                string? first = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", first,
-                    "with no idle non-native captain, random stub 0 selects the first native model");
-                string? last = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", n => n - 1, null, null, Fleet());
-                AssertEqual("gpt-5.6-luna", last, "the native fallback pool remains random");
+                AssertEqual("model-high-rank", Pick(Settings(), "high", pool, "Judge", n => 0), "rank 3 wins (index 0)");
+                AssertEqual("model-high-rank", Pick(Settings(), "high", pool, "Judge", n => n - 1), "rank 3 wins (last index)");
+                Mission judge = new Mission { Persona = "Judge", PreferredModel = "high" };
+                AssertEqual("model-high-rank,model-low-rank,model-unranked",
+                    String.Join(",", LegacyCaptainSelector.Order(Settings(), judge, pool, false, n => 0).Select(c => c.Model)), "order follows rank");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_OpenCodeCaptainWithBaseUrl_IsTreatedAsNative", () =>
+            await RunTest("Select_EqualRank_IsARandomTie", () =>
             {
-                // OpenCode-runtime captains are native for the preference even when they carry
-                // a base URL: they must not pull their model into the non-native pool.
-                List<Captain> captains = new List<Captain>
+                List<Captain> pool = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna")
+                    MakeCaptain("model-a", CaptainTierEnum.Standard, 5),
+                    MakeCaptain("model-b", CaptainTierEnum.Standard, 5),
+                    MakeCaptain("model-c", CaptainTierEnum.Standard, 1)
                 };
-                captains[0].Runtime = Armada.Core.Enums.AgentRuntimeEnum.OpenCode;
-                captains[0].ApiBaseUrl = "https://api.example.com/v1";
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected,
-                    "an OpenCode captain with a base URL stays in the native pool; the pool is random, not external-prioritized");
+                HashSet<string?> picks = new HashSet<string?> { Pick(Settings(), "mid", pool, "Worker", n => 0), Pick(Settings(), "mid", pool, "Worker", n => n - 1) };
+                AssertTrue(picks.SetEquals(new[] { "model-a", "model-b" }), "the tied rank-5 models vary with the random pick and rank 1 is never chosen");
                 return Task.CompletedTask;
             });
 
-            await RunTest("ConfiguredTierModels_ClassifyIntoTheirTiers", () =>
+            await RunTest("Select_RankDominatesTheNonNativePreference", () =>
             {
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "gpt-5.6-luna must participate in mid-tier routing");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("example/mid-audit", Fleet()), "example/mid-audit must participate in mid-tier routing");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "deepseek-v4-flash must participate in mid-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", Fleet()), "gpt-5.6-sol must participate in high-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "claude-opus-5 must participate in high-tier routing");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5", Fleet()), "claude-fable-5 must participate in high-tier routing");
+                Captain native = MakeCaptain("model-native", CaptainTierEnum.Premium, 2);
+                native.Runtime = AgentRuntimeEnum.OpenCode;
+                native.ApiBaseUrl = "https://opencode.example.com/v1";
+                Captain external = MakeCaptain("model-external", CaptainTierEnum.Premium, 1);
+                external.Runtime = AgentRuntimeEnum.ClaudeCode;
+                external.ApiBaseUrl = "https://api.example.com/v1";
+                ModelTierSettings settings = Settings();
+                settings.PreferNonNativeFirst = true;
+                AssertEqual("model-native", Pick(settings, "high", new List<Captain> { external, native }, null, n => 0), "higher rank wins over external service");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_NoRankedPrimary_SelectsRandomly", () =>
+            await RunTest("Select_NonNativeFirst_BreaksEqualRankTies_OnlyWhenEnabled", () =>
             {
-                List<Captain> captains = new List<Captain>
+                Captain native = MakeCaptain("model-native", CaptainTierEnum.Standard);
+                native.Runtime = AgentRuntimeEnum.Codex;
+                Captain external = MakeCaptain("model-external", CaptainTierEnum.Standard);
+                external.Runtime = AgentRuntimeEnum.Codex;
+                external.ApiBaseUrl = "https://api.example.com/v1";
+                List<Captain> pool = new List<Captain> { native, external };
+
+                ModelTierSettings preferring = Settings();
+                preferring.PreferNonNativeFirst = true;
+                AssertEqual("model-external", Pick(preferring, "mid", pool, "Worker", n => 0), "external wins at index 0");
+                AssertEqual("model-external", Pick(preferring, "mid", pool, "Worker", n => n - 1), "external wins at the last index");
+
+                AssertEqual("model-native", Pick(Settings(), "mid", pool, "Worker", n => 0), "without the preference the tie is random (index 0)");
+                AssertEqual("model-external", Pick(Settings(), "mid", pool, "Worker", n => n - 1), "without the preference the tie is random (last index)");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_OpenCodeCaptainWithBaseUrl_IsNative", () =>
+            {
+                Captain openCode = MakeCaptain("model-opencode", CaptainTierEnum.Standard);
+                openCode.Runtime = AgentRuntimeEnum.OpenCode;
+                openCode.ApiBaseUrl = "https://api.example.com/v1";
+                Captain other = MakeCaptain("model-other", CaptainTierEnum.Standard);
+                ModelTierSettings settings = Settings();
+                settings.PreferNonNativeFirst = true;
+                AssertEqual("model-other", Pick(settings, "mid", new List<Captain> { openCode, other }, "Worker", n => n - 1), "an OpenCode captain is not preferred as external");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_FiltersByPersonaEligibility", () =>
+            {
+                List<Captain> pool = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("gpt-5.6-luna")
+                    MakeCaptain("model-worker-only", CaptainTierEnum.Premium, 9, "[\"Worker\"]"),
+                    MakeCaptain("model-judge", CaptainTierEnum.Premium, 0, "[\"Worker\",\"Judge\"]")
                 };
-
-                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder, Fleet());
-
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "with no ranked primary, random stub 0 selects the first eligible worker model");
+                AssertEqual("model-judge", Pick(Settings(), "high", pool, "Judge", n => 0), "only the captain that allows Judge is eligible, whatever its rank");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_MidTier_DuplicatedCaptains_SelectRandomlyNotByCount", () =>
+            await RunTest("Select_NullPersona_AcceptsCaptainsWithAnyAllowList", () =>
             {
-                // Equal worker models are selected randomly, never by idle-instance count:
-                // three composer captains do not outvote one luna captain.
-                List<Captain> captains = new List<Captain>
+                List<Captain> pool = new List<Captain> { MakeCaptain("model-a", CaptainTierEnum.Standard, 0, "[\"Worker\"]") };
+                AssertEqual("model-a", Pick(Settings(), "mid", pool, null, n => 0), "a mission without a persona accepts a restricted captain");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_CaptainWithoutAllowList_AcceptsAnyPersona", () =>
+            {
+                List<Captain> pool = new List<Captain> { MakeCaptain("model-a", CaptainTierEnum.Premium) };
+                AssertEqual("model-a", Pick(Settings("Judge"), "high", pool, "Judge", n => 0), "a captain without an allow-list serves Judge");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_SpecialistFlag_ForcesPremiumForEveryPreferredModel", () =>
+            {
+                List<Captain> pool = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna")
+                    MakeCaptain("model-e", CaptainTierEnum.Economy),
+                    MakeCaptain("model-s", CaptainTierEnum.Standard),
+                    MakeCaptain("model-p", CaptainTierEnum.Premium)
                 };
-
-                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, defaultOrder, Fleet());
-
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "random stub 0 selects the first eligible model regardless of idle counts");
+                foreach (string? preferred in new string?[] { "low", "mid", "high", null })
+                    AssertEqual("model-p", Pick(Settings("TestEngineer"), preferred, pool, "TestEngineer", n => 0), "specialist with preferred model " + (preferred ?? "(none)"));
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_FiltersByPersonaEligibility", () =>
+            await RunTest("Select_SpecialistFlag_WithoutAnIdlePremiumCaptain_Waits", () =>
             {
-                // Two high-tier captains, only one allows the Judge specialist persona.
-                List<Captain> captains = new List<Captain>
+                List<Captain> pool = new List<Captain> { MakeCaptain("model-s", CaptainTierEnum.Standard) };
+                AssertNull(Pick(Settings("Judge"), null, pool, "Judge", n => 0), "a specialist never runs below Premium");
+                AssertEqual("model-s", Pick(Settings(), null, pool, "Judge", n => 0), "without the flag the same persona may run on Standard");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_NonSpecialistExplicitHigh_IsHonoured", () =>
+            {
+                List<Captain> pool = new List<Captain> { MakeCaptain("model-s", CaptainTierEnum.Standard), MakeCaptain("model-p", CaptainTierEnum.Premium) };
+                AssertEqual("model-p", Pick(Settings(), "high", pool, "Worker", n => 0), "a Worker asking for high gets Premium");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_NoPreferredModel_TriesStandardThenPremiumThenEconomy", () =>
+            {
+                List<Captain> pool = new List<Captain>
                 {
-                    MakeCaptain("claude-opus-5", "[\"Worker\"]"),
-                    MakeCaptain("gpt-5.6-sol", "[\"Worker\",\"Judge\"]")
+                    MakeCaptain("model-e", CaptainTierEnum.Economy),
+                    MakeCaptain("model-p", CaptainTierEnum.Premium),
+                    MakeCaptain("model-s", CaptainTierEnum.Standard)
                 };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Should find a model eligible for Judge persona");
-                AssertEqual("gpt-5.6-sol", selected, "Only the gpt-5.6-sol captain allows Judge persona");
+                Mission mission = new Mission { Persona = "Worker" };
+                AssertEqual("model-s,model-p,model-e", String.Join(",", LegacyCaptainSelector.Order(Settings(), mission, pool, false, n => 0).Select(c => c.Model)), "default order");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_UpgradesLowToMid_WhenLowHasNoEligible", () =>
+            await RunTest("Select_ConcretePin_IdleCaptainOnTheModel_IsHonoured", () =>
             {
-                // No low-tier captains, but mid-tier captains are available
-                List<Captain> captains = new List<Captain>
+                List<Captain> pool = new List<Captain> { MakeCaptain("model-p", CaptainTierEnum.Premium, 9), MakeCaptain("model-e", CaptainTierEnum.Economy) };
+                AssertEqual("model-e", Pick(Settings(), "model-e", pool, "Worker", n => 0), "an explicit model pin is honoured");
+                List<Captain> restricted = new List<Captain> { MakeCaptain("model-e", CaptainTierEnum.Economy, 0, "[\"Worker\"]"), MakeCaptain("model-p", CaptainTierEnum.Premium) };
+                AssertNull(Pick(Settings(), "model-e", restricted, "Judge", n => 0), "a pinned model whose captain disallows the persona waits instead of substituting");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_ConcretePin_NoIdleCaptainOnTheModel_UsesTheRosterTierOfTheModel", () =>
+            {
+                Captain busyPremium = MakeCaptain("model-pinned", CaptainTierEnum.Premium);
+                List<Captain> roster = new List<Captain> { busyPremium, MakeCaptain("model-s", CaptainTierEnum.Standard), MakeCaptain("model-p", CaptainTierEnum.Premium) };
+                ModelTierSettings settings = Settings();
+                settings.Records = TierRoutingRecords.From(null, roster);
+                List<Captain> idle = roster.Where(c => c != busyPremium).ToList();
+                AssertEqual("model-p", Pick(settings, "model-pinned", idle, "Worker", n => 0), "the pin falls back to a captain at the pinned model's Premium tier");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_ConcretePin_UnknownModel_SetsNoFloor", () =>
+            {
+                List<Captain> pool = new List<Captain> { MakeCaptain("model-e", CaptainTierEnum.Economy) };
+                AssertEqual("model-e", Pick(Settings(), "model-nobody-runs", pool, "Worker", n => 0), "a pin to a model no captain runs does not strand the work");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_ConcretePin_KnownFamilyNoCaptain_UsesTheFamilyTier", () =>
+            {
+                List<Captain> pool = new List<Captain> { MakeCaptain("model-s", CaptainTierEnum.Standard), MakeCaptain("model-p", CaptainTierEnum.Premium) };
+                AssertEqual("model-p", Pick(Settings(), "claude-opus-9", pool, "Worker", n => 0), "an opus-family pin no captain runs sets a Premium floor");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_RetrySkipList_AvoidsTheSkippedCaptainWhileAnotherIsAdmitted", () =>
+            {
+                Captain skipped = MakeCaptain("model-s", CaptainTierEnum.Standard, 5);
+                Captain other = MakeCaptain("model-p", CaptainTierEnum.Premium);
+                Mission retry = new Mission { Persona = "Worker", PreferredModel = "mid", RetrySkipCaptainIds = skipped.Id };
+                AssertEqual(other.Id, LegacyCaptainSelector.Select(Settings(), retry, new List<Captain> { skipped, other }, false, n => 0)!.Id, "the retry moves to another admitted captain");
+                AssertEqual(skipped.Id, LegacyCaptainSelector.Select(Settings(), retry, new List<Captain> { skipped }, false, n => 0)!.Id, "with no other captain the skipped one is reused");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Select_PreferredPersona_BreaksTiesAfterRank", () =>
+            {
+                Captain plain = MakeCaptain("model-a", CaptainTierEnum.Standard);
+                Captain preferring = MakeCaptain("model-b", CaptainTierEnum.Standard);
+                preferring.PreferredPersona = "Worker";
+                Captain ranked = MakeCaptain("model-c", CaptainTierEnum.Standard, 1);
+                AssertEqual("model-b", Pick(Settings(), "mid", new List<Captain> { plain, preferring }, "Worker", n => 0), "preferred persona wins an equal-rank tie");
+                AssertEqual("model-c", Pick(Settings(), "mid", new List<Captain> { plain, preferring, ranked }, "Worker", n => 0), "rank outranks preferred persona");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TierRoutingRecords_TierOfModel_IsTheHighestTierOfItsCaptains", () =>
+            {
+                TierRoutingRecords records = TierRoutingRecords.From(null, new List<Captain>
                 {
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("low", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Should upgrade to mid when low has no eligible captains");
-
-                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid", Fleet());
-                bool isMidModel = false;
-                foreach (string m in midModels) { if (m == selected) { isMidModel = true; break; } }
-                AssertTrue(isMidModel, "Upgraded selection should be a mid-tier model");
+                    MakeCaptain("model-x", CaptainTierEnum.Standard),
+                    MakeCaptain("MODEL-X", CaptainTierEnum.Premium),
+                    MakeCaptain("model-y", CaptainTierEnum.Economy)
+                });
+                AssertEqual(CaptainTierEnum.Premium, records.TierOfModel("model-x"), "highest tier, case-insensitive");
+                AssertEqual(CaptainTierEnum.Economy, records.TierOfModel("model-y"));
+                AssertNull(records.TierOfModel("model-z"), "an unknown model has no tier");
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_UpgradesMidToHigh_WhenMidHasNoEligible", () =>
+            await RunTest("ExplainExclusions_NamesThePersonaLockTheTierFloorAndThePin", () =>
             {
-                // No mid-tier captains, but high-tier captains are available
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-fable-5"),
-                    MakeCaptain("claude-opus-5")
-                };
+                Captain locked = MakeCaptain("model-locked", CaptainTierEnum.Premium, 0, "[\"Worker\"]");
+                Captain below = MakeCaptain("model-below", CaptainTierEnum.Standard);
+                Captain admitted = MakeCaptain("model-ok", CaptainTierEnum.Premium);
+                List<Captain> pool = new List<Captain> { locked, below, admitted };
+                Dictionary<string, string> reasons = LegacyCaptainSelector.ExplainExclusions(Settings("Judge"), new Mission { Persona = "Judge", PreferredModel = "mid" }, pool);
+                AssertEqual(LegacyCaptainSelector.ReasonPersonaNotAllowed, reasons[locked.Id]);
+                AssertEqual(LegacyCaptainSelector.ReasonBelowTierFloor, reasons[below.Id], "the specialist Premium floor excludes Standard");
+                AssertFalse(reasons.ContainsKey(admitted.Id), "an admitted captain has no exclusion");
 
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Should upgrade to high when mid has no eligible captains");
-
-                IReadOnlyList<string> highModels = PreferredModelTierSelector.GetTierModels("high", Fleet());
-                bool isHighModel = false;
-                foreach (string m in highModels) { if (m == selected) { isHighModel = true; break; } }
-                AssertTrue(isHighModel, "Upgraded selection should be a high-tier model");
+                Dictionary<string, string> pinned = LegacyCaptainSelector.ExplainExclusions(Settings(), new Mission { Persona = "Worker", PreferredModel = "model-below" }, pool);
+                AssertEqual(LegacyCaptainSelector.ReasonModelPinMismatch, pinned[admitted.Id]);
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_HighNeverDowngrades", () =>
-            {
-                // Only low and mid captains available; high-tier request should return null
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, null, Fleet());
-                AssertNull(selected, "High tier should never downgrade -- should return null when no high captains available");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_High_SelectsCaptainWithClaudeOpus5", () =>
-            {
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-opus-5")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "High tier should match the claude-opus-5 captain");
-                AssertEqual("claude-opus-5", selected, "Exact model string should round-trip");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_High_UnrankedPeers_UseRandomPick_NotEnumerationOrder", () =>
-            {
-                // Two high-tier peers (both classify high by canonical pattern), neither listed
-                // in the preference order -> they are unranked equals and MUST be chosen randomly,
-                // not pinned to captain-enumeration order. Regression guard for the bug where
-                // unranked models were appended in enumeration order and the first was returned.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-opus-5"),
-                    MakeCaptain("claude-mythos-5")
-                };
-                Dictionary<string, List<string>> order = new Dictionary<string, List<string>>
-                {
-                    { "high", new List<string> { "claude-fable-5" } }
-                };
-                string? pickFirst = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, order, Fleet());
-                string? pickSecond = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 1, null, order, Fleet());
-                AssertNotNull(pickFirst, "non-empty pool must select something at index 0");
-                AssertNotNull(pickSecond, "non-empty pool must select something at index 1");
-                AssertTrue(pickFirst != pickSecond, "unranked high peers must vary with randomPick (random), not be pinned to enumeration order");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_High_RankedModel_PreferredOverUnranked_RegardlessOfRandom", () =>
-            {
-                // A ranked model (listed in the preference order) that is eligible must win over an
-                // unranked peer regardless of the random index -- ranking still governs Judges.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-opus-5"),
-                    MakeCaptain("claude-fable-5")
-                };
-                Dictionary<string, List<string>> order = new Dictionary<string, List<string>>
-                {
-                    { "high", new List<string> { "claude-fable-5" } }
-                };
-                string? a = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, order, Fleet());
-                string? b = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 1, null, order, Fleet());
-                AssertEqual("claude-fable-5", a, "ranked model must win regardless of randomPick (index 0)");
-                AssertEqual("claude-fable-5", b, "ranked model must win regardless of randomPick (index 1)");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_High_RankedNativeModel_BeatsExternalLowerRankedModel", () =>
-            {
-                // Preference rank must dominate the native/external split. Here the higher-ranked
-                // model runs on an OpenCode captain (counts NATIVE) while the lower-ranked model
-                // runs on a ClaudeCode captain carrying its own base URL (counts EXTERNAL). The
-                // old code pre-filtered to the external pool before applying the preference order,
-                // so the lower-ranked external model was chosen. Rank must win instead.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-provider/model-a"),
-                    MakeCaptain("claude-ext")
-                };
-                captains[0].Runtime = Armada.Core.Enums.AgentRuntimeEnum.OpenCode;
-                captains[0].ApiBaseUrl = "https://opencode.example.com/v1";
-                captains[1].Runtime = Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode;
-                captains[1].ApiBaseUrl = "https://api.example.com/v1";
-
-                ModelTierSettings settings = new ModelTierSettings
-                {
-                    HighTierModels = new List<string> { "opencode-provider/model-a", "claude-ext" },
-                    PreferNonNativeFirst = true,
-                    WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom
-                };
-                Dictionary<string, List<string>> order = new Dictionary<string, List<string>>
-                {
-                    { "high", new List<string> { "opencode-provider/model-a", "claude-ext" } }
-                };
-
-                string? a = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, order, settings);
-                string? b = PreferredModelTierSelector.SelectModel("high", captains, null, n => n - 1, null, order, settings);
-                AssertEqual("opencode-provider/model-a", a, "the higher-ranked native model must win over a lower-ranked external model (index 0)");
-                AssertEqual("opencode-provider/model-a", b, "rank dominates the external pre-filter regardless of randomPick");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_Mid_SelectsGpt56Luna", () =>
-            {
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("gpt-5.6-luna")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Mid tier should match the gpt-5.6-luna captain");
-                AssertEqual("gpt-5.6-luna", selected, "Exact model string should round-trip");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_Mid_SelectsExactMidModel", () =>
-            {
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("example/mid-audit")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Mid tier should match the mid-audit captain");
-                AssertEqual("example/mid-audit", selected, "Exact model string should round-trip");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_Mid_SelectsDeepseek", () =>
-            {
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Mid tier should match the deepseek captain");
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "Exact model string should round-trip");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_High_DoesNotFuzzyMatchUnlistedVariants", () =>
-            {
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("gpt-5.6-sol-max")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, null, _ => 0, null, null, Fleet());
-                AssertNull(selected, "High tier should not select an unlisted variant of a high model");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_Mid_DoesNotFuzzyMatchUnlistedVariants", () =>
-            {
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("gpt-5.6-luna-max"),
-                    MakeCaptain("claude-opus-4-8-max")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNull(selected, "Mid tier should not select unlisted variants of mid models");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_ReturnsNull_WhenNoEligibleCaptains", () =>
-            {
-                List<Captain> captains = new List<Captain>();
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNull(selected, "Should return null when no captains are available");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_LiteralModelCaptain_NotFoundByTier", () =>
-            {
-                // Captain has a literal model name that is not in any tier
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("some-custom-model")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNull(selected, "Captain with a non-tier model should not be selected by tier dispatch");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_NullPersona_AcceptsAllCaptains", () =>
-            {
-                // Captain with AllowedPersonas restriction should still be picked when persona is null
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("gpt-5.6-luna", "[\"Worker\"]")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Null persona should accept captains with any AllowedPersonas");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_CaptainNullAllowedPersonas_AcceptsAnyPersona", () =>
-            {
-                // Captain with null AllowedPersonas should be eligible for any persona. Judge is a
-                // specialist persona that resolves on high tier, so the captain carries a high model.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-opus-4-7", null)
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Judge", _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Captain with null AllowedPersonas should serve any persona including Judge");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_CuratedAndCanonicalFamilies_MapToExpectedTier", () =>
-            {
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", Fleet()), "canonical opus is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "canonical opus bump is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5", Fleet()), "canonical fable is high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "curated gpt-5.6-luna is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("example/mid-audit", Fleet()), "curated example/mid-audit is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "curated deepseek-v4-flash is mid");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_OpencodeRegisteredModels_MapToCuratedTier", () =>
-            {
-                // The opencode-* model names are slash-prefixed (opencode/, opencode-go/) so
-                // none of them match a bare family fallback. The mid-tier curated array holds
-                // exactly one opencode model, and only that exact entry counts -- a sibling
-                // opencode/deepseek-v4-flash with the other prefix is NOT registered and must
-                // stay unclassified. This test fails if a future edit drops the entry from
-                // the mid list or adds an unlisted sibling to the curated arrays.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "opencode-go/deepseek-v4-flash is curated mid");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash", Fleet()), "opencode/deepseek-v4-flash is not registered -- only the opencode-go/ curated entry counts");
-
-                // Critical ordering guard: opencode-go/deepseek-v4-flash contains "deepseek" but
-                // does NOT start with a bare family token, so no fallback catches it. Only the
-                // curated mid entry can classify it; an unlisted sibling variant is
-                // unregistered and must NOT be absorbed.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash-lite", Fleet()), "an unlisted sibling variant is not registered");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_OpencodeUnregisteredVariant_IsNotRecognized", () =>
-            {
-                // A sibling opencode model that was NOT registered must stay null: the slash
-                // prefix keeps it out of the bare family fallbacks. Proves the curated
-                // registration -- not a pattern -- is what makes opencode-go/deepseek-v4-flash count.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode/deepseek-v4-flash", Fleet()), "unregistered opencode deepseek prefix is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v5", Fleet()), "unregistered opencode deepseek variant is not classified");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("GetTierModels_ContainsRegisteredOpencodeModels", () =>
-            {
-                IReadOnlyList<string> midModels = PreferredModelTierSelector.GetTierModels("mid", Fleet());
-                AssertTrue(midModels.Contains("opencode-go/deepseek-v4-flash"), "mid tier must list opencode-go/deepseek-v4-flash");
-                AssertFalse(midModels.Contains("opencode/deepseek-v4-flash"), "the unregistered opencode prefix must not appear");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ModelMatchesTierOrAbove_UpwardFallback_SatisfiesLowPin", () =>
-            {
-                // A mid model must satisfy a low-tier pin (upward fallback).
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("gpt-5.6-luna", "low", Fleet()), "mid model satisfies low pin via upward fallback");
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "low", Fleet()), "promoted deepseek model satisfies a low pin");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_FutureVersionBumps_AutoRegisterByFamily", () =>
-            {
-                // The bug this guards: an Opus version bump (4-7 -> 4-8 -> 5) must classify high
-                // WITHOUT being added to the curated array, and a Fable bump registers the same way.
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-8", Fleet()), "opus 4-8 auto-registers high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "opus 5 auto-registers high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-6", Fleet()), "fable bump auto-registers high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gemini-4.0-pro", Fleet()), "gemini pro bump auto-registers mid");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_VariantSuffixes_AreNotRecognized", () =>
-            {
-                // Anchored family patterns must not absorb unlisted suffix variants.
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-preview", Fleet()), "unlisted sol preview is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-preview", Fleet()), "unlisted luna preview is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-5-preview", Fleet()), "unlisted opus preview is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("some-custom-model", Fleet()), "unknown model is not classified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel(null, Fleet()), "null is not classified");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_High_AutoRegistersUpgradedOpusCaptain", () =>
-            {
-                // Regression: claude-opus-4-8 captains were invisible to a "high" tier request
-                // because the curated high list only knew claude-opus-4-7.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-opus-4-8", "[\"Analyst\"]")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Analyst", _ => 0, null, null, Fleet());
-                AssertEqual("claude-opus-4-8", selected, "Upgraded Opus captain should be selectable for a high-tier Analyst mission");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ModelMatchesTierOrAbove_RespectsUpwardChain", () =>
-            {
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "high", Fleet()), "opus 4-8 satisfies high");
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-8", "mid", Fleet()), "high model satisfies a mid pin (upward chain)");
-                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("gpt-5.6-luna", "high", Fleet()), "mid model does not satisfy a high pin");
-                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("some-custom-model", "low", Fleet()), "unclassified model satisfies no tier pin");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_NonSpecialistWithIdleMid_ReturnsMidNotHigh", () =>
-            {
-                // A mid AND a high captain are idle. A non-specialist persona must take the mid
-                // captain and leave the high captain free.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("claude-opus-4-7")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "Non-specialist work should take the idle mid captain, not the high one");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_NonSpecialistAllMidLowBusy_FallsUpToHigh", () =>
-            {
-                // No mid or low captains are idle -- only a high one. High is the last resort, so
-                // a non-specialist mission may use it rather than stay pending.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("claude-opus-4-7")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel(selected, Fleet()), "High is selected as a last resort when no mid/low captain is idle");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_NonSpecialistMid_TriesLowBeforeHigh", () =>
-            {
-                // A low AND a high captain are idle but no mid. The non-specialist order is
-                // [mid, low, high], so low must win over high.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("claude-opus-4-7")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "A non-specialist mid request must try low before high");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_SpecialistPersona_ReturnsHigh", () =>
-            {
-                // A mid AND a high captain are idle. A specialist persona is reserved for high.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("claude-opus-4-7")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Judge", _ => 0, null, null, Fleet());
-                AssertEqual("claude-opus-4-7", selected, "Specialist persona must resolve to the high-tier captain only");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_MidTier_WorkerRequest_SelectsRandomlyAmongEquals", () =>
-            {
-                // A Worker mid request with several idle worker models picks randomly among them.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna")
-                };
-
-                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "random stub 0 selects the first eligible worker model");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_MidTier_AnyIdleWorkerModel_Serves", () =>
-            {
-                // No model is ranked; any idle worker model with an eligible captain serves.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit")
-                };
-
-                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "random stub 0 selects the first eligible idle worker model");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_MidTier_RandomPick_HonorsTheRandomIndex", () =>
-            {
-                // Only mid-audit and composer are idle; the random index decides which equal model
-                // wins. Stub 0 picks the first eligible in captain order.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash")
-                };
-
-                IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder, Fleet());
-                AssertEqual("example/mid-audit", selected, "random stub 0 selects the first eligible model (mid-audit)");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_MidTier_ConfigurablePreferenceOrder_OverridesDefault", () =>
-            {
-                // Operator-configurable preference order flips the default so composer is first.
-                Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
-                {
-                    { "mid", new List<string> { "opencode-go/deepseek-v4-flash", "gpt-5.6-luna", "example/mid-audit" } }
-                };
-
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "Custom preference order should place composer ahead of the ranked mid models");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_MidTier_UnknownPreferenceModel_SkipsToNext", () =>
-            {
-                // A preference list can contain models that are not currently idle. Those are
-                // skipped and the first idle preferred model is selected.
-                Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
-                {
-                    { "mid", new List<string> { "gpt-5.6-luna", "example/mid-audit", "opencode-go/deepseek-v4-flash" } }
-                };
-
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "Should skip missing luna and mid-audit captains and land on composer");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_DefaultsAndRestores", () =>
+            await RunTest("IsSpecialistPersona_ComesFromPersonaRecords", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertEqual(0, defaults.WithinTierPreferenceOrder.Count, "product default preference order is empty");
-                AssertFalse(defaults.HasConfiguredTierMembership, "product defaults configure no tier membership");
+                AssertFalse(defaults.IsSpecialistPersona("Judge"), "no persona is a specialist until its record is flagged");
+                AssertEqual(0, defaults.SpecialistPersonas.Count);
 
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
+                List<Persona> personas = new List<Persona>
                 {
-                    { "low", new List<string> { "opencode-go/deepseek-v4-flash" } }
+                    new Persona("Judge", "persona.judge") { Specialist = true },
+                    new Persona("Test Engineer", "persona.test_engineer") { Specialist = true },
+                    new Persona("Worker", "persona.worker")
                 };
-                AssertFalse(custom.WithinTierPreferenceOrder.ContainsKey("mid"), "custom preference order replaces the default mid entry");
-                AssertTrue(custom.WithinTierPreferenceOrder.ContainsKey("low"), "custom preference order contains the operator-supplied low entry");
-
-                custom.WithinTierPreferenceOrder = null!;
-                AssertEqual(0, custom.WithinTierPreferenceOrder.Count, "null setter restores the empty product default preference order");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("IsSpecialistPersona_ConfigurableViaSettings", () =>
-            {
-                ModelTierSettings defaults = new ModelTierSettings();
-                AssertFalse(defaults.IsSpecialistPersona("Judge"), "product defaults reserve no specialist personas");
-                AssertFalse(defaults.IsSpecialistPersona("Worker"), "Worker is not a specialist");
-                AssertFalse(defaults.IsSpecialistPersona(null), "null persona is not a specialist");
-                AssertEqual(0, defaults.SpecialistPersonas.Count, "product default specialist set is empty");
-
-                ModelTierSettings fleet = Fleet();
-                AssertTrue(fleet.IsSpecialistPersona("Judge"), "fleet overlay treats Judge as a specialist");
-                AssertTrue(fleet.IsSpecialistPersona("architect"), "specialist match is case-insensitive");
-                AssertEqual(6, fleet.SpecialistPersonas.Count, "fleet specialist set has the 6 reserved personas");
-
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.SpecialistPersonas = new List<string> { "Curator" };
-                AssertTrue(custom.IsSpecialistPersona("Curator"), "custom persona is reclassified as a specialist");
-                AssertFalse(custom.IsSpecialistPersona("Judge"), "Judge is no longer a specialist under a custom set");
-                AssertTrue(PreferredModelTierSelector.RequiresHighTier("Curator", custom.SpecialistPersonas), "selector honors the custom specialist set");
-                AssertFalse(PreferredModelTierSelector.RequiresHighTier("Judge", custom.SpecialistPersonas), "selector excludes Judge under the custom set");
-
-                custom.SpecialistPersonas = null!;
-                AssertFalse(custom.IsSpecialistPersona("Judge"), "null setter restores the empty product default specialists");
+                ModelTierSettings settings = new ModelTierSettings { Records = TierRoutingRecords.From(personas, null) };
+                AssertTrue(settings.IsSpecialistPersona("judge"), "matching is case-insensitive");
+                AssertTrue(settings.IsSpecialistPersona("TestEngineer"), "the legacy spelling matches the canonical persona");
+                AssertFalse(settings.IsSpecialistPersona("Worker"), "an unflagged persona is not a specialist");
+                AssertFalse(settings.IsSpecialistPersona(null), "null is not a specialist");
+                AssertEqual(2, settings.SpecialistPersonas.Count);
                 return Task.CompletedTask;
             });
 
             await RunTest("EnforceHighTierForPersona_NonSpecialist_PassesTierThroughUnchanged", () =>
             {
-                // Create-time enforcement must NOT upgrade non-specialist work. A Worker mission
-                // that asked for mid keeps mid; the last-resort fall-up happens later at dispatch.
                 AssertEqual("mid", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Worker"), "non-specialist mid request is preserved at create time");
                 AssertEqual("low", PreferredModelTierSelector.EnforceHighTierForPersona("low", "Worker"), "non-specialist low request is preserved at create time");
-                AssertNull(PreferredModelTierSelector.EnforceHighTierForPersona(null, "Worker"), "non-specialist with no preferred model is left unset, not forced to high");
+                AssertNull(PreferredModelTierSelector.EnforceHighTierForPersona(null, "Worker"), "non-specialist with no preferred model is left unset");
                 AssertNull(PreferredModelTierSelector.EnforceHighTierForPersona(null, null), "null persona is non-specialist and is left unset");
                 return Task.CompletedTask;
             });
 
             await RunTest("EnforceHighTierForPersona_Specialist_UpgradesBelowHighToHigh", () =>
             {
-                // Specialist personas are reserved for high: any sub-high tier selector (or an
-                // unset preferred model) is forced up to high at create time.
-                IReadOnlyCollection<string> specialists = Fleet().SpecialistPersonas;
+                IReadOnlyCollection<string> specialists = Settings("Judge", "Architect", "TestEngineer").SpecialistPersonas;
                 AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge", specialists), "specialist mid request is upgraded to high");
                 AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("low", "Architect", specialists), "specialist low request is upgraded to high");
                 AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona(null, "TestEngineer", specialists), "specialist with no preferred model defaults to high");
@@ -832,341 +447,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("EnforceHighTierForPersona_SpecialistLiteralModel_PassesThroughUnchanged", () =>
             {
-                // An operator-pinned literal model name is honored verbatim even for a specialist;
-                // the runtime tier-fallback handles the case where no matching captain is idle.
-                AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.EnforceHighTierForPersona("gpt-5.6-luna", "Judge", Fleet().SpecialistPersonas), "specialist literal pin is not rewritten to a tier selector");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("EnforceHighTierForPersona_ConfigurableViaSettings", () =>
-            {
-                // Reclassifying personas through settings must flow through create-time enforcement,
-                // not just the boolean predicate: a custom specialist is upgraded and a former
-                // default specialist is no longer upgraded -- all without a code change.
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.SpecialistPersonas = new List<string> { "Curator" };
-
-                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Curator", custom.SpecialistPersonas), "custom specialist is upgraded to high at create time");
-                AssertEqual("mid", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge", custom.SpecialistPersonas), "Judge is no longer a specialist under the custom set, so its tier is preserved");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_NonSpecialistLow_TriesMidBeforeHigh", () =>
-            {
-                // A mid AND a high captain are idle. A legacy low request maps to the mid tier,
-                // so the mid captain must win over the high one.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("claude-opus-4-7")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("low", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "A non-specialist low request must try mid before falling up to high");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_NonSpecialistExplicitHigh_HonoredWithoutDowngrade", () =>
-            {
-                // A non-specialist that explicitly asks for high is honored: high is not silently
-                // downgraded to the idle mid captain (the operator asked for high deliberately).
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("claude-opus-4-7")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertEqual("claude-opus-4-7", selected, "An explicit high request by a non-specialist resolves to the high captain, not the idle mid one");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_ConfigDrivenTierMembership_FollowsModelTierSettings", () =>
-            {
-                // Tier membership is sourced from ModelTierSettings, not hard-coded arrays.
-                // The configured lists win over canonical family patterns and over default
-                // tier assignments, so moving a model between tiers is a settings change.
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string> { "custom-mid", "opencode-go/deepseek-v4-flash", "claude-opus-4-7" };
-                custom.HighTierModels = new List<string> { "custom-high" };
-
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("custom-mid", custom), "custom mid-tier model classifies mid");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("custom-high", custom), "custom high-tier model classifies high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", custom), "a mid config entry classifies mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "configured mid-tier membership overrides the canonical opus high pattern");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("not-in-any-list-and-no-pattern-match", custom), "model not in custom lists and not matching a family pattern is not classified");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_Gpt56Sol_ExplicitEntryOnlyClassifiesHigh", () =>
-            {
-                // gpt-5.6-sol must classify high through its explicit curated entry, not a fragile
-                // regex or prefix fallback. Nearby variants that are not explicitly listed must remain
-                // unclassified.
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", Fleet()), "gpt-5.6-sol is explicitly high");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-max", Fleet()), "no gpt prefix fallback absorbs variants");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol-lite", Fleet()), "no gpt prefix fallback absorbs sibling names");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_Gpt56Luna_HardensToMid", () =>
-            {
-                // gpt-5.6-luna must reliably resolve to the mid tier through its explicit
-                // curated entry, while unlisted variants stay unclassified.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "gpt-5.6-luna is mid");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-max", Fleet()), "an unlisted luna variant stays unclassified");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-2", Fleet()), "a versioned luna variant stays unclassified");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_SpecialistPersona_MidDispatch_ForcedHigh", () =>
-            {
-                // A mid-tier dispatch for a specialist persona must resolve to the high tier
-                // even when an idle mid-tier captain is available.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("claude-opus-4-7")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "TestEngineer", _ => 0, null, null, Fleet());
-                AssertEqual("claude-opus-4-7", selected, "Specialist mid dispatch is forced to high-tier captain");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ModelTierSettings_WithinTierPreferenceOrder_WorkerModelsAreEqualPeers", () =>
-            {
-                // All worker models are equal: the default mid preference order is empty, so a
-                // mid request selects randomly among the eligible models. The random stub index
-                // 0 picks the first eligible model in captain order.
-                ModelTierSettings defaults = new ModelTierSettings();
-                AssertEqual(0, defaults.WithinTierPreferenceOrder.Count, "no worker model is ranked above another");
-
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("example/mid-audit"),
-                    MakeCaptain("gpt-5.6-luna")
-                };
-
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaults.WithinTierPreferenceOrder, defaults);
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "with an empty order, the random pick (stub 0) selects the first eligible worker model");
-                string? randomPick = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", n => n - 1, null, defaults.WithinTierPreferenceOrder, defaults);
-                AssertEqual("gpt-5.6-luna", randomPick, "a different random index selects a different equal worker model");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ModelTierSettings_LoadedSettingsFile_OverridesBuiltInRanking", () =>
-            {
-                // The deployed settings.json is the sole source of truth: a modelTier block in the
-                // file must replace the built-in tier lists and ranking, not merge with them.
-                string json = "{\"modelTier\":{"
-                    + "\"midTierModels\":[\"opencode-go/deepseek-v4-flash\",\"gpt-5.6-luna\"],"
-                    + "\"withinTierPreferenceOrder\":{\"mid\":[\"opencode-go/deepseek-v4-flash\",\"gpt-5.6-luna\"]}}}";
-                JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json, options);
-
-                AssertNotNull(loaded, "settings JSON must deserialize");
-
-                ModelTierSettings fileTier = loaded!.ModelTier;
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("gpt-5.6-luna"),
-                    MakeCaptain("opencode-go/deepseek-v4-flash")
-                };
-
-                string? builtIn = PreferredModelTierSelector.SelectModel(
-                    "mid", captains, "Worker", _ => 0, null, Fleet().WithinTierPreferenceOrder, Fleet());
-                AssertEqual("gpt-5.6-luna", builtIn, "the built-in ranking prefers the luna captain");
-                ModelTierSettings fileWithStrategy = fileTier;
-                fileWithStrategy.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
-                string? fromFile = PreferredModelTierSelector.SelectModel(
-                    "mid", captains, "Worker", _ => 0, null, fileTier.WithinTierPreferenceOrder, fileWithStrategy);
-                AssertEqual("opencode-go/deepseek-v4-flash", fromFile, "the loaded settings file must win over the built-in ranking");
-
-                AssertEqual(2, fileTier.MidTierModels.Count, "the file's mid membership replaces the built-in list");
-                AssertNull(
-                    PreferredModelTierSelector.ClassifyModel("opencode-go/kimi-k3", fileTier),
-                    "a model the file omits classifies to no tier -- the file does not merge with the built-in list");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("GetTierModels_CustomSettings_ReturnsConfiguredMembership", () =>
-            {
-                // The config-driven read path: GetTierModels must return the supplied settings'
-                // lists verbatim, not the built-in defaults. This is the read-side proof that
-                // tier membership is sourced from ModelTierSettings.
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string> { "beta-mid", "gamma-mid" };
-                custom.HighTierModels = new List<string> { "delta-high" };
-
-                IReadOnlyList<string> low = PreferredModelTierSelector.GetTierModels("low", custom);
-                IReadOnlyList<string> mid = PreferredModelTierSelector.GetTierModels("mid", custom);
-                IReadOnlyList<string> high = PreferredModelTierSelector.GetTierModels("high", custom);
-
-                AssertEqual(2, low.Count, "a legacy low request resolves to the configured mid list");
-                AssertTrue(low.Contains("beta-mid") && low.Contains("gamma-mid"), "legacy low returns the configured mid members");
-                AssertEqual(2, mid.Count, "custom mid tier returns both configured models");
-                AssertTrue(mid.Contains("beta-mid") && mid.Contains("gamma-mid"), "custom mid tier returns the configured members");
-                AssertEqual(1, high.Count, "custom high tier has exactly the one configured model");
-                AssertEqual("delta-high", high[0], "custom high tier returns the configured model");
-
-                // The default membership must NOT leak through when custom settings are supplied.
-                AssertFalse(high.Contains("claude-fable-5"), "default high model must not appear under custom high settings");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("GetTierModels_EmptyConfiguredList_ReturnsEmpty", () =>
-            {
-                // An operator who clears a tier list gets an empty membership list back -- the
-                // empty list is honored (it is not null, so the setter does not restore defaults).
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string>();
-
-                IReadOnlyList<string> mid = PreferredModelTierSelector.GetTierModels("mid", custom);
-                AssertEqual(0, mid.Count, "an explicitly emptied mid list returns no configured members");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("GetTierAndAboveModels_CustomSettings_MidComposesMidAndHigh", () =>
-            {
-                // mid-and-above must concatenate the configured mid and high lists when custom
-                // settings are supplied -- the upward chain is config-driven too.
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string> { "beta-mid" };
-                custom.HighTierModels = new List<string> { "delta-high" };
-
-                IReadOnlyList<string> midAndAbove = PreferredModelTierSelector.GetTierAndAboveModels("mid", custom);
-                AssertTrue(midAndAbove.Contains("beta-mid"), "mid-and-above includes the configured mid model");
-                AssertTrue(midAndAbove.Contains("delta-high"), "mid-and-above includes the configured high model");
-
-                IReadOnlyList<string> lowAndAbove = PreferredModelTierSelector.GetTierAndAboveModels("low", custom);
-                AssertTrue(lowAndAbove.Contains("beta-mid"), "a legacy low request composes mid and above");
-                AssertTrue(lowAndAbove.Contains("delta-high"), "a legacy low request composes high as well");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_ListPrecedence_HighWinsOverMidWhenModelInBoth", () =>
-            {
-                // ClassifyModel checks High, then Mid. A (misconfigured) model present in both
-                // lists resolves to the highest list it appears in -- this pins the documented
-                // check order so a future reorder is caught.
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string> { "dual-listed" };
-                custom.HighTierModels = new List<string> { "dual-listed" };
-
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("dual-listed", custom), "a model in multiple lists classifies into the highest (high checked first)");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_EmptyHighList_OverridesBuiltInFamilyInference", () =>
-            {
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.HighTierModels = new List<string>();
-
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-fable-5", custom), "explicit-only claude-fable-5 is unclassified once the high list is emptied");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", custom), "an empty configured high list must override the built-in Opus family inference");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_EmptyMidList_OverridesBuiltInFamilyInference", () =>
-            {
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string>();
-
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", custom), "an empty configured mid list must override the built-in mid membership");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", custom), "an empty configured mid list must override the built-in mid membership");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ClassifyModel_LunaCuratedEntry_AnchoringBoundaries", () =>
-            {
-                // The gpt-5.6-luna entry is exact-match only: only the curated string classifies
-                // mid. Adjacent or suffixed variants (luna-max, luna-2) must NOT be absorbed --
-                // they match no family pattern and are not curated.
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "the exact curated luna entry is mid");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-max", Fleet()), "a suffixed luna variant is NOT absorbed");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna-2", Fleet()), "a versioned luna variant is NOT absorbed");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ModelMatchesTierOrAbove_CustomSettings_FollowsConfiguredMembership", () =>
-            {
-                // The pin-validation upward chain is config-driven: a model reclassified to high by
-                // settings now satisfies a low pin (legacy, mapped to mid) and a high pin, while a
-                // model moved down to mid no longer satisfies a high pin.
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string> { "claude-opus-4-7" };
-                custom.HighTierModels = new List<string> { "opencode-go/deepseek-v4-flash" };
-
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "low", custom), "a model promoted to high via config satisfies a low pin");
-                AssertTrue(PreferredModelTierSelector.ModelMatchesTierOrAbove("opencode-go/deepseek-v4-flash", "high", custom), "a model promoted to high via config satisfies a high pin");
-                AssertFalse(PreferredModelTierSelector.ModelMatchesTierOrAbove("claude-opus-4-7", "high", custom), "a model moved to mid via config no longer satisfies a high pin");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("SelectModel_CustomSettings_SelectsModelClassifiedByConfigOnly", () =>
-            {
-                // A captain whose model is unknown to the defaults (would classify null and be
-                // unselectable) becomes selectable for a mid request once config adds it to the
-                // mid list -- proving SelectModel threads modelTierSettings through to ClassifyModel.
-                List<Captain> captains = new List<Captain>
-                {
-                    MakeCaptain("house-model-x")
-                };
-
-                string? withoutConfig = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, Fleet());
-                AssertNull(withoutConfig, "an unclassified model is not selectable for a mid request under defaults");
-
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.MidTierModels = new List<string> { "house-model-x" };
-                string? withConfig = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, custom);
-                AssertEqual("house-model-x", withConfig, "config adding the model to the mid list makes its captain selectable for mid work");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("NormalizeTier_UnknownSelector_Throws", () =>
-            {
-                // Defensive contract: NormalizeTier must reject values that are neither canonical
-                // tiers nor known aliases rather than silently coercing them.
-                AssertThrows<System.ArgumentException>(() => PreferredModelTierSelector.NormalizeTier("ultra"), "unknown tier selector throws");
-                AssertThrows<System.ArgumentException>(() => PreferredModelTierSelector.NormalizeTier(""), "empty tier selector throws");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("CaptainSatisfiesPreferredRouting_TierPin_HonorsConfiguredMembership", () =>
-            {
-                // The MissionService hard-pin/stage-pin gate must honor config-driven tier
-                // membership: a captain whose model the defaults treat as mid is rejected for a
-                // high pin, but accepted once config promotes that model to high.
-                Captain captain = MakeCaptain("gpt-5.6-luna", "[\"Worker\"]");
-
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "high"), "a default mid-tier captain does not satisfy a high tier pin");
-
-                ModelTierSettings custom = new ModelTierSettings();
-                custom.HighTierModels = new List<string> { "gpt-5.6-luna" };
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "high", custom), "config promoting the model to high lets the captain satisfy a high tier pin");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("CaptainSatisfiesPreferredRouting_LiteralPinAndPersona_AreEnforced", () =>
-            {
-                // Literal model pins must match exactly (tier config is irrelevant), and the
-                // persona allow-list is enforced independently of the model pin.
-                Captain captain = MakeCaptain("claude-opus-4-7", "[\"Worker\",\"Judge\"]");
-
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "claude-opus-4-7"), "exact literal model pin is satisfied");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "gpt-5.6-sol"), "a non-matching literal model pin is rejected");
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, "Judge", null), "an allowed persona with no model pin is satisfied");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Architect", null), "a persona absent from the allow-list is rejected");
+                AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.EnforceHighTierForPersona("gpt-5.6-luna", "Judge", Settings("Judge").SpecialistPersonas), "specialist literal pin is not rewritten");
                 return Task.CompletedTask;
             });
 
             await RunTest("ResolveTierForPersona_HighInheritedByNonSpecialist_CapsToMid", () =>
             {
-                // The rescue path inherits the failed mission's tier, and a Judge rejection is
-                // recovered by a Worker. Carrying the reviewer's "high" onto the Worker makes the
-                // rescue unassignable whenever no high-tier captain accepts the Worker persona.
                 AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("high", "Worker"), "a high tier inherited by a Worker is capped to mid");
                 AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("High", "Worker"), "the cap is case-insensitive");
                 return Task.CompletedTask;
@@ -1175,15 +461,14 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ResolveTierForPersona_NonHighTiers_PassThroughUnchanged", () =>
             {
                 AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("mid", "Worker"), "an explicit mid request is preserved");
-                AssertEqual("low", PreferredModelTierSelector.ResolveTierForPersona("low", "Worker"), "a legacy low request is preserved verbatim");
-                AssertNull(PreferredModelTierSelector.ResolveTierForPersona(null, "Worker"), "a non-specialist with no preferred model is left unset, not filled in");
+                AssertEqual("low", PreferredModelTierSelector.ResolveTierForPersona("low", "Worker"), "a low request is preserved verbatim");
+                AssertNull(PreferredModelTierSelector.ResolveTierForPersona(null, "Worker"), "a non-specialist with no preferred model is left unset");
                 return Task.CompletedTask;
             });
 
             await RunTest("ResolveTierForPersona_SpecialistPersona_StillUpgradesToHigh", () =>
             {
-                // The cap must not weaken the existing upgrade: specialist personas keep high.
-                IReadOnlyCollection<string> specialists = Fleet().SpecialistPersonas;
+                IReadOnlyCollection<string> specialists = Settings("Judge", "TestEngineer").SpecialistPersonas;
                 AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", "Judge", specialists), "a Judge keeps high");
                 AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", "Judge", specialists), "a Judge is upgraded from mid to high");
                 AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona(null, "TestEngineer", specialists), "a TestEngineer with no tier is set to high");
@@ -1192,8 +477,6 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("ResolveTierForPersona_LiteralModelName_IsNeverRewritten", () =>
             {
-                // An operator-pinned literal stays honest in both directions; the dispatcher's
-                // tier-fallback handles the runtime case when no captain matches.
                 AssertEqual("claude-opus-4-7", PreferredModelTierSelector.ResolveTierForPersona("claude-opus-4-7", "Worker"), "a literal model name is not capped");
                 AssertEqual("gpt-5.6-sol", PreferredModelTierSelector.ResolveTierForPersona("gpt-5.6-sol", "Judge"), "a literal model name is not upgraded");
                 return Task.CompletedTask;
@@ -1201,78 +484,52 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("ResolveEffectivePreferredModel_InheritsMissionTierThenCapsForPersona", () =>
             {
-                IReadOnlyCollection<string> specialists = Fleet().SpecialistPersonas;
-                AssertEqual("mid", PreferredModelTierSelector.ResolveEffectivePreferredModel(
-                    null, "high", "Worker", specialists),
-                    "a mission-level high tier inherited by a Worker stage caps to mid");
-                AssertEqual("high", PreferredModelTierSelector.ResolveEffectivePreferredModel(
-                    null, "high", "Judge", specialists),
-                    "a Judge stage keeps high when the mission requests high");
-                AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.ResolveEffectivePreferredModel(
-                    null, "gpt-5.6-luna", "Worker", specialists),
-                    "literal model pins pass through unchanged after mission inheritance");
-                AssertEqual("claude-opus-5", PreferredModelTierSelector.ResolveEffectivePreferredModel(
-                    "claude-opus-5", "high", "Worker", specialists),
-                    "a stage literal override wins over mission inheritance and is not rewritten");
+                IReadOnlyCollection<string> specialists = Settings("Judge").SpecialistPersonas;
+                AssertEqual("mid", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "high", "Worker", specialists), "a mission-level high tier inherited by a Worker stage caps to mid");
+                AssertEqual("high", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "high", "Judge", specialists), "a Judge stage keeps high");
+                AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "gpt-5.6-luna", "Worker", specialists), "literal pins pass through");
+                AssertEqual("claude-opus-5", PreferredModelTierSelector.ResolveEffectivePreferredModel("claude-opus-5", "high", "Worker", specialists), "a stage literal override wins");
                 return Task.CompletedTask;
             });
 
-            await RunTest("VanillaDefaults_ClassifyNoFamilyAndJudgeIsNotSpecialist", () =>
+            await RunTest("CaptainSatisfiesPreferredRouting_TierPin_UsesTheCaptainTier", () =>
+            {
+                Captain standard = MakeCaptain("gpt-5.6-luna", CaptainTierEnum.Standard, 0, "[\"Worker\"]");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(standard, null, "high"), "a Standard captain does not satisfy a high pin");
+                standard.Tier = CaptainTierEnum.Premium;
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(standard, null, "high"), "pinning the captain to Premium lets it satisfy a high pin");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("CaptainSatisfiesPreferredRouting_SpecialistPersona_RequiresPremium", () =>
+            {
+                Captain standard = MakeCaptain("model-s", CaptainTierEnum.Standard);
+                Captain premium = MakeCaptain("model-p", CaptainTierEnum.Premium);
+                ModelTierSettings settings = Settings("Judge");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(standard, "Judge", "mid", settings), "a specialist needs Premium even for a mid request");
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(premium, "Judge", null, settings), "a Premium captain serves the specialist");
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(standard, "Judge", "model-s", settings), "a literal pin is honoured");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("CaptainSatisfiesPreferredRouting_LiteralPinAndPersona_AreEnforced", () =>
+            {
+                Captain captain = MakeCaptain("claude-opus-4-7", CaptainTierEnum.Premium, 0, "[\"Worker\",\"Judge\"]");
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "claude-opus-4-7"), "exact literal model pin is satisfied");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "gpt-5.6-sol"), "a non-matching literal model pin is rejected");
+                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, "Judge", null), "an allowed persona with no model pin is satisfied");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Architect", null), "a persona absent from the allow-list is rejected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("VanillaDefaults_NoSpecialistNoNonNativePreferenceNoReserve", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", defaults), "vanilla classifies no opus family");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-fable-5", defaults), "vanilla classifies no fable family");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", defaults), "vanilla classifies no sonnet family");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("gemini-3-pro", defaults), "vanilla classifies no gemini family");
-                AssertNull(PreferredModelTierSelector.ClassifyModel("kimi-k2.7", defaults), "vanilla classifies no kimi family");
                 AssertFalse(defaults.IsSpecialistPersona("Judge"), "vanilla reserves no Judge specialist");
                 AssertFalse(defaults.PreferNonNativeFirst, "vanilla does not prefer non-native captains");
-                AssertEqual(ModelTierSettings.WithinTierStrategyRandom, defaults.WithinTierStrategy, "vanilla within-tier strategy is Random");
                 AssertEqual(0, defaults.ReservedHighTierSlots, "vanilla reserved high-tier slots is zero");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("VanillaDefaults_SelectModel_RandomAmongEligibleNoNonNativePreference", () =>
-            {
-                ModelTierSettings defaults = new ModelTierSettings();
-                Captain native = MakeCaptain("claude-opus-4-7");
-                native.Runtime = AgentRuntimeEnum.OpenCode;
-                Captain external = MakeCaptain("gpt-5.6-luna");
-                external.Runtime = AgentRuntimeEnum.ClaudeCode;
-                external.ApiBaseUrl = "https://example.com";
-                List<Captain> captains = new List<Captain> { native, external };
-
-                string? first = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, defaults);
-                AssertEqual("claude-opus-4-7", first, "vanilla random stub 0 picks the first eligible model, including native");
-                string? last = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", n => n - 1, null, null, defaults);
-                AssertEqual("gpt-5.6-luna", last, "vanilla random stub last picks the other eligible model");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("FleetOverlay_Regression_MatchesFormerHardcodedDecisions", () =>
-            {
-                ModelTierSettings fleet = Fleet();
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", fleet), "fleet opus family is high");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-6", fleet), "fleet fable version-bump is high");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("claude-sonnet-4-6", fleet), "fleet sonnet family is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gemini-4.0-pro", fleet), "fleet gemini pro family is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("kimi-k2.7", fleet), "fleet kimi family is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", fleet), "fleet curated luna is mid");
-                AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", fleet), "fleet curated sol is high");
-                AssertTrue(fleet.IsSpecialistPersona("Judge"), "fleet Judge is a specialist");
-                AssertTrue(fleet.PreferNonNativeFirst, "fleet prefers non-native captains");
-                AssertEqual(ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom, fleet.WithinTierStrategy, "fleet uses preference-order then random");
-                AssertEqual(1, fleet.ReservedHighTierSlots, "fleet reserves one high-tier slot");
-                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge", fleet.SpecialistPersonas), "fleet Judge mid request upgrades to high");
-
-                Captain native = MakeCaptain("opencode-go/deepseek-v4-flash");
-                native.Runtime = AgentRuntimeEnum.OpenCode;
-                Captain external = MakeCaptain("gpt-5.6-luna");
-                external.Runtime = AgentRuntimeEnum.ClaudeCode;
-                external.ApiBaseUrl = "https://example.com";
-                List<Captain> captains = new List<Captain> { native, external };
-                string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, null, fleet);
-                AssertEqual("gpt-5.6-luna", selected, "fleet non-native-first picks the external luna captain over native deepseek");
+                AssertFalse(defaults.HasRetiredTierKeys, "vanilla carries no retired tier keys");
+                AssertNull(defaults.TierRecordsMigratedUtc, "vanilla has not migrated");
                 return Task.CompletedTask;
             });
         }

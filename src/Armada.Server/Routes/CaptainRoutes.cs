@@ -225,7 +225,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Create a captain")
-                .WithDescription("Registers a new captain (AI agent). Accepts configuration fields only (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, DefaultPlaybooks). A server-owned field (Id, TenantId, UserId, State, CurrentMissionId, CurrentDockId, ProcessId, RecoveryAttempts, LastHeartbeatUtc, LastProcessAliveUtc, QuarantineUntilUtc, QuarantineReason, CreatedUtc, LastUpdateUtc) sent with a non-default value returns 400 captain_server_owned_field naming the field.")
+                .WithDescription("Registers a new captain (AI agent). Accepts configuration fields only (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, PreferenceRank, DefaultPlaybooks). A server-owned field (Id, TenantId, UserId, State, CurrentMissionId, CurrentDockId, ProcessId, RecoveryAttempts, LastHeartbeatUtc, LastProcessAliveUtc, QuarantineUntilUtc, QuarantineReason, CreatedUtc, LastUpdateUtc) sent with a non-default value returns 400 captain_server_owned_field naming the field.")
                 .WithRequestBody(OpenApiJson.BodyFor<Captain>("Captain data", true))
                 .WithResponse(201, OpenApiJson.For<Captain>("Created captain"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
@@ -343,7 +343,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Update a captain")
-                .WithDescription("Replaces a captain's configuration fields (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, DefaultPlaybooks). Server-owned fields keep their stored values; sending one with a different value returns 400 captain_server_owned_field naming the field.")
+                .WithDescription("Replaces a captain's configuration fields (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, PreferenceRank, DefaultPlaybooks). Server-owned fields keep their stored values; sending one with a different value returns 400 captain_server_owned_field naming the field.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Captain>("Updated captain data", true))
                 .WithResponse(200, OpenApiJson.For<Captain>("Updated captain"))

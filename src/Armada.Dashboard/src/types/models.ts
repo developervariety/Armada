@@ -158,8 +158,10 @@ export interface Captain {
   currentDockId: string | null;
   processId: number | null;
   recoveryAttempts: number;
-  /** Capability tier used for tier-based routing and fallback. */
+  /** Capability tier: the single source of the captain's routing tier. Null classifies it from the model name. */
   tier?: CaptainTier | null;
+  /** Preference rank within the tier; a higher rank is tried first. Default 0. */
+  preferenceRank?: number;
   /** Inference endpoint an ApiEndpoint-runtime captain drives. */
   modelEndpointId?: string | null;
   /** Advances only on real agent output; stall detection measures its age. */
@@ -2248,6 +2250,8 @@ export interface Persona {
   promptTemplateName: string;
   /** Captain preferred for this persona, used to seed a dispatch's per-step assignment. */
   defaultCaptainId?: string | null;
+  /** When true, missions of this persona are routed only to Premium captains. */
+  specialist?: boolean;
   isBuiltIn: boolean;
   active: boolean;
   createdUtc: string;
@@ -2731,7 +2735,9 @@ export interface SmartRoutingPreviewVerdict {
   model: string | null;
   accountId: string | null;
   state: string | null;
-  /** kept, demoted, removed, or outside_routes. */
+  /** The layer that decided the outcome: eligibility, routes, or usage. */
+  layer?: string;
+  /** kept, demoted, removed, outside_routes, or excluded. */
   outcome: string;
   reason: string;
 }

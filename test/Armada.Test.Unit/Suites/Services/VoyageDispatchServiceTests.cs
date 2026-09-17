@@ -1371,6 +1371,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Captain captain = new Captain("mid-tier-worker");
                 captain.Model = "gpt-5.6-luna";
                 captain.State = CaptainStateEnum.Idle;
+                FleetRoutingSettings.ApplyTierTo(captain);
 
                 string? enforced = PreferredModelTierSelector.EnforceHighTierForPersona(
                     "high",

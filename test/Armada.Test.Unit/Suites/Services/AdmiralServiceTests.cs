@@ -715,6 +715,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+                    settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
                     Pipeline pipeline = new Pipeline("PersonaResolvedRouting");
@@ -757,6 +758,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+                    settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
                     Pipeline pipeline = new Pipeline("LiteralModelRouting");

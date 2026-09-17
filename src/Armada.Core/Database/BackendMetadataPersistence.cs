@@ -11,8 +11,17 @@ namespace Armada.Core.Database
     /// <summary>Persist model metadata without changing routing or landing policy.</summary>
     internal static class BackendMetadataPersistence
     {
-        internal static void AddCaptain(DbCommand command, Captain captain) => Add(command, "tier", TierName(captain.Tier));
-        internal static void ReadCaptain(DbDataReader reader, Captain captain) => captain.Tier = ReadTier(reader["tier"]);
+        internal static void AddCaptain(DbCommand command, Captain captain)
+        {
+            Add(command, "tier", TierName(captain.Tier));
+            TierRoutingPersistence.AddCaptain(command, captain);
+        }
+
+        internal static void ReadCaptain(DbDataReader reader, Captain captain)
+        {
+            captain.Tier = ReadTier(reader["tier"]);
+            TierRoutingPersistence.ReadCaptain(reader, captain);
+        }
 
         internal static void AddMission(DbCommand command, Mission mission)
         {

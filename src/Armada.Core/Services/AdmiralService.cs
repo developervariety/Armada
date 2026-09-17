@@ -2441,6 +2441,10 @@ namespace Armada.Core.Services
 
         private async Task DispatchPendingMissionsAsync(CancellationToken token)
         {
+            // Tier, preference rank and the specialist flag live on records; read them fresh every pass, so a record
+            // edit reaches dispatch, stage creation and previews within one pass even while nothing is pending.
+            await TierRoutingRecords.RefreshAsync(_Settings.ModelTier, _Database, token).ConfigureAwait(false);
+
             List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
             if (pendingMissions.Count == 0)
             {
@@ -2531,12 +2535,8 @@ namespace Armada.Core.Services
                     int idleNonHighTier = 0;
                     foreach (Captain c in remainingIdle)
                     {
-                    if (String.Equals(
-                            PreferredModelTierSelector.ClassifyModel(c.Model, _Settings.ModelTier),
-                            PreferredModelTierSelector.HighTier,
-                            StringComparison.OrdinalIgnoreCase))
-                        idleHighTier++;
-
+                        if (CaptainTierSelector.EffectiveTier(c) == CaptainTierEnum.Premium)
+                            idleHighTier++;
                         else
                             idleNonHighTier++;
                     }

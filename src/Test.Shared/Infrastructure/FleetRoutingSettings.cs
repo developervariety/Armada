@@ -2,7 +2,13 @@ namespace Test.Shared.Infrastructure
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading.Tasks;
+    using SyslogLogging;
     using Armada.Core;
+    using Armada.Core.Database;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -25,35 +31,56 @@ namespace Test.Shared.Infrastructure
         };
 
         /// <summary>
-        /// Build the fleet model-tier settings, including family rules and
-        /// the non-native-first / preference-order policy.
+        /// Build the fleet model-tier settings in the retired settings shape: tier membership lists, family rules,
+        /// the within-tier preference order and the specialist persona list. The tier record migration turns them
+        /// into captain tiers, preference ranks and persona specialist flags.
+        /// </summary>
+        /// <returns>ModelTierSettings carrying the retired tier keys and the fleet routing policy.</returns>
+        public static ModelTierSettings CreateRetiredModelTier()
+        {
+            ModelTierSettings settings = CreateModelTier();
+            settings.RetiredSpecialistPersonas = new List<string>(SpecialistPersonaNames);
+            settings.RetiredWithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
+            settings.RetiredMidTierModels = new List<string>
+            {
+                "gpt-5.6-luna",
+                "opencode-go/deepseek-v4-flash",
+                "example/mid-audit"
+            };
+            settings.RetiredHighTierModels = new List<string>
+            {
+                "claude-fable-5",
+                "gpt-5.6-sol",
+                "claude-opus-5"
+            };
+            settings.RetiredWithinTierPreferenceOrder = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "mid", new List<string>() },
+                { "high", new List<string> { "claude-fable-5" } }
+            };
+            settings.RetiredFamilyClassificationRules = new List<ModelFamilyClassificationRule>
+            {
+                new ModelFamilyClassificationRule(@"^claude-opus-\d+(?:-\d+)*$", "high"),
+                new ModelFamilyClassificationRule(@"^claude-(?:fable|mythos)-\d+(?:-\d+)*$", "high"),
+                new ModelFamilyClassificationRule(@"^(?:opencode(?:-go)?/)?kimi-k2\.7(?:[-.].*)?$", "mid"),
+                new ModelFamilyClassificationRule(@"^claude-sonnet-\d+(?:-\d+)*$", "mid"),
+                new ModelFamilyClassificationRule(@"^gemini-[\d.]+-pro$", "mid")
+            };
+            return settings;
+        }
+
+        /// <summary>
+        /// Build the fleet model-tier routing policy: the reserved Premium slot, the non-native preference and the
+        /// capability profiles, with the fleet specialist personas flagged. Captain tiers and ranks come from the
+        /// captain records; apply them with <see cref="ApplyToCaptains"/> or <see cref="ApplyToDatabaseAsync"/>.
         /// </summary>
         /// <returns>The fleet ModelTierSettings.</returns>
         public static ModelTierSettings CreateModelTier()
         {
-            return new ModelTierSettings
+            ModelTierSettings settings = new ModelTierSettings
             {
-                SpecialistPersonas = new List<string>(SpecialistPersonaNames),
                 ReservedHighTierSlots = 1,
                 PreferNonNativeFirst = true,
-                WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom,
-                MidTierModels = new List<string>
-                {
-                    "gpt-5.6-luna",
-                    "opencode-go/deepseek-v4-flash",
-                    "example/mid-audit"
-                },
-                HighTierModels = new List<string>
-                {
-                    "claude-fable-5",
-                    "gpt-5.6-sol",
-                    "claude-opus-5"
-                },
-                WithinTierPreferenceOrder = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                {
-                    { "mid", new List<string>() },
-                    { "high", new List<string> { "claude-fable-5" } }
-                },
                 ModelCapabilityProfiles = new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
                 {
                     { "claude-fable-5", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
@@ -63,16 +90,76 @@ namespace Test.Shared.Infrastructure
                     { "gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 78, MechanicalThroughput = 70, Cost = 55 } },
                     { "opencode-go/deepseek-v4-flash", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 75, Cost = 15 } },
                     { "example/mid-audit", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 68, Cost = 55 } }
-                },
-                FamilyClassificationRules = new List<ModelFamilyClassificationRule>
-                {
-                    new ModelFamilyClassificationRule(@"^claude-opus-\d+(?:-\d+)*$", "high"),
-                    new ModelFamilyClassificationRule(@"^claude-(?:fable|mythos)-\d+(?:-\d+)*$", "high"),
-                    new ModelFamilyClassificationRule(@"^(?:opencode(?:-go)?/)?kimi-k2\.7(?:[-.].*)?$", "mid"),
-                    new ModelFamilyClassificationRule(@"^claude-sonnet-\d+(?:-\d+)*$", "mid"),
-                    new ModelFamilyClassificationRule(@"^gemini-[\d.]+-pro$", "mid")
                 }
             };
+            settings.Records = TierRoutingRecords.ForSpecialists(SpecialistPersonaNames);
+            return settings;
+        }
+
+        /// <summary>
+        /// Give in-memory captains the tiers and preference ranks the tier record migration derives from the
+        /// retired fleet settings, and refresh the settings' record snapshot from them.
+        /// </summary>
+        /// <param name="settings">Settings whose record snapshot is refreshed.</param>
+        /// <param name="captains">Captains to update in place.</param>
+        public static void ApplyToCaptains(ModelTierSettings settings, IReadOnlyList<Captain> captains)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (captains == null) throw new ArgumentNullException(nameof(captains));
+            List<Persona> personas = SpecialistPersonaNames.Select(name => new Persona { Name = name }).ToList();
+            TierRecordMigrationResult plan = TierRecordMigrationService.Plan(CreateRetiredModelTier(), captains, personas);
+            foreach (CaptainTierMigrationChange change in plan.Captains)
+            {
+                foreach (Captain captain in captains.Where(c => c != null && String.Equals(c.Id, change.CaptainId, StringComparison.Ordinal)))
+                {
+                    captain.Tier = change.Tier;
+                    captain.PreferenceRank = change.Rank;
+                }
+            }
+            personas.ForEach(persona => persona.Specialist = true);
+            settings.Records = TierRoutingRecords.From(personas, captains);
+        }
+
+        /// <summary>
+        /// Give one captain the tier and preference rank the tier record migration derives from the retired fleet
+        /// settings for its model.
+        /// </summary>
+        /// <param name="captain">Captain to update in place.</param>
+        /// <returns>The same captain.</returns>
+        public static Captain ApplyTierTo(Captain captain)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            TierRecordMigrationResult plan = TierRecordMigrationService.Plan(CreateRetiredModelTier(), new List<Captain> { captain }, new List<Persona>());
+            foreach (CaptainTierMigrationChange change in plan.Captains)
+            {
+                captain.Tier = change.Tier;
+                captain.PreferenceRank = change.Rank;
+            }
+            return captain;
+        }
+
+        /// <summary>
+        /// Apply the retired fleet settings to the captain and persona records in a database through the tier
+        /// record migration, creating any missing fleet specialist persona, and refresh the settings' snapshot.
+        /// </summary>
+        /// <param name="settings">Settings whose record snapshot is refreshed.</param>
+        /// <param name="database">Database driver.</param>
+        /// <returns>The applied migration changes.</returns>
+        public static async Task<TierRecordMigrationResult> ApplyToDatabaseAsync(ModelTierSettings settings, DatabaseDriver database)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            List<Persona> existing = await database.Personas.EnumerateAsync().ConfigureAwait(false);
+            foreach (string name in SpecialistPersonaNames)
+            {
+                if (existing.Any(p => PersonaCatalog.Matches(p.Name, name))) continue;
+                await database.Personas.CreateAsync(new Persona(name, "persona.worker")).ConfigureAwait(false);
+            }
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            TierRecordMigrationResult result = await new TierRecordMigrationService(database, logging).ApplyAsync(CreateRetiredModelTier()).ConfigureAwait(false);
+            await TierRoutingRecords.RefreshAsync(settings, database).ConfigureAwait(false);
+            return result;
         }
 
         /// <summary>

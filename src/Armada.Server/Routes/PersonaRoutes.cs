@@ -169,6 +169,8 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
                 if (body.Description != null) existing.Description = body.Description;
                 if (body.PromptTemplateName != null) existing.PromptTemplateName = body.PromptTemplateName;
+                PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(req.Http.Request.DataAsString, _jsonOptions) ?? new PersonaRoutingUpdate();
+                if (routing.Specialist.HasValue) existing.Specialist = routing.Specialist.Value;
                 existing.LastUpdateUtc = DateTime.UtcNow;
                 Persona updated = await _database.Personas.UpdateAsync(existing).ConfigureAwait(false);
                 return (object)updated;
@@ -176,7 +178,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Personas")
                 .WithSummary("Update a persona")
-                .WithDescription("Updates an existing persona by name. Only non-null fields are updated.")
+                .WithDescription("Updates an existing persona by name. Only supplied fields are updated: Description, PromptTemplateName, and Specialist (true routes the persona's missions only to Premium captains).")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Persona>("Updated persona data", true))
                 .WithResponse(200, OpenApiJson.For<Persona>("Updated persona"))

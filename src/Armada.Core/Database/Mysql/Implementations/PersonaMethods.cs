@@ -53,8 +53,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, ownership_scope, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, ownership_scope, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, specialist, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @specialist, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", persona.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
@@ -63,6 +63,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
                     cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
+                    TierRoutingPersistence.AddPersona(cmd, persona);
                     cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)persona.DefaultPlaybooks ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
@@ -187,6 +188,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         prompt_template_name = @prompt_template_name,
                         default_captain_id = @default_captain_id,
                         is_built_in = @is_built_in,
+                            specialist = @specialist,
                         default_playbooks = @default_playbooks,
                         active = @active,
                         last_update_utc = @last_update_utc
@@ -199,6 +201,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
                     cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
+                    TierRoutingPersistence.AddPersona(cmd, persona);
                     cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)persona.DefaultPlaybooks ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
@@ -385,6 +388,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             // Read defensively: the column arrives with a migration, so a reader running against a
             // database that has not applied it must still map the rest of the row.
             try { persona.DefaultCaptainId = MysqlDatabaseDriver.NullableString(reader["default_captain_id"]); } catch { }
+            TierRoutingPersistence.ReadPersona(reader, persona);
             persona.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
             try { persona.DefaultPlaybooks = MysqlDatabaseDriver.NullableString(reader["default_playbooks"]); } catch { }
             persona.Active = Convert.ToInt64(reader["active"]) == 1;

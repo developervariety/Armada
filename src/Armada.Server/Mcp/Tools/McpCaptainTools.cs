@@ -84,6 +84,8 @@ namespace Armada.Server.Mcp.Tools
                         apiBaseUrl = new { type = "string", description = "Per-captain provider base URL override for external-provider-served models" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
+                        tier = new { type = "string", description = "Capability tier: Economy, Standard, or Premium. Omit or send an empty string to classify the tier from the model name." },
+                        preferenceRank = new { type = "integer", description = "Preference rank within the tier (-1000 to 1000); a higher rank is tried first. Default 0." },
                         muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override" },
                         muxEndpoint = new { type = "string", description = "Named Mux endpoint for this captain" },
                         muxBaseUrl = new { type = "string", description = "Optional Mux base URL override" },
@@ -113,6 +115,8 @@ namespace Armada.Server.Mcp.Tools
                     captain.ApiBaseUrl = String.IsNullOrWhiteSpace(request.ApiBaseUrl) ? null : request.ApiBaseUrl;
                     captain.AllowedPersonas = request.AllowedPersonas;
                     captain.PreferredPersona = request.PreferredPersona;
+                    string? createTierError = ApplyTierArguments(captain, request.Tier, request.PreferenceRank);
+                    if (createTierError != null) return CreateToolErrorResponse(createTierError);
                     if (request.DefaultPlaybooks != null)
                         captain.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     string? reasoningValidationError = CaptainRuntimeOptions.ValidateReasoningEffort(captain.Runtime, request.ReasoningEffort);
@@ -159,6 +163,8 @@ namespace Armada.Server.Mcp.Tools
                         apiBaseUrl = new { type = "string", emptyStringClears = true, description = "New per-captain provider base URL override for external-provider-served models; empty string clears it" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
+                        tier = new { type = "string", emptyStringClears = true, description = "Capability tier: Economy, Standard, or Premium. Empty string classifies the tier from the model name; null leaves it unchanged." },
+                        preferenceRank = new { type = "integer", description = "Preference rank within the tier (-1000 to 1000); a higher rank is tried first. Null leaves it unchanged." },
                         muxConfigDirectory = new { type = "string", emptyStringClears = true, description = "Optional Mux config directory override; empty string clears it" },
                         muxEndpoint = new { type = "string", emptyStringClears = true, description = "Named Mux endpoint; empty string clears it" },
                         muxBaseUrl = new { type = "string", emptyStringClears = true, description = "Optional Mux base URL override; empty string clears it" },
@@ -199,6 +205,8 @@ namespace Armada.Server.Mcp.Tools
                         captain.AllowedPersonas = request.AllowedPersonas;
                     if (request.PreferredPersona != null)
                         captain.PreferredPersona = request.PreferredPersona;
+                    string? updateTierError = ApplyTierArguments(captain, request.Tier, request.PreferenceRank);
+                    if (updateTierError != null) return CreateToolErrorResponse(updateTierError);
                     if (request.DefaultPlaybooks != null)
                         captain.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     if (request.ReasoningEffort != null)
@@ -516,6 +524,27 @@ namespace Armada.Server.Mcp.Tools
             if (request.DurationMinutes.HasValue)
                 return DateTime.UtcNow.AddMinutes(request.DurationMinutes.Value);
 
+            return null;
+        }
+
+        private static string? ApplyTierArguments(Captain captain, string? tier, int? preferenceRank)
+        {
+            if (tier != null)
+            {
+                if (String.IsNullOrWhiteSpace(tier))
+                {
+                    captain.Tier = null;
+                }
+                else if (Enum.TryParse<CaptainTierEnum>(tier.Trim(), true, out CaptainTierEnum parsed) && Enum.IsDefined(parsed))
+                {
+                    captain.Tier = parsed;
+                }
+                else
+                {
+                    return "tier must be Economy, Standard, or Premium";
+                }
+            }
+            if (preferenceRank.HasValue) captain.PreferenceRank = preferenceRank.Value;
             return null;
         }
 

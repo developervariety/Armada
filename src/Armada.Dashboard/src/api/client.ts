@@ -772,6 +772,8 @@ export async function restartCaptain(id: string): Promise<Captain> {
     allowedPersonas: captain.allowedPersonas,
     preferredPersona: captain.preferredPersona,
     runtimeOptionsJson: captain.runtimeOptionsJson,
+    tier: captain.tier ?? null,
+    preferenceRank: captain.preferenceRank ?? 0,
   });
 }
 

@@ -124,6 +124,21 @@ describe('Captains', () => {
     }));
   });
 
+  it('sends the preference rank from the captain modal, clamped to its range', async () => {
+    renderCaptains();
+    const form = await openCreateForm();
+    const rank = within(form).getByRole('spinbutton', { name: 'Preference rank' }) as HTMLInputElement;
+    expect(rank).toHaveValue(0);
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Name' }), { target: { value: 'ranked-captain' } });
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Runtime' }), { target: { value: 'ClaudeCode' } });
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Capability tier' }), { target: { value: 'Premium' } });
+    fireEvent.change(rank, { target: { value: '5000' } });
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(createCaptain).toHaveBeenCalledTimes(1));
+    expect(createCaptain).toHaveBeenCalledWith(expect.objectContaining({ tier: 'Premium', preferenceRank: 1000 }));
+  });
+
   it('keeps the inline provider-credential fields for a native runtime', async () => {
     renderCaptains();
     const form = await openCreateForm();

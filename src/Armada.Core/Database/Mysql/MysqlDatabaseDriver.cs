@@ -675,7 +675,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(93, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.MysqlStatements),
                 new SchemaMigration(94, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.MysqlStatements),
                 new SchemaMigration(95, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.MysqlStatements),
-                new SchemaMigration(96, "Persist memory proposals", MemoryProposalSchema.MysqlStatements)
+                new SchemaMigration(96, "Persist memory proposals", MemoryProposalSchema.MysqlStatements),
+                new SchemaMigration(97, "Persist captain preference ranks and persona specialist flags", TierRoutingPersistence.MysqlStatements)
             };
         }
 

@@ -132,10 +132,20 @@ namespace Armada.Core.Models
         public string? RuntimeOptionsJson { get; set; } = null;
 
         /// <summary>
-        /// Optional capability/cost tier for tier-aware previews and preference resolution. Null
-        /// uses model-name classification. Assignment retains the configured routing constraints.
+        /// Optional capability/cost tier. It is the single source of the captain's routing tier: a mission's
+        /// tier floor admits only captains at or above it. Null classifies the tier from the model name.
         /// </summary>
         public CaptainTierEnum? Tier { get; set; } = null;
+
+        /// <summary>
+        /// Preference rank among captains of the same tier. A higher rank is tried first; equal ranks are
+        /// equal peers. Clamped to [-1000, 1000]. Default 0.
+        /// </summary>
+        public int PreferenceRank
+        {
+            get => _PreferenceRank;
+            set => _PreferenceRank = Math.Max(-1000, Math.Min(1000, value));
+        }
 
         /// <summary>
         /// Current state of the captain.
@@ -232,6 +242,7 @@ namespace Armada.Core.Models
         private string _Name = "Captain";
         private string? _Model = null;
         private string? _ModelEndpointId = null;
+        private int _PreferenceRank = 0;
 
         #endregion
 

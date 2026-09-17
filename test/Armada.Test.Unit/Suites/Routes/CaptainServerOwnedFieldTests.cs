@@ -378,6 +378,7 @@ namespace Armada.Test.Unit.Suites.Routes
             captain.PreferredPersona = tag + "-persona";
             captain.RuntimeOptionsJson = "{\"tag\":\"" + tag + "\"}";
             captain.Tier = tag == "stored" ? CaptainTierEnum.Standard : CaptainTierEnum.Premium;
+            captain.PreferenceRank = tag == "stored" ? 1 : 2;
             captain.DefaultPlaybooks = "[]" + tag;
             captain.State = state;
             captain.CurrentMissionId = "msn_" + tag;

@@ -52,6 +52,17 @@ namespace Armada.Server.Mcp
         public string? PreferredPersona { get; set; }
 
         /// <summary>
+        /// Capability tier: Economy, Standard, or Premium. An empty string classifies the tier from the model name;
+        /// null leaves the existing value unchanged.
+        /// </summary>
+        public string? Tier { get; set; }
+
+        /// <summary>
+        /// Preference rank within the captain's tier; a higher rank is tried first. Null leaves the existing value unchanged.
+        /// </summary>
+        public int? PreferenceRank { get; set; }
+
+        /// <summary>
         /// Optional Mux config directory override.
         /// </summary>
         public string? MuxConfigDirectory { get; set; }

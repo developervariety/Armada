@@ -112,6 +112,12 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// Whether missions of this persona require the Premium tier. A specialist mission is routed only to
+        /// captains whose tier is Premium, whatever tier its preferred model names.
+        /// </summary>
+        public bool Specialist { get; set; } = false;
+
+        /// <summary>
         /// Whether the persona is active.
         /// </summary>
         public bool Active { get; set; } = true;

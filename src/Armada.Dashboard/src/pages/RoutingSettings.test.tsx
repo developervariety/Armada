@@ -14,12 +14,11 @@ vi.mock('../context/LocaleContext', () => {
 });
 vi.mock('../lib/useProxySessionContext', () => ({ useProxySessionContext: () => null }));
 
-function saved(overrides: { midTierModels?: string[]; usageRouting?: Record<string, unknown>; highTierModels?: string[] } = {}) {
+function saved(overrides: { reservedHighTierSlots?: number; usageRouting?: Record<string, unknown>; preferNonNativeFirst?: boolean } = {}) {
   return {
     modelTier: {
-      midTierModels: overrides.midTierModels ?? ['mid-a'], highTierModels: overrides.highTierModels ?? ['high-a'], specialistPersonas: [],
-      reservedHighTierSlots: 0, preferNonNativeFirst: false, withinTierStrategy: 'Random', withinTierPreferenceOrder: {},
-      familyClassificationRules: [], usageRouting: overrides.usageRouting ?? { enabled: false, accounts: [], personaRoutes: {} },
+      reservedHighTierSlots: overrides.reservedHighTierSlots ?? 0, preferNonNativeFirst: overrides.preferNonNativeFirst ?? false,
+      usageRouting: overrides.usageRouting ?? { enabled: false, accounts: [], personaRoutes: {} },
     },
     voyageDispatch: { rejectStagePersonaTitlePrefixes: false, stagePersonaTitlePrefixes: [] },
     modelProviders: { providers: { vilao: { openAiBaseUrl: 'https://example.invalid/v1' } } },
@@ -28,7 +27,7 @@ function saved(overrides: { midTierModels?: string[]; usageRouting?: Record<stri
   };
 }
 
-const midTier = () => screen.getByTitle('Concrete model ids that classify as mid');
+const reservedSlots = () => screen.getByTitle('Idle Premium slots held for specialist work (0 disables)');
 const usagePolicy = () => screen.getByLabelText('Account and persona policy (JSON)');
 
 describe('Routing settings page', () => {
@@ -67,48 +66,60 @@ describe('Routing settings page', () => {
 
   it('saves only the changed model routing field, never usage routing or model providers', async () => {
     vi.mocked(getSettings).mockResolvedValue(saved());
-    vi.mocked(updateSettings).mockResolvedValue(saved({ midTierModels: ['mid-a', 'mid-b'] }));
+    vi.mocked(updateSettings).mockResolvedValue(saved({ reservedHighTierSlots: 2 }));
     render(<RoutingSettings />);
-    await screen.findByTitle('Concrete model ids that classify as mid');
-    fireEvent.change(midTier(), { target: { value: 'mid-a\nmid-b' } });
+    await screen.findByTitle('Idle Premium slots held for specialist work (0 disables)');
+    fireEvent.change(reservedSlots(), { target: { value: '2' } });
     fireEvent.click(screen.getByText('Save model routing'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
-    expect(updateSettings).toHaveBeenCalledWith({ modelTier: { midTierModels: ['mid-a', 'mid-b'] } });
+    expect(updateSettings).toHaveBeenCalledWith({ modelTier: { reservedHighTierSlots: 2 } });
     expect(await screen.findByRole('status')).toHaveTextContent('Routing policy saved.');
+  });
+
+  it('shows no retired tier list, strategy, preference order, family rule, or specialist persona field', async () => {
+    vi.mocked(getSettings).mockResolvedValue(saved());
+    render(<RoutingSettings />);
+    await screen.findByTitle('Idle Premium slots held for specialist work (0 disables)');
+    expect(screen.queryByText('Mid-tier models (one per line)')).not.toBeInTheDocument();
+    expect(screen.queryByText('High-tier models (one per line)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Specialist personas (one per line)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Within-tier strategy')).not.toBeInTheDocument();
+    expect(screen.queryByText('Within-tier preference order (JSON object)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Family classification rules (JSON array of {pattern, tier})')).not.toBeInTheDocument();
   });
 
   it('keeps unsaved edits in both parts when the auto-refresh reloads settings', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.mocked(getSettings).mockResolvedValueOnce(saved());
-    vi.mocked(getSettings).mockResolvedValue(saved({ highTierModels: ['high-b'] }));
+    vi.mocked(getSettings).mockResolvedValue(saved({ preferNonNativeFirst: true }));
     render(<RoutingSettings />);
-    await waitFor(() => expect(midTier()).toHaveValue('mid-a'));
-    fireEvent.change(midTier(), { target: { value: 'mid-a\nmid-b' } });
+    await waitFor(() => expect(reservedSlots()).toHaveValue(0));
+    fireEvent.change(reservedSlots(), { target: { value: '3' } });
     fireEvent.change(usagePolicy(), { target: { value: '{"enabled": true}' } });
     await act(async () => { await vi.advanceTimersByTimeAsync(16000); });
     expect(getSettings).toHaveBeenCalledTimes(2);
-    expect(midTier()).toHaveValue('mid-a\nmid-b');
+    expect(reservedSlots()).toHaveValue(3);
     expect(usagePolicy()).toHaveValue('{"enabled": true}');
-    expect(screen.getByTitle('Concrete model ids that classify as high')).toHaveValue('high-b');
+    expect(screen.getByLabelText('Prefer non-native captains first')).toBeChecked();
   });
 
   it('keeps an unsaved model routing edit when Smart Routing is saved, and the reverse', async () => {
     const policy = { enabled: false, accounts: [], personaRoutes: {} };
     vi.mocked(getSettings).mockResolvedValue(saved({ usageRouting: policy }));
     vi.mocked(updateSettings).mockResolvedValueOnce(saved({ usageRouting: { ...policy, enabled: true } }));
-    vi.mocked(updateSettings).mockResolvedValueOnce(saved({ midTierModels: ['mid-z'], usageRouting: { ...policy, enabled: true } }));
+    vi.mocked(updateSettings).mockResolvedValueOnce(saved({ reservedHighTierSlots: 5, usageRouting: { ...policy, enabled: true } }));
     render(<RoutingSettings />);
-    await screen.findByTitle('Concrete model ids that classify as mid');
-    fireEvent.change(midTier(), { target: { value: 'mid-z' } });
+    await screen.findByTitle('Idle Premium slots held for specialist work (0 disables)');
+    fireEvent.change(reservedSlots(), { target: { value: '5' } });
     fireEvent.click(screen.getByLabelText('Smart Routing'));
     fireEvent.click(screen.getByText('Save routing policy'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
-    expect(midTier()).toHaveValue('mid-z');
+    expect(reservedSlots()).toHaveValue(5);
     const enabledDraft = (usagePolicy() as HTMLTextAreaElement).value;
     fireEvent.click(screen.getByLabelText('Legacy Routing'));
     fireEvent.click(screen.getByText('Save model routing'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(updateSettings).mock.calls[1][0]).toEqual({ modelTier: { midTierModels: ['mid-z'] } });
+    expect(vi.mocked(updateSettings).mock.calls[1][0]).toEqual({ modelTier: { reservedHighTierSlots: 5 } });
     expect(usagePolicy()).not.toHaveValue(enabledDraft);
     expect(screen.getByLabelText('Smart Routing')).not.toBeChecked();
   });
@@ -126,7 +137,7 @@ describe('Routing settings page', () => {
     const policy = { enabled: true, accounts: [], personaRoutes: {} };
     vi.mocked(listPersonas).mockResolvedValue({ objects: [{ name: 'Worker', active: true }, { name: 'Judge', active: true }] } as never);
     vi.mocked(listCaptains).mockResolvedValue({ objects: [
-      { id: 'cpt_a', name: 'alpha', model: 'model-x' }, { id: 'cpt_b', name: 'beta', model: 'model-x' },
+      { id: 'cpt_a', name: 'alpha', model: 'model-x' }, { id: 'cpt_b', name: 'beta', model: 'model-x' }, { id: 'cpt_c', name: 'gamma', model: 'model-y' },
     ] } as never);
     vi.mocked(getSettings).mockResolvedValue(saved({ usageRouting: policy }));
     vi.mocked(updateSettings).mockImplementation(async (body) => saved({ usageRouting: (body as { modelTier: { usageRouting: Record<string, unknown> } }).modelTier.usageRouting }) as never);
@@ -134,14 +145,15 @@ describe('Routing settings page', () => {
     const addDefault = await screen.findByLabelText('Add model to Worker Default');
     expect(screen.getByTestId('persona-models-Judge')).toBeInTheDocument();
     expect(within(addDefault).getByRole('option', { name: 'model-x (2)' })).toBeInTheDocument();
-    expect(within(addDefault).getByRole('option', { name: 'mid-a (0)' })).toBeInTheDocument();
+    expect(within(addDefault).getByRole('option', { name: 'model-y (1)' })).toBeInTheDocument();
+    expect(within(addDefault).getAllByRole('option')).toHaveLength(3);
     fireEvent.change(addDefault, { target: { value: 'model-x' } });
-    fireEvent.change(screen.getByLabelText('Add model to Worker Stronger'), { target: { value: 'high-a' } });
+    fireEvent.change(screen.getByLabelText('Add model to Worker Stronger'), { target: { value: 'model-y' } });
     expect(within(screen.getByTestId('persona-models-Worker')).getByText('2 captains')).toBeInTheDocument();
-    expect(JSON.parse((usagePolicy() as HTMLTextAreaElement).value).personaModels).toEqual({ Worker: { default: ['model-x'], lighter: [], stronger: ['high-a'] } });
+    expect(JSON.parse((usagePolicy() as HTMLTextAreaElement).value).personaModels).toEqual({ Worker: { default: ['model-x'], lighter: [], stronger: ['model-y'] } });
     fireEvent.click(screen.getByText('Save routing policy'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ modelTier: { usageRouting: {
-      ...policy, personaModels: { Worker: { default: ['model-x'], lighter: [], stronger: ['high-a'] } },
+      ...policy, personaModels: { Worker: { default: ['model-x'], lighter: [], stronger: ['model-y'] } },
     } } }));
     fireEvent.click(screen.getByLabelText('Remove model lists for Worker'));
     expect(JSON.parse((usagePolicy() as HTMLTextAreaElement).value).personaModels).toEqual({});

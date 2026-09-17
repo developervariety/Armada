@@ -69,7 +69,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    Harness h = BuildHarness(testDb);
+                    Harness h = await BuildHarnessAsync(testDb);
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "coldstart-vessel");
                     await CreateIdleCaptainAsync(testDb, "coldstart-opus", "claude-opus-5");
@@ -95,7 +95,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    Harness h = BuildHarness(testDb);
+                    Harness h = await BuildHarnessAsync(testDb);
                     // Default reserve = 1.
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "reserve-vessel");
@@ -118,7 +118,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Captain> idle = await testDb.Driver.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle);
                     AssertEqual(1, idle.Count, "One high-tier captain must stay idle in reserve for the next specialist");
-                    AssertTrue(IsHighTier(idle[0].Model),
+                    AssertTrue(IsHighTier(idle[0]),
                         "The reserved idle captain must be high-tier (got: " + idle[0].Model + ")");
                 }
             });
@@ -129,7 +129,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    Harness h = BuildHarness(testDb);
+                    Harness h = await BuildHarnessAsync(testDb);
                     h.Settings.ModelTier.ReservedHighTierSlots = 0;
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "zero-reserve-vessel");
@@ -158,7 +158,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    Harness h = BuildHarness(testDb);
+                    Harness h = await BuildHarnessAsync(testDb);
                     // Default reserve = 1.
 
                     Vessel vessel = await CreateConcurrentVesselAsync(testDb, "mixed-fleet-vessel");
@@ -176,7 +176,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Captain> idle = await testDb.Driver.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle);
                     AssertEqual(1, idle.Count, "The high-tier captain must remain idle (Worker preferred mid-tier)");
-                    AssertTrue(IsHighTier(idle[0].Model),
+                    AssertTrue(IsHighTier(idle[0]),
                         "The remaining idle captain must be the high-tier one (got: " + idle[0].Model + ")");
                 }
             });
@@ -186,13 +186,14 @@ namespace Armada.Test.Unit.Suites.Services
 
         #region Private-Methods
 
-        private Harness BuildHarness(TestDatabase testDb)
+        private async Task<Harness> BuildHarnessAsync(TestDatabase testDb)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
 
             ArmadaSettings settings = new ArmadaSettings();
             settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+            await FleetRoutingSettings.ApplyToDatabaseAsync(settings.ModelTier, testDb.Driver);
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_capacity_docks_" + System.Guid.NewGuid().ToString("N"));
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_capacity_repos_" + System.Guid.NewGuid().ToString("N"));
 
@@ -221,6 +222,7 @@ namespace Armada.Test.Unit.Suites.Services
             Captain captain = new Captain(name);
             captain.State = CaptainStateEnum.Idle;
             captain.Model = model;
+            FleetRoutingSettings.ApplyTierTo(captain);
             await testDb.Driver.Captains.CreateAsync(captain);
         }
 
@@ -239,12 +241,9 @@ namespace Armada.Test.Unit.Suites.Services
             return status == MissionStatusEnum.Assigned || status == MissionStatusEnum.InProgress;
         }
 
-        private static bool IsHighTier(string? model)
+        private static bool IsHighTier(Captain captain)
         {
-            return string.Equals(
-                PreferredModelTierSelector.ClassifyModel(model, FleetRoutingSettings.CreateModelTier()),
-                PreferredModelTierSelector.HighTier,
-                System.StringComparison.OrdinalIgnoreCase);
+            return CaptainTierSelector.EffectiveTier(captain) == CaptainTierEnum.Premium;
         }
 
         #endregion

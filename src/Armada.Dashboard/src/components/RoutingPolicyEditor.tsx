@@ -5,14 +5,8 @@ import { baseAfterSave, changedKeys, isDirty, mergeDraft } from '../lib/settings
 
 /** Editable text form of the model routing policy. */
 export interface RoutingPolicyDraft {
-  midTierModels: string;
-  highTierModels: string;
-  specialistPersonas: string;
   reservedHighTierSlots: number;
   preferNonNativeFirst: boolean;
-  withinTierStrategy: string;
-  withinTierPreferenceOrder: string;
-  familyClassificationRules: string;
   rejectStagePersonaTitlePrefixes: boolean;
   stagePersonaTitlePrefixes: string;
   modelProviders: string;
@@ -48,14 +42,8 @@ export function routingPolicyFromSettings(raw: Record<string, unknown>): Routing
   const modelTier = asRecord(raw.modelTier);
   const voyageDispatch = asRecord(raw.voyageDispatch);
   return {
-    midTierModels: listToLines(modelTier.midTierModels),
-    highTierModels: listToLines(modelTier.highTierModels),
-    specialistPersonas: listToLines(modelTier.specialistPersonas),
     reservedHighTierSlots: Number(modelTier.reservedHighTierSlots ?? 0),
     preferNonNativeFirst: Boolean(modelTier.preferNonNativeFirst),
-    withinTierStrategy: String(modelTier.withinTierStrategy ?? 'Random'),
-    withinTierPreferenceOrder: prettyJson(modelTier.withinTierPreferenceOrder, '{}'),
-    familyClassificationRules: prettyJson(modelTier.familyClassificationRules, '[]'),
     rejectStagePersonaTitlePrefixes: Boolean(voyageDispatch.rejectStagePersonaTitlePrefixes),
     stagePersonaTitlePrefixes: listToLines(voyageDispatch.stagePersonaTitlePrefixes),
     modelProviders: prettyJson(raw.modelProviders, '{\n  "providers": {}\n}'),
@@ -65,9 +53,7 @@ export function routingPolicyFromSettings(raw: Record<string, unknown>): Routing
   };
 }
 
-const MODEL_TIER_LISTS = ['midTierModels', 'highTierModels', 'specialistPersonas'] as const;
-const MODEL_TIER_VALUES = ['reservedHighTierSlots', 'preferNonNativeFirst', 'withinTierStrategy'] as const;
-const MODEL_TIER_JSON = ['withinTierPreferenceOrder', 'familyClassificationRules'] as const;
+const MODEL_TIER_VALUES = ['reservedHighTierSlots', 'preferNonNativeFirst'] as const;
 const TOP_LEVEL_JSON = ['modelProviders', 'additionalPromptTemplates', 'additionalPersonas', 'additionalPipelines'] as const;
 
 /** A JSON field that does not parse. */
@@ -105,9 +91,7 @@ export function buildRoutingPolicyUpdate(base: RoutingPolicyDraft, draft: Routin
   const voyageDispatch: Record<string, unknown> = {};
   const mark = <K extends keyof RoutingPolicyDraft>(field: K) => { sent[field] = draft[field]; };
 
-  for (const field of MODEL_TIER_LISTS) if (changed.has(field)) { modelTier[field] = linesToList(draft[field]); mark(field); }
   for (const field of MODEL_TIER_VALUES) if (changed.has(field)) { modelTier[field] = draft[field]; mark(field); }
-  for (const field of MODEL_TIER_JSON) if (changed.has(field)) { modelTier[field] = parseJson(draft, field); mark(field); }
   if (changed.has('rejectStagePersonaTitlePrefixes')) { voyageDispatch.rejectStagePersonaTitlePrefixes = draft.rejectStagePersonaTitlePrefixes; mark('rejectStagePersonaTitlePrefixes'); }
   if (changed.has('stagePersonaTitlePrefixes')) { voyageDispatch.stagePersonaTitlePrefixes = linesToList(draft.stagePersonaTitlePrefixes); mark('stagePersonaTitlePrefixes'); }
   for (const field of TOP_LEVEL_JSON) if (changed.has(field)) { payload[field] = parseJson(draft, field); mark(field); }
@@ -126,9 +110,10 @@ interface RoutingPolicyEditorProps {
 }
 
 /**
- * Tier lists, specialist personas, reserved slots, strategy, preference order, family rules, the voyage
- * dispatch guard, model providers, and additional assets. A reload keeps unsaved edits, and a save sends
- * only the changed fields.
+ * Fleet-wide Legacy Routing policy (reserved Premium slots and the non-native preference), the voyage dispatch
+ * guard, model providers, and additional assets. Each captain's tier and preference rank are edited on the
+ * captain, and a persona's specialist flag on the persona. A reload keeps unsaved edits, and a save sends only
+ * the changed fields.
  */
 export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }: RoutingPolicyEditorProps) {
   const { t } = useLocale();
@@ -183,7 +168,7 @@ export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }
       <div className="settings-section">
         <h3>{t('Legacy Routing')}</h3>
         <p className="text-muted">
-          {t('Tier lists, family rules, and routing policy hot-reload. Empty lists are the product default: random assignment among idle captains, with no model-family or specialist assumption.')}
+          {t('Each captain carries its capability tier (Economy, Standard, Premium) and a preference rank, edited on the captain. A mission requests a tier floor: low is Economy, mid is Standard, high is Premium, and the lowest idle tier at or above the floor is tried first, higher rank first. A persona flagged as a specialist, edited on the persona, always requires Premium. This policy hot-reloads.')}
         </p>
         {usageRoutingEnabled && (
           <p className="text-muted" role="note">
@@ -192,41 +177,14 @@ export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }
         )}
         <div className="settings-grid">
           <div className="form-group">
-            <label>{t('Mid-tier models (one per line)')}</label>
-            <textarea rows={5} value={draft.midTierModels} onChange={(e) => edit({ midTierModels: e.target.value })} title={t('Concrete model ids that classify as mid')} />
-          </div>
-          <div className="form-group">
-            <label>{t('High-tier models (one per line)')}</label>
-            <textarea rows={5} value={draft.highTierModels} onChange={(e) => edit({ highTierModels: e.target.value })} title={t('Concrete model ids that classify as high')} />
-          </div>
-          <div className="form-group">
-            <label>{t('Specialist personas (one per line)')}</label>
-            <textarea rows={5} value={draft.specialistPersonas} onChange={(e) => edit({ specialistPersonas: e.target.value })} title={t('Personas reserved for high-tier captains')} />
-          </div>
-          <div className="form-group">
-            <label>{t('Reserved high-tier slots')}</label>
-            <input type="number" min={0} max={10} value={draft.reservedHighTierSlots} onChange={(e) => edit({ reservedHighTierSlots: parseInt(e.target.value) || 0 })} title={t('Idle high-tier slots held for specialist work (0 disables)')} />
-          </div>
-          <div className="form-group">
-            <label>{t('Within-tier strategy')}</label>
-            <select value={draft.withinTierStrategy} onChange={(e) => edit({ withinTierStrategy: e.target.value })} title={t('Random is the product default')}>
-              <option value="Random">{t('Random')}</option>
-              <option value="PreferenceOrderThenRandom">{t('Preference order, then random')}</option>
-            </select>
+            <label htmlFor="routing-reserved-slots">{t('Reserved Premium slots')}</label>
+            <input id="routing-reserved-slots" type="number" min={0} max={10} value={draft.reservedHighTierSlots} onChange={(e) => edit({ reservedHighTierSlots: parseInt(e.target.value) || 0 })} title={t('Idle Premium slots held for specialist work (0 disables)')} />
           </div>
           <div className="form-group">
             <label className="settings-checkbox-label">
               <input type="checkbox" checked={draft.preferNonNativeFirst} onChange={(e) => edit({ preferNonNativeFirst: e.target.checked })} />
               <span>{t('Prefer non-native captains first')}</span>
             </label>
-          </div>
-          <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-            <label>{t('Within-tier preference order (JSON object)')}</label>
-            <textarea rows={6} className="mono" value={draft.withinTierPreferenceOrder} onChange={(e) => edit({ withinTierPreferenceOrder: e.target.value })} title={t('Used only when the strategy is Preference order, then random')} />
-          </div>
-          <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-            <label>{t('Family classification rules (JSON array of {pattern, tier})')}</label>
-            <textarea rows={6} className="mono" value={draft.familyClassificationRules} onChange={(e) => edit({ familyClassificationRules: e.target.value })} title={t('Regex patterns applied when a model is not in a tier list')} />
           </div>
         </div>
       </div>

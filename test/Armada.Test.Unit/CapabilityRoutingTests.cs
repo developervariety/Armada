@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit
 {
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -55,12 +56,44 @@ namespace Armada.Test.Unit
         {
             ModelTierSettings s = new ModelTierSettings();
             s.ModelCapabilityProfiles = profiles;
-            s.MidTierModels = new List<string>(_MidMembers);
-            s.HighTierModels = new List<string> { "claude-opus-5", "claude-fable-5" };
-            s.WithinTierPreferenceOrder = DefaultMidOrder();
-            s.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
-            s.SpecialistPersonas = new List<string> { "Judge", "Architect", "TestEngineer" };
+            s.RetiredMidTierModels = new List<string>(_MidMembers);
+            s.RetiredHighTierModels = new List<string> { "claude-opus-5", "claude-fable-5" };
+            s.RetiredWithinTierPreferenceOrder = DefaultMidOrder();
+            s.RetiredWithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
+            s.RetiredSpecialistPersonas = new List<string> { "Judge", "Architect", "TestEngineer" };
             return s;
+        }
+
+        // Select through Legacy Routing after the tier record migration moves the given tier lists, preference
+        // order and specialist personas onto the captains and personas; returns the chosen captain's model.
+        private static string? SelectModel(
+            string tier,
+            List<Captain> captains,
+            string? persona,
+            System.Func<int, int> randomPick,
+            IReadOnlyCollection<string>? unused,
+            Dictionary<string, List<string>>? order,
+            ModelTierSettings settings,
+            string? hint = null)
+        {
+            ModelTierSettings retired = new ModelTierSettings();
+            retired.RetiredMidTierModels = settings.RetiredMidTierModels;
+            retired.RetiredHighTierModels = settings.RetiredHighTierModels;
+            retired.RetiredFamilyClassificationRules = settings.RetiredFamilyClassificationRules;
+            retired.RetiredWithinTierPreferenceOrder = order;
+            retired.RetiredWithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
+            List<Persona> personas = (settings.RetiredSpecialistPersonas ?? new List<string>()).Select(name => new Persona(name, "persona.worker")).ToList();
+            TierRecordMigrationResult plan = TierRecordMigrationService.Plan(retired, captains, personas);
+            foreach (CaptainTierMigrationChange change in plan.Captains)
+            {
+                Captain captain = captains.First(c => c.Id == change.CaptainId);
+                captain.Tier = change.Tier;
+                captain.PreferenceRank = change.Rank;
+            }
+            personas.ForEach(p => p.Specialist = true);
+            settings.Records = TierRoutingRecords.From(personas, captains);
+            Mission mission = new Mission { Persona = persona, PreferredModel = tier, CapabilityHint = hint };
+            return LegacyCaptainSelector.Select(settings, mission, captains, false, randomPick)?.Model;
         }
 
         private static Dictionary<string, ModelCapabilityProfile> MidProfiles()
@@ -102,7 +135,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("audit-mid")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "audit");
                 AssertEqual("audit-strong", selected, "audit hint must pick the highest AuditReasoningFit model, overriding the preference order");
                 return Task.CompletedTask;
@@ -118,7 +151,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("example/mid-audit")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "reasoning-heavy");
                 AssertEqual("audit-strong", selected, "reasoning-heavy maps to AuditReasoningFit, so the highest-AR model wins");
                 return Task.CompletedTask;
@@ -137,7 +170,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("example/mid-audit")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "mechanical");
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "mechanical hint must pick the highest MechanicalThroughput model");
                 return Task.CompletedTask;
@@ -153,7 +186,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("example/mid-audit")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "doc-only");
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "doc-only maps to MechanicalThroughput, so the highest-throughput model wins");
                 return Task.CompletedTask;
@@ -167,7 +200,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("audit-strong")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "AuDiT");
                 AssertEqual("audit-strong", selected, "hint matching is case-insensitive");
                 return Task.CompletedTask;
@@ -186,7 +219,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("example/mid-audit")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "audit");
                 AssertEqual("example/mid-audit", selected, "with the top audit model busy, the next-best idle profiled model is chosen");
                 return Task.CompletedTask;
@@ -205,9 +238,9 @@ namespace Armada.Test.Unit
                     MakeCaptain("audit-mid")
                 };
 
-                string? omitted = PreferredModelTierSelector.SelectModel(
+                string? omitted = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()));
-                string? nullHint = PreferredModelTierSelector.SelectModel(
+                string? nullHint = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), null);
 
                 AssertEqual("audit-strong", omitted, "no-hint call follows the within-tier preference order");
@@ -226,11 +259,11 @@ namespace Armada.Test.Unit
                     MakeCaptain("audit-mid")
                 };
 
-                string? unknown = PreferredModelTierSelector.SelectModel(
+                string? unknown = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "totally-unknown-hint");
-                string? empty = PreferredModelTierSelector.SelectModel(
+                string? empty = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "");
-                string? whitespace = PreferredModelTierSelector.SelectModel(
+                string? whitespace = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "   ");
 
                 AssertEqual("audit-strong", unknown, "an unknown hint degrades to preference-order selection");
@@ -251,7 +284,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("claude-opus-5")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "audit");
                 AssertEqual("claude-opus-5", selected, "a hinted mid request with no mid idle falls up to high");
                 return Task.CompletedTask;
@@ -267,7 +300,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("claude-opus-5")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Judge", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "mechanical");
                 AssertEqual("claude-opus-5", selected, "specialist reservation to high tier is unchanged by a capability hint");
                 return Task.CompletedTask;
@@ -287,7 +320,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("audit-mid")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
                 AssertEqual("audit-strong", selected, "an empty profile map degrades the hint to preference-order selection");
                 return Task.CompletedTask;
@@ -308,7 +341,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("audit-strong")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(profiles), "audit");
                 AssertEqual("audit-strong", selected, "when no idle model is profiled for the dimension, the preference order resolves it");
                 return Task.CompletedTask;
@@ -327,7 +360,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("audit-mid")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
                 AssertEqual("audit-strong", selected, "a hint with no mapped dimension degrades to preference-order selection");
                 return Task.CompletedTask;
@@ -357,9 +390,9 @@ namespace Armada.Test.Unit
                     { "mid", new List<string> { "opencode-go/deepseek-v4-flash", "audit-strong" } }
                 };
 
-                string? pickA = PreferredModelTierSelector.SelectModel(
+                string? pickA = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, sonnetFirst, SettingsWith(tied), "audit");
-                string? pickB = PreferredModelTierSelector.SelectModel(
+                string? pickB = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, composerFirst, SettingsWith(tied), "audit");
 
                 AssertEqual("audit-strong", pickA, "tie resolves to the model listed first in the preference order");
@@ -372,15 +405,15 @@ namespace Armada.Test.Unit
                 // Guard the shipped seed direction: with the built-in default profiles, an audit
                 // hint must prefer the high-audit gpt-5.6-luna over the throughput-tuned
                 // composer. Uses default settings (no custom profiles) to pin the seed values.
-                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
+                ModelTierSettings fleet = FleetRoutingSettings.CreateRetiredModelTier();
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
-                    "mid", captains, "Worker", _ => 0, null, fleet.WithinTierPreferenceOrder, fleet, "audit");
+                string? selected = SelectModel(
+                    "mid", captains, "Worker", _ => 0, null, fleet.RetiredWithinTierPreferenceOrder, fleet, "audit");
                 AssertEqual("gpt-5.6-luna", selected, "fleet seeds give luna a higher AuditReasoningFit than composer");
                 return Task.CompletedTask;
             });
@@ -471,7 +504,7 @@ namespace Armada.Test.Unit
                 ModelTierSettings defaults = new ModelTierSettings();
                 AssertEqual(0, defaults.ModelCapabilityProfiles.Count, "product default profiles are empty");
 
-                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
+                ModelTierSettings fleet = FleetRoutingSettings.CreateRetiredModelTier();
                 AssertTrue(fleet.ModelCapabilityProfiles.ContainsKey("claude-fable-5"), "fleet profiles include a seeded high-tier model");
                 AssertTrue(fleet.ModelCapabilityProfiles.ContainsKey("gpt-5.6-luna"), "fleet profiles include a seeded mid-tier model");
 
@@ -526,7 +559,7 @@ namespace Armada.Test.Unit
                     MakeCaptain("example/mid-audit")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel(
+                string? selected = SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), settings, "audit");
                 AssertEqual("opencode-go/deepseek-v4-flash", selected, "remapping audit to MechanicalThroughput makes the audit hint pick the throughput leader");
                 return Task.CompletedTask;

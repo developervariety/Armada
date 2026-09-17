@@ -41,6 +41,7 @@ const captain = {
   runtime: 'ClaudeCode',
   state: 'Idle',
   tier: 'Premium',
+  preferenceRank: 2,
   model: null,
   modelEndpointId: null,
   currentMissionId: null,
@@ -85,6 +86,23 @@ describe('CaptainDetail', () => {
   it('shows the capability tier badge', async () => {
     renderDetail();
     expect(await screen.findByText('Premium')).toBeInTheDocument();
+  });
+
+  it('shows the preference rank and saves an edited rank', async () => {
+    renderDetail();
+    expect(await screen.findByRole('heading', { name: 'judge-one' })).toBeInTheDocument();
+    expect(screen.getByText('Preference rank').nextElementSibling).toHaveTextContent('2');
+
+    fireEvent.click(screen.getByTitle('Actions'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('heading', { name: 'Edit Captain' }).closest('form') as HTMLFormElement;
+    const rank = screen.getByRole('spinbutton', { name: /^Preference rank/ });
+    expect(rank).toHaveValue(2);
+    fireEvent.change(rank, { target: { value: '4' } });
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(updateCaptain).toHaveBeenCalledTimes(1));
+    expect(updateCaptain).toHaveBeenCalledWith('cpt_1', expect.objectContaining({ tier: 'Premium', preferenceRank: 4 }));
   });
 
   it('refreshes the captain on the auto-refresh interval without the loading spinner', async () => {

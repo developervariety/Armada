@@ -107,21 +107,15 @@
       "accounts": [],
       "personaRoutes": {}
     },
-    "specialistPersonas": [],
     "reservedHighTierSlots": 0,
     "preferNonNativeFirst": false,
-    "withinTierStrategy": "Random",
-    "familyClassificationRules": [],
-    "withinTierPreferenceOrder": {},
     "modelCapabilityProfiles": {},
     "capabilityHintDimensionMap": {
       "audit": "AuditReasoningFit",
       "reasoning-heavy": "AuditReasoningFit",
       "mechanical": "MechanicalThroughput",
       "doc-only": "MechanicalThroughput"
-    },
-    "highTierModels": [],
-    "midTierModels": []
+    }
   },
   "voyageDispatch": {
     "rejectStagePersonaTitlePrefixes": false,

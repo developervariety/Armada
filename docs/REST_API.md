@@ -2040,7 +2040,8 @@ The request accepts configuration fields only:
 | `AllowedPersonas` | string | no | JSON array of persona names the captain may fill; null means any |
 | `PreferredPersona` | string | no | Preferred persona for dispatch routing |
 | `RuntimeOptionsJson` | string | no | Runtime-specific options (Mux settings, reasoning effort) |
-| `Tier` | string | no | Capability tier override |
+| `Tier` | string | no | Capability tier: `Economy`, `Standard`, or `Premium`. Null classifies it from the model name. It is the captain's routing tier; a mission's tier floor admits only captains at or above it |
+| `PreferenceRank` | integer | no | Preference rank within the tier, -1000 to 1000, default 0. A higher rank is tried first |
 | `DefaultPlaybooks` | string | no | JSON list of playbooks merged into every mission this captain runs |
 
 All other captain fields are server-owned: `Id`, `TenantId`, `UserId`, `State`,
@@ -3160,6 +3161,7 @@ Create a new persona.
 | `Name` | string | yes | Persona name |
 | `Description` | string | no | Persona description |
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
+| `Specialist` | boolean | no | When true, missions of this persona are routed only to Premium captains. Default false |
 
 **Response:** `201 Created` - Persona
 
@@ -3186,6 +3188,7 @@ Update an existing persona.
 |---|---|---|---|
 | `Description` | string | no | Updated description |
 | `PromptTemplateName` | string | no | Updated prompt template name |
+| `Specialist` | boolean | no | Updated specialist flag; omitted leaves it unchanged |
 
 **Response:** `200 OK` - Persona
 **Error:** `404` - Persona not found
@@ -4126,6 +4129,8 @@ A worker AI agent instance executing missions.
 | `Runtime` | [AgentRuntimeEnum](#agentruntimeenum) | `ClaudeCode` | Agent runtime type |
 | `Model` | string? | null | Optional model override for this captain. When null, the runtime chooses its default model |
 | `SystemInstructions` | string? | null | Per-captain system instructions injected into every mission prompt |
+| `Tier` | string? | null | Capability tier (`Economy`, `Standard`, `Premium`); null classifies it from the model name |
+| `PreferenceRank` | int | 0 | Preference rank within the tier; a higher rank is tried first |
 | `State` | [CaptainStateEnum](#captainstateenum) | `Idle` | Current state |
 | `CurrentMissionId` | string? | null | Currently assigned mission ID |
 | `CurrentDockId` | string? | null | Currently assigned dock (worktree) ID |
@@ -4963,7 +4968,8 @@ typed-decision client is called only when `missionTitle` or `missionText` is
 present. Response fields: `reason`, `smartRoutingEnabled`, `hasPersonaRoutes`,
 `hasPersonaModels`, `legacyOrder`, `usageFilter`, `modelGroups`, `capacity`
 (`choice`, `source`, `asked`), `candidates`, `chosen`, `accounts`, `warnings`,
-`scope`. See [the preview table](USAGE_ROUTING.md#dashboard-and-api). No new MCP tool is
+`scope`. Each `usageFilter` verdict names the `layer` that decided it:
+`eligibility` (persona lock or tier floor), `routes`, or `usage`. See [the preview table](USAGE_ROUTING.md#dashboard-and-api). No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
 
 ### Typed decisions

@@ -404,6 +404,7 @@ namespace Armada.Server.Routes
                 UsageRoutingService usage = body.UsageRouting == null ? UsageRoutingService.For(_settings) : new UsageRoutingService();
                 await usage.RefreshAsync(policy).ConfigureAwait(false);
                 List<Captain> captains = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
+                await TierRoutingRecords.RefreshAsync(_settings.ModelTier, _database).ConfigureAwait(false);
                 try { CaptainAccountLaunch.ValidateCaptainBindings(policy, captains); }
                 catch (ArgumentException ex)
                 {
@@ -550,9 +551,7 @@ namespace Armada.Server.Routes
                     body.ModelTier.ApplyTo(_settings.ModelTier);
                     _logging.Info(_Header + "model-tier routing updated via API: reservedHighTierSlots="
                         + _settings.ModelTier.ReservedHighTierSlots
-                        + " specialistPersonas=" + _settings.ModelTier.SpecialistPersonas.Count
-                        + " preferNonNativeFirst=" + _settings.ModelTier.PreferNonNativeFirst
-                        + " withinTierStrategy=" + _settings.ModelTier.WithinTierStrategy);
+                        + " preferNonNativeFirst=" + _settings.ModelTier.PreferNonNativeFirst);
                 }
 
                 if (body.VoyageDispatch != null)

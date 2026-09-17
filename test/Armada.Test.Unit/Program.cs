@@ -128,6 +128,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new UsageRoutingTests());
             runner.AddSuite(new SmartRoutingTests());
             runner.AddSuite(new TierRoutingCharacterizationTests());
+            runner.AddSuite(new TierRecordMigrationTests());
             runner.AddSuite(new CaptainAccountLaunchTests());
             runner.AddSuite(new AccountLoginServiceTests());
             runner.AddSuite(new ReleaseVersionTests());
@@ -255,6 +256,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VesselAutoLandPredicateRoutesTests());
             runner.AddSuite(new CaptainUpdateValidationTests());
             runner.AddSuite(new CaptainServerOwnedFieldTests());
+            runner.AddSuite(new TierRoutingWriteSurfaceTests());
             runner.AddSuite(new VesselDefaultPlaybooksTests());
             runner.AddSuite(new VesselModelContextBoundaryTests());
             runner.AddSuite(new VesselSiblingReposRoutesTests());

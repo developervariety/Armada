@@ -32,6 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
             string id = Guid.NewGuid().ToString("N");
             ArmadaSettings settings = new ArmadaSettings();
             settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+            settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_model_route_docks_" + id);
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_model_route_repos_" + id);
             settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_model_route_logs_" + id);
@@ -69,6 +70,7 @@ namespace Armada.Test.Unit.Suites.Services
             captain.AllowedPersonas = allowedPersonas;
             captain.PreferredPersona = preferredPersona;
             captain.State = state;
+            FleetRoutingSettings.ApplyTierTo(captain);
             return await db.Captains.CreateAsync(captain).ConfigureAwait(false);
         }
 
@@ -97,8 +99,10 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     Captain legacy = await CreateCaptainAsync(testDb.Driver, "legacy", "gpt-5.6-luna", "[\"Worker\"]").ConfigureAwait(false);
                     Captain other = await CreateCaptainAsync(testDb.Driver, "other", "opencode-go/deepseek-v4-flash", "[\"Worker\"]").ConfigureAwait(false);
-                    settings.ModelTier.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
-                    settings.ModelTier.WithinTierPreferenceOrder["mid"] = new List<string> { legacy.Model!, other.Model! };
+                    legacy.PreferenceRank = 2;
+                    other.PreferenceRank = 1;
+                    await testDb.Driver.Captains.UpdateAsync(legacy).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(other).ConfigureAwait(false);
                     settings.ModelTier.UsageRouting = new UsageRoutingSettings
                     {
                         Enabled = true,

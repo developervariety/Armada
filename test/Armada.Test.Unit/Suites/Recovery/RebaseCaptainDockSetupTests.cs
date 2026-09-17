@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Recovery
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -125,7 +126,7 @@ namespace Armada.Test.Unit.Suites.Recovery
 
                     RebaseCaptainMissionSpec spec = await setup.BuildAsync(entry, failedMission, cls).ConfigureAwait(false);
 
-                    AssertEqual(RebaseCaptainDockSetup.PreferredModelClaudeOpus5, spec.PreferredModel, "preferred model should be claude-opus-5");
+                    AssertEqual(PreferredModelTierSelector.HighTier, spec.PreferredModel, "conflict recovery requests the high tier, not a concrete model");
                 }
             });
 

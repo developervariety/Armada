@@ -34,15 +34,20 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static ModelTierSettings Tiers()
         {
-            ModelTierSettings tiers = FleetRoutingSettings.CreateModelTier();
-            // Legacy Routing prefers DeepSeek, then Luna, within mid; Opus is high and reached last by a Worker.
-            tiers.WithinTierPreferenceOrder["mid"] = new List<string> { _DeepSeek, _Luna, _Unlisted };
-            return tiers;
+            return FleetRoutingSettings.CreateModelTier();
         }
+
+        // Legacy Routing prefers DeepSeek, then Luna, then mid-audit within Standard (preference ranks 3, 2, 1);
+        // Opus is Premium and reached last by a Worker.
+        private static readonly List<string> _MidRanking = new List<string> { _DeepSeek, _Luna, _Unlisted };
 
         private static Captain NewCaptain(string id, string model)
         {
-            return new Captain(id) { Id = id, Model = model, AllowedPersonas = "[\"Worker\",\"Judge\"]", State = CaptainStateEnum.Idle };
+            Captain captain = new Captain(id) { Id = id, Model = model, AllowedPersonas = "[\"Worker\",\"Judge\"]", State = CaptainStateEnum.Idle };
+            FleetRoutingSettings.ApplyTierTo(captain);
+            int index = _MidRanking.IndexOf(model);
+            if (index >= 0) captain.PreferenceRank = _MidRanking.Count - index;
+            return captain;
         }
 
         private static UsageAccountSettings Account(string id, double remaining, params string[] captainIds)
@@ -72,6 +77,27 @@ namespace Armada.Test.Unit.Suites.Services
                 Default = new List<string> { _Luna },
                 Lighter = new List<string> { _DeepSeek },
                 Stronger = new List<string> { _Opus }
+            };
+        }
+
+        private static List<Captain> LayeredPool()
+        {
+            return new List<Captain>
+            {
+                new Captain("cpt-economy") { Id = "cpt-economy", Model = "example/economy", Tier = CaptainTierEnum.Economy, State = CaptainStateEnum.Idle },
+                new Captain("cpt-standard") { Id = "cpt-standard", Model = "example/standard", Tier = CaptainTierEnum.Standard, State = CaptainStateEnum.Idle },
+                new Captain("cpt-premium") { Id = "cpt-premium", Model = "example/premium", Tier = CaptainTierEnum.Premium, State = CaptainStateEnum.Idle },
+                new Captain("cpt-locked") { Id = "cpt-locked", Model = "example/standard", Tier = CaptainTierEnum.Standard, AllowedPersonas = "[\"Judge\"]", State = CaptainStateEnum.Idle }
+            };
+        }
+
+        private static PersonaModelSettings LayeredModels()
+        {
+            return new PersonaModelSettings
+            {
+                Default = new List<string> { "example/standard" },
+                Lighter = new List<string> { "example/economy" },
+                Stronger = new List<string> { "example/premium" }
             };
         }
 
@@ -341,6 +367,89 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     File.Delete(path);
                 }
+            });
+
+            await RunTest("The tier floor wins: a Lighter-list captain below the floor is never chosen", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(CapacityResult("lighter", 0.99));
+                    UsageRoutingSettings policy = Policy();
+                    policy.PersonaModels["Worker"] = LayeredModels();
+                    Mission mission = new Mission { Id = "msn-layer-floor", Persona = "Worker", PreferredModel = "mid", Priority = 100, Title = "work" };
+                    UsageRoutingDecision decision = await SelectAsync(policy, LayeredPool(), mission, Resolver(db, client));
+                    AssertEqual(CapacityChoiceEnum.Lighter, decision.Capacity, "the capacity reading asks for the Lighter list");
+                    AssertEqual("cpt-standard", decision.Candidates[0].Id, "the Lighter list holds only a captain below the floor, so the next group supplies the captain");
+                    AssertFalse(decision.Candidates.Any(c => c.Id == "cpt-economy"), "the Economy captain is never a candidate for a Standard floor");
+                    SmartRoutingCaptainVerdict economy = decision.Verdicts.First(v => v.CaptainId == "cpt-economy");
+                    AssertEqual(LegacyCaptainSelector.LayerEligibility, economy.Layer);
+                    AssertEqual(LegacyCaptainSelector.ReasonBelowTierFloor, economy.Reason);
+                }
+            });
+
+            await RunTest("The capacity reading never raises or lowers the tier floor", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    UsageRoutingSettings policy = Policy();
+                    policy.PersonaModels["Worker"] = LayeredModels();
+                    foreach (string preferred in new[] { "low", "mid", "high" })
+                    {
+                        Mission mission = new Mission { Id = "msn-layer-" + preferred, Persona = "Worker", PreferredModel = preferred, Priority = 100, Title = "work" };
+                        List<string> legacy = Ids(LegacyCaptainSelector.Order(Tiers(), mission, LayeredPool(), false, n => 0));
+                        foreach (string reading in new[] { "lighter", "default", "stronger" })
+                        {
+                            FakeTypedDecisionClient client = new FakeTypedDecisionClient(CapacityResult(reading, 0.99));
+                            UsageRoutingDecision decision = await SelectAsync(policy, LayeredPool(), mission, Resolver(db, client));
+                            AssertSequence(legacy, Ids(decision.LegacyOrder), preferred + "/" + reading + " eligibility is independent of the reading");
+                            AssertTrue(new HashSet<string>(legacy).SetEquals(Ids(decision.Candidates)), preferred + "/" + reading + " candidates are exactly the admitted captains");
+                        }
+                    }
+
+                    FakeTypedDecisionClient stronger = new FakeTypedDecisionClient(CapacityResult("stronger", 0.99));
+                    Mission high = new Mission { Id = "msn-layer-high-lighter", Persona = "Worker", PreferredModel = "high", Priority = 100, Title = "work" };
+                    UsageRoutingSettings lighterStandard = Policy();
+                    lighterStandard.PersonaModels["Worker"] = new PersonaModelSettings
+                    {
+                        Default = new List<string> { "example/premium" },
+                        Lighter = new List<string> { "example/standard" }
+                    };
+                    FakeTypedDecisionClient lighter = new FakeTypedDecisionClient(CapacityResult("lighter", 0.99));
+                    UsageRoutingDecision lowered = await SelectAsync(lighterStandard, LayeredPool(), high, Resolver(db, lighter));
+                    AssertEqual("cpt-premium", lowered.Candidates[0].Id, "a Lighter reading cannot lower a Premium floor");
+                    AssertEqual(1, lowered.Candidates.Count, "only the Premium captain is admitted");
+
+                    Mission low = new Mission { Id = "msn-layer-low-stronger", Persona = "Worker", PreferredModel = "low", Priority = 100, Title = "work" };
+                    UsageRoutingDecision raised = await SelectAsync(policy, LayeredPool(), low, Resolver(db, stronger));
+                    AssertEqual("cpt-premium", raised.Candidates[0].Id, "a Stronger reading reorders toward the Stronger list");
+                    AssertTrue(raised.Candidates.Any(c => c.Id == "cpt-economy"), "the Economy captain stays admitted: the reading did not raise the floor");
+                }
+            });
+
+            await RunTest("The usage preview names the layer that excluded each captain", async () =>
+            {
+                List<Captain> pool = LayeredPool();
+                pool.Add(new Captain("cpt-other-account") { Id = "cpt-other-account", Model = "example/standard", Tier = CaptainTierEnum.Standard, State = CaptainStateEnum.Idle });
+                pool.Add(new Captain("cpt-exhausted") { Id = "cpt-exhausted", Model = "example/standard", Tier = CaptainTierEnum.Standard, State = CaptainStateEnum.Idle });
+                UsageRoutingSettings policy = Policy(
+                    Account("allowed", 80, "cpt-standard", "cpt-premium", "cpt-economy", "cpt-locked"),
+                    Account("drained", 0, "cpt-exhausted"),
+                    Account("elsewhere", 80, "cpt-other-account"));
+                policy.PersonaRoutes["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "allowed" }, new UsageRouteSettings { AccountId = "drained" } };
+                Mission mission = new Mission { Id = "msn-layer-preview", Persona = "Worker", PreferredModel = "mid", Priority = 100, Title = "work" };
+                UsageRoutingDecision decision = await SelectAsync(policy, pool, mission, withText: false);
+
+                SmartRoutingCaptainVerdict locked = decision.Verdicts.First(v => v.CaptainId == "cpt-locked");
+                AssertEqual(LegacyCaptainSelector.LayerEligibility + ":" + LegacyCaptainSelector.ReasonPersonaNotAllowed, locked.Layer + ":" + locked.Reason, "persona lock");
+                SmartRoutingCaptainVerdict economy = decision.Verdicts.First(v => v.CaptainId == "cpt-economy");
+                AssertEqual(LegacyCaptainSelector.LayerEligibility + ":" + LegacyCaptainSelector.ReasonBelowTierFloor, economy.Layer + ":" + economy.Reason, "tier floor");
+                SmartRoutingCaptainVerdict outside = decision.Verdicts.First(v => v.CaptainId == "cpt-other-account");
+                AssertEqual(UsageRoutingService.LayerRoutes + ":" + UsageRoutingService.OutcomeOutsideRoutes, outside.Layer + ":" + outside.Outcome, "route restriction");
+                SmartRoutingCaptainVerdict premium = decision.Verdicts.First(v => v.CaptainId == "cpt-premium");
+                AssertEqual(UsageRoutingService.LayerUsage + ":" + UsageRoutingService.OutcomeKept, premium.Layer + ":" + premium.Outcome, "usage filter keeps an admitted captain");
+                SmartRoutingCaptainVerdict exhausted = decision.Verdicts.First(v => v.CaptainId == "cpt-exhausted");
+                AssertEqual(UsageRoutingService.LayerUsage + ":" + UsageRoutingService.OutcomeRemoved, exhausted.Layer + ":" + exhausted.Outcome, "usage filter removes an exhausted account");
+                AssertEqual(1, decision.Verdicts.Count(v => v.CaptainId == "cpt-economy"), "a captain gets one verdict");
             });
 
             await RunTest("Persona model preferences validate names and lists", () =>

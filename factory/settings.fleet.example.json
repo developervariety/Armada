@@ -1,39 +1,8 @@
 {
-  "_comment": "Copy these keys into the live settings.json to apply this routing, guard, and specialist-reviewer configuration. Product defaults are empty and policy-neutral.",
+  "_comment": "Copy these keys into the live settings.json to apply this routing policy, guard, and specialist-reviewer configuration. Product defaults are empty and policy-neutral. Captain tiers and preference ranks are set on each captain, and the specialist flag on each persona (Judge, Architect, TestEngineer, and the three specialist reviewers here); they are not settings.",
   "modelTier": {
-    "specialistPersonas": [
-      "Judge",
-      "Architect",
-      "TestEngineer",
-      "DiagnosticProtocolReviewer",
-      "TenantSecurityReviewer",
-      "PortingReferenceAnalyst"
-    ],
     "reservedHighTierSlots": 1,
     "preferNonNativeFirst": true,
-    "withinTierStrategy": "PreferenceOrderThenRandom",
-    "familyClassificationRules": [
-      { "pattern": "^claude-opus-\\d+(?:-\\d+)*$", "tier": "high" },
-      { "pattern": "^claude-(?:fable|mythos)-\\d+(?:-\\d+)*$", "tier": "high" },
-      { "pattern": "^(?:opencode(?:-go)?/)?kimi-k2\\.7(?:[-.].*)?$", "tier": "mid" },
-      { "pattern": "^claude-sonnet-\\d+(?:-\\d+)*$", "tier": "mid" },
-      { "pattern": "^gemini-[\\d.]+-pro$", "tier": "mid" }
-    ],
-    "withinTierPreferenceOrder": {
-      "mid": [],
-      "high": [ "claude-fable-5" ]
-    },
-    "midTierModels": [
-      "gpt-5.6-luna",
-      "opencode-go/deepseek-v4-flash",
-      "composer-2.5",
-      "cursor-grok-4.6-high"
-    ],
-    "highTierModels": [
-      "claude-fable-5",
-      "gpt-5.6-sol",
-      "claude-opus-5"
-    ],
     "modelCapabilityProfiles": {
       "claude-fable-5": { "telemetryRichness": 96, "auditReasoningFit": 96, "mechanicalThroughput": 55, "cost": 95 },
       "claude-opus-5": { "telemetryRichness": 96, "auditReasoningFit": 96, "mechanicalThroughput": 55, "cost": 95 },

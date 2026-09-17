@@ -123,6 +123,8 @@ export function buildCaptainDuplicatePayload(captain: Captain): Partial<Captain>
     allowedPersonas: captain.allowedPersonas ?? null,
     preferredPersona: captain.preferredPersona ?? null,
     runtimeOptionsJson: captain.runtimeOptionsJson ?? null,
+    tier: captain.tier ?? null,
+    preferenceRank: captain.preferenceRank ?? 0,
   };
 }
 

@@ -39,6 +39,7 @@ namespace Armada.Core.Services
             nameof(Captain.PreferredPersona),
             nameof(Captain.RuntimeOptionsJson),
             nameof(Captain.Tier),
+            nameof(Captain.PreferenceRank),
             nameof(Captain.DefaultPlaybooks)
         };
 
@@ -203,6 +204,7 @@ namespace Armada.Core.Services
             target.PreferredPersona = source.PreferredPersona;
             target.RuntimeOptionsJson = source.RuntimeOptionsJson;
             target.Tier = source.Tier;
+            target.PreferenceRank = source.PreferenceRank;
             target.DefaultPlaybooks = source.DefaultPlaybooks;
         }
 

@@ -396,39 +396,36 @@ namespace Armada.Test.Automated.Suites
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("UpdateSettings_TierListOnly_LeavesUsageRoutingAndModelProviders", async () =>
+            await RunTest("UpdateSettings_ReservedSlotsOnly_LeavesUsageRoutingAndModelProviders", async () =>
             {
                 JsonElement before = await ReadSettingsAsync().ConfigureAwait(false);
                 JsonElement modelTier = Prop(before, "modelTier");
                 string usageRoutingBefore = Prop(modelTier, "usageRouting").GetRawText();
                 string modelProvidersBefore = Prop(before, "modelProviders").GetRawText();
-                string midTierBefore = Prop(modelTier, "midTierModels").GetRawText();
-                JsonArray changed = JsonNode.Parse(midTierBefore)!.AsArray();
-                string marker = "partial-save-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                changed.Add(marker);
+                int slotsBefore = Prop(modelTier, "reservedHighTierSlots").GetInt32();
+                int changed = slotsBefore == 3 ? 4 : 3;
                 try
                 {
-                    await PutSettingsJsonAsync("{\"modelTier\":{\"midTierModels\":" + changed.ToJsonString() + "}}").ConfigureAwait(false);
+                    await PutSettingsJsonAsync("{\"modelTier\":{\"reservedHighTierSlots\":" + changed + "}}").ConfigureAwait(false);
                     JsonElement after = await ReadSettingsAsync().ConfigureAwait(false);
-                    AssertTrue(Prop(Prop(after, "modelTier"), "midTierModels").GetRawText().Contains(marker));
+                    AssertEqual(changed, Prop(Prop(after, "modelTier"), "reservedHighTierSlots").GetInt32());
                     AssertEqual(usageRoutingBefore, Prop(Prop(after, "modelTier"), "usageRouting").GetRawText());
                     AssertEqual(modelProvidersBefore, Prop(after, "modelProviders").GetRawText());
                 }
                 finally
                 {
-                    await PutSettingsJsonAsync("{\"modelTier\":{\"midTierModels\":" + midTierBefore + "}}").ConfigureAwait(false);
+                    await PutSettingsJsonAsync("{\"modelTier\":{\"reservedHighTierSlots\":" + slotsBefore + "}}").ConfigureAwait(false);
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("UpdateSettings_UsageRoutingOnly_LeavesTierListsAndModelProviders", async () =>
+            await RunTest("UpdateSettings_UsageRoutingOnly_LeavesTierPolicyAndModelProviders", async () =>
             {
                 JsonElement before = await ReadSettingsAsync().ConfigureAwait(false);
                 JsonElement modelTier = Prop(before, "modelTier");
                 string usageRoutingBefore = Prop(modelTier, "usageRouting").GetRawText();
                 string modelProvidersBefore = Prop(before, "modelProviders").GetRawText();
-                string midTierBefore = Prop(modelTier, "midTierModels").GetRawText();
-                string highTierBefore = Prop(modelTier, "highTierModels").GetRawText();
-                string specialistsBefore = Prop(modelTier, "specialistPersonas").GetRawText();
+                string slotsBefore = Prop(modelTier, "reservedHighTierSlots").GetRawText();
+                string nonNativeBefore = Prop(modelTier, "preferNonNativeFirst").GetRawText();
                 JsonObject changed = JsonNode.Parse(usageRoutingBefore)!.AsObject();
                 string currency = changed[NodeKey(changed, "currency")]?.GetValue<string>() == "EUR" ? "GBP" : "EUR";
                 changed[NodeKey(changed, "currency")] = currency;
@@ -438,15 +435,22 @@ namespace Armada.Test.Automated.Suites
                     JsonElement after = await ReadSettingsAsync().ConfigureAwait(false);
                     JsonElement afterTier = Prop(after, "modelTier");
                     AssertEqual(currency, Prop(Prop(afterTier, "usageRouting"), "currency").GetString());
-                    AssertEqual(midTierBefore, Prop(afterTier, "midTierModels").GetRawText());
-                    AssertEqual(highTierBefore, Prop(afterTier, "highTierModels").GetRawText());
-                    AssertEqual(specialistsBefore, Prop(afterTier, "specialistPersonas").GetRawText());
+                    AssertEqual(slotsBefore, Prop(afterTier, "reservedHighTierSlots").GetRawText());
+                    AssertEqual(nonNativeBefore, Prop(afterTier, "preferNonNativeFirst").GetRawText());
                     AssertEqual(modelProvidersBefore, Prop(after, "modelProviders").GetRawText());
                 }
                 finally
                 {
                     await PutSettingsJsonAsync("{\"modelTier\":{\"usageRouting\":" + usageRoutingBefore + "}}").ConfigureAwait(false);
                 }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateSettings_RetiredTierKeys_AreIgnored", async () =>
+            {
+                string marker = "retired-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                await PutSettingsJsonAsync("{\"modelTier\":{\"midTierModels\":[\"" + marker + "\"],\"specialistPersonas\":[\"" + marker + "\"]}}").ConfigureAwait(false);
+                JsonElement after = await ReadSettingsAsync().ConfigureAwait(false);
+                AssertFalse(Prop(after, "modelTier").GetRawText().Contains(marker), "a retired tier key sent to the settings API is not stored");
             }).ConfigureAwait(false);
 
             #region Status-Endpoint

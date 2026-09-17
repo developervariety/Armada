@@ -18,8 +18,6 @@ interface Props {
   /** Persona names from the personas catalogue. */
   personas?: string[];
   captains?: Captain[];
-  /** Model ids from the saved tier lists. */
-  tierModels?: string[];
 }
 
 const NO_CAPTAINS: Captain[] = [];
@@ -29,7 +27,7 @@ const NO_NAMES: string[] = [];
  * The Smart Routing policy editor. The routing mode switch, persona model lists, persona restrictions, and the
  * Advanced JSON editor all edit the same draft policy text, so every view stays in sync. Preview never saves.
  */
-export default function UsageRoutingEditor({ value, onChange, statuses, personas = NO_NAMES, captains = NO_CAPTAINS, tierModels = NO_NAMES }: Props) {
+export default function UsageRoutingEditor({ value, onChange, statuses, personas = NO_NAMES, captains = NO_CAPTAINS }: Props) {
   const { t } = useLocale();
   let policy: Record<string, unknown> | null = null;
   try {
@@ -39,7 +37,7 @@ export default function UsageRoutingEditor({ value, onChange, statuses, personas
   const update = (changes: Record<string, unknown>) => {
     if (policy) onChange(JSON.stringify({ ...policy, ...changes }, null, 2));
   };
-  const options = useMemo(() => modelOptions(captains, tierModels), [captains, tierModels]);
+  const options = useMemo(() => modelOptions(captains), [captains]);
   const availability = modelAvailability(options, captains, policy, statuses);
   const addAccount = () => {
     const accounts = Array.isArray(policy?.accounts) ? policy.accounts : [];
@@ -55,7 +53,7 @@ export default function UsageRoutingEditor({ value, onChange, statuses, personas
       <label className="routing-mode-option">
         <input type="radio" name="routing-mode" aria-label={t('Legacy Routing')} checked={!smart} onChange={() => update({ enabled: false })} />
         <span><strong>{t('Legacy Routing')}</strong><br />
-          <span className="text-muted">{t('Tiers, persona locks, and preference order pick the captain.')}</span></span>
+          <span className="text-muted">{t('Captain tiers, preference ranks, and persona locks pick the captain.')}</span></span>
       </label>
       <label className="routing-mode-option">
         <input type="radio" name="routing-mode" aria-label={t('Smart Routing')} checked={smart} onChange={() => update({ enabled: true })} />

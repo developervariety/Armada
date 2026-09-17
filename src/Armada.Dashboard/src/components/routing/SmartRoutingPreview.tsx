@@ -15,7 +15,7 @@ function captainLabel(c: SmartRoutingPreviewCaptain | null | undefined): string 
   return `${c.name || c.id}${c.model ? ` (${c.model})` : ''}`;
 }
 
-const OUTCOME_CLASS: Record<string, string> = { kept: 'complete', demoted: 'warn', removed: 'failed', outside_routes: 'cancelled' };
+const OUTCOME_CLASS: Record<string, string> = { kept: 'complete', demoted: 'warn', removed: 'failed', outside_routes: 'cancelled', excluded: 'cancelled' };
 
 /** Runs the Smart Routing selector for one persona over the draft policy and shows each step of the selection. */
 export default function SmartRoutingPreview({ value, personas, captains }: Props) {
@@ -49,7 +49,7 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
   const capacity = result?.capacity;
   return <div className="smart-routing-preview">
     <h4>{t('Preview Smart Routing')}</h4>
-    <p className="text-muted">{t('Preview uses the unsaved draft, saved tier membership, and idle captains. It does not save, reserve, or launch work.')}</p>
+    <p className="text-muted">{t('Preview uses the unsaved draft, captain tiers and ranks, and idle captains. It does not save, reserve, or launch work.')}</p>
     <div className="settings-grid">
       <div className="form-group"><label htmlFor="usage-persona">{t('Persona')}</label>
         {personas.length > 0
@@ -78,13 +78,14 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
       {(result.legacyOrder ?? []).length === 0 ? <p className="text-muted">{t('No idle captain passes the Legacy Routing constraints.')}</p> :
         <ol className="smart-routing-order">{result.legacyOrder.map((c) => <li key={c.id}>{captainLabel(c)}</li>)}</ol>}
 
-      <h5>{t('Usage filter')}</h5>
+      <h5>{t('Captain verdicts')}</h5>
       {(result.usageFilter ?? []).length === 0 ? <p className="text-muted">{t('No verdicts.')}</p> :
         <div className="table-wrap"><table className="data-table"><thead><tr>
-          <th>{t('Captain')}</th><th>{t('Model')}</th><th>{t('Account')}</th><th>{t('Outcome')}</th><th>{t('Reason')}</th>
+          <th>{t('Captain')}</th><th>{t('Model')}</th><th>{t('Layer')}</th><th>{t('Account')}</th><th>{t('Outcome')}</th><th>{t('Reason')}</th>
         </tr></thead><tbody>{result.usageFilter.map((v) => <tr key={v.captainId}>
           <td>{names.get(v.captainId) ?? v.captainId}</td>
           <td className="mono">{v.model ?? ''}</td>
+          <td>{v.layer ? t(v.layer) : ''}</td>
           <td>{v.accountId ? `${v.accountId}${v.state ? ` (${v.state})` : ''}` : t('No account')}</td>
           <td><span className={`tag ${OUTCOME_CLASS[v.outcome] ?? ''}`}>{t(v.outcome)}</span></td>
           <td className="mono">{v.reason}</td>

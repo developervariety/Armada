@@ -178,8 +178,10 @@ namespace Armada.Server
     }
 
     /// <summary>
-    /// Partial update for model-tier routing. A null member leaves the current
-    /// value in place; a supplied collection replaces that collection outright.
+    /// Partial update for model-tier routing policy. A null member leaves the current
+    /// value in place; a supplied collection replaces that collection outright. A captain's
+    /// tier and preference rank and a persona's specialist flag are edited on those records;
+    /// the retired tier keys sent here are ignored.
     /// </summary>
     public class ModelTierUpdate
     {
@@ -187,21 +189,10 @@ namespace Armada.Server
         public UsageRoutingSettings? UsageRouting { get; set; }
 
         /// <summary>
-        /// Persona names routed only to high-tier captains.
-        /// </summary>
-        public List<string>? SpecialistPersonas { get; set; }
-
-        /// <summary>
-        /// Idle high-tier captain slots held in reserve for specialist missions.
+        /// Idle Premium captain slots held in reserve for specialist missions.
         /// Clamped to [0, 10]. Zero disables the reservation.
         /// </summary>
         public int? ReservedHighTierSlots { get; set; }
-
-        /// <summary>
-        /// Per-tier model preference order. The selector picks the first listed model
-        /// that has an idle, persona-eligible captain.
-        /// </summary>
-        public Dictionary<string, List<string>>? WithinTierPreferenceOrder { get; set; }
 
         /// <summary>
         /// Per-model capability profiles keyed by concrete model name.
@@ -214,29 +205,9 @@ namespace Armada.Server
         public Dictionary<string, string>? CapabilityHintDimensionMap { get; set; }
 
         /// <summary>
-        /// Mid-complexity model names.
-        /// </summary>
-        public List<string>? MidTierModels { get; set; }
-
-        /// <summary>
-        /// High-complexity model names.
-        /// </summary>
-        public List<string>? HighTierModels { get; set; }
-
-        /// <summary>
-        /// Model-family classification rules (pattern to tier).
-        /// </summary>
-        public List<ModelFamilyClassificationRule>? FamilyClassificationRules { get; set; }
-
-        /// <summary>
-        /// When true, prefer models that have an idle non-native captain.
+        /// When true, an external-provider captain is tried before a native one of equal tier and rank.
         /// </summary>
         public bool? PreferNonNativeFirst { get; set; }
-
-        /// <summary>
-        /// Within-tier selection strategy: Random or PreferenceOrderThenRandom.
-        /// </summary>
-        public string? WithinTierStrategy { get; set; }
 
         /// <summary>
         /// Apply the supplied members to the live settings object, in place.
@@ -246,16 +217,10 @@ namespace Armada.Server
         {
             if (target == null) return;
             if (UsageRouting != null) target.UsageRouting = UsageRouting;
-            if (SpecialistPersonas != null) target.SpecialistPersonas = SpecialistPersonas;
             if (ReservedHighTierSlots.HasValue) target.ReservedHighTierSlots = ReservedHighTierSlots.Value;
-            if (WithinTierPreferenceOrder != null) target.WithinTierPreferenceOrder = WithinTierPreferenceOrder;
             if (ModelCapabilityProfiles != null) target.ModelCapabilityProfiles = ModelCapabilityProfiles;
             if (CapabilityHintDimensionMap != null) target.CapabilityHintDimensionMap = CapabilityHintDimensionMap;
-            if (MidTierModels != null) target.MidTierModels = MidTierModels;
-            if (HighTierModels != null) target.HighTierModels = HighTierModels;
-            if (FamilyClassificationRules != null) target.FamilyClassificationRules = FamilyClassificationRules;
             if (PreferNonNativeFirst.HasValue) target.PreferNonNativeFirst = PreferNonNativeFirst.Value;
-            if (WithinTierStrategy != null) target.WithinTierStrategy = WithinTierStrategy;
         }
     }
 

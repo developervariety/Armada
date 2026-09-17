@@ -1,23 +1,113 @@
 # Smart Routing
 
-Armada has two routing modes. Both use the same settings keys.
+Armada selects a captain for a mission in three layers. Each layer works only
+on the captains the layer before it kept.
 
-- **Legacy Routing** assigns work when `modelTier.usageRouting.enabled` is
-  false. It uses model tiers, persona locks (`AllowedPersonas`), the
-  within-tier preference order, non-native-first, capability scoring, the
-  persona default captain, requested captains, and the high-tier slot
-  reserve.
-- **Smart Routing** assigns work when `modelTier.usageRouting.enabled` is
-  true. It is Legacy Routing plus four additions: the usage filter, the
-  per-persona model lists, the `capacity_escalation` typed decision, and
-  optional persona route restrictions.
+| Layer | Name | Decides | Inputs |
+| --- | --- | --- | --- |
+| 1 | Eligibility | Which captains may take the mission | Persona locks (`AllowedPersonas`) and the tier floor |
+| 2 | Order (Legacy Routing) | The order of the eligible captains | Tier, preference rank, capability hint, non-native-first, preferred persona |
+| 3 | Choice (Smart Routing) | Which admitted captain goes first | Persona routes, usage filter, persona model lists, `capacity_escalation` |
 
-The default is disabled, with no accounts, prices, model lists, or routes.
+Layer 3 runs only when `modelTier.usageRouting.enabled` is true. Without it,
+the Legacy Routing order stands. Layer 3 never adds a captain that layer 1
+excluded, and it never changes the tier floor.
 
-## How Smart Routing selects a captain
+## Where the routing facts live
 
-Smart Routing never re-ranks captains. It starts from the Legacy Routing
-order and only removes, moves, and groups captains. The steps are:
+| Fact | Where | Edited in |
+| --- | --- | --- |
+| Capability tier (`Economy`, `Standard`, `Premium`) | Captain record `tier`; null classifies it from the model name | Captain modal and captain detail page |
+| Preference rank (integer, -1000 to 1000, default 0) | Captain record `preferenceRank` | Captain modal and captain detail page |
+| Specialist flag | Persona record `specialist` | Persona detail page |
+| Reserved Premium slots | Setting `modelTier.reservedHighTierSlots` | Settings > Routing |
+| Non-native-first | Setting `modelTier.preferNonNativeFirst` | Settings > Routing |
+| Capability profiles | Settings `modelTier.modelCapabilityProfiles` and `capabilityHintDimensionMap` | `settings.json` |
+| Smart Routing policy | Setting `modelTier.usageRouting` | Settings > Routing |
+
+Armada reads captain and persona records again on every dispatch pass, and the
+usage preview reads them for each preview. A record edit applies within one
+pass. No restart is required.
+
+## Layer 1: eligibility
+
+A captain is eligible when both of these are true:
+
+- Its `AllowedPersonas` allows the mission's persona (null allows any persona).
+- Its tier is at or above the mission's tier floor.
+
+The tier floor comes from the mission:
+
+| Mission | Tier floor |
+| --- | --- |
+| `preferredModel` `low` | Economy |
+| `preferredModel` `mid` (or `quick`, `medium`) | Standard |
+| `preferredModel` `high` | Premium |
+| Persona flagged as a specialist | Premium, whatever `preferredModel` says |
+| Concrete model pin that an idle captain runs | None. Only captains that run the pinned model are eligible |
+| Concrete model pin that no idle captain runs | The tier of the captains that run that model; else the model family tier; else none |
+| No `preferredModel` | None |
+
+A specialist persona with no idle Premium captain waits. It is never given to
+a lower tier. A captain whose tier is below the floor is never chosen, even
+when a persona model list names its model.
+
+## Layer 2: order (Legacy Routing)
+
+The eligible captains are ordered by these keys, first key first:
+
+1. **Tier.** The lowest tier at or above the floor goes first, so a Premium
+   captain is not used while a Standard captain can take `mid` work. Without
+   a floor the order is Standard, then Premium, then Economy.
+2. **Capability hint.** When the mission has a `capabilityHint` that maps to a
+   profile dimension, the model with the higher score for that dimension goes
+   first.
+3. **Preference rank.** A higher `preferenceRank` goes first.
+4. **Non-native-first.** When `preferNonNativeFirst` is true, a captain with
+   its own `apiBaseUrl` on a non-OpenCode runtime goes before a native captain.
+5. **Preferred persona.** A captain whose `PreferredPersona` is the mission's
+   persona goes first.
+6. **Random tie.** Among captains equal on every key, Armada picks a model at
+   random, so a model with more captains is not favoured.
+
+A retry avoids the captains on its retry skip list while another eligible
+captain remains. A requested captain and a fallback tier are applied before
+this layer; see [Requested captain and fallback tier](ops/08-configuration-and-administration.md#requested-captain-and-fallback-tier).
+`reservedHighTierSlots` holds idle Premium captains for specialist missions.
+
+## Retired tier settings and the one-time migration
+
+`modelTier.midTierModels`, `highTierModels`, `familyClassificationRules`,
+`specialistPersonas`, `withinTierStrategy`, and `withinTierPreferenceOrder` are
+retired. At startup, after personas are seeded, Armada moves them onto
+records once:
+
+| Retired key | Becomes |
+| --- | --- |
+| `highTierModels`, a `high` family rule | Captain tier Premium |
+| `midTierModels`, a `mid` or `low` family rule | Captain tier Standard |
+| A model none of the lists or rules classified | Captain tier Economy (only when a list or rule was set) |
+| `withinTierPreferenceOrder` (with `withinTierStrategy` `PreferenceOrderThenRandom`) | Captain `preferenceRank`: in a list of n models the first model ranks n, the last ranks 1, unlisted models rank 0 |
+| `specialistPersonas` | `specialist` true on every persona record with that name, in every tenant |
+
+The migration pins a tier only when the captain's effective tier differs from
+the mapped tier. It logs each captain and persona it changes, and warns for a
+specialist name that matches no persona record. It then copies the settings
+file to `settings.json.pre-tier-migration-<UTC time>.json`, removes the
+retired keys, and saves `modelTier.tierRecordsMigratedUtc`. A settings file
+with that stamp is never migrated again: retired keys in it load and are
+ignored, and the startup log warns that they are present. Applying the
+migration twice changes no record. The settings API ignores retired keys.
+
+The mapping keeps each captain's selection. Review the log after the upgrade.
+To change the order afterwards, edit the captain ranks. For example, a Judge
+order of `a`, `b`, `c` migrates to ranks 3, 2, 1; set `c` to 4 to try it first.
+
+## Layer 3: choice (Smart Routing)
+
+Smart Routing never re-ranks captains and never admits one. It starts from
+the Legacy Routing order and only removes, moves, and groups captains. The
+steps are:
 
 1. **Route restriction (optional).** When the persona has `personaRoutes`
    (or a `"*"` entry applies), only captains on the named accounts stay in
@@ -25,7 +115,8 @@ order and only removes, moves, and groups captains. The steps are:
    without routes is not restricted. Route order has no effect.
 2. **Legacy Routing order.** The Legacy Routing selector picks its first
    captain, then its next captain from those left, until it picks none. A
-   captain that a model or persona constraint excludes is not in the order.
+   captain that layer 1 (persona lock or tier floor) excludes is not in the
+   order, and no later step adds it back.
 3. **Usage filter.** Each captain gets a verdict from its account state:
 
    | Account state | Verdict |
@@ -82,8 +173,10 @@ non-empty group is assigned.
 
 The chosen list is `default` unless the `capacity_escalation` decision
 chooses another list. A mission with a concrete `preferredModel` skips the
-model lists; the pin wins. A tier requirement stays a Legacy Routing
-constraint.
+model lists; the pin wins. The tier floor stays a layer 1 constraint: a model
+list only orders the captains layer 1 admitted, so a `lighter` model below the
+floor is never chosen, and the capacity reading never raises or lowers the
+floor.
 
 ### The capacity decision
 
@@ -354,7 +447,9 @@ recovery state across settings updates.
 ## Dashboard and API
 
 The Settings hub has an admin **Routing** tab. Its Legacy Routing part edits
-the tier lists and preference policy. Its Smart Routing part has:
+the reserved Premium slots and non-native-first; captain tiers and ranks are
+edited on the captains, and specialist flags on the personas. Its Smart
+Routing part has:
 
 - a **Routing mode** switch between **Legacy Routing** and **Smart Routing**
   (it sets `modelTier.usageRouting.enabled` in the draft);
@@ -363,8 +458,7 @@ the tier lists and preference policy. Its Smart Routing part has:
 - budget fields;
 - **Persona model lists**: one row per persona from the personas catalogue,
   plus any persona already in `personaModels`, with Default, Lighter, and
-  Stronger model chips. Model options are the captains' models and the tier
-  model lists. Each model shows how many captains run it, and a warning chip
+  Stronger model chips. Model options are the captains' models. Each model shows how many captains run it, and a warning chip
   when every one of those captains is on an Exhausted account. A row without
   models has no entry, so that persona keeps the Legacy Routing order. **Add
   persona** adds a row for a persona the catalogue does not list;
@@ -377,7 +471,8 @@ the tier lists and preference policy. Its Smart Routing part has:
 - reported account usage;
 - **Preview Smart Routing**: a persona picker, priority, preferred model, and
   optional mission title and text. It shows the chosen captain, the Legacy
-  Routing order, the usage filter verdict per captain (outcome and reason),
+  Routing order, a verdict per captain with the layer that decided it
+  (eligibility, routes, or usage), its outcome, and its reason,
   the capacity reading (the list chosen first and its source, or "not asked"
   without title and text), and the model groups in the order tried.
 
@@ -402,7 +497,7 @@ steps of the selection:
 | Field | Content |
 | --- | --- |
 | `legacyOrder` | The Legacy Routing order of the idle, route-restricted captains |
-| `usageFilter` | One verdict per captain: `captainId`, `model`, `accountId`, `state`, `outcome` (`kept`, `demoted`, `removed`, `outside_routes`), `reason` |
+| `usageFilter` | One verdict per captain: `captainId`, `model`, `accountId`, `state`, `layer` (`eligibility`, `routes`, `usage`), `outcome` (`kept`, `demoted`, `removed`, `outside_routes`, `excluded`), `reason` (for `eligibility`: `persona_not_allowed`, `below_tier_floor`, or `model_pin_mismatch`) |
 | `modelGroups` | The persona model groups in the order tried, each with its captain IDs |
 | `capacity` | `choice`, `source`, and `asked` |
 | `candidates` | The final order |

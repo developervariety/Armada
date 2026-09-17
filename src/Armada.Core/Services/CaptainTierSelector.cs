@@ -59,6 +59,21 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Classify a model name by the built-in family patterns only; null when no pattern names the model, so an
+        /// unknown model is not mistaken for a Standard one.
+        /// </summary>
+        /// <param name="model">The model identifier, or null.</param>
+        /// <returns>The classified tier, or null.</returns>
+        public static CaptainTierEnum? ClassifyKnownFamily(string? model)
+        {
+            if (String.IsNullOrWhiteSpace(model)) return null;
+            if (_ModelFamilies[1].Pattern.IsMatch(model)) return CaptainTierEnum.Economy;
+            if (_ModelFamilies[0].Pattern.IsMatch(model)) return CaptainTierEnum.Premium;
+            if (_ModelFamilies[2].Pattern.IsMatch(model)) return CaptainTierEnum.Standard;
+            return null;
+        }
+
+        /// <summary>
         /// Choose a captain for a mission of the given required tier from the supplied idle, already
         /// persona-eligible captains. Returns null if no idle captain can handle the required tier.
         /// </summary>

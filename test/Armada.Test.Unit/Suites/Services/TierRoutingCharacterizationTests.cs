@@ -262,18 +262,36 @@ namespace Armada.Test.Unit.Suites.Services
             return JsonSerializer.Deserialize<ModelTierSettings>(_SettingsJson, _JsonOptions)!;
         }
 
-        /// <summary>The routing inputs a build derives from the settings file and the captain roster.</summary>
+        /// <summary>
+        /// The routing inputs a build derives from the settings file and the captain roster: the tier record
+        /// migration moves the retired tier keys onto the captain and persona records.
+        /// </summary>
         private static Task<RoutingFixture> PrepareAsync(List<Captain> roster)
         {
-            RoutingFixture fixture = new RoutingFixture { Tiers = LoadSettings(), Captains = roster };
+            ModelTierSettings tiers = LoadSettings();
+            List<Persona> personas = new List<Persona> { new Persona("Judge", "persona.judge"), new Persona("Architect", "persona.architect"), new Persona("TestEngineer", "persona.test_engineer") };
+            TierRecordMigrationResult plan = TierRecordMigrationService.Plan(tiers, roster, personas);
+            foreach (CaptainTierMigrationChange change in plan.Captains)
+            {
+                Captain captain = roster.First(c => c.Id == change.CaptainId);
+                captain.Tier = change.Tier;
+                captain.PreferenceRank = change.Rank;
+            }
+            foreach (PersonaSpecialistMigrationChange change in plan.Personas)
+                personas.First(p => p.Id == change.PersonaId).Specialist = true;
+            tiers.Records = TierRoutingRecords.From(personas, roster);
+            RoutingFixture fixture = new RoutingFixture { Tiers = tiers, Captains = roster };
             return Task.FromResult(fixture);
         }
 
-        /// <summary>Apply the settings file to a live settings instance backed by a database.</summary>
-        private static Task ApplySettingsAsync(ArmadaSettings settings, DatabaseDriver database)
+        /// <summary>Apply the settings file to a live settings instance backed by a database through the tier record migration.</summary>
+        private static async Task ApplySettingsAsync(ArmadaSettings settings, DatabaseDriver database)
         {
             settings.ModelTier.CopyFrom(LoadSettings());
-            return Task.CompletedTask;
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            await new TierRecordMigrationService(database, logging).ApplyAsync(LoadSettings()).ConfigureAwait(false);
+            await TierRoutingRecords.RefreshAsync(settings.ModelTier, database).ConfigureAwait(false);
         }
 
         private static List<string> Ids(IEnumerable<Captain> captains) => captains.Select(c => c.Id).ToList();

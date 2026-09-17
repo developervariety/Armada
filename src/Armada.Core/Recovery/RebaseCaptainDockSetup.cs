@@ -10,6 +10,7 @@ namespace Armada.Core.Recovery
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -27,8 +28,11 @@ namespace Armada.Core.Recovery
         /// <summary>Header used for log lines.</summary>
         private const string _Header = "[RebaseCaptainDockSetup] ";
 
-        /// <summary>High-tier rebase model per the auto-recovery design spec.</summary>
-        public const string PreferredModelClaudeOpus5 = "claude-opus-5";
+        /// <summary>
+        /// Conflict recovery requests the high tier selector, so tier routing picks a Premium captain; it never
+        /// names a concrete model.
+        /// </summary>
+        public const string PreferredModelTier = PreferredModelTierSelector.HighTier;
 
         /// <summary>Playbook id for the inline rebase-captain playbook.</summary>
         public const string RebaseCaptainPlaybookId = "pbk_rebase_captain";
@@ -103,7 +107,7 @@ namespace Armada.Core.Recovery
             return new RebaseCaptainMissionSpec(
                 Brief: brief,
                 PrestagedFiles: prestaged,
-                PreferredModel: PreferredModelClaudeOpus5,
+                PreferredModel: PreferredModelTier,
                 LandingTargetBranch: captainBranch,
                 SelectedPlaybooks: selected,
                 DependsOnMissionId: null,

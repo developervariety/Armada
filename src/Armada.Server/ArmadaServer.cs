@@ -430,6 +430,11 @@ namespace Armada.Server
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);
             if (architectSynced) _Logging.Info(_Header + "Architect persona prompt synced from embedded resource");
 
+            // Move the retired model tier settings onto captain and persona records once, after personas exist.
+            TierRecordMigrationService tierMigration = new TierRecordMigrationService(_Database, _Logging);
+            await tierMigration.RunAsync(_Settings, ArmadaSettings.DefaultSettingsPath).ConfigureAwait(false);
+            await TierRoutingRecords.RefreshAsync(_Settings.ModelTier, _Database).ConfigureAwait(false);
+
             // Initialize authentication services
             _SessionTokenService = new SessionTokenService(_Settings.SessionTokenEncryptionKey);
             if (string.IsNullOrEmpty(_Settings.SessionTokenEncryptionKey))

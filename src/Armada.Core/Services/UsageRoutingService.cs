@@ -538,6 +538,15 @@ namespace Armada.Core.Services
         /// <summary>Verdict outcome: a persona route restriction excludes the captain.</summary>
         public const string OutcomeOutsideRoutes = "outside_routes";
 
+        /// <summary>Verdict outcome: the eligibility layer (persona lock or tier floor) excludes the captain.</summary>
+        public const string OutcomeExcluded = "excluded";
+
+        /// <summary>Verdict layer: the persona route restriction.</summary>
+        public const string LayerRoutes = "routes";
+
+        /// <summary>Verdict layer: the usage filter.</summary>
+        public const string LayerUsage = "usage";
+
         /// <summary>The captain belongs to no usage account, so usage never moves it.</summary>
         public const string ReasonNoAccount = "no_usage_account";
 
@@ -568,7 +577,7 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (busyCaptainIds == null) throw new ArgumentNullException(nameof(busyCaptainIds));
-            SmartRoutingCaptainVerdict verdict = new SmartRoutingCaptainVerdict { CaptainId = captain.Id, Model = captain.Model };
+            SmartRoutingCaptainVerdict verdict = new SmartRoutingCaptainVerdict { CaptainId = captain.Id, Model = captain.Model, Layer = LayerUsage };
             UsageAccountSettings? account = settings.Accounts.FirstOrDefault(a => a != null && a.CaptainIds.Contains(captain.Id, StringComparer.OrdinalIgnoreCase));
             if (account == null)
             {

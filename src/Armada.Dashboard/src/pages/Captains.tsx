@@ -9,6 +9,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
 import CaptainTierBadge from '../components/shared/CaptainTierBadge';
+import { parsePreferenceRank } from '../lib/captainTier';
 import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
@@ -34,12 +35,13 @@ type CaptainFormState = {
   model: string;
   modelEndpointId: string;
   tier: string;
+  preferenceRank: string;
   allowedPersonas: string;
   preferredPersona: string;
 } & MuxCaptainFormFields & CaptainCredentialFormFields;
 
 const EMPTY_CAPTAIN_FORM: CaptainFormState = {
-  name: '', runtime: '', systemInstructions: '', model: '', modelEndpointId: '', tier: '', allowedPersonas: '', preferredPersona: '',
+  name: '', runtime: '', systemInstructions: '', model: '', modelEndpointId: '', tier: '', preferenceRank: '0', allowedPersonas: '', preferredPersona: '',
   ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM,
 };
 
@@ -179,6 +181,7 @@ export default function Captains() {
       model: c.model ?? '',
       modelEndpointId: c.modelEndpointId ?? '',
       tier: c.tier ?? '',
+      preferenceRank: String(c.preferenceRank ?? 0),
       allowedPersonas: c.allowedPersonas ?? '',
       preferredPersona: c.preferredPersona ?? '',
       ...muxFormFromCaptain(c),
@@ -208,6 +211,7 @@ export default function Captains() {
       payload.model = form.model.trim() ? form.model.trim() : null;
       payload.modelEndpointId = form.runtime === 'ApiEndpoint' ? (form.modelEndpointId || null) : null;
       payload.tier = form.tier ? form.tier : null;
+      payload.preferenceRank = parsePreferenceRank(form.preferenceRank);
       payload.allowedPersonas = form.allowedPersonas.trim() ? form.allowedPersonas.trim() : null;
       payload.preferredPersona = form.preferredPersona.trim() ? form.preferredPersona.trim() : null;
       // An API-endpoint captain draws its credentials from the referenced endpoint; the
@@ -475,6 +479,10 @@ export default function Captains() {
                   <option value="Standard">{t('Standard')}</option>
                   <option value="Premium">{t('Premium')}</option>
                 </select>
+              </label>
+              <label title={t('Among captains of the same tier, a higher rank is tried first. Equal ranks are equal peers. Range -1000 to 1000.')}>
+                {t('Preference rank')}
+                <input type="number" min={-1000} max={1000} step={1} value={form.preferenceRank} onChange={e => setForm({ ...form, preferenceRank: e.target.value })} />
               </label>
             </div>
             <label title={t('JSON array of persona names this captain may fill. Null means any persona.')}>

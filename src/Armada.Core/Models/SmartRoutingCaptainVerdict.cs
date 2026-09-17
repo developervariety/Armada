@@ -2,7 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
 
-    /// <summary>How the Smart Routing usage filter treated one captain of the Legacy Routing order.</summary>
+    /// <summary>How one layer of routing treated one captain of the pool: the eligibility layer (persona lock and tier floor), the persona route restriction, or the usage filter.</summary>
     public sealed class SmartRoutingCaptainVerdict
     {
         #region Public-Members
@@ -19,7 +19,10 @@ namespace Armada.Core.Models
         /// <summary>The account usage state for the captain's model (Normal, Low, Reserve, Exhausted, Unknown), or null without an account.</summary>
         public string? State { get; set; }
 
-        /// <summary><c>kept</c>, <c>demoted</c>, <c>removed</c>, or <c>outside_routes</c>.</summary>
+        /// <summary>The layer that decided the outcome: <c>eligibility</c>, <c>routes</c>, or <c>usage</c>.</summary>
+        public string Layer { get; set; } = String.Empty;
+
+        /// <summary><c>kept</c>, <c>demoted</c>, <c>removed</c>, <c>outside_routes</c>, or <c>excluded</c>.</summary>
         public string Outcome { get; set; } = String.Empty;
 
         /// <summary>The safe reason code for the outcome.</summary>

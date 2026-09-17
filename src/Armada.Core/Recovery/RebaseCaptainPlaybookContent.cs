@@ -24,8 +24,6 @@ namespace Armada.Core.Recovery
             "2. Resolve them.\n" +
             "3. Run the test suite per the vessel CLAUDE.md.\n" +
             "4. Commit the resolution to the SAME captain branch.\n" +
-            "5. Exit success.\n" +
-            "\n" +
-            "Persona allow-list: claude-opus-5 OR gpt-5.6-sol only.\n";
+            "5. Exit success.\n";
     }
 }

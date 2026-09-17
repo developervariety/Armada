@@ -12,7 +12,8 @@ namespace Armada.Core.Services
     /// <summary>
     /// Smart Routing: the Legacy Routing order, restricted by optional persona routes, filtered by account usage
     /// (Exhausted removed, Low and Reserve demoted), and grouped by the persona's model preference with the
-    /// capacity decision choosing the group tried first. It never re-ranks captains inside a group.
+    /// capacity decision choosing the group tried first. It never re-ranks captains inside a group, and it never
+    /// admits a captain the Legacy Routing eligibility layer (persona lock and tier floor) excluded.
     /// </summary>
     public static class SmartRoutingSelector
     {
@@ -58,6 +59,7 @@ namespace Armada.Core.Services
             {
                 decision.LegacyOrder = LegacyCaptainSelector.Order(request.Tiers, mission, request.Pool, request.NarrowToLowestTier, request.RandomPick);
                 decision.Candidates = new List<Captain>(decision.LegacyOrder);
+                decision.Verdicts.AddRange(EligibilityVerdicts(request.Tiers, mission, request.Pool));
                 decision.Reason = ReasonDisabled;
                 return decision;
             }
@@ -69,7 +71,7 @@ namespace Armada.Core.Services
             foreach (Captain captain in request.Pool)
             {
                 if (routes == null || UsageRoutingService.RoutesAdmit(policy, routes, captain)) restricted.Add(captain);
-                else outside.Add(new SmartRoutingCaptainVerdict { CaptainId = captain.Id, Model = captain.Model, Outcome = UsageRoutingService.OutcomeOutsideRoutes, Reason = UsageRoutingService.ReasonOutsideRoutes });
+                else outside.Add(new SmartRoutingCaptainVerdict { CaptainId = captain.Id, Model = captain.Model, Layer = UsageRoutingService.LayerRoutes, Outcome = UsageRoutingService.OutcomeOutsideRoutes, Reason = UsageRoutingService.ReasonOutsideRoutes });
             }
 
             decision.LegacyOrder = LegacyCaptainSelector.Order(request.Tiers, mission, restricted, request.NarrowToLowestTier, request.RandomPick);
@@ -83,6 +85,7 @@ namespace Armada.Core.Services
                 else if (verdict.Outcome == UsageRoutingService.OutcomeDemoted) demoted.Add(captain);
             }
             decision.Verdicts.AddRange(outside);
+            decision.Verdicts.AddRange(EligibilityVerdicts(request.Tiers, mission, restricted));
 
             // The retry skip list outranks demotion: a retry avoids the captain that just failed while any other
             // usable captain remains, exactly as Legacy Routing does over its own pool.
@@ -167,6 +170,31 @@ namespace Armada.Core.Services
                 decision.Reason = account?.Reason ?? ReasonUsageBlocked;
             }
             return decision;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        // The eligibility layer runs before Smart Routing and decides membership: a captain it excludes is never
+        // reordered into the choice, whatever the persona model lists or the capacity reading say.
+        private static List<SmartRoutingCaptainVerdict> EligibilityVerdicts(ModelTierSettings tiers, Mission mission, List<Captain> pool)
+        {
+            List<SmartRoutingCaptainVerdict> verdicts = new List<SmartRoutingCaptainVerdict>();
+            Dictionary<string, string> reasons = LegacyCaptainSelector.ExplainExclusions(tiers, mission, pool);
+            foreach (Captain captain in pool)
+            {
+                if (captain == null || !reasons.TryGetValue(captain.Id, out string? reason)) continue;
+                verdicts.Add(new SmartRoutingCaptainVerdict
+                {
+                    CaptainId = captain.Id,
+                    Model = captain.Model,
+                    Layer = LegacyCaptainSelector.LayerEligibility,
+                    Outcome = UsageRoutingService.OutcomeExcluded,
+                    Reason = reason
+                });
+            }
+            return verdicts;
         }
 
         #endregion

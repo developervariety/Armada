@@ -676,12 +676,21 @@ proposed again.
 ## Captain Writes
 
 `armada_create_captain` accepts `name` (required), `runtime`, `model`, `apiKey`,
-`apiBaseUrl`, `systemInstructions`, `allowedPersonas`, `preferredPersona`,
-`reasoningEffort`, `defaultPlaybooks` and the `mux*` options. A new captain starts
-`Idle`, unassigned and not quarantined.
+`apiBaseUrl`, `systemInstructions`, `allowedPersonas`, `preferredPersona`, `tier`,
+`preferenceRank`, `reasoningEffort`, `defaultPlaybooks` and the `mux*` options. A
+new captain starts `Idle`, unassigned and not quarantined.
+
+`tier` is the captain's capability tier (`Economy`, `Standard`, or `Premium`); an
+empty string classifies it from the model name, and any other value returns a tool
+error. `preferenceRank` is an integer from -1000 to 1000 (default 0); among captains
+of one tier a higher rank is tried first.
 
 `armada_update_captain` accepts `captainId` (required) and the same fields. A field
 left out keeps its stored value; an empty string clears a string field.
+
+`create_persona` and `update_persona` accept `specialist` (boolean). A specialist
+persona's missions are routed only to Premium captains. `update_persona` leaves the
+flag unchanged when it is omitted.
 
 Both tools apply the same rule as the REST and WebSocket captain writes. Captain
 state, assignment, process, recovery, heartbeat, quarantine, identity and
@@ -752,6 +761,7 @@ See [Smart Routing](USAGE_ROUTING.md) for the opt-in policy (usage filter,
 persona model lists, the `capacity_escalation` decision, route restrictions),
 collectors, credential references, and Dashboard controls. The settings REST API
 exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews the
-Legacy Routing order, usage verdicts, model groups, capacity reading, and chosen
+Legacy Routing order, a verdict per captain naming the layer that decided it
+(eligibility, routes, or usage), model groups, capacity reading, and chosen
 captain for a saved or draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.

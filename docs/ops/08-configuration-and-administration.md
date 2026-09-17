@@ -641,37 +641,50 @@ an explicit operator decision.
 
 ### Model routing and dispatch policy
 
-Product defaults are empty and policy-neutral. A fresh `settings.json`
-classifies no model family, reserves no specialist persona, selects
-randomly among idle persona-eligible captains, and leaves the
-stage-persona title guard off. Edit these keys in `settings.json` or on
-the Dashboard Settings page:
+Product defaults are policy-neutral: no persona is a specialist, no captain
+has a pinned tier or a rank, and the stage-persona title guard is off. A
+captain's tier and preference rank are fields on the captain record, and a
+persona's specialist flag is a field on the persona record; see
+[the three routing layers](../USAGE_ROUTING.md). Edit these keys in
+`settings.json` or on the Dashboard Settings page:
 
 | Setting | Hot-reload | Product default | Dashboard control |
 | --- | --- | --- | --- |
-| `modelTier.midTierModels` / `highTierModels` | Yes | empty | Mid-tier / high-tier model lists |
-| `modelTier.familyClassificationRules` | Yes | empty | Family classification rules JSON |
-| `modelTier.specialistPersonas` | Yes | empty | Specialist persona list |
-| `modelTier.withinTierStrategy` | Yes | `Random` | Within-tier strategy |
-| `modelTier.withinTierPreferenceOrder` | Yes | empty | Preference-order JSON |
-| `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native first |
-| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Smart Routing: accounts, usage filter, persona model lists, routes, and preview](USAGE_ROUTING.md) |
-| `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved high-tier slots |
+| `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native captains first |
+| `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved Premium slots |
+| `modelTier.modelCapabilityProfiles` / `capabilityHintDimensionMap` | Yes | empty / built-in hint map | `settings.json` only |
+| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Smart Routing: accounts, usage filter, persona model lists, routes, and preview](../USAGE_ROUTING.md) |
+| `modelTier.tierRecordsMigratedUtc` | Yes | unset | Written by the one-time tier record migration |
 | `voyageDispatch.rejectStagePersonaTitlePrefixes` | Yes | `false` | Reject stage-persona title prefixes |
 | `voyageDispatch.stagePersonaTitlePrefixes` | Yes | empty | Prefix list |
 | `modelProviders` | No (startup) | empty | modelProviders JSON |
 | `additionalPromptTemplates` / `additionalPersonas` / `additionalPipelines` | No (startup) | empty | Additional-asset JSON |
 
-**Legacy Routing** is the selection these keys define while
-`modelTier.usageRouting.enabled` is false: model tiers, persona locks,
-within-tier ranking, non-native-first, capability scoring, the persona default
-captain, and the high-tier slot reserve. **Smart Routing**
+| Record field | Default | Dashboard control |
+| --- | --- | --- |
+| Captain `tier` (`Economy`, `Standard`, `Premium`) | null: classified from the model name | Captain modal and detail page: Capability tier |
+| Captain `preferenceRank` (-1000 to 1000) | `0` | Captain modal and detail page: Preference rank |
+| Persona `specialist` | `false` | Persona detail page: Specialist |
+
+`modelTier.midTierModels`, `highTierModels`, `familyClassificationRules`,
+`specialistPersonas`, `withinTierStrategy`, and `withinTierPreferenceOrder` are
+retired. At the first startup that finds them, Armada moves them onto captain
+tiers, captain ranks, and persona flags, writes a settings backup, removes the
+keys, and stamps `tierRecordsMigratedUtc`. See
+[Retired tier settings and the one-time migration](../USAGE_ROUTING.md#retired-tier-settings-and-the-one-time-migration).
+
+**Legacy Routing** is layers 1 and 2 while `modelTier.usageRouting.enabled`
+is false: persona locks and the tier floor decide eligibility, then tier,
+capability scoring, preference rank, non-native-first, and the preferred
+persona order the eligible captains; the persona default captain and the
+Premium slot reserve also apply. **Smart Routing**
 (`modelTier.usageRouting.enabled` true) keeps that order and adds the usage
 filter (Exhausted removed, Low and Reserve demoted), per-persona `default`,
 `lighter`, and `stronger` model lists (`modelTier.usageRouting.personaModels`),
 the `capacity_escalation` typed decision that chooses which list goes first,
 and optional `personaRoutes` that restrict a persona to named accounts. Routes
-never order captains. See [Smart Routing](USAGE_ROUTING.md).
+never order captains, and nothing in Smart Routing changes the tier floor. See
+[Smart Routing](../USAGE_ROUTING.md).
 
 A `modelTier.usageRouting` account can also own a separate captain login.
 Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
@@ -727,19 +740,14 @@ when a mission with a requested captain waits. A wait that does not change is
 recorded once. A mission with neither field set is assigned exactly as
 before.
 
-When both tier lists and family rules are empty, every idle
-persona-eligible captain is an equal peer. That is the vanilla dispatch
-path. Low still maps to mid: that is the platform two-tier architecture,
-not a fleet rule.
+With no pinned tier on any captain, each captain's tier is classified from
+its model name, and a model the classifier does not know is Standard.
 
-Copy `factory/settings.fleet.example.json` into the live settings file to
-restore the former hardcoded routing, guard, and specialist-reviewer
-assets. The live `~/.armada/settings.json` is not in the repository.
-Merge the fleet overlay before you deploy this build if you need today's
-behavior. Family rules now apply even when a settings object is supplied
-(lists still win), so an unlisted version-bump that matches a seeded
-family pattern classifies. That is a small expansion versus a
-lists-only production file.
+`factory/settings.fleet.example.json` holds the fleet routing policy, guard,
+and specialist-reviewer assets. Captain tiers, ranks, and specialist flags are
+not settings: set them on the records, or let the one-time migration derive
+them from a settings file that still carries the retired tier keys. The live
+`~/.armada/settings.json` is not in the repository.
 
 The `docker/` image pins (agent CLI set, `CLI_REFRESH`, `@latest`) are
 project infra for this deployment. They are not product defaults. Gate

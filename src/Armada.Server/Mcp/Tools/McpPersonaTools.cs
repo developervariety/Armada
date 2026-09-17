@@ -42,6 +42,7 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (e.g. 'Worker', 'Architect', 'Judge')" },
                         description = new { type = "string", description = "Human-readable description of what this persona does" },
                         promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" },
+                        specialist = new { type = "boolean", description = "When true, missions of this persona are routed only to Premium captains. Default false." },
                         defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "name", "promptTemplateName" }
@@ -58,6 +59,8 @@ namespace Armada.Server.Mcp.Tools
                     persona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
                     if (request.Description != null)
                         persona.Description = request.Description;
+                    if (request.Specialist.HasValue)
+                        persona.Specialist = request.Specialist.Value;
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     persona = await database.Personas.CreateAsync(persona).ConfigureAwait(false);
@@ -98,6 +101,7 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (used to look up the persona)" },
                         description = new { type = "string", description = "New description" },
                         promptTemplateName = new { type = "string", description = "New prompt template name" },
+                        specialist = new { type = "boolean", description = "When true, missions of this persona are routed only to Premium captains. Null leaves it unchanged." },
                         defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "name" }
@@ -116,6 +120,8 @@ namespace Armada.Server.Mcp.Tools
                         persona.Description = request.Description;
                     if (request.PromptTemplateName != null)
                         persona.PromptTemplateName = request.PromptTemplateName;
+                    if (request.Specialist.HasValue)
+                        persona.Specialist = request.Specialist.Value;
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     persona.LastUpdateUtc = DateTime.UtcNow;

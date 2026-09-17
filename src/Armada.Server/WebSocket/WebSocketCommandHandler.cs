@@ -1164,6 +1164,8 @@ namespace Armada.Server.WebSocket
                         Persona patchPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
                         if (patchPersona.Description != null) existPersona.Description = patchPersona.Description;
                         if (patchPersona.PromptTemplateName != null) existPersona.PromptTemplateName = patchPersona.PromptTemplateName;
+                        PersonaRoutingUpdate? patchRouting = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data;
+                        if (patchRouting?.Specialist != null) existPersona.Specialist = patchRouting.Specialist.Value;
                         existPersona = await _Database.Personas.UpdateAsync(existPersona).ConfigureAwait(false);
                         return new { type = "command.result", action = "update_persona", data = (object)existPersona };
                     }

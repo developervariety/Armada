@@ -24,6 +24,11 @@ namespace Armada.Server.Mcp
         public string? PromptTemplateName { get; set; }
 
         /// <summary>
+        /// Whether missions of this persona require a Premium captain. Null leaves the current value unchanged.
+        /// </summary>
+        public bool? Specialist { get; set; }
+
+        /// <summary>
         /// Default playbooks for this persona. Null leaves the current value unchanged;
         /// an empty list clears it.
         /// </summary>

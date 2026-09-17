@@ -9592,7 +9592,7 @@ namespace Armada.Core.Services
         /// <param name="captain">Captain row to evaluate.</param>
         /// <param name="missionPersona">Mission persona, if any.</param>
         /// <param name="preferredModel">Preferred model or tier selector, if any.</param>
-        /// <param name="modelTierSettings">Optional tier membership configuration; null uses built-in defaults.</param>
+        /// <param name="modelTierSettings">Optional settings whose specialist personas require a Premium captain; null applies no specialist floor.</param>
         /// <returns>True when the captain may run the mission under the given pins.</returns>
         public static bool CaptainSatisfiesPreferredRouting(
             Captain captain,
@@ -9606,13 +9606,22 @@ namespace Armada.Core.Services
             {
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
                 {
-                    if (!PreferredModelTierSelector.ModelMatchesTierOrAbove(captain.Model, preferredModel, modelTierSettings))
+                    if (!PreferredModelTierSelector.CaptainMatchesTierOrAbove(captain, preferredModel))
                         return false;
                 }
                 else if (!String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
                 {
                     return false;
                 }
+            }
+
+            bool literalPin = !String.IsNullOrEmpty(preferredModel) && !PreferredModelTierSelector.IsTierSelector(preferredModel);
+            if (!literalPin
+                && modelTierSettings != null
+                && modelTierSettings.IsSpecialistPersona(missionPersona)
+                && CaptainTierSelector.EffectiveTier(captain) != CaptainTierEnum.Premium)
+            {
+                return false;
             }
 
             if (!String.IsNullOrEmpty(missionPersona))
@@ -9801,25 +9810,18 @@ namespace Armada.Core.Services
                 return "no captain of the tenant allows persona " + (mission.Persona ?? "(none)");
 
             string? preferredModel = mission.PreferredModel;
-            if (String.IsNullOrEmpty(preferredModel)) return null;
+            bool isSpecialist = _Settings.ModelTier.IsSpecialistPersona(mission.Persona);
+            if (String.IsNullOrEmpty(preferredModel) && !isSpecialist) return null;
 
-            string? tier = PreferredModelTierSelector.IsTierSelector(preferredModel)
-                ? preferredModel
-                : null;
-            if (tier == null)
-            {
-                if (personaCaptains.Any(item => String.Equals(item.Model, preferredModel, StringComparison.OrdinalIgnoreCase)))
-                    return null;
-                tier = PreferredModelTierSelector.ClassifyModel(preferredModel, _Settings.ModelTier);
-                if (tier == null) return null;
-            }
+            if (!String.IsNullOrEmpty(preferredModel)
+                && !PreferredModelTierSelector.IsTierSelector(preferredModel)
+                && personaCaptains.Any(item => String.Equals(item.Model, preferredModel, StringComparison.OrdinalIgnoreCase)))
+                return null;
 
-            string? servable = PreferredModelTierSelector.SelectModel(
-                tier, personaCaptains, mission.Persona, n => 0,
-                _Settings.ModelTier.SpecialistPersonas, _Settings.ModelTier.WithinTierPreferenceOrder, _Settings.ModelTier, mission.CapabilityHint);
-            return servable == null
-                ? "no captain of the tenant that allows persona " + (mission.Persona ?? "(none)") + " serves tier " + tier
-                : null;
+            List<CaptainTierEnum> tiers = LegacyCaptainSelector.TierOrderFor(_Settings.ModelTier, mission);
+            if (personaCaptains.Any(item => tiers.Contains(CaptainTierSelector.EffectiveTier(item))))
+                return null;
+            return "no captain of the tenant that allows persona " + (mission.Persona ?? "(none)") + " has tier " + String.Join(" or ", tiers);
         }
 
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)

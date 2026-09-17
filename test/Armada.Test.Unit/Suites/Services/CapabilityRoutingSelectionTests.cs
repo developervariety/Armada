@@ -63,18 +63,20 @@ namespace Armada.Test.Unit.Suites.Services
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_caphint_repos_" + id);
             settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_caphint_logs_" + id);
 
-            settings.ModelTier.MidTierModels = new List<string>
+            // The tier lists, preference order and specialist personas are written in the retired settings shape;
+            // the tier record migration moves them onto the seeded captain and persona records.
+            settings.ModelTier.RetiredMidTierModels = new List<string>
             {
                 _PreferencePrimary, _HighAudit, _MidAudit, _Throughput, _LowAudit
             };
-            settings.ModelTier.HighTierModels = new List<string> { _Opus };
-            settings.ModelTier.WithinTierPreferenceOrder = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+            settings.ModelTier.RetiredHighTierModels = new List<string> { _Opus };
+            settings.ModelTier.RetiredWithinTierPreferenceOrder = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 { "mid", new List<string> { _PreferencePrimary, _HighAudit, _MidAudit, _Throughput, _LowAudit } },
                 { "high", new List<string> { _Opus } }
             };
-            settings.ModelTier.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
-            settings.ModelTier.SpecialistPersonas = new List<string> { "Judge", "Architect", "TestEngineer" };
+            settings.ModelTier.RetiredWithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
+            settings.ModelTier.RetiredSpecialistPersonas = new List<string> { "Judge", "Architect", "TestEngineer" };
             settings.ModelTier.ModelCapabilityProfiles = new Dictionary<string, ModelCapabilityProfile>(StringComparer.OrdinalIgnoreCase)
             {
                 { _PreferencePrimary, new ModelCapabilityProfile { AuditReasoningFit = 92, MechanicalThroughput = 58 } },
@@ -86,8 +88,10 @@ namespace Armada.Test.Unit.Suites.Services
             return settings;
         }
 
-        private static MissionService CreateMissionService(SqliteDatabaseDriver db, ArmadaSettings settings, ICaptainQuarantineService quarantine)
+        private static async Task<MissionService> CreateMissionServiceAsync(SqliteDatabaseDriver db, ArmadaSettings settings, ICaptainQuarantineService quarantine)
         {
+            await new TierRecordMigrationService(db, CreateLogging()).ApplyAsync(settings.ModelTier).ConfigureAwait(false);
+            await TierRoutingRecords.RefreshAsync(settings.ModelTier, db).ConfigureAwait(false);
             LoggingModule logging = CreateLogging();
             StubGitService git = new StubGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
@@ -147,7 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
 
-                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    MissionService missionService = await CreateMissionServiceAsync(db, settings, quarantine).ConfigureAwait(false);
                     bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     AssertTrue(assigned, "a hinted mission with eligible idle captains should assign");
@@ -178,7 +182,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "mechanical").ConfigureAwait(false);
 
-                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    MissionService missionService = await CreateMissionServiceAsync(db, settings, quarantine).ConfigureAwait(false);
                     bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     AssertTrue(assigned, "a mechanical-hinted mission should assign");
@@ -208,7 +212,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
 
-                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    MissionService missionService = await CreateMissionServiceAsync(db, settings, quarantine).ConfigureAwait(false);
                     bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     AssertTrue(assigned, "the mission should assign to the next-best idle captain");
@@ -244,7 +248,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
 
-                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    MissionService missionService = await CreateMissionServiceAsync(db, settings, quarantine).ConfigureAwait(false);
                     bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     AssertTrue(assigned, "the mission should skip the benched best-fit and assign elsewhere");
@@ -272,7 +276,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "audit").ConfigureAwait(false);
 
-                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    MissionService missionService = await CreateMissionServiceAsync(db, settings, quarantine).ConfigureAwait(false);
                     bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     AssertTrue(assigned, "a mid mission with an idle mid captain should assign within mid");
@@ -299,7 +303,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, "totally-unknown-hint").ConfigureAwait(false);
 
-                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    MissionService missionService = await CreateMissionServiceAsync(db, settings, quarantine).ConfigureAwait(false);
                     bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     AssertTrue(assigned, "an unknown hint must not break assignment");
@@ -326,7 +330,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission mission = await SeedMissionAsync(db, vessel.Id, null).ConfigureAwait(false);
 
-                    MissionService missionService = CreateMissionService(db, settings, quarantine);
+                    MissionService missionService = await CreateMissionServiceAsync(db, settings, quarantine).ConfigureAwait(false);
                     bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
 
                     AssertTrue(assigned, "a null-hint mission should assign by the preference order");
