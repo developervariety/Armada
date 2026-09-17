@@ -44,6 +44,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TelemetryLogExportTests());
             runner.AddSuite(new ContextIndexGeneratorTests());
             runner.AddSuite(new TypedDecisionRetentionTests());
+            runner.AddSuite(new TypedDecisionWiringTests());
             runner.AddSuite(new ContextRetrievalServiceTests());
             runner.AddSuite(new ContextCoverageCensusTests());
             runner.AddSuite(new ContextBriefWiringTests());

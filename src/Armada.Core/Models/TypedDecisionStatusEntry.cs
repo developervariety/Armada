@@ -20,6 +20,13 @@ namespace Armada.Core.Models
         /// <summary>What the decision decides.</summary>
         public string Description { get; set; } = String.Empty;
 
+        /// <summary>
+        /// Why no decision point consults this decision, or null when one does. A mode reported
+        /// without this reason means the decision really runs; a decision that ships in a mode and
+        /// consults nothing would otherwise read as enforced.
+        /// </summary>
+        public string? UnwiredReason { get; set; } = null;
+
         #endregion
     }
 }
