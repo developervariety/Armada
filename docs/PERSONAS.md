@@ -119,6 +119,15 @@ defaults. Use `armada_captain_status` to inspect runtime state. Do not put MCP
 credentials, server-control instructions, or destructive operator procedures
 in captain prompt templates.
 
+### The `[ARMADA:BLOCKING]` marker is prose only
+
+Some Judge and reviewer prompt templates emit an `[ARMADA:BLOCKING]` line to
+call out a change a captain must make before the work can pass. No parser reads
+it: unlike `[ARMADA:RESULT]` and `[ARMADA:VERDICT]`, it is prose the operator
+reads on the Judge's brief, not a structured signal. Do not rely on it to gate
+anything automatically; the Judge's `[ARMADA:VERDICT]` line is the structured
+outcome.
+
 ## Validation
 
 Before release, confirm:

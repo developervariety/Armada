@@ -8,6 +8,14 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Every mission's rules now carry two standing fleet rules: never delete a
+  `recover/` ref (the operator retires them) and never write a mission, voyage,
+  or objective id into committed content. They are added to the `mission.rules`
+  and `mission.rules_no_push` embedded defaults and hardcoded fallbacks, and an
+  append-if-missing upgrader adds them to an existing built-in row without
+  disturbing an operator edit. `[ARMADA:BLOCKING]` is documented as a prose-only
+  marker (no parser reads it; the Judge's `[ARMADA:VERDICT]` is the structured
+  outcome).
 - Built-in prompt-template rows now upgrade on startup. Seeding never rewrote the
   content of an existing built-in row, so a content change made in code never
   reached a live deployment until an operator reset the row. Each embedded default

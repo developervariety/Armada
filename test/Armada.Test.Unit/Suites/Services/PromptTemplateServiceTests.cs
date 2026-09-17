@@ -211,6 +211,48 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Fleet guard rules are appended to an operator-edited mission.rules and preserve its content", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate existing = new PromptTemplate("mission.rules", "## Rules\n- Operator custom rule\n");
+                    existing.Category = "mission";
+                    existing.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? resolved = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
+                    AssertNotNull(resolved, "mission.rules should resolve");
+                    AssertContains("- Operator custom rule", resolved!.Content, "the operator edit is preserved");
+                    AssertContains("Never delete a `recover/` ref", resolved.Content, "the recover-ref rule is appended");
+                    AssertContains("Never write a mission, voyage, or objective id into committed content", resolved.Content, "the no-ids rule is appended");
+
+                    // Idempotent: a second seed does not append the rules again.
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplate? again = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
+                    AssertEqual(1, again!.Content.Split(new[] { "Never delete a `recover/` ref" }, StringSplitOptions.None).Length - 1, "the rule is appended exactly once");
+                }
+            });
+
+            await RunTest("Fresh-seeded mission.rules carries the fleet guard rules", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplate? rules = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
+                    AssertContains("Never delete a `recover/` ref", rules!.Content, "fresh mission.rules carries the recover-ref rule");
+                    AssertContains("Never write a mission, voyage, or objective id into committed content", rules.Content, "fresh mission.rules carries the no-ids rule");
+                }
+            });
+
             await RunTest("Working persona templates carry the memory-recall note; the Recorder does not", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

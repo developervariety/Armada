@@ -4867,7 +4867,9 @@ namespace Armada.Core.Services
                         "- If you encounter a blocking issue, commit what you have and exit\n" +
                         "- Exit with code 0 on success\n" +
                         "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
-                        "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n";
+                        "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n" +
+                        "- Never delete a `recover/` ref; the operator retires them.\n" +
+                        "- Never write a mission, voyage, or objective id into committed content -- code, comments, tests, commit messages, or branch names.\n";
 
                 case "mission.rules_no_push":
                     return
@@ -4878,7 +4880,9 @@ namespace Armada.Core.Services
                         "- If you encounter a blocking issue, commit what you have and exit\n" +
                         "- Exit with code 0 on success\n" +
                         "- Do not use extended/Unicode characters (em dashes, smart quotes, etc.) -- use only ASCII characters in all output and commit messages\n" +
-                        "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n";
+                        "- Do not use ANSI color codes or terminal formatting in output -- keep all output plain text\n" +
+                        "- Never delete a `recover/` ref; the operator retires them.\n" +
+                        "- Never write a mission, voyage, or objective id into committed content -- code, comments, tests, commit messages, or branch names.\n";
 
                 case "mission.context_conservation":
                     return

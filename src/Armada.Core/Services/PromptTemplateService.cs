@@ -50,6 +50,20 @@ namespace Armada.Core.Services
             "shared rule wins over a memory record on conflict, and so do the mission brief, the " +
             "playbooks and the vessel instructions. Report the conflict; do not rewrite either side.\n" +
             "When the memory tools are absent, continue without them.\n";
+
+        /// <summary>
+        /// Marker meaning a mission-rules template already carries the standing fleet guard rules.
+        /// </summary>
+        private const string _FleetGuardMarker = "Never delete a `recover/` ref";
+
+        /// <summary>
+        /// Standing fleet rules appended to every mission-rules template: a recover ref is the
+        /// operator's to retire, and an orchestration id never enters committed content. Added once, so
+        /// a row already carrying the marker is left as it is and an operator edit is kept.
+        /// </summary>
+        private const string _FleetGuardRules =
+            "- " + _FleetGuardMarker + "; the operator retires them.\n" +
+            "- Never write a mission, voyage, or objective id into committed content -- code, comments, tests, commit messages, or branch names.\n";
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -77,6 +91,7 @@ namespace Armada.Core.Services
             _EmbeddedDefaults = BuildEmbeddedDefaults();
             MergeAdditionalTemplates(additionalTemplates);
             AddMemoryRecallGuidance();
+            AddFleetGuardRules();
         }
 
         #endregion
@@ -181,6 +196,7 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaContentAsync(token).ConfigureAwait(false);
             await UpgradeLegacyPersonaTemplateReferencesAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInMissionRuleFleetGuardsAsync(token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -267,6 +283,50 @@ namespace Armada.Core.Services
             if (!String.Equals(category, "persona", StringComparison.OrdinalIgnoreCase)) return false;
             if (String.Equals(name, "persona.recorder", StringComparison.OrdinalIgnoreCase)) return false;
             return true;
+        }
+
+        /// <summary>Whether a template takes the standing fleet guard rules: the two mission-rules templates.</summary>
+        private static bool TakesFleetGuardRules(string? name)
+        {
+            return String.Equals(name, "mission.rules", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(name, "mission.rules_no_push", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Append the fleet guard rules to the embedded mission-rules defaults, so seeding, fallback
+        /// resolution and reset all deliver the same text.
+        /// </summary>
+        private void AddFleetGuardRules()
+        {
+            foreach (KeyValuePair<string, EmbeddedTemplate> pair in _EmbeddedDefaults)
+            {
+                EmbeddedTemplate template = pair.Value;
+                if (!TakesFleetGuardRules(pair.Key)) continue;
+                if (template.Content != null && template.Content.Contains(_FleetGuardMarker, StringComparison.Ordinal)) continue;
+                template.Content = (template.Content ?? String.Empty) + _FleetGuardRules;
+            }
+        }
+
+        /// <summary>
+        /// Append the fleet guard rules to an existing built-in mission-rules row that predates them.
+        /// Seeding only creates an absent template, so an existing row would otherwise never receive the
+        /// rules. This appends the missing lines and changes nothing else, so an operator edit is kept.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        private async Task UpgradeBuiltInMissionRuleFleetGuardsAsync(CancellationToken token)
+        {
+            List<PromptTemplate> templates = await _Database.PromptTemplates.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (PromptTemplate template in templates)
+            {
+                if (!template.IsBuiltIn) continue;
+                if (!TakesFleetGuardRules(template.Name)) continue;
+                if (!String.IsNullOrEmpty(template.Content) && template.Content.Contains(_FleetGuardMarker, StringComparison.Ordinal)) continue;
+
+                template.Content = (template.Content ?? String.Empty) + _FleetGuardRules;
+                template.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "added fleet guard rules to built-in template '" + template.Name + "'");
+            }
         }
 
         /// <summary>
