@@ -2716,3 +2716,82 @@ export interface AccountLoginStatus {
   loginReason: string | null;
   loginCheckedUtc: string | null;
 }
+
+/** One captain as the Smart Routing preview reports it. */
+export interface SmartRoutingPreviewCaptain {
+  id: string;
+  name: string | null;
+  model: string | null;
+  runtime: string | null;
+}
+
+/** The usage filter verdict for one captain. */
+export interface SmartRoutingPreviewVerdict {
+  captainId: string;
+  model: string | null;
+  accountId: string | null;
+  state: string | null;
+  /** kept, demoted, removed, or outside_routes. */
+  outcome: string;
+  reason: string;
+}
+
+/** One persona model group, in the order tried. */
+export interface SmartRoutingPreviewGroup {
+  name: string;
+  models: string[];
+  captainIds: string[];
+}
+
+/** Response of POST /api/v1/settings/usage-preview. */
+export interface SmartRoutingPreviewResult {
+  reason: string;
+  smartRoutingEnabled: boolean;
+  hasPersonaRoutes: boolean;
+  hasPersonaModels: boolean;
+  legacyOrder: SmartRoutingPreviewCaptain[];
+  usageFilter: SmartRoutingPreviewVerdict[];
+  modelGroups: SmartRoutingPreviewGroup[];
+  capacity: { choice: 'Default' | 'Lighter' | 'Stronger' | string; source: string; asked: boolean };
+  candidates: SmartRoutingPreviewCaptain[];
+  chosen: SmartRoutingPreviewCaptain | null;
+  warnings?: string[];
+  scope?: string;
+}
+
+export type TypedDecisionMode = 'Off' | 'Shadow' | 'Gate';
+
+/** One typed decision's stored mode, threshold, and description. */
+export interface TypedDecisionStatusEntry {
+  key: string;
+  mode: TypedDecisionMode;
+  threshold: number;
+  description: string;
+}
+
+/** GET /api/v1/typed-decisions. The key itself is never returned. */
+export interface TypedDecisionStatus {
+  effectiveMode: TypedDecisionMode;
+  effectiveReason: string | null;
+  storedMode: TypedDecisionMode;
+  keyPresent: boolean;
+  /** env or file, or null when no key resolves. */
+  keySource: string | null;
+  decisions: TypedDecisionStatusEntry[];
+}
+
+/** PUT /api/v1/typed-decisions body; every field is optional. */
+export interface TypedDecisionsUpdate {
+  mode?: TypedDecisionMode;
+  decisions?: Record<string, { mode?: TypedDecisionMode; gateThreshold?: number }>;
+}
+
+/** DELETE /api/v1/typed-decisions/key result. */
+export interface TypedDecisionKeyRemoveResult {
+  fileRemoved: boolean;
+  environmentSuppliesKey: boolean;
+  keyPresent: boolean;
+  keySource: string | null;
+  effectiveMode: TypedDecisionMode;
+  effectiveReason: string | null;
+}

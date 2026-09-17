@@ -215,6 +215,15 @@ The client is resolved on every call, so adding or removing the key takes
 effect without an Admiral restart. The startup log names the effective mode
 and the key source, never the key.
 
+The Dashboard has the same controls in **Settings > Typed decisions**
+(administrators only): a banner "Off — no Jev key" when the effective mode is
+`Off` for `typed_decisions_no_key`, the effective and stored global modes, key
+presence and source, a password field that saves a key (the field is cleared
+on submit and the key is never displayed), **Remove key** (the page says when
+the environment variable still supplies a key), the global mode, and a table of
+every decision with its description, mode, and threshold (0 to 1). **Save
+modes** sends only the changed fields and reloads the status.
+
 Administrator routes (the same permission as a settings write; never recorded
 in request history):
 

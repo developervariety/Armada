@@ -353,16 +353,39 @@ recovery state across settings updates.
 
 ## Dashboard and API
 
-The Settings hub has an admin **Routing** tab. Its Smart Routing part has the
-guided **Subscription accounts** section (see
-[Logging in from the Dashboard](#logging-in-from-the-dashboard)), an enable
-control, budget fields, reported usage, a draft preview, and an **Advanced**
-section with the account template and the full editable policy JSON. A guided
-account change saves only that change to the saved policy; unsaved JSON edits
-are kept as a draft and are not sent with it. Its save sends only
-`modelTier.usageRouting`, so it never replaces the model routing policy edited
-in the other part of the tab, and a refresh keeps unsaved edits. The policy
-hot-reloads; no restart is required.
+The Settings hub has an admin **Routing** tab. Its Legacy Routing part edits
+the tier lists and preference policy. Its Smart Routing part has:
+
+- a **Routing mode** switch between **Legacy Routing** and **Smart Routing**
+  (it sets `modelTier.usageRouting.enabled` in the draft);
+- the guided **Subscription accounts** section (see
+  [Logging in from the Dashboard](#logging-in-from-the-dashboard));
+- budget fields;
+- **Persona model lists**: one row per persona from the personas catalogue,
+  plus any persona already in `personaModels`, with Default, Lighter, and
+  Stronger model chips. Model options are the captains' models and the tier
+  model lists. Each model shows how many captains run it, and a warning chip
+  when every one of those captains is on an Exhausted account. A row without
+  models has no entry, so that persona keeps the Legacy Routing order. **Add
+  persona** adds a row for a persona the catalogue does not list;
+- **Persona restrictions** (collapsed): the `personaRoutes` entries as
+  restrictions, with add and remove per persona and per account, and a note
+  when a restriction admits no captain;
+- an **Advanced** section with the account template and the full editable
+  policy JSON. The table, the restrictions, and the JSON edit the same draft,
+  so each view shows the others' changes;
+- reported account usage;
+- **Preview Smart Routing**: a persona picker, priority, preferred model, and
+  optional mission title and text. It shows the chosen captain, the Legacy
+  Routing order, the usage filter verdict per captain (outcome and reason),
+  the capacity reading (the list chosen first and its source, or "not asked"
+  without title and text), and the model groups in the order tried.
+
+A guided account change saves only that change to the saved policy; unsaved
+JSON edits are kept as a draft and are not sent with it. **Save routing
+policy** sends only `modelTier.usageRouting`, so it never replaces the model
+routing policy edited in the other part of the tab, and a refresh keeps
+unsaved edits. The policy hot-reloads; no restart is required.
 `monthlyBudget`, `currency`, and account `monthlyCost` are operator-entered
 planning values. They show a total and an over-budget indicator. They do not
 purchase plans, enforce a billing cap, or measure prepaid spending.
