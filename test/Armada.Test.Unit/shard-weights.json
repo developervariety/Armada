@@ -392,6 +392,8 @@
     "VoyageMailboxSignalPayload": 0.0,
     "VoyageReportOnlyClassifier": 0.0,
     "WebSocket Client Output Queue": 0.0,
+    "WebSocket Command Authorization": 0.6,
+    "WebSocket Command Registry": 0.2,
     "WebSocket Create Ownership": 0.1,
     "WebSocket Delivery Scope": 0.0,
     "WebSocket Mission Summaries": 0.1,

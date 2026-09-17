@@ -171,18 +171,7 @@ namespace Armada.Server.Routes
                 string fleetBody = req.Http.Request.DataAsString;
                 Fleet updated = JsonSerializer.Deserialize<Fleet>(fleetBody, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Fleet.");
-                updated.Id = id;
-                // The body replaces client-editable fields only. Ownership and creation time come from the
-                // stored record, because every provider writes every column on update. A field with a model
-                // default (Active, DefaultPlaybooks) keeps its stored value unless the body names it.
-                updated.TenantId = existing.TenantId;
-                updated.UserId = existing.UserId;
-                updated.CreatedUtc = existing.CreatedUtc;
-                HashSet<string> fleetBodyFields = ReadTopLevelFieldNames(fleetBody);
-                if (!fleetBodyFields.Contains(nameof(Fleet.Active)))
-                    updated.Active = existing.Active;
-                if (!fleetBodyFields.Contains(nameof(Fleet.DefaultPlaybooks)))
-                    updated.DefaultPlaybooks = existing.DefaultPlaybooks;
+                FleetUpdateMerge.KeepServerOwnedFields(existing, updated, ReadTopLevelFieldNames(fleetBody));
                 updated = await _database.Fleets.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },

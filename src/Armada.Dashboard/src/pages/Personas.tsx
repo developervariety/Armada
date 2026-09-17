@@ -99,7 +99,10 @@ export default function Personas() {
         ? t('Persona "{{name}}" saved.', { name: editing.name })
         : t('Persona "{{name}}" created.', { name: form.name }));
       load();
-    } catch { setError(t('Save failed.')); }
+    } catch (err) {
+      // The server's refusal names its reason (for example a default captain it will not accept).
+      setError(err instanceof Error && err.message ? err.message : t('Save failed.'));
+    }
   }
 
   function handleDelete(name: string) {

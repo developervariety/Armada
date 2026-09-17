@@ -14,9 +14,11 @@ vi.mock('../api/client', () => ({
   deletePersona: vi.fn(),
 }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth.current }));
-vi.mock('../context/LocaleContext', () => ({
-  useLocale: () => ({ t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v }),
-}));
+vi.mock('../context/LocaleContext', () => {
+  // One stable locale object, as the real provider supplies, so the page does not reload and clear its error on every render.
+  const locale = { t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v };
+  return { useLocale: () => locale };
+});
 vi.mock('../context/NotificationContext', () => ({ useNotifications: () => ({ pushToast: vi.fn() }) }));
 
 const page = (objects: unknown[]) => ({ success: true, pageNumber: 1, pageSize: 9999, totalPages: 1, totalRecords: objects.length, totalMs: 1, objects });
@@ -73,5 +75,19 @@ describe('Personas ownership', () => {
     await waitFor(() => expect(createPersona).toHaveBeenCalledWith({
       name: 'Planner', promptTemplateName: 'persona.reviewer', ownershipScope: 'UserSpecific',
     }));
+  });
+
+  it('shows the server refusal reason when a create is refused', async () => {
+    auth.current = { isAdmin: false, isTenantAdmin: true, user: { user: { id: 'usr_ta', tenantId: 'ten_a' } } };
+    vi.mocked(createPersona).mockRejectedValue(new Error('default_captain_persona_locked: captain cpt_1 does not allow persona Planner'));
+    renderPage();
+    await openRowMenu();
+    fireEvent.click(screen.getByText('+ Persona'));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Planner' } });
+    fireEvent.change(screen.getByLabelText('Prompt Template Name'), { target: { value: 'persona.reviewer' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(await screen.findByText(/default_captain_persona_locked: captain cpt_1/)).toBeInTheDocument();
+    expect(screen.queryByText('Save failed.')).not.toBeInTheDocument();
   });
 });

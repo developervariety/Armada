@@ -436,6 +436,18 @@ using System.IO;
                 AssertContains("default_captain_not_found", await foreign.Content.ReadAsStringAsync().ConfigureAwait(false));
             }).ConfigureAwait(false);
 
+            await RunTest("PersonaDefaultCaptain_CreateWithOtherTenantCaptain_Returns400AndCreatesNothing", async () =>
+            {
+                string refusedName = "xt-create-foreign-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage refused = await _ClientB!.PostAsync("/api/v1/personas",
+                    JsonHelper.ToJsonContent(new { Name = refusedName, PromptTemplateName = "persona.worker", DefaultCaptainId = captainAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, refused.StatusCode, "A create naming another tenant's captain is refused");
+                AssertContains("default_captain_not_found", await refused.Content.ReadAsStringAsync().ConfigureAwait(false));
+
+                HttpResponseMessage lookup = await _ClientB!.GetAsync("/api/v1/personas/" + refusedName).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, lookup.StatusCode, "The refused create writes nothing");
+            }).ConfigureAwait(false);
+
             await RunTest("PersonaDefaultCaptain_PersonaLockedCaptain_Returns400", async () =>
             {
                 HttpResponseMessage lockedResponse = await _ClientA!.PostAsync("/api/v1/captains",

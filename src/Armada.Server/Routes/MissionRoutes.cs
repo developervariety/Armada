@@ -731,24 +731,12 @@ namespace Armada.Server.Routes
                 MissionBindingUpdateRequest bindings = JsonSerializer.Deserialize<MissionBindingUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as mission bindings.");
 
-                // Merge only metadata fields onto the existing record
-                existing.Title = incoming.Title;
-                existing.Description = incoming.Description;
-                existing.Priority = incoming.Priority;
-                if ((bindings.HasVesselId && !String.Equals(existing.VesselId, bindings.VesselId, StringComparison.OrdinalIgnoreCase))
-                    || (bindings.HasVoyageId && !String.Equals(existing.VoyageId, bindings.VoyageId, StringComparison.OrdinalIgnoreCase)))
+                string? bindingError = MissionMetadataUpdate.Apply(existing, incoming, bindings);
+                if (bindingError != null)
                 {
                     req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Mission vesselId and voyageId cannot be changed by the metadata update route." };
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = bindingError };
                 }
-                existing.BranchName = incoming.BranchName;
-                existing.PrUrl = incoming.PrUrl;
-                existing.ParentMissionId = incoming.ParentMissionId;
-                existing.DependsOnMissionId = incoming.DependsOnMissionId;
-                existing.LastUpdateUtc = DateTime.UtcNow;
-
-                // Preserve operational/timestamp fields: CreatedUtc, StartedUtc, CompletedUtc,
-                // Status, CaptainId, DockId, ProcessId, CommitHash, DiffSnapshot
 
                 existing = await _database.Missions.UpdateAsync(existing).ConfigureAwait(false);
                 return (object)existing;

@@ -692,9 +692,10 @@ left out keeps its stored value; an empty string clears a string field.
 persona's missions are routed only to Premium captains. `update_persona` leaves the
 flag unchanged when it is omitted.
 
-`update_persona` also accepts `defaultCaptainId` (string), the captain that missions
-of this persona prefer. `null` or an empty string clears it; an omitted field leaves
-it unchanged. An id that names no captain in the persona's tenant returns a tool
+`create_persona` and `update_persona` also accept `defaultCaptainId` (string), the
+captain that missions of this persona prefer. On `update_persona`, `null` or an empty
+string clears it and an omitted field leaves it unchanged; on `create_persona`, an
+omitted, `null` or empty value sets none. An id that names no captain in the persona's tenant returns a tool
 error that starts with `default_captain_not_found:`, and a captain whose
 `AllowedPersonas` excludes the persona returns one that starts with
 `default_captain_persona_locked:`. A refused call writes nothing.

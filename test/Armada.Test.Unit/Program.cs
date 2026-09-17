@@ -225,6 +225,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpCreateOwnershipTests());
             runner.AddSuite(new WebSocketCreateOwnershipTests());
             runner.AddSuite(new WebSocketMissionSummaryTests());
+            runner.AddSuite(new WebSocketCommandAuthorizationTests());
+            runner.AddSuite(new WebSocketCommandRegistryTests());
             runner.AddSuite(new AutonomousObjectiveSelectorTests());
             runner.AddSuite(new ObjectiveFairShareOrderTests());
             runner.AddSuite(new ConventionCheckTests());

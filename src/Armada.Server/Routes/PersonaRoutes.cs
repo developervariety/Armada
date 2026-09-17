@@ -138,6 +138,14 @@ namespace Armada.Server.Routes
                 persona.TenantId = ctx.TenantId;
                 persona.UserId = ctx.UserId;
                 persona.IsBuiltIn = false;
+                // A default captain named on create passes the same rule as an update, so the stored id always
+                // names a captain in the persona's tenant that admits the persona.
+                string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_database, persona, persona.DefaultCaptainId).ConfigureAwait(false);
+                if (defaultCaptainError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = defaultCaptainError };
+                }
                 persona = await _database.Personas.CreateAsync(persona).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return persona;
@@ -145,9 +153,10 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Personas")
                 .WithSummary("Create a persona")
-                .WithDescription("Creates a new persona with a name, description, and prompt template reference.")
-                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Persona data (Name, Description, PromptTemplateName)", true))
+                .WithDescription("Creates a new persona with a name, description, and prompt template reference. A DefaultCaptainId must name a captain in the caller's tenant whose AllowedPersonas admit the persona: otherwise 400 default_captain_not_found or default_captain_persona_locked, and nothing is created.")
+                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Persona data (Name, Description, PromptTemplateName, DefaultCaptainId)", true))
                 .WithResponse(201, OpenApiJson.For<Persona>("Created persona"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
             // Update persona by name

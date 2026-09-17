@@ -75,4 +75,17 @@ describe('PersonaDetail specialist flag', () => {
     await waitFor(() => expect(updatePersona).toHaveBeenCalledTimes(1));
     expect(updatePersona).toHaveBeenCalledWith('Judge', expect.objectContaining({ specialist: true, promptTemplateName: 'persona.judge' }));
   });
+
+  it('shows the server refusal reason when a save is refused', async () => {
+    vi.mocked(updatePersona).mockRejectedValue(new Error('default_captain_not_found: no captain cpt_other exists for this persona\'s tenant'));
+    renderDetail();
+    expect(await screen.findByRole('heading', { name: 'Judge' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('Actions'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('heading', { name: 'Edit Persona' }).closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+
+    expect(await screen.findByText(/default_captain_not_found: no captain cpt_other/)).toBeInTheDocument();
+    expect(screen.queryByText('Save failed.')).not.toBeInTheDocument();
+  });
 });

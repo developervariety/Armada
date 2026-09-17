@@ -19,6 +19,8 @@ namespace Armada.Server.WebSocket
     /// </summary>
     public class WebSocketCommandHandler
     {
+        #region Private-Members
+
         private readonly IAdmiralService _Admiral;
         private readonly DatabaseBackupService? _Backups;
         private readonly DatabaseDriver _Database;
@@ -30,6 +32,12 @@ namespace Armada.Server.WebSocket
         private readonly Action<Mission> _BroadcastMissionChange;
         private readonly Action<Voyage> _BroadcastVoyageChange;
         private readonly MissionStatusTransitionService? _StatusTransitions;
+        private readonly Dictionary<string, Func<WebSocketCommand, string, AuthContext, Task<object>>> _Commands;
+        private static readonly JsonSerializerOptions _FieldNameOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+        #endregion
+
+        #region Constructors-and-Factories
 
         /// <summary>
         /// Instantiate the command handler.
@@ -44,6 +52,7 @@ namespace Armada.Server.WebSocket
         /// <param name="broadcastMissionChange">Callback to broadcast a changed mission to the sessions that may read it.</param>
         /// <param name="broadcastVoyageChange">Callback to broadcast a changed voyage to the sessions that may read it.</param>
         /// <param name="statusTransitions">Shared operator status transition path; without it transitions are refused.</param>
+        /// <param name="backups">Backup and restore service; without it backup and restore are refused.</param>
         public WebSocketCommandHandler(
             IAdmiralService admiral,
             DatabaseDriver database,
@@ -68,7 +77,108 @@ namespace Armada.Server.WebSocket
             _JsonOptions = jsonOptions;
             _BroadcastMissionChange = broadcastMissionChange;
             _BroadcastVoyageChange = broadcastVoyageChange;
+            _Commands = new Dictionary<string, Func<WebSocketCommand, string, AuthContext, Task<object>>>(StringComparer.Ordinal)
+            {
+                { "status", StatusCommandAsync },
+                { "stop_captain", StopCaptainCommandAsync },
+                { "stop_all", StopAllCommandAsync },
+                { "stop_server", StopServerCommandAsync },
+                { "list_fleets", ListFleetsCommandAsync },
+                { "get_fleet", GetFleetCommandAsync },
+                { "create_fleet", CreateFleetCommandAsync },
+                { "update_fleet", UpdateFleetCommandAsync },
+                { "delete_fleet", DeleteFleetCommandAsync },
+                { "list_vessels", ListVesselsCommandAsync },
+                { "get_vessel", GetVesselCommandAsync },
+                { "create_vessel", CreateVesselCommandAsync },
+                { "update_vessel", UpdateVesselCommandAsync },
+                { "update_vessel_context", UpdateVesselContextCommandAsync },
+                { "delete_vessel", DeleteVesselCommandAsync },
+                { "list_voyages", ListVoyagesCommandAsync },
+                { "get_voyage", GetVoyageCommandAsync },
+                { "create_voyage", CreateVoyageCommandAsync },
+                { "cancel_voyage", CancelVoyageCommandAsync },
+                { "purge_voyage", PurgeVoyageCommandAsync },
+                { "list_missions", ListMissionsCommandAsync },
+                { "list_missions_summary", ListMissionsSummaryCommandAsync },
+                { "get_mission", GetMissionCommandAsync },
+                { "create_mission", CreateMissionCommandAsync },
+                { "update_mission", UpdateMissionCommandAsync },
+                { "transition_mission_status", TransitionMissionStatusCommandAsync },
+                { "cancel_mission", CancelMissionCommandAsync },
+                { "purge_mission", PurgeMissionCommandAsync },
+                { "restart_mission", RestartMissionCommandAsync },
+                { "get_mission_diff", GetMissionDiffCommandAsync },
+                { "get_mission_log", GetMissionLogCommandAsync },
+                { "list_captains", ListCaptainsCommandAsync },
+                { "get_captain", GetCaptainCommandAsync },
+                { "create_captain", CreateCaptainCommandAsync },
+                { "update_captain", UpdateCaptainCommandAsync },
+                { "delete_captain", DeleteCaptainCommandAsync },
+                { "get_captain_log", GetCaptainLogCommandAsync },
+                { "list_signals", ListSignalsCommandAsync },
+                { "send_signal", SendSignalCommandAsync },
+                { "list_events", ListEventsCommandAsync },
+                { "list_docks", ListDocksCommandAsync },
+                { "list_merge_queue", ListMergeQueueCommandAsync },
+                { "get_merge_entry", GetMergeEntryCommandAsync },
+                { "enqueue_merge", EnqueueMergeCommandAsync },
+                { "cancel_merge", CancelMergeCommandAsync },
+                { "process_merge_queue", ProcessMergeQueueCommandAsync },
+                { "enumerate", EnumerateCommandAsync },
+                { "backup", BackupCommandAsync },
+                { "restore", RestoreCommandAsync },
+                { "get_persona", GetPersonaCommandAsync },
+                { "create_persona", CreatePersonaCommandAsync },
+                { "update_persona", UpdatePersonaCommandAsync },
+                { "delete_persona", DeletePersonaCommandAsync },
+                { "get_prompt_template", GetPromptTemplateCommandAsync },
+                { "update_prompt_template", UpdatePromptTemplateCommandAsync },
+                { "get_pipeline", GetPipelineCommandAsync },
+                { "create_pipeline", CreatePipelineCommandAsync },
+                { "update_pipeline", UpdatePipelineCommandAsync },
+                { "delete_pipeline", DeletePipelineCommandAsync },
+            };
         }
+
+        #endregion
+
+        #region Public-Members
+
+        /// <summary>
+        /// The names of the commands this handler dispatches. Every name has a rule in <see cref="WebSocketCommandRegistry"/>.
+        /// </summary>
+        public IReadOnlyCollection<string> CommandNames => _Commands.Keys;
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Handle a WebSocket command. The command's declared rule in <see cref="WebSocketCommandRegistry"/> is enforced
+        /// first, for every caller, so an unknown command, a missing caller or a caller without the required role is
+        /// refused before the command reads or writes anything.
+        /// </summary>
+        /// <param name="action">The action string from the command.</param>
+        /// <param name="command">The deserialized WebSocket command.</param>
+        /// <param name="rawBody">The raw JSON body string for data commands.</param>
+        /// <param name="caller">The authenticated session caller.</param>
+        /// <returns>The result object to serialize and send back to the client.</returns>
+        public async Task<object> HandleCommandAsync(string action, WebSocketCommand command, string rawBody, AuthContext? caller = null)
+        {
+            string name = action ?? "";
+            Func<WebSocketCommand, string, AuthContext, Task<object>>? run = null;
+            WebSocketCommandRefusal? refusal = _Commands.TryGetValue(name, out run)
+                ? WebSocketCommandRegistry.Authorize(name, caller)
+                : WebSocketCommandRefusal.UnknownCommand(name);
+            if (refusal != null || run == null)
+                return (refusal ?? WebSocketCommandRefusal.UnknownCommand(name)).ToResult(name);
+            return await run(command ?? new WebSocketCommand(), rawBody ?? "", caller!).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Private-Methods
 
         /// <summary>
         /// Reads all text from a file using FileShare.ReadWrite to avoid locking conflicts with writer processes.
@@ -97,587 +207,504 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// True when a command runs for an authenticated caller. A create records that caller as the owner.
+        /// Refusal for a record the caller may not read or that does not exist; the two read the same.
         /// </summary>
-        /// <param name="caller">Session caller, or null.</param>
-        /// <returns>True for an authenticated caller.</returns>
-        private static bool IsAuthenticatedCaller(AuthContext? caller)
+        private static object NotFound(string action, string message)
         {
-            return caller != null && caller.IsAuthenticated;
+            return new { type = "command.error", action = action, error = message, code = WebSocketCommandRefusal.NotFoundCode };
         }
 
         /// <summary>
-        /// The refusal a create command returns when it has no authenticated caller to own the record.
+        /// Refusal for a record the caller may read but not change.
         /// </summary>
-        /// <param name="action">Command action.</param>
-        /// <returns>The command error.</returns>
-        private static object CreateRequiresCaller(string action)
+        private static object Forbidden(string action, string message)
         {
-            return new { type = "command.error", action = action, error = action + " requires an authenticated caller to own the record" };
+            return new { type = "command.error", action = action, error = message, code = WebSocketCommandRefusal.ForbiddenCode };
         }
 
         /// <summary>
-        /// Handle a WebSocket command by dispatching to the appropriate action.
+        /// Find a persona by name as the caller sees it, through the shared caller scope.
         /// </summary>
-        /// <param name="action">The action string from the command.</param>
-        /// <param name="command">The deserialized WebSocket command.</param>
-        /// <param name="rawBody">The raw JSON body string for data commands.</param>
-        /// <param name="caller">The authenticated session caller. Commands that read through a caller-scoped query refuse to run without one.</param>
-        /// <returns>The result object to serialize and send back to the client.</returns>
-        public async Task<object> HandleCommandAsync(string action, WebSocketCommand command, string rawBody, AuthContext? caller = null)
+        private Task<Persona?> ReadVisiblePersonaAsync(AuthContext caller, string? name)
         {
-            switch (action)
+            if (String.IsNullOrEmpty(name)) return Task.FromResult<Persona?>(null);
+            return Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                caller,
+                name,
+                (tenantId, personaName) => _Database.Personas.ReadByNameAsync(tenantId, personaName),
+                () => _Database.Personas.EnumerateAsync(),
+                record => record.Name);
+        }
+
+        /// <summary>
+        /// Find a pipeline by name as the caller sees it, through the shared caller scope.
+        /// </summary>
+        private Task<Pipeline?> ReadVisiblePipelineAsync(AuthContext caller, string? name)
+        {
+            if (String.IsNullOrEmpty(name)) return Task.FromResult<Pipeline?>(null);
+            return Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                caller,
+                name,
+                (tenantId, pipelineName) => _Database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
+                () => _Database.Pipelines.EnumerateAsync(),
+                record => record.Name);
+        }
+
+        /// <summary>
+        /// The top-level field names of a command's data object, so an update can tell an omitted field from a
+        /// field sent with its default value.
+        /// </summary>
+        private static HashSet<string> ReadDataFieldNames(string rawBody)
+        {
+            HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
             {
-                // ── Status & Control ──────────────────────────────────────
-
-                case "status":
-                    ArmadaStatus cmdStatus = await _Admiral.GetStatusAsync().ConfigureAwait(false);
-                    return new { type = "command.result", action = "status", data = (object)cmdStatus };
-
-                case "stop_captain":
-                    string captainId = command.CaptainId ?? "";
-                    await _Admiral.RecallCaptainAsync(captainId).ConfigureAwait(false);
-                    return new { type = "command.result", action = "stop_captain", data = (object)new { status = "stopped", captainId = captainId } };
-
-                case "stop_all":
-                    await _Admiral.RecallAllAsync().ConfigureAwait(false);
-                    return new { type = "command.result", action = "stop_all", data = (object)new { status = "all_stopped" } };
-
-                case "stop_server":
-                    if (_OnStop != null)
-                    {
-                        _ = Task.Run(async () =>
-                        {
-                            await Task.Delay(500).ConfigureAwait(false);
-                            _OnStop();
-                        });
-                    }
-                    return new { type = "command.result", action = "stop_server", data = (object)new { status = "shutting_down" } };
-
-                // ── Fleet actions ──────────────────────────────────────────
-
-                case "list_fleets":
-                    EnumerationQuery fleetQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch fleetSw = Stopwatch.StartNew();
-                    EnumerationResult<Fleet> fleetResult = await _Database.Fleets.EnumerateAsync(fleetQuery).ConfigureAwait(false);
-                    fleetResult.TotalMs = Math.Round(fleetSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_fleets", data = (object)fleetResult };
-
-                case "get_fleet":
-                    string getFleetId = command.Id ?? "";
-                    Fleet? foundFleet = await _Database.Fleets.ReadAsync(getFleetId).ConfigureAwait(false);
-                    if (foundFleet == null)
-                        return new { type = "command.error", action = "get_fleet", error = "Fleet not found" };
-                    else
-                    {
-                        List<Vessel> fleetVessels = await _Database.Vessels.EnumerateByFleetAsync(getFleetId).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_fleet", data = (object)new { Fleet = foundFleet, Vessels = fleetVessels } };
-                    }
-
-                case "create_fleet":
-                    Fleet newFleet = JsonSerializer.Deserialize<WebSocketDataCommand<Fleet>>(rawBody, _JsonOptions)?.Data!;
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_fleet");
-                    newFleet.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    newFleet.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    newFleet = await _Database.Fleets.CreateAsync(newFleet).ConfigureAwait(false);
-                    return new { type = "command.result", action = "create_fleet", data = (object)newFleet };
-
-                case "update_fleet":
-                    string updFleetId = command.Id ?? "";
-                    Fleet? existFleet = await _Database.Fleets.ReadAsync(updFleetId).ConfigureAwait(false);
-                    if (existFleet == null)
-                        return new { type = "command.error", action = "update_fleet", error = "Fleet not found" };
-                    else
-                    {
-                        Fleet updFleet = JsonSerializer.Deserialize<WebSocketDataCommand<Fleet>>(rawBody, _JsonOptions)?.Data!;
-                        updFleet.Id = updFleetId;
-                        updFleet = await _Database.Fleets.UpdateAsync(updFleet).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_fleet", data = (object)updFleet };
-                    }
-
-                case "delete_fleet":
-                    string delFleetId = command.Id ?? "";
-                    await _Database.Fleets.DeleteAsync(delFleetId).ConfigureAwait(false);
-                    return new { type = "command.result", action = "delete_fleet", data = (object)new { status = "deleted" } };
-
-                // ── Vessel actions ─────────────────────────────────────────
-
-                case "list_vessels":
-                    EnumerationQuery vesselQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch vesselSw = Stopwatch.StartNew();
-                    EnumerationResult<Vessel> vesselResult = await _Database.Vessels.EnumerateAsync(vesselQuery).ConfigureAwait(false);
-                    vesselResult.TotalMs = Math.Round(vesselSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_vessels", data = (object)vesselResult };
-
-                case "get_vessel":
-                    string getVesselId = command.Id ?? "";
-                    Vessel? foundVessel = await _Database.Vessels.ReadAsync(getVesselId).ConfigureAwait(false);
-                    if (foundVessel == null)
-                        return new { type = "command.error", action = "get_vessel", error = "Vessel not found" };
-                    else
-                        return new { type = "command.result", action = "get_vessel", data = (object)foundVessel };
-
-                case "create_vessel":
-                    Vessel newVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
-                    if (String.IsNullOrEmpty(newVessel.RepoUrl))
-                        return new { type = "command.error", action = "create_vessel", error = "repoUrl is required when creating a vessel" };
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_vessel");
-                    newVessel.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    newVessel.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    newVessel.NormalizeGitHubTokenOverride();
-                    newVessel = await _Database.Vessels.CreateAsync(newVessel).ConfigureAwait(false);
-                    return new { type = "command.result", action = "create_vessel", data = (object)newVessel };
-
-                case "update_vessel":
-                    string updVesselId = command.Id ?? "";
-                    Vessel? existVessel = await _Database.Vessels.ReadAsync(updVesselId).ConfigureAwait(false);
-                    if (existVessel == null)
-                        return new { type = "command.error", action = "update_vessel", error = "Vessel not found" };
-                    else
-                    {
-                        Vessel updVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
-                        updVessel.Id = updVesselId;
-                        // The token override is write-only: an update that omits it keeps the stored value.
-                        updVessel.GitHubTokenOverride = Vessel.ResolveGitHubTokenOverride(
-                            existVessel.GitHubTokenOverride, updVessel.GitHubTokenOverrideSpecified, updVessel.GitHubTokenOverride);
-                        updVessel = await _Database.Vessels.UpdateAsync(updVessel).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_vessel", data = (object)updVessel };
-                    }
-
-                case "update_vessel_context":
-                    string ctxVesselId = command.Id ?? "";
-                    Vessel? ctxVessel = await _Database.Vessels.ReadAsync(ctxVesselId).ConfigureAwait(false);
-                    if (ctxVessel == null)
-                        return new { type = "command.error", action = "update_vessel_context", error = "Vessel not found" };
-                    else
-                    {
-                        Vessel ctxPatch = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
-                        if (ctxPatch.ProjectContext != null)
-                            ctxVessel.ProjectContext = ctxPatch.ProjectContext;
-                        if (ctxPatch.StyleGuide != null)
-                            ctxVessel.StyleGuide = ctxPatch.StyleGuide;
-                        ctxVessel = await _Database.Vessels.UpdateAsync(ctxVessel).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_vessel_context", data = (object)ctxVessel };
-                    }
-
-                case "delete_vessel":
+                WebSocketDataCommand<Dictionary<string, JsonElement>>? parsed =
+                    JsonSerializer.Deserialize<WebSocketDataCommand<Dictionary<string, JsonElement>>>(rawBody, _FieldNameOptions);
+                if (parsed?.Data != null)
                 {
-                    string delVesselId = command.Id ?? "";
-                    Vessel? delVessel = await _Database.Vessels.ReadAsync(delVesselId).ConfigureAwait(false);
-                    if (delVessel == null)
-                        return new { type = "command.error", action = "delete_vessel", error = "Vessel not found" };
+                    foreach (string name in parsed.Data.Keys) names.Add(name);
+                }
+            }
+            catch (JsonException)
+            {
+                // A data member that is not an object carries no fields; the typed deserialization reports it.
+            }
+            return names;
+        }
 
-                    // Cancel active missions on this vessel
-                    try
+        /// <summary>
+        /// Run the <c>status</c> command.
+        /// </summary>
+        private async Task<object> StatusCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            ArmadaStatus cmdStatus = await _Admiral.GetStatusAsync().ConfigureAwait(false);
+            return new { type = "command.result", action = "status", data = (object)cmdStatus };
+        }
+
+        /// <summary>
+        /// Run the <c>stop_captain</c> command.
+        /// </summary>
+        private async Task<object> StopCaptainCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string captainId = command.CaptainId ?? "";
+            await _Admiral.RecallCaptainAsync(captainId).ConfigureAwait(false);
+            return new { type = "command.result", action = "stop_captain", data = (object)new { status = "stopped", captainId = captainId } };
+        }
+
+        /// <summary>
+        /// Run the <c>stop_all</c> command.
+        /// </summary>
+        private async Task<object> StopAllCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            await _Admiral.RecallAllAsync().ConfigureAwait(false);
+            return new { type = "command.result", action = "stop_all", data = (object)new { status = "all_stopped" } };
+        }
+
+        /// <summary>
+        /// Run the <c>stop_server</c> command.
+        /// </summary>
+        private Task<object> StopServerCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            if (_OnStop != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(500).ConfigureAwait(false);
+                    _OnStop();
+                });
+            }
+            return Task.FromResult<object>(new { type = "command.result", action = "stop_server", data = (object)new { status = "shutting_down" } });
+        }
+
+        /// <summary>
+        /// Run the <c>list_fleets</c> command.
+        /// </summary>
+        private async Task<object> ListFleetsCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery fleetQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch fleetSw = Stopwatch.StartNew();
+            EnumerationResult<Fleet> fleetResult = await _Database.Fleets.EnumerateAsync(fleetQuery).ConfigureAwait(false);
+            fleetResult.TotalMs = Math.Round(fleetSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_fleets", data = (object)fleetResult };
+        }
+
+        /// <summary>
+        /// Run the <c>get_fleet</c> command.
+        /// </summary>
+        private async Task<object> GetFleetCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string getFleetId = command.Id ?? "";
+            Fleet? foundFleet = await _Database.Fleets.ReadAsync(getFleetId).ConfigureAwait(false);
+            if (foundFleet == null)
+                return new { type = "command.error", action = "get_fleet", error = "Fleet not found" };
+            else
+            {
+                List<Vessel> fleetVessels = await _Database.Vessels.EnumerateByFleetAsync(getFleetId).ConfigureAwait(false);
+                return new { type = "command.result", action = "get_fleet", data = (object)new { Fleet = foundFleet, Vessels = fleetVessels } };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>create_fleet</c> command.
+        /// </summary>
+        private async Task<object> CreateFleetCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Fleet newFleet = JsonSerializer.Deserialize<WebSocketDataCommand<Fleet>>(rawBody, _JsonOptions)?.Data!;
+            newFleet.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            newFleet.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            newFleet = await _Database.Fleets.CreateAsync(newFleet).ConfigureAwait(false);
+            return new { type = "command.result", action = "create_fleet", data = (object)newFleet };
+        }
+
+        /// <summary>
+        /// Run the <c>update_fleet</c> command. The body replaces client-editable fields only, by the rule REST applies.
+        /// </summary>
+        private async Task<object> UpdateFleetCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string updFleetId = command.Id ?? "";
+            Fleet? existFleet = await _Database.Fleets.ReadAsync(updFleetId).ConfigureAwait(false);
+            if (existFleet == null)
+                return NotFound("update_fleet", "Fleet not found");
+            Fleet updFleet = JsonSerializer.Deserialize<WebSocketDataCommand<Fleet>>(rawBody, _JsonOptions)?.Data!;
+            FleetUpdateMerge.KeepServerOwnedFields(existFleet, updFleet, ReadDataFieldNames(rawBody));
+            updFleet = await _Database.Fleets.UpdateAsync(updFleet).ConfigureAwait(false);
+            return new { type = "command.result", action = "update_fleet", data = (object)updFleet };
+        }
+
+        /// <summary>
+        /// Run the <c>delete_fleet</c> command.
+        /// </summary>
+        private async Task<object> DeleteFleetCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string delFleetId = command.Id ?? "";
+            await _Database.Fleets.DeleteAsync(delFleetId).ConfigureAwait(false);
+            return new { type = "command.result", action = "delete_fleet", data = (object)new { status = "deleted" } };
+        }
+
+        /// <summary>
+        /// Run the <c>list_vessels</c> command.
+        /// </summary>
+        private async Task<object> ListVesselsCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery vesselQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch vesselSw = Stopwatch.StartNew();
+            EnumerationResult<Vessel> vesselResult = await _Database.Vessels.EnumerateAsync(vesselQuery).ConfigureAwait(false);
+            vesselResult.TotalMs = Math.Round(vesselSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_vessels", data = (object)vesselResult };
+        }
+
+        /// <summary>
+        /// Run the <c>get_vessel</c> command.
+        /// </summary>
+        private async Task<object> GetVesselCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string getVesselId = command.Id ?? "";
+            Vessel? foundVessel = await _Database.Vessels.ReadAsync(getVesselId).ConfigureAwait(false);
+            if (foundVessel == null)
+                return new { type = "command.error", action = "get_vessel", error = "Vessel not found" };
+            else
+                return new { type = "command.result", action = "get_vessel", data = (object)foundVessel };
+        }
+
+        /// <summary>
+        /// Run the <c>create_vessel</c> command.
+        /// </summary>
+        private async Task<object> CreateVesselCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Vessel newVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
+            if (String.IsNullOrEmpty(newVessel.RepoUrl))
+                return new { type = "command.error", action = "create_vessel", error = "repoUrl is required when creating a vessel" };
+            newVessel.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            newVessel.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            newVessel.NormalizeGitHubTokenOverride();
+            newVessel = await _Database.Vessels.CreateAsync(newVessel).ConfigureAwait(false);
+            return new { type = "command.result", action = "create_vessel", data = (object)newVessel };
+        }
+
+        /// <summary>
+        /// Run the <c>update_vessel</c> command. The body replaces client-editable fields only, by the rule REST applies.
+        /// </summary>
+        private async Task<object> UpdateVesselCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string updVesselId = command.Id ?? "";
+            Vessel? existVessel = await _Database.Vessels.ReadAsync(updVesselId).ConfigureAwait(false);
+            if (existVessel == null)
+                return NotFound("update_vessel", "Vessel not found");
+            Vessel updVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
+            VesselUpdateMerge.KeepServerOwnedFields(existVessel, updVessel);
+            updVessel = await _Database.Vessels.UpdateAsync(updVessel).ConfigureAwait(false);
+            return new { type = "command.result", action = "update_vessel", data = (object)updVessel };
+        }
+
+        /// <summary>
+        /// Run the <c>update_vessel_context</c> command.
+        /// </summary>
+        private async Task<object> UpdateVesselContextCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string ctxVesselId = command.Id ?? "";
+            Vessel? ctxVessel = await _Database.Vessels.ReadAsync(ctxVesselId).ConfigureAwait(false);
+            if (ctxVessel == null)
+                return new { type = "command.error", action = "update_vessel_context", error = "Vessel not found" };
+            else
+            {
+                Vessel ctxPatch = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
+                if (ctxPatch.ProjectContext != null)
+                    ctxVessel.ProjectContext = ctxPatch.ProjectContext;
+                if (ctxPatch.StyleGuide != null)
+                    ctxVessel.StyleGuide = ctxPatch.StyleGuide;
+                ctxVessel = await _Database.Vessels.UpdateAsync(ctxVessel).ConfigureAwait(false);
+                return new { type = "command.result", action = "update_vessel_context", data = (object)ctxVessel };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>delete_vessel</c> command.
+        /// </summary>
+        private async Task<object> DeleteVesselCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string delVesselId = command.Id ?? "";
+            Vessel? delVessel = await _Database.Vessels.ReadAsync(delVesselId).ConfigureAwait(false);
+            if (delVessel == null)
+                return new { type = "command.error", action = "delete_vessel", error = "Vessel not found" };
+
+            // Cancel active missions on this vessel
+            try
+            {
+                List<Mission> delVesselMissions = await _Database.Missions.EnumerateByVesselAsync(delVesselId).ConfigureAwait(false);
+                foreach (Mission dvm in delVesselMissions)
+                {
+                    if (dvm.Status == MissionStatusEnum.Pending || dvm.Status == MissionStatusEnum.Assigned || dvm.Status == MissionStatusEnum.InProgress)
                     {
-                        List<Mission> delVesselMissions = await _Database.Missions.EnumerateByVesselAsync(delVesselId).ConfigureAwait(false);
-                        foreach (Mission dvm in delVesselMissions)
-                        {
-                            if (dvm.Status == MissionStatusEnum.Pending || dvm.Status == MissionStatusEnum.Assigned || dvm.Status == MissionStatusEnum.InProgress)
-                            {
-                                dvm.Status = MissionStatusEnum.Cancelled;
-                                dvm.CompletedUtc = DateTime.UtcNow;
-                                dvm.LastUpdateUtc = DateTime.UtcNow;
-                                await _Database.Missions.UpdateAsync(dvm).ConfigureAwait(false);
-                            }
-                        }
+                        dvm.Status = MissionStatusEnum.Cancelled;
+                        dvm.CompletedUtc = DateTime.UtcNow;
+                        dvm.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(dvm).ConfigureAwait(false);
                     }
-                    catch { }
+                }
+            }
+            catch { }
 
-                    // Clean up docks/worktrees for this vessel
-                    try
+            // Clean up docks/worktrees for this vessel
+            try
+            {
+                List<Dock> delVesselDocks = await _Database.Docks.EnumerateByVesselAsync(delVesselId).ConfigureAwait(false);
+                foreach (Dock dvd in delVesselDocks)
+                {
+                    if (!String.IsNullOrEmpty(dvd.WorktreePath) && System.IO.Directory.Exists(dvd.WorktreePath))
                     {
-                        List<Dock> delVesselDocks = await _Database.Docks.EnumerateByVesselAsync(delVesselId).ConfigureAwait(false);
-                        foreach (Dock dvd in delVesselDocks)
-                        {
-                            if (!String.IsNullOrEmpty(dvd.WorktreePath) && System.IO.Directory.Exists(dvd.WorktreePath))
-                            {
-                                try { System.IO.Directory.Delete(dvd.WorktreePath, true); }
-                                catch { }
-                            }
-                            await _Database.Docks.DeleteAsync(dvd.Id).ConfigureAwait(false);
-                        }
-                    }
-                    catch { }
-
-                    // Clean up bare repo
-                    if (!String.IsNullOrEmpty(delVessel.LocalPath) && System.IO.Directory.Exists(delVessel.LocalPath))
-                    {
-                        try { System.IO.Directory.Delete(delVessel.LocalPath, true); }
+                        try { System.IO.Directory.Delete(dvd.WorktreePath, true); }
                         catch { }
                     }
-
-                    await _Database.Vessels.DeleteAsync(delVesselId).ConfigureAwait(false);
-                    return new { type = "command.result", action = "delete_vessel", data = (object)new { status = "deleted" } };
+                    await _Database.Docks.DeleteAsync(dvd.Id).ConfigureAwait(false);
                 }
+            }
+            catch { }
 
-                // ── Voyage actions ─────────────────────────────────────────
+            // Clean up bare repo
+            if (!String.IsNullOrEmpty(delVessel.LocalPath) && System.IO.Directory.Exists(delVessel.LocalPath))
+            {
+                try { System.IO.Directory.Delete(delVessel.LocalPath, true); }
+                catch { }
+            }
 
-                case "list_voyages":
-                    EnumerationQuery voyageQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch voyageSw = Stopwatch.StartNew();
-                    EnumerationResult<Voyage> voyageResult = await _Database.Voyages.EnumerateAsync(voyageQuery).ConfigureAwait(false);
-                    voyageResult.TotalMs = Math.Round(voyageSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_voyages", data = (object)voyageResult };
+            await _Database.Vessels.DeleteAsync(delVesselId).ConfigureAwait(false);
+            return new { type = "command.result", action = "delete_vessel", data = (object)new { status = "deleted" } };
+        }
 
-                case "get_voyage":
-                    string getVoyageId = command.Id ?? "";
-                    Voyage? foundVoyage = await _Database.Voyages.ReadAsync(getVoyageId).ConfigureAwait(false);
-                    if (foundVoyage == null)
-                        return new { type = "command.error", action = "get_voyage", error = "Voyage not found" };
-                    else
-                    {
-                        EnumerationResult<Mission> voyageMissions = await _Database.Missions.EnumerateSummariesAsync(new EnumerationQuery
-                        {
-                            VoyageId = getVoyageId,
-                            PageSize = 1000
-                        }).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_voyage", data = (object)new { voyage = foundVoyage, missions = voyageMissions.Objects } };
-                    }
+        /// <summary>
+        /// Run the <c>list_voyages</c> command.
+        /// </summary>
+        private async Task<object> ListVoyagesCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery voyageQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch voyageSw = Stopwatch.StartNew();
+            EnumerationResult<Voyage> voyageResult = await _Database.Voyages.EnumerateAsync(voyageQuery).ConfigureAwait(false);
+            voyageResult.TotalMs = Math.Round(voyageSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_voyages", data = (object)voyageResult };
+        }
 
-                case "create_voyage":
-                    WebSocketVoyageData voyageData = JsonSerializer.Deserialize<WebSocketDataCommand<WebSocketVoyageData>>(rawBody, _JsonOptions)?.Data ?? new WebSocketVoyageData();
-                    string voyTitle = voyageData.Title ?? "";
-                    string voyDesc = voyageData.Description ?? "";
-                    string voyVesselId = voyageData.VesselId ?? "";
-
-                    List<MissionDescription> missionDescs = voyageData.Missions ?? new List<MissionDescription>();
-
-                    Voyage createdVoyage;
-                    if (String.IsNullOrEmpty(voyVesselId) || missionDescs.Count == 0)
-                    {
-                        createdVoyage = new Voyage(voyTitle, voyDesc);
-                        if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_voyage");
-                        createdVoyage.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                        createdVoyage.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                        createdVoyage = await _Database.Voyages.CreateAsync(createdVoyage).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        try
-                        {
-                            StageSkipRequest? voyStageSkip = PipelineStageSkip.FromOperator(voyageData.SkipStages, voyageData.SkipStagesReason, caller);
-                            if (voyStageSkip == null)
-                            {
-                                createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs).ConfigureAwait(false);
-                            }
-                            else
-                            {
-                                // A stage skip only has meaning against a pipeline, so a create_voyage that
-                                // names skipStages materialises the vessel's effective pipeline minus those
-                                // stages through the same admiral rule the REST and MCP dispatch use.
-                                createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs, null, null, voyStageSkip).ConfigureAwait(false);
-                            }
-                        }
-                        catch (StageSkipRefusedException refused)
-                        {
-                            return new
-                            {
-                                type = "command.error",
-                                action = "create_voyage",
-                                error = refused.Message,
-                                code = refused.Code,
-                                persona = refused.Persona
-                            };
-                        }
-                        catch (FleetCapacityAdmissionException capacity)
-                        {
-                            return new
-                            {
-                                type = "command.error",
-                                action = "create_voyage",
-                                error = capacity.Message,
-                                code = capacity.Code,
-                                activeCount = capacity.ActiveCount,
-                                limit = capacity.Limit,
-                                candidateVesselId = capacity.CandidateVesselId,
-                                laneMembers = capacity.LaneMembers
-                            };
-                        }
-                    }
-                    return new { type = "command.result", action = "create_voyage", data = (object)createdVoyage };
-
-                case "cancel_voyage":
+        /// <summary>
+        /// Run the <c>get_voyage</c> command.
+        /// </summary>
+        private async Task<object> GetVoyageCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string getVoyageId = command.Id ?? "";
+            Voyage? foundVoyage = await _Database.Voyages.ReadAsync(getVoyageId).ConfigureAwait(false);
+            if (foundVoyage == null)
+                return new { type = "command.error", action = "get_voyage", error = "Voyage not found" };
+            else
+            {
+                EnumerationResult<Mission> voyageMissions = await _Database.Missions.EnumerateSummariesAsync(new EnumerationQuery
                 {
-                    string cvId = command.Id ?? "";
-                    Voyage? cvVoyage = await _Database.Voyages.ReadAsync(cvId).ConfigureAwait(false);
-                    if (cvVoyage == null)
-                        return new { type = "command.error", action = "cancel_voyage", error = "Voyage not found" };
+                    VoyageId = getVoyageId,
+                    PageSize = 1000
+                }).ConfigureAwait(false);
+                return new { type = "command.result", action = "get_voyage", data = (object)new { voyage = foundVoyage, missions = voyageMissions.Objects } };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>create_voyage</c> command.
+        /// </summary>
+        private async Task<object> CreateVoyageCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            WebSocketVoyageData voyageData = JsonSerializer.Deserialize<WebSocketDataCommand<WebSocketVoyageData>>(rawBody, _JsonOptions)?.Data ?? new WebSocketVoyageData();
+            string voyTitle = voyageData.Title ?? "";
+            string voyDesc = voyageData.Description ?? "";
+            string voyVesselId = voyageData.VesselId ?? "";
+
+            List<MissionDescription> missionDescs = voyageData.Missions ?? new List<MissionDescription>();
+
+            Voyage createdVoyage;
+            if (String.IsNullOrEmpty(voyVesselId) || missionDescs.Count == 0)
+            {
+                createdVoyage = new Voyage(voyTitle, voyDesc);
+                createdVoyage.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+                createdVoyage.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+                createdVoyage = await _Database.Voyages.CreateAsync(createdVoyage).ConfigureAwait(false);
+            }
+            else
+            {
+                try
+                {
+                    StageSkipRequest? voyStageSkip = PipelineStageSkip.FromOperator(voyageData.SkipStages, voyageData.SkipStagesReason, caller);
+                    if (voyStageSkip == null)
+                    {
+                        createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs).ConfigureAwait(false);
+                    }
                     else
                     {
-                        cvVoyage.Status = VoyageStatusEnum.Cancelled;
-                        cvVoyage.CompletedUtc = DateTime.UtcNow;
-                        cvVoyage.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Voyages.UpdateAsync(cvVoyage).ConfigureAwait(false);
-                        List<Mission> cvMissions = await _Database.Missions.EnumerateByVoyageAsync(cvId).ConfigureAwait(false);
-                        foreach (Mission m in cvMissions)
+                        // A stage skip only has meaning against a pipeline, so a create_voyage that
+                        // names skipStages materialises the vessel's effective pipeline minus those
+                        // stages through the same admiral rule the REST and MCP dispatch use.
+                        createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs, null, null, voyStageSkip).ConfigureAwait(false);
+                    }
+                }
+                catch (StageSkipRefusedException refused)
+                {
+                    return new
+                    {
+                        type = "command.error",
+                        action = "create_voyage",
+                        error = refused.Message,
+                        code = refused.Code,
+                        persona = refused.Persona
+                    };
+                }
+                catch (FleetCapacityAdmissionException capacity)
+                {
+                    return new
+                    {
+                        type = "command.error",
+                        action = "create_voyage",
+                        error = capacity.Message,
+                        code = capacity.Code,
+                        activeCount = capacity.ActiveCount,
+                        limit = capacity.Limit,
+                        candidateVesselId = capacity.CandidateVesselId,
+                        laneMembers = capacity.LaneMembers
+                    };
+                }
+            }
+            return new { type = "command.result", action = "create_voyage", data = (object)createdVoyage };
+        }
+
+        /// <summary>
+        /// Run the <c>cancel_voyage</c> command.
+        /// </summary>
+        private async Task<object> CancelVoyageCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string cvId = command.Id ?? "";
+            Voyage? cvVoyage = await _Database.Voyages.ReadAsync(cvId).ConfigureAwait(false);
+            if (cvVoyage == null)
+                return new { type = "command.error", action = "cancel_voyage", error = "Voyage not found" };
+            else
+            {
+                cvVoyage.Status = VoyageStatusEnum.Cancelled;
+                cvVoyage.CompletedUtc = DateTime.UtcNow;
+                cvVoyage.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Voyages.UpdateAsync(cvVoyage).ConfigureAwait(false);
+                List<Mission> cvMissions = await _Database.Missions.EnumerateByVoyageAsync(cvId).ConfigureAwait(false);
+                foreach (Mission m in cvMissions)
+                {
+                    if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned)
+                    {
+                        if (!String.IsNullOrEmpty(m.CaptainId))
                         {
-                            if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned)
+                            Captain? captain = await _Database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
+                            if (captain != null && captain.CurrentMissionId == m.Id)
                             {
-                                if (!String.IsNullOrEmpty(m.CaptainId))
+                                List<Mission> otherMissions = (await _Database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
+                                    .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
+                                if (otherMissions.Count == 0)
                                 {
-                                    Captain? captain = await _Database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
-                                    if (captain != null && captain.CurrentMissionId == m.Id)
-                                    {
-                                        List<Mission> otherMissions = (await _Database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                                            .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                        if (otherMissions.Count == 0)
-                                        {
-                                            captain.State = CaptainStateEnum.Idle;
-                                            captain.CurrentMissionId = null;
-                                            captain.CurrentDockId = null;
-                                            captain.ProcessId = null;
-                                            captain.RecoveryAttempts = 0;
-                                            captain.LastUpdateUtc = DateTime.UtcNow;
-                                            await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                                        }
-                                    }
-                                }
-
-                                m.Status = MissionStatusEnum.Cancelled;
-                                m.CompletedUtc = DateTime.UtcNow;
-                                m.LastUpdateUtc = DateTime.UtcNow;
-                                await _Database.Missions.UpdateAsync(m).ConfigureAwait(false);
-                            }
-                        }
-                        int cvCancelled = cvMissions.Count(m => m.Status == MissionStatusEnum.Cancelled);
-                        // Command events follow the changed record's owner, like the same change made through REST.
-                        _BroadcastVoyageChange(cvVoyage);
-                        foreach (Mission cvCm in cvMissions)
-                        {
-                            if (cvCm.Status == MissionStatusEnum.Cancelled)
-                            {
-                                _BroadcastMissionChange(cvCm);
-                            }
-                        }
-                        return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled } };
-                    }
-                }
-
-                case "purge_voyage":
-                {
-                    string pvId = command.Id ?? "";
-                    Voyage? pvVoyage = await _Database.Voyages.ReadAsync(pvId).ConfigureAwait(false);
-                    if (pvVoyage == null)
-                        return new { type = "command.error", action = "purge_voyage", error = "Voyage not found" };
-                    else if (pvVoyage.Status == VoyageStatusEnum.Open || pvVoyage.Status == VoyageStatusEnum.InProgress)
-                        return new { type = "command.error", action = "purge_voyage", error = "Cannot delete voyage while status is " + pvVoyage.Status + ". Cancel the voyage first." };
-                    else
-                    {
-                        List<Mission> pvMissions = await _Database.Missions.EnumerateByVoyageAsync(pvId).ConfigureAwait(false);
-                        int pvActiveCount = pvMissions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
-                        if (pvActiveCount > 0)
-                            return new { type = "command.error", action = "purge_voyage", error = "Cannot delete voyage with " + pvActiveCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
-                        else
-                        {
-                            foreach (Mission m in pvMissions)
-                            {
-                                // Clean up associated dock/worktree
-                                if (!String.IsNullOrEmpty(m.DockId))
-                                {
-                                    try
-                                    {
-                                        Dock? pvDock = await _Database.Docks.ReadAsync(m.DockId).ConfigureAwait(false);
-                                        if (pvDock != null)
-                                        {
-                                            if (!String.IsNullOrEmpty(pvDock.WorktreePath) && System.IO.Directory.Exists(pvDock.WorktreePath))
-                                            {
-                                                try { System.IO.Directory.Delete(pvDock.WorktreePath, true); }
-                                                catch { }
-                                            }
-                                            await _Database.Docks.DeleteAsync(pvDock.Id).ConfigureAwait(false);
-                                        }
-                                    }
-                                    catch { }
-                                }
-
-                                // Clean up log and diff files
-                                if (_Settings != null)
-                                {
-                                    try
-                                    {
-                                        string pvLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", m.Id + ".log");
-                                        if (System.IO.File.Exists(pvLogPath)) System.IO.File.Delete(pvLogPath);
-                                    }
-                                    catch { }
-                                    try
-                                    {
-                                        string pvDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", m.Id + ".diff");
-                                        if (System.IO.File.Exists(pvDiffPath)) System.IO.File.Delete(pvDiffPath);
-                                    }
-                                    catch { }
-                                }
-
-                                await _Database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
-                            }
-                            await _Database.Voyages.DeleteAsync(pvId).ConfigureAwait(false);
-                            return new { type = "command.result", action = "purge_voyage", data = (object)new { status = "deleted", voyageId = pvId, missionsDeleted = pvMissions.Count } };
-                        }
-                    }
-                }
-
-                // ── Mission actions ────────────────────────────────────────
-
-                case "list_missions":
-                    EnumerationQuery missionQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch missionSw = Stopwatch.StartNew();
-                    EnumerationResult<Mission> missionResult = await _Database.Missions.EnumerateSummariesAsync(missionQuery).ConfigureAwait(false);
-                    missionResult.TotalMs = Math.Round(missionSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_missions", data = (object)missionResult };
-
-                case "list_missions_summary":
-                    // Reads through the same caller-scoped query as REST, so a session receives exactly the
-                    // summaries REST returns to the same caller. There is no default caller to fall back to.
-                    if (caller == null || !caller.IsAuthenticated)
-                        return new { type = "command.error", action = "list_missions_summary", error = "list_missions_summary requires an authenticated caller" };
-                    EnumerationResult<MissionSummary> summaryResult = await MissionSummaryQuery.EnumerateForCallerAsync(
-                        _Database, caller, command.Query ?? new EnumerationQuery()).ConfigureAwait(false);
-                    return new { type = "command.result", action = "list_missions_summary", data = (object)summaryResult };
-
-                case "get_mission":
-                    string getMissionId = command.Id ?? "";
-                    Mission? foundMission = await _Database.Missions.ReadSummaryAsync(getMissionId).ConfigureAwait(false);
-                    if (foundMission == null)
-                        return new { type = "command.error", action = "get_mission", error = "Mission not found" };
-                    else
-                        return new { type = "command.result", action = "get_mission", data = (object)foundMission };
-
-                case "create_mission":
-                {
-                    Mission newMission = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data!;
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_mission");
-                    newMission.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    newMission.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    try
-                    {
-                        newMission = await _Admiral.DispatchMissionAsync(newMission).ConfigureAwait(false);
-                    }
-                    catch (FleetCapacityAdmissionException capacity)
-                    {
-                        return new
-                        {
-                            type = "command.error",
-                            action = "create_mission",
-                            error = capacity.Message,
-                            code = capacity.Code,
-                            activeCount = capacity.ActiveCount,
-                            limit = capacity.Limit,
-                            candidateVesselId = capacity.CandidateVesselId,
-                            laneMembers = capacity.LaneMembers
-                        };
-                    }
-                    if (newMission.Status == MissionStatusEnum.Pending)
-                    {
-                        return new { type = "command.result", action = "create_mission", data = (object)newMission, warning = "Mission created but could not be assigned to any captain. It will be retried on the next health check cycle." };
-                    }
-                    else
-                    {
-                        return new { type = "command.result", action = "create_mission", data = (object)newMission };
-                    }
-                }
-
-                case "update_mission":
-                {
-                    string updMissionId = command.Id ?? "";
-                    Mission? existMission = await _Database.Missions.ReadAsync(updMissionId).ConfigureAwait(false);
-                    if (existMission == null)
-                        return new { type = "command.error", action = "update_mission", error = "Mission not found" };
-                    else
-                    {
-                        Mission updMission = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data!;
-                        updMission.Id = updMissionId;
-                        updMission = await _Database.Missions.UpdateAsync(updMission).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_mission", data = (object)updMission };
-                    }
-                }
-
-                case "transition_mission_status":
-                {
-                    string tmId = command.Id ?? "";
-                    string tmStatus = command.Status ?? "";
-                    Mission? tmMission = await _Database.Missions.ReadAsync(tmId).ConfigureAwait(false);
-                    if (tmMission == null)
-                    {
-                        return new { type = "command.error", action = "transition_mission_status", error = "Mission not found" };
-                    }
-                    else if (!Enum.TryParse<MissionStatusEnum>(tmStatus, true, out MissionStatusEnum tmNewStatus))
-                    {
-                        return new { type = "command.error", action = "transition_mission_status", error = "Invalid status: " + tmStatus };
-                    }
-                    else if (_StatusTransitions == null)
-                    {
-                        return new { type = "command.error", action = "transition_mission_status", error = MissionStatusTransitionService.UnavailableMessage };
-                    }
-                    else
-                    {
-                        // The shared operator transition path applies the same validation, manual
-                        // completion gates, landing, and handoff as the REST status route.
-                        MissionStatusTransitionResult tmResult = await _StatusTransitions.TransitionAsync(tmMission, tmNewStatus).ConfigureAwait(false);
-                        if (tmResult.Outcome == MissionStatusTransitionOutcomeEnum.Applied)
-                            return new { type = "command.result", action = "transition_mission_status", data = (object)tmResult.Mission! };
-                        return new { type = "command.error", action = "transition_mission_status", error = tmResult.Message, reason = tmResult.Reason };
-                    }
-                }
-
-                case "cancel_mission":
-                {
-                    string cmId = command.Id ?? "";
-                    Mission? cmMission = await _Database.Missions.ReadAsync(cmId).ConfigureAwait(false);
-                    if (cmMission == null)
-                        return new { type = "command.error", action = "cancel_mission", error = "Mission not found" };
-                    else
-                    {
-                        if (!String.IsNullOrEmpty(cmMission.CaptainId))
-                        {
-                            Captain? cmCaptain = await _Database.Captains.ReadAsync(cmMission.CaptainId).ConfigureAwait(false);
-                            if (cmCaptain != null && cmCaptain.CurrentMissionId == cmMission.Id)
-                            {
-                                List<Mission> cmOther = (await _Database.Missions.EnumerateByCaptainAsync(cmCaptain.Id).ConfigureAwait(false))
-                                    .Where(om => om.Id != cmMission.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                if (cmOther.Count == 0)
-                                {
-                                    cmCaptain.State = CaptainStateEnum.Idle;
-                                    cmCaptain.CurrentMissionId = null;
-                                    cmCaptain.CurrentDockId = null;
-                                    cmCaptain.ProcessId = null;
-                                    cmCaptain.RecoveryAttempts = 0;
-                                    cmCaptain.LastUpdateUtc = DateTime.UtcNow;
-                                    await _Database.Captains.UpdateAsync(cmCaptain).ConfigureAwait(false);
+                                    captain.State = CaptainStateEnum.Idle;
+                                    captain.CurrentMissionId = null;
+                                    captain.CurrentDockId = null;
+                                    captain.ProcessId = null;
+                                    captain.RecoveryAttempts = 0;
+                                    captain.LastUpdateUtc = DateTime.UtcNow;
+                                    await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
                                 }
                             }
                         }
 
-                        cmMission.Status = MissionStatusEnum.Cancelled;
-                        cmMission.CompletedUtc = DateTime.UtcNow;
-                        cmMission.LastUpdateUtc = DateTime.UtcNow;
-                        cmMission = await _Database.Missions.UpdateAsync(cmMission).ConfigureAwait(false);
-                        _BroadcastMissionChange(cmMission);
-                        return new { type = "command.result", action = "cancel_mission", data = (object)cmMission };
+                        m.Status = MissionStatusEnum.Cancelled;
+                        m.CompletedUtc = DateTime.UtcNow;
+                        m.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(m).ConfigureAwait(false);
                     }
                 }
-
-                case "purge_mission":
+                int cvCancelled = cvMissions.Count(m => m.Status == MissionStatusEnum.Cancelled);
+                // Command events follow the changed record's owner, like the same change made through REST.
+                _BroadcastVoyageChange(cvVoyage);
+                foreach (Mission cvCm in cvMissions)
                 {
-                    string pmId = command.Id ?? "";
-                    Mission? pmMission = await _Database.Missions.ReadAsync(pmId).ConfigureAwait(false);
-                    if (pmMission == null)
-                        return new { type = "command.error", action = "purge_mission", error = "Mission not found" };
-                    else
+                    if (cvCm.Status == MissionStatusEnum.Cancelled)
+                    {
+                        _BroadcastMissionChange(cvCm);
+                    }
+                }
+                return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled } };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>purge_voyage</c> command.
+        /// </summary>
+        private async Task<object> PurgeVoyageCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string pvId = command.Id ?? "";
+            Voyage? pvVoyage = await _Database.Voyages.ReadAsync(pvId).ConfigureAwait(false);
+            if (pvVoyage == null)
+                return new { type = "command.error", action = "purge_voyage", error = "Voyage not found" };
+            else if (pvVoyage.Status == VoyageStatusEnum.Open || pvVoyage.Status == VoyageStatusEnum.InProgress)
+                return new { type = "command.error", action = "purge_voyage", error = "Cannot delete voyage while status is " + pvVoyage.Status + ". Cancel the voyage first." };
+            else
+            {
+                List<Mission> pvMissions = await _Database.Missions.EnumerateByVoyageAsync(pvId).ConfigureAwait(false);
+                int pvActiveCount = pvMissions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
+                if (pvActiveCount > 0)
+                    return new { type = "command.error", action = "purge_voyage", error = "Cannot delete voyage with " + pvActiveCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
+                else
+                {
+                    foreach (Mission m in pvMissions)
                     {
                         // Clean up associated dock/worktree
-                        if (!String.IsNullOrEmpty(pmMission.DockId))
+                        if (!String.IsNullOrEmpty(m.DockId))
                         {
                             try
                             {
-                                Dock? pmDock = await _Database.Docks.ReadAsync(pmMission.DockId).ConfigureAwait(false);
-                                if (pmDock != null)
+                                Dock? pvDock = await _Database.Docks.ReadAsync(m.DockId).ConfigureAwait(false);
+                                if (pvDock != null)
                                 {
-                                    if (!String.IsNullOrEmpty(pmDock.WorktreePath) && System.IO.Directory.Exists(pmDock.WorktreePath))
+                                    if (!String.IsNullOrEmpty(pvDock.WorktreePath) && System.IO.Directory.Exists(pvDock.WorktreePath))
                                     {
-                                        try { System.IO.Directory.Delete(pmDock.WorktreePath, true); }
+                                        try { System.IO.Directory.Delete(pvDock.WorktreePath, true); }
                                         catch { }
                                     }
-                                    await _Database.Docks.DeleteAsync(pmDock.Id).ConfigureAwait(false);
+                                    await _Database.Docks.DeleteAsync(pvDock.Id).ConfigureAwait(false);
                                 }
                             }
                             catch { }
@@ -688,579 +715,920 @@ namespace Armada.Server.WebSocket
                         {
                             try
                             {
-                                string pmLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", pmId + ".log");
-                                if (System.IO.File.Exists(pmLogPath)) System.IO.File.Delete(pmLogPath);
+                                string pvLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", m.Id + ".log");
+                                if (System.IO.File.Exists(pvLogPath)) System.IO.File.Delete(pvLogPath);
                             }
                             catch { }
                             try
                             {
-                                string pmDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", pmId + ".diff");
-                                if (System.IO.File.Exists(pmDiffPath)) System.IO.File.Delete(pmDiffPath);
+                                string pvDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", m.Id + ".diff");
+                                if (System.IO.File.Exists(pvDiffPath)) System.IO.File.Delete(pvDiffPath);
                             }
                             catch { }
                         }
 
-                        await _Database.Missions.DeleteAsync(pmId).ConfigureAwait(false);
-                        return new { type = "command.result", action = "purge_mission", data = (object)new { status = "deleted", missionId = pmId } };
+                        await _Database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
                     }
+                    await _Database.Voyages.DeleteAsync(pvId).ConfigureAwait(false);
+                    return new { type = "command.result", action = "purge_voyage", data = (object)new { status = "deleted", voyageId = pvId, missionsDeleted = pvMissions.Count } };
                 }
-
-                case "restart_mission":
-                {
-                    string rmId = command.Id ?? "";
-                    Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
-                    if (rmMission == null)
-                        return new { type = "command.error", action = "restart_mission", error = "Mission not found" };
-                    else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
-                        return new { type = "command.error", action = "restart_mission", error = "Only Failed, LandingFailed, or Cancelled missions can be restarted" };
-                    else
-                    {
-                        WebSocketDataCommand<MissionRestartData>? rmData = null;
-                        try { rmData = JsonSerializer.Deserialize<WebSocketDataCommand<MissionRestartData>>(rawBody, _JsonOptions); } catch { }
-                        if (rmData?.Data != null)
-                        {
-                            if (!String.IsNullOrEmpty(rmData.Data.Title)) rmMission.Title = rmData.Data.Title;
-                            if (!String.IsNullOrEmpty(rmData.Data.Description)) rmMission.Description = rmData.Data.Description;
-                        }
-
-                        try
-                        {
-                            MissionRestartService restarts = new MissionRestartService(_Database, _Settings ?? new ArmadaSettings());
-                            rmMission = await restarts.RestartAsync(
-                                rmMission,
-                                rmMission.Title,
-                                rmMission.Description,
-                                allowLandingFailed: true).ConfigureAwait(false);
-                        }
-                        catch (FleetCapacityAdmissionException capacity)
-                        {
-                            return new
-                            {
-                                type = "command.error",
-                                action = "restart_mission",
-                                error = capacity.Message,
-                                code = capacity.Code,
-                                activeCount = capacity.ActiveCount,
-                                limit = capacity.Limit,
-                                candidateVesselId = capacity.CandidateVesselId,
-                                laneMembers = capacity.LaneMembers
-                            };
-                        }
-
-                        // The restart signal belongs to the mission it reports, so the mission's owner sees it.
-                        Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
-                        rmSignal.TenantId = rmMission.TenantId;
-                        rmSignal.UserId = rmMission.UserId;
-                        await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
-
-                        _BroadcastMissionChange(rmMission);
-                        return new { type = "command.result", action = "restart_mission", data = (object)rmMission };
-                    }
-                }
-
-                case "get_mission_diff":
-                {
-                    string mdId = command.Id ?? "";
-                    Mission? mdMission = await _Database.Missions.ReadAsync(mdId).ConfigureAwait(false);
-                    if (mdMission == null)
-                        return new { type = "command.error", action = "get_mission_diff", error = "Mission not found" };
-                    else if (_Settings == null)
-                        return new { type = "command.error", action = "get_mission_diff", error = "Diff not available — settings not configured" };
-                    else
-                    {
-                        string savedDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", mdId + ".diff");
-                        if (System.IO.File.Exists(savedDiffPath))
-                        {
-                            string savedDiff = await ReadFileSharedAsync(savedDiffPath).ConfigureAwait(false);
-                            return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdMission.BranchName ?? "", Diff = savedDiff } };
-                        }
-                        else if (!String.IsNullOrEmpty(mdMission.DiffSnapshot))
-                        {
-                            return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdMission.BranchName ?? "", Diff = mdMission.DiffSnapshot } };
-                        }
-                        else
-                        {
-                            Dock? mdDock = null;
-                            if (!String.IsNullOrEmpty(mdMission.DockId))
-                            {
-                                mdDock = await _Database.Docks.ReadAsync(mdMission.DockId).ConfigureAwait(false);
-                            }
-                            if (mdDock == null && !String.IsNullOrEmpty(mdMission.CaptainId))
-                            {
-                                Captain? mdCaptain = await _Database.Captains.ReadAsync(mdMission.CaptainId).ConfigureAwait(false);
-                                if (mdCaptain != null && !String.IsNullOrEmpty(mdCaptain.CurrentDockId))
-                                    mdDock = await _Database.Docks.ReadAsync(mdCaptain.CurrentDockId).ConfigureAwait(false);
-                            }
-                            if (mdDock == null && !String.IsNullOrEmpty(mdMission.BranchName) && !String.IsNullOrEmpty(mdMission.VesselId))
-                            {
-                                List<Dock> mdDocks = await _Database.Docks.EnumerateByVesselAsync(mdMission.VesselId).ConfigureAwait(false);
-                                mdDock = mdDocks.FirstOrDefault(d => d.BranchName == mdMission.BranchName && d.Active);
-                            }
-                            if (mdDock == null || String.IsNullOrEmpty(mdDock.WorktreePath) || !System.IO.Directory.Exists(mdDock.WorktreePath))
-                                return new { type = "command.error", action = "get_mission_diff", error = "No diff available — worktree was already reclaimed and no saved diff exists" };
-                            else if (_Git == null)
-                                return new { type = "command.error", action = "get_mission_diff", error = "Git service not available" };
-                            else
-                            {
-                                string baseBranch = "main";
-                                if (!String.IsNullOrEmpty(mdMission.VesselId))
-                                {
-                                    Vessel? mdVessel = await _Database.Vessels.ReadAsync(mdMission.VesselId).ConfigureAwait(false);
-                                    if (mdVessel != null) baseBranch = mdVessel.DefaultBranch;
-                                }
-                                string diff = await _Git.DiffAsync(mdDock.WorktreePath, baseBranch).ConfigureAwait(false);
-                                return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdDock.BranchName ?? "", Diff = diff } };
-                            }
-                        }
-                    }
-                }
-
-                case "get_mission_log":
-                {
-                    string mlId = command.Id ?? "";
-                    Mission? mlMission = await _Database.Missions.ReadAsync(mlId).ConfigureAwait(false);
-                    if (mlMission == null)
-                        return new { type = "command.error", action = "get_mission_log", error = "Mission not found" };
-                    else if (_Settings == null)
-                        return new { type = "command.error", action = "get_mission_log", error = "Logs not available — settings not configured" };
-                    else
-                    {
-                        string mlLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", mlId + ".log");
-                        if (!System.IO.File.Exists(mlLogPath))
-                            return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = "", Lines = 0, TotalLines = 0 } };
-                        else
-                        {
-                            string[] mlAllLines = RuntimeLogNoiseFilter.Filter(
-                                await ReadLinesSharedAsync(mlLogPath).ConfigureAwait(false));
-                            int mlTotalLines = mlAllLines.Length;
-                            int mlOffset = command.Offset ?? 0;
-                            int mlLineCount = command.Lines ?? 100;
-                            string[] mlSlice = mlAllLines.Skip(mlOffset).Take(mlLineCount).ToArray();
-                            string mlLog = String.Join("\n", mlSlice);
-                            return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = mlLog, Lines = mlSlice.Length, TotalLines = mlTotalLines } };
-                        }
-                    }
-                }
-
-                // ── Captain actions ────────────────────────────────────────
-
-                case "list_captains":
-                    EnumerationQuery captainQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch captainSw = Stopwatch.StartNew();
-                    EnumerationResult<Captain> captainResult = await _Database.Captains.EnumerateAsync(captainQuery).ConfigureAwait(false);
-                    captainResult.TotalMs = Math.Round(captainSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_captains", data = (object)captainResult };
-
-                case "get_captain":
-                    string getCaptainId = command.Id ?? "";
-                    Captain? foundCaptain = await _Database.Captains.ReadAsync(getCaptainId).ConfigureAwait(false);
-                    if (foundCaptain == null)
-                        return new { type = "command.error", action = "get_captain", error = "Captain not found" };
-                    else
-                        return new { type = "command.result", action = "get_captain", data = (object)foundCaptain };
-
-                case "create_captain":
-                {
-                    Captain? newCaptainInput = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data;
-                    if (newCaptainInput == null)
-                        return new { type = "command.error", action = "create_captain", error = "Captain data is required" };
-                    string? createOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
-                        JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, null);
-                    if (createOwnedFieldError != null)
-                        return new { type = "command.error", action = "create_captain", error = createOwnedFieldError };
-                    Captain captainToCreate = CaptainInputMapping.ForCreate(newCaptainInput);
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_captain");
-                    captainToCreate.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    captainToCreate.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    Captain newCaptain = await _Database.Captains.CreateAsync(captainToCreate).ConfigureAwait(false);
-                    return new { type = "command.result", action = "create_captain", data = (object)newCaptain };
-                }
-
-                case "update_captain":
-                {
-                    string updCptId = command.Id ?? "";
-                    Captain? existCpt = await _Database.Captains.ReadAsync(updCptId).ConfigureAwait(false);
-                    if (existCpt == null)
-                        return new { type = "command.error", action = "update_captain", error = "Captain not found" };
-                    else
-                    {
-                        Captain? updCptInput = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data;
-                        if (updCptInput == null)
-                            return new { type = "command.error", action = "update_captain", error = "Captain data is required" };
-                        string? updateOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
-                            JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, existCpt);
-                        if (updateOwnedFieldError != null)
-                            return new { type = "command.error", action = "update_captain", error = updateOwnedFieldError };
-                        Captain updCpt = await _Database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(existCpt, updCptInput)).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_captain", data = (object)updCpt };
-                    }
-                }
-
-                case "delete_captain":
-                {
-                    string delCptId = command.Id ?? "";
-                    Captain? delCpt = await _Database.Captains.ReadAsync(delCptId).ConfigureAwait(false);
-                    if (delCpt == null)
-                        return new { type = "command.error", action = "delete_captain", error = "Captain not found" };
-                    else if (delCpt.State == CaptainStateEnum.Working)
-                        return new { type = "command.error", action = "delete_captain", error = "Cannot delete captain while state is Working. Stop the captain first." };
-                    else
-                    {
-                        List<Mission> delCptMissions = await _Database.Missions.EnumerateByCaptainAsync(delCptId).ConfigureAwait(false);
-                        int delCptActiveCount = delCptMissions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
-                        if (delCptActiveCount > 0)
-                            return new { type = "command.error", action = "delete_captain", error = "Cannot delete captain with " + delCptActiveCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
-                        else
-                        {
-                            await _Database.Captains.DeleteAsync(delCptId).ConfigureAwait(false);
-                            return new { type = "command.result", action = "delete_captain", data = (object)new { status = "deleted" } };
-                        }
-                    }
-                }
-
-                case "get_captain_log":
-                {
-                    string clId = command.Id ?? "";
-                    Captain? clCaptain = await _Database.Captains.ReadAsync(clId).ConfigureAwait(false);
-                    if (clCaptain == null)
-                        return new { type = "command.error", action = "get_captain_log", error = "Captain not found" };
-                    else if (_Settings == null)
-                        return new { type = "command.error", action = "get_captain_log", error = "Logs not available — settings not configured" };
-                    else
-                    {
-                        string clPointerPath = System.IO.Path.Combine(_Settings.LogDirectory, "captains", clId + ".current");
-                        string? clLogPath = null;
-                        if (System.IO.File.Exists(clPointerPath))
-                        {
-                            string clTarget = (await ReadFileSharedAsync(clPointerPath).ConfigureAwait(false)).Trim();
-                            if (System.IO.File.Exists(clTarget))
-                                clLogPath = clTarget;
-                        }
-                        if (clLogPath == null)
-                            return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clId, Log = "", Lines = 0, TotalLines = 0 } };
-                        else
-                        {
-                            string[] clAllLines = await ReadLinesSharedAsync(clLogPath).ConfigureAwait(false);
-                            int clTotalLines = clAllLines.Length;
-                            int clOffset = command.Offset ?? 0;
-                            int clLineCount = command.Lines ?? 100;
-                            string[] clSlice = clAllLines.Skip(clOffset).Take(clLineCount).ToArray();
-                            string clLog = String.Join("\n", clSlice);
-                            return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clId, Log = clLog, Lines = clSlice.Length, TotalLines = clTotalLines } };
-                        }
-                    }
-                }
-
-                // ── Signal actions ─────────────────────────────────────────
-
-                case "list_signals":
-                    EnumerationQuery signalQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch signalSw = Stopwatch.StartNew();
-                    EnumerationResult<Signal> signalResult = await _Database.Signals.EnumerateAsync(signalQuery).ConfigureAwait(false);
-                    signalResult.TotalMs = Math.Round(signalSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_signals", data = (object)signalResult };
-
-                case "send_signal":
-                    Signal newSignal = JsonSerializer.Deserialize<WebSocketDataCommand<Signal>>(rawBody, _JsonOptions)?.Data!;
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("send_signal");
-                    newSignal.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    newSignal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    newSignal = await _Database.Signals.CreateAsync(newSignal).ConfigureAwait(false);
-                    return new { type = "command.result", action = "send_signal", data = (object)newSignal };
-
-                // ── Event actions ──────────────────────────────────────────
-
-                case "list_events":
-                    EnumerationQuery eventQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch eventSw = Stopwatch.StartNew();
-                    EnumerationResult<ArmadaEvent> eventResult = await _Database.Events.EnumerateAsync(eventQuery).ConfigureAwait(false);
-                    eventResult.TotalMs = Math.Round(eventSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_events", data = (object)eventResult };
-
-                // ── Dock actions ───────────────────────────────────────────
-
-                case "list_docks":
-                    EnumerationQuery dockQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch dockSw = Stopwatch.StartNew();
-                    EnumerationResult<Dock> dockResult = await _Database.Docks.EnumerateAsync(dockQuery).ConfigureAwait(false);
-                    dockResult.TotalMs = Math.Round(dockSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_docks", data = (object)dockResult };
-
-                // ── Merge Queue actions ───────────────────────────────────
-
-                case "list_merge_queue":
-                {
-                    EnumerationQuery mergeQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch mergeSw = Stopwatch.StartNew();
-                    List<MergeEntry> mergeAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
-                    int mergeTotal = mergeAll.Count;
-                    List<MergeEntry> mergePage = mergeAll.Skip(mergeQuery.Offset).Take(mergeQuery.PageSize).ToList();
-                    EnumerationResult<MergeEntry> mergeResult = EnumerationResult<MergeEntry>.Create(mergeQuery, mergePage, mergeTotal);
-                    mergeResult.TotalMs = Math.Round(mergeSw.Elapsed.TotalMilliseconds, 2);
-                    return new { type = "command.result", action = "list_merge_queue", data = (object)mergeResult };
-                }
-
-                case "get_merge_entry":
-                    string meId = command.Id ?? "";
-                    MergeEntry? foundEntry = await _MergeQueue.GetAsync(meId).ConfigureAwait(false);
-                    if (foundEntry == null)
-                        return new { type = "command.error", action = "get_merge_entry", error = "Merge entry not found" };
-                    else
-                        return new { type = "command.result", action = "get_merge_entry", data = (object)foundEntry };
-
-                case "enqueue_merge":
-                    MergeEntry newEntry = JsonSerializer.Deserialize<WebSocketDataCommand<MergeEntry>>(rawBody, _JsonOptions)?.Data!;
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("enqueue_merge");
-                    newEntry.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    newEntry.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    newEntry = await _MergeQueue.EnqueueAsync(newEntry).ConfigureAwait(false);
-                    return new { type = "command.result", action = "enqueue_merge", data = (object)newEntry };
-
-                case "cancel_merge":
-                    string cmEntryId = command.Id ?? "";
-                    await _MergeQueue.CancelAsync(cmEntryId).ConfigureAwait(false);
-                    return new { type = "command.result", action = "cancel_merge", data = (object)new { status = "cancelled" } };
-
-                case "process_merge_queue":
-                    await _MergeQueue.ProcessQueueAsync().ConfigureAwait(false);
-                    return new { type = "command.result", action = "process_merge_queue", data = (object)new { status = "processed" } };
-
-                // ── Enumerate ────────────────────────────────────────────
-
-                case "enumerate":
-                {
-                    string entityType = (command.EntityType ?? "").ToLowerInvariant();
-                    EnumerationQuery enumQuery = command.Query ?? new EnumerationQuery();
-                    Stopwatch enumSw = Stopwatch.StartNew();
-
-                    object? enumData = null;
-                    switch (entityType)
-                    {
-                        case "fleets":
-                        case "fleet":
-                            EnumerationResult<Fleet> enumFleets = await _Database.Fleets.EnumerateAsync(enumQuery).ConfigureAwait(false);
-                            enumFleets.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumFleets;
-                            break;
-                        case "vessels":
-                        case "vessel":
-                            EnumerationResult<Vessel> enumVessels = await _Database.Vessels.EnumerateAsync(enumQuery).ConfigureAwait(false);
-                            enumVessels.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumVessels;
-                            break;
-                        case "captains":
-                        case "captain":
-                            EnumerationResult<Captain> enumCaptains = await _Database.Captains.EnumerateAsync(enumQuery).ConfigureAwait(false);
-                            enumCaptains.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumCaptains;
-                            break;
-                        case "missions":
-                        case "mission":
-                            EnumerationResult<Mission> enumMissions = await _Database.Missions.EnumerateSummariesAsync(enumQuery).ConfigureAwait(false);
-                            enumMissions.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumMissions;
-                            break;
-                        case "voyages":
-                        case "voyage":
-                            EnumerationResult<Voyage> enumVoyages = await _Database.Voyages.EnumerateAsync(enumQuery).ConfigureAwait(false);
-                            enumVoyages.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumVoyages;
-                            break;
-                        case "docks":
-                        case "dock":
-                            EnumerationResult<Dock> enumDocks = await _Database.Docks.EnumerateAsync(enumQuery).ConfigureAwait(false);
-                            enumDocks.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumDocks;
-                            break;
-                        case "signals":
-                        case "signal":
-                            EnumerationResult<Signal> enumSignals = await _Database.Signals.EnumerateAsync(enumQuery).ConfigureAwait(false);
-                            enumSignals.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumSignals;
-                            break;
-                        case "events":
-                        case "event":
-                            EnumerationResult<ArmadaEvent> enumEvents = await _Database.Events.EnumerateAsync(enumQuery).ConfigureAwait(false);
-                            enumEvents.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumEvents;
-                            break;
-                        case "merge_queue":
-                        case "merge-queue":
-                        case "mergequeue":
-                            List<MergeEntry> enumMqAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
-                            int enumMqTotal = enumMqAll.Count;
-                            List<MergeEntry> enumMqPage = enumMqAll.Skip(enumQuery.Offset).Take(enumQuery.PageSize).ToList();
-                            EnumerationResult<MergeEntry> enumMerge = EnumerationResult<MergeEntry>.Create(enumQuery, enumMqPage, enumMqTotal);
-                            enumMerge.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
-                            enumData = enumMerge;
-                            break;
-                    }
-
-                    if (enumData == null)
-                        return new { type = "command.error", action = "enumerate", error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue" };
-                    else
-                        return new { type = "command.result", action = "enumerate", data = enumData };
-                }
-
-                // ── Backup & Restore ─────────────────────────────────────
-
-                case "backup":
-                {
-                    if (_Backups == null) return new { type = "command.error", action = "backup", error = "backup_unavailable" };
-                    try
-                    {
-                        DatabaseBackupResult backupData = await _Backups.BackupAsync(command.OutputPath).ConfigureAwait(false);
-                        return new { type = "command.result", action = "backup", data = (object)backupData };
-                    }
-                    catch (DatabaseBackupException ex)
-                    {
-                        return new { type = "command.error", action = "backup", error = ex.FailureReason };
-                    }
-                }
-
-                case "restore":
-                {
-                    string restoreFilePath = command.FilePath ?? "";
-                    if (String.IsNullOrEmpty(restoreFilePath))
-                    {
-                        return new { type = "command.error", action = "restore", error = "filePath is required" };
-                    }
-                    if (_Backups == null) return new { type = "command.error", action = "restore", error = "backup_unavailable" };
-                    try
-                    {
-                        DatabaseRestoreResult restoreData = await _Backups.RestoreAsync(restoreFilePath).ConfigureAwait(false);
-                        return new { type = "command.result", action = "restore", data = (object)restoreData };
-                    }
-                    catch (DatabaseBackupException ex)
-                    {
-                        return new { type = "command.error", action = "restore", error = ex.FailureReason };
-                    }
-                }
-
-                // ── Personas ──────────────────────────────────────────────
-
-                case "get_persona":
-                    string getPersonaName = command.Id ?? "";
-                    Persona? foundPersona = await _Database.Personas.ReadByNameAsync(getPersonaName).ConfigureAwait(false);
-                    if (foundPersona == null)
-                        return new { type = "command.error", action = "get_persona", error = "Persona not found" };
-                    return new { type = "command.result", action = "get_persona", data = (object)foundPersona };
-
-                case "create_persona":
-                    Persona newPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_persona");
-                    newPersona.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    newPersona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    newPersona = await _Database.Personas.CreateAsync(newPersona).ConfigureAwait(false);
-                    return new { type = "command.result", action = "create_persona", data = (object)newPersona };
-
-                case "update_persona":
-                    string updPersonaName = command.Id ?? "";
-                    Persona? existPersona = await _Database.Personas.ReadByNameAsync(updPersonaName).ConfigureAwait(false);
-                    if (existPersona == null)
-                        return new { type = "command.error", action = "update_persona", error = "Persona not found" };
-                    else
-                    {
-                        Persona patchPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
-                        if (patchPersona.Description != null) existPersona.Description = patchPersona.Description;
-                        if (patchPersona.PromptTemplateName != null) existPersona.PromptTemplateName = patchPersona.PromptTemplateName;
-                        PersonaRoutingUpdate? patchRouting = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data;
-                        if (patchRouting?.Specialist != null) existPersona.Specialist = patchRouting.Specialist.Value;
-                        if (patchRouting != null && patchRouting.DefaultCaptainIdSupplied)
-                        {
-                            string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_Database, existPersona, patchRouting.DefaultCaptainId).ConfigureAwait(false);
-                            if (defaultCaptainError != null)
-                                return new { type = "command.error", action = "update_persona", error = defaultCaptainError };
-                        }
-                        existPersona = await _Database.Personas.UpdateAsync(existPersona).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_persona", data = (object)existPersona };
-                    }
-
-                case "delete_persona":
-                    string delPersonaName = command.Id ?? "";
-                    Persona? delPersona = await _Database.Personas.ReadByNameAsync(delPersonaName).ConfigureAwait(false);
-                    if (delPersona == null)
-                        return new { type = "command.error", action = "delete_persona", error = "Persona not found" };
-                    if (delPersona.IsBuiltIn)
-                        return new { type = "command.error", action = "delete_persona", error = "Cannot delete built-in persona" };
-                    await _Database.Personas.DeleteAsync(delPersona.Id).ConfigureAwait(false);
-                    return new { type = "command.result", action = "delete_persona", data = (object)new { Status = "deleted", Name = delPersonaName } };
-
-                // ── Prompt Templates ─────────────────────────────────────────
-
-                case "get_prompt_template":
-                    string getTemplateName = command.Id ?? "";
-                    PromptTemplate? foundTemplate = await _Database.PromptTemplates.ReadByNameAsync(getTemplateName).ConfigureAwait(false);
-                    if (foundTemplate == null)
-                        return new { type = "command.error", action = "get_prompt_template", error = "Prompt template not found" };
-                    return new { type = "command.result", action = "get_prompt_template", data = (object)foundTemplate };
-
-                case "update_prompt_template":
-                    string updTemplateName = command.Id ?? "";
-                    PromptTemplate? existTemplate = await _Database.PromptTemplates.ReadByNameAsync(updTemplateName).ConfigureAwait(false);
-                    if (existTemplate == null)
-                        return new { type = "command.error", action = "update_prompt_template", error = "Prompt template not found" };
-                    else
-                    {
-                        PromptTemplate patchTemplate = JsonSerializer.Deserialize<WebSocketDataCommand<PromptTemplate>>(rawBody, _JsonOptions)?.Data!;
-                        if (patchTemplate.Content != null) existTemplate.Content = patchTemplate.Content;
-                        if (patchTemplate.Description != null) existTemplate.Description = patchTemplate.Description;
-                        existTemplate = await _Database.PromptTemplates.UpdateAsync(existTemplate).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_prompt_template", data = (object)existTemplate };
-                    }
-
-                // ── Pipelines ────────────────────────────────────────────────
-
-                case "get_pipeline":
-                    string getPipelineName = command.Id ?? "";
-                    Pipeline? foundPipeline = await _Database.Pipelines.ReadByNameAsync(getPipelineName).ConfigureAwait(false);
-                    if (foundPipeline == null)
-                        return new { type = "command.error", action = "get_pipeline", error = "Pipeline not found" };
-                    return new { type = "command.result", action = "get_pipeline", data = (object)foundPipeline };
-
-                case "create_pipeline":
-                    Pipeline newPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
-                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_pipeline");
-                    newPipeline.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
-                    newPipeline.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
-                    newPipeline = await _Database.Pipelines.CreateAsync(newPipeline).ConfigureAwait(false);
-                    return new { type = "command.result", action = "create_pipeline", data = (object)newPipeline };
-
-                case "update_pipeline":
-                    string updPipelineName = command.Id ?? "";
-                    Pipeline? existPipeline = await _Database.Pipelines.ReadByNameAsync(updPipelineName).ConfigureAwait(false);
-                    if (existPipeline == null)
-                        return new { type = "command.error", action = "update_pipeline", error = "Pipeline not found" };
-                    else
-                    {
-                        Pipeline patchPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
-                        if (patchPipeline.Description != null) existPipeline.Description = patchPipeline.Description;
-                        if (patchPipeline.Stages != null && patchPipeline.Stages.Count > 0)
-                        {
-                            existPipeline.Stages = patchPipeline.Stages;
-                            foreach (PipelineStage stage in existPipeline.Stages)
-                                stage.PipelineId = existPipeline.Id;
-                        }
-                        existPipeline = await _Database.Pipelines.UpdateAsync(existPipeline).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_pipeline", data = (object)existPipeline };
-                    }
-
-                case "delete_pipeline":
-                    string delPipelineName = command.Id ?? "";
-                    Pipeline? delPipeline = await _Database.Pipelines.ReadByNameAsync(delPipelineName).ConfigureAwait(false);
-                    if (delPipeline == null)
-                        return new { type = "command.error", action = "delete_pipeline", error = "Pipeline not found" };
-                    if (delPipeline.IsBuiltIn)
-                        return new { type = "command.error", action = "delete_pipeline", error = "Cannot delete built-in pipeline" };
-                    await _Database.Pipelines.DeleteAsync(delPipeline.Id).ConfigureAwait(false);
-                    return new { type = "command.result", action = "delete_pipeline", data = (object)new { Status = "deleted", Name = delPipelineName } };
-
-                // ── Default ────────────────────────────────────────────────
-
-                default:
-                    return new { type = "command.error", action = action, error = "Unknown action: " + action };
             }
         }
 
+        /// <summary>
+        /// Run the <c>list_missions</c> command.
+        /// </summary>
+        private async Task<object> ListMissionsCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery missionQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch missionSw = Stopwatch.StartNew();
+            EnumerationResult<Mission> missionResult = await _Database.Missions.EnumerateSummariesAsync(missionQuery).ConfigureAwait(false);
+            missionResult.TotalMs = Math.Round(missionSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_missions", data = (object)missionResult };
+        }
+
+        /// <summary>
+        /// Run the <c>list_missions_summary</c> command.
+        /// </summary>
+        private async Task<object> ListMissionsSummaryCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            // Reads through the same caller-scoped query as REST, so a session receives exactly the
+            // summaries REST returns to the same caller. There is no default caller to fall back to.
+            if (caller == null || !caller.IsAuthenticated)
+                return new { type = "command.error", action = "list_missions_summary", error = "list_missions_summary requires an authenticated caller" };
+            EnumerationResult<MissionSummary> summaryResult = await MissionSummaryQuery.EnumerateForCallerAsync(
+                _Database, caller, command.Query ?? new EnumerationQuery()).ConfigureAwait(false);
+            return new { type = "command.result", action = "list_missions_summary", data = (object)summaryResult };
+        }
+
+        /// <summary>
+        /// Run the <c>get_mission</c> command.
+        /// </summary>
+        private async Task<object> GetMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string getMissionId = command.Id ?? "";
+            Mission? foundMission = await _Database.Missions.ReadSummaryAsync(getMissionId).ConfigureAwait(false);
+            if (foundMission == null)
+                return new { type = "command.error", action = "get_mission", error = "Mission not found" };
+            else
+                return new { type = "command.result", action = "get_mission", data = (object)foundMission };
+        }
+
+        /// <summary>
+        /// Run the <c>create_mission</c> command.
+        /// </summary>
+        private async Task<object> CreateMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Mission newMission = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data!;
+            newMission.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            newMission.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            try
+            {
+                newMission = await _Admiral.DispatchMissionAsync(newMission).ConfigureAwait(false);
+            }
+            catch (FleetCapacityAdmissionException capacity)
+            {
+                return new
+                {
+                    type = "command.error",
+                    action = "create_mission",
+                    error = capacity.Message,
+                    code = capacity.Code,
+                    activeCount = capacity.ActiveCount,
+                    limit = capacity.Limit,
+                    candidateVesselId = capacity.CandidateVesselId,
+                    laneMembers = capacity.LaneMembers
+                };
+            }
+            if (newMission.Status == MissionStatusEnum.Pending)
+            {
+                return new { type = "command.result", action = "create_mission", data = (object)newMission, warning = "Mission created but could not be assigned to any captain. It will be retried on the next health check cycle." };
+            }
+            else
+            {
+                return new { type = "command.result", action = "create_mission", data = (object)newMission };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>update_mission</c> command. Only metadata fields are written, by the rule REST applies, so status
+        /// changes go through <c>transition_mission_status</c> and its gates.
+        /// </summary>
+        private async Task<object> UpdateMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string updMissionId = command.Id ?? "";
+            Mission? existMission = await _Database.Missions.ReadAsync(updMissionId).ConfigureAwait(false);
+            if (existMission == null)
+                return NotFound("update_mission", "Mission not found");
+            Mission incoming = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data ?? new Mission();
+            MissionBindingUpdateRequest bindings = JsonSerializer.Deserialize<WebSocketDataCommand<MissionBindingUpdateRequest>>(rawBody, _JsonOptions)?.Data
+                ?? new MissionBindingUpdateRequest();
+            string? bindingError = MissionMetadataUpdate.Apply(existMission, incoming, bindings);
+            if (bindingError != null)
+                return new { type = "command.error", action = "update_mission", error = bindingError, code = "mission_binding_immutable" };
+            existMission = await _Database.Missions.UpdateAsync(existMission).ConfigureAwait(false);
+            return new { type = "command.result", action = "update_mission", data = (object)existMission };
+        }
+
+        /// <summary>
+        /// Run the <c>transition_mission_status</c> command.
+        /// </summary>
+        private async Task<object> TransitionMissionStatusCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string tmId = command.Id ?? "";
+            string tmStatus = command.Status ?? "";
+            Mission? tmMission = await _Database.Missions.ReadAsync(tmId).ConfigureAwait(false);
+            if (tmMission == null)
+            {
+                return new { type = "command.error", action = "transition_mission_status", error = "Mission not found" };
+            }
+            else if (!Enum.TryParse<MissionStatusEnum>(tmStatus, true, out MissionStatusEnum tmNewStatus))
+            {
+                return new { type = "command.error", action = "transition_mission_status", error = "Invalid status: " + tmStatus };
+            }
+            else if (_StatusTransitions == null)
+            {
+                return new { type = "command.error", action = "transition_mission_status", error = MissionStatusTransitionService.UnavailableMessage };
+            }
+            else
+            {
+                // The shared operator transition path applies the same validation, manual
+                // completion gates, landing, and handoff as the REST status route.
+                MissionStatusTransitionResult tmResult = await _StatusTransitions.TransitionAsync(tmMission, tmNewStatus).ConfigureAwait(false);
+                if (tmResult.Outcome == MissionStatusTransitionOutcomeEnum.Applied)
+                    return new { type = "command.result", action = "transition_mission_status", data = (object)tmResult.Mission! };
+                return new { type = "command.error", action = "transition_mission_status", error = tmResult.Message, reason = tmResult.Reason };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>cancel_mission</c> command.
+        /// </summary>
+        private async Task<object> CancelMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string cmId = command.Id ?? "";
+            Mission? cmMission = await _Database.Missions.ReadAsync(cmId).ConfigureAwait(false);
+            if (cmMission == null)
+                return new { type = "command.error", action = "cancel_mission", error = "Mission not found" };
+            else
+            {
+                if (!String.IsNullOrEmpty(cmMission.CaptainId))
+                {
+                    Captain? cmCaptain = await _Database.Captains.ReadAsync(cmMission.CaptainId).ConfigureAwait(false);
+                    if (cmCaptain != null && cmCaptain.CurrentMissionId == cmMission.Id)
+                    {
+                        List<Mission> cmOther = (await _Database.Missions.EnumerateByCaptainAsync(cmCaptain.Id).ConfigureAwait(false))
+                            .Where(om => om.Id != cmMission.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
+                        if (cmOther.Count == 0)
+                        {
+                            cmCaptain.State = CaptainStateEnum.Idle;
+                            cmCaptain.CurrentMissionId = null;
+                            cmCaptain.CurrentDockId = null;
+                            cmCaptain.ProcessId = null;
+                            cmCaptain.RecoveryAttempts = 0;
+                            cmCaptain.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.Captains.UpdateAsync(cmCaptain).ConfigureAwait(false);
+                        }
+                    }
+                }
+
+                cmMission.Status = MissionStatusEnum.Cancelled;
+                cmMission.CompletedUtc = DateTime.UtcNow;
+                cmMission.LastUpdateUtc = DateTime.UtcNow;
+                cmMission = await _Database.Missions.UpdateAsync(cmMission).ConfigureAwait(false);
+                _BroadcastMissionChange(cmMission);
+                return new { type = "command.result", action = "cancel_mission", data = (object)cmMission };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>purge_mission</c> command.
+        /// </summary>
+        private async Task<object> PurgeMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string pmId = command.Id ?? "";
+            Mission? pmMission = await _Database.Missions.ReadAsync(pmId).ConfigureAwait(false);
+            if (pmMission == null)
+                return new { type = "command.error", action = "purge_mission", error = "Mission not found" };
+            else
+            {
+                // Clean up associated dock/worktree
+                if (!String.IsNullOrEmpty(pmMission.DockId))
+                {
+                    try
+                    {
+                        Dock? pmDock = await _Database.Docks.ReadAsync(pmMission.DockId).ConfigureAwait(false);
+                        if (pmDock != null)
+                        {
+                            if (!String.IsNullOrEmpty(pmDock.WorktreePath) && System.IO.Directory.Exists(pmDock.WorktreePath))
+                            {
+                                try { System.IO.Directory.Delete(pmDock.WorktreePath, true); }
+                                catch { }
+                            }
+                            await _Database.Docks.DeleteAsync(pmDock.Id).ConfigureAwait(false);
+                        }
+                    }
+                    catch { }
+                }
+
+                // Clean up log and diff files
+                if (_Settings != null)
+                {
+                    try
+                    {
+                        string pmLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", pmId + ".log");
+                        if (System.IO.File.Exists(pmLogPath)) System.IO.File.Delete(pmLogPath);
+                    }
+                    catch { }
+                    try
+                    {
+                        string pmDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", pmId + ".diff");
+                        if (System.IO.File.Exists(pmDiffPath)) System.IO.File.Delete(pmDiffPath);
+                    }
+                    catch { }
+                }
+
+                await _Database.Missions.DeleteAsync(pmId).ConfigureAwait(false);
+                return new { type = "command.result", action = "purge_mission", data = (object)new { status = "deleted", missionId = pmId } };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>restart_mission</c> command.
+        /// </summary>
+        private async Task<object> RestartMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string rmId = command.Id ?? "";
+            Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
+            if (rmMission == null)
+                return new { type = "command.error", action = "restart_mission", error = "Mission not found" };
+            else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
+                return new { type = "command.error", action = "restart_mission", error = "Only Failed, LandingFailed, or Cancelled missions can be restarted" };
+            else
+            {
+                WebSocketDataCommand<MissionRestartData>? rmData = null;
+                try { rmData = JsonSerializer.Deserialize<WebSocketDataCommand<MissionRestartData>>(rawBody, _JsonOptions); } catch { }
+                if (rmData?.Data != null)
+                {
+                    if (!String.IsNullOrEmpty(rmData.Data.Title)) rmMission.Title = rmData.Data.Title;
+                    if (!String.IsNullOrEmpty(rmData.Data.Description)) rmMission.Description = rmData.Data.Description;
+                }
+
+                try
+                {
+                    MissionRestartService restarts = new MissionRestartService(_Database, _Settings ?? new ArmadaSettings());
+                    rmMission = await restarts.RestartAsync(
+                        rmMission,
+                        rmMission.Title,
+                        rmMission.Description,
+                        allowLandingFailed: true).ConfigureAwait(false);
+                }
+                catch (FleetCapacityAdmissionException capacity)
+                {
+                    return new
+                    {
+                        type = "command.error",
+                        action = "restart_mission",
+                        error = capacity.Message,
+                        code = capacity.Code,
+                        activeCount = capacity.ActiveCount,
+                        limit = capacity.Limit,
+                        candidateVesselId = capacity.CandidateVesselId,
+                        laneMembers = capacity.LaneMembers
+                    };
+                }
+
+                // The restart signal belongs to the mission it reports, so the mission's owner sees it.
+                Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
+                rmSignal.TenantId = rmMission.TenantId;
+                rmSignal.UserId = rmMission.UserId;
+                await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
+
+                _BroadcastMissionChange(rmMission);
+                return new { type = "command.result", action = "restart_mission", data = (object)rmMission };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>get_mission_diff</c> command.
+        /// </summary>
+        private async Task<object> GetMissionDiffCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string mdId = command.Id ?? "";
+            Mission? mdMission = await _Database.Missions.ReadAsync(mdId).ConfigureAwait(false);
+            if (mdMission == null)
+                return new { type = "command.error", action = "get_mission_diff", error = "Mission not found" };
+            else if (_Settings == null)
+                return new { type = "command.error", action = "get_mission_diff", error = "Diff not available — settings not configured" };
+            else
+            {
+                string savedDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", mdId + ".diff");
+                if (System.IO.File.Exists(savedDiffPath))
+                {
+                    string savedDiff = await ReadFileSharedAsync(savedDiffPath).ConfigureAwait(false);
+                    return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdMission.BranchName ?? "", Diff = savedDiff } };
+                }
+                else if (!String.IsNullOrEmpty(mdMission.DiffSnapshot))
+                {
+                    return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdMission.BranchName ?? "", Diff = mdMission.DiffSnapshot } };
+                }
+                else
+                {
+                    Dock? mdDock = null;
+                    if (!String.IsNullOrEmpty(mdMission.DockId))
+                    {
+                        mdDock = await _Database.Docks.ReadAsync(mdMission.DockId).ConfigureAwait(false);
+                    }
+                    if (mdDock == null && !String.IsNullOrEmpty(mdMission.CaptainId))
+                    {
+                        Captain? mdCaptain = await _Database.Captains.ReadAsync(mdMission.CaptainId).ConfigureAwait(false);
+                        if (mdCaptain != null && !String.IsNullOrEmpty(mdCaptain.CurrentDockId))
+                            mdDock = await _Database.Docks.ReadAsync(mdCaptain.CurrentDockId).ConfigureAwait(false);
+                    }
+                    if (mdDock == null && !String.IsNullOrEmpty(mdMission.BranchName) && !String.IsNullOrEmpty(mdMission.VesselId))
+                    {
+                        List<Dock> mdDocks = await _Database.Docks.EnumerateByVesselAsync(mdMission.VesselId).ConfigureAwait(false);
+                        mdDock = mdDocks.FirstOrDefault(d => d.BranchName == mdMission.BranchName && d.Active);
+                    }
+                    if (mdDock == null || String.IsNullOrEmpty(mdDock.WorktreePath) || !System.IO.Directory.Exists(mdDock.WorktreePath))
+                        return new { type = "command.error", action = "get_mission_diff", error = "No diff available — worktree was already reclaimed and no saved diff exists" };
+                    else if (_Git == null)
+                        return new { type = "command.error", action = "get_mission_diff", error = "Git service not available" };
+                    else
+                    {
+                        string baseBranch = "main";
+                        if (!String.IsNullOrEmpty(mdMission.VesselId))
+                        {
+                            Vessel? mdVessel = await _Database.Vessels.ReadAsync(mdMission.VesselId).ConfigureAwait(false);
+                            if (mdVessel != null) baseBranch = mdVessel.DefaultBranch;
+                        }
+                        string diff = await _Git.DiffAsync(mdDock.WorktreePath, baseBranch).ConfigureAwait(false);
+                        return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdDock.BranchName ?? "", Diff = diff } };
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>get_mission_log</c> command.
+        /// </summary>
+        private async Task<object> GetMissionLogCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string mlId = command.Id ?? "";
+            Mission? mlMission = await _Database.Missions.ReadAsync(mlId).ConfigureAwait(false);
+            if (mlMission == null)
+                return new { type = "command.error", action = "get_mission_log", error = "Mission not found" };
+            else if (_Settings == null)
+                return new { type = "command.error", action = "get_mission_log", error = "Logs not available — settings not configured" };
+            else
+            {
+                string mlLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", mlId + ".log");
+                if (!System.IO.File.Exists(mlLogPath))
+                    return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = "", Lines = 0, TotalLines = 0 } };
+                else
+                {
+                    string[] mlAllLines = RuntimeLogNoiseFilter.Filter(
+                        await ReadLinesSharedAsync(mlLogPath).ConfigureAwait(false));
+                    int mlTotalLines = mlAllLines.Length;
+                    int mlOffset = command.Offset ?? 0;
+                    int mlLineCount = command.Lines ?? 100;
+                    string[] mlSlice = mlAllLines.Skip(mlOffset).Take(mlLineCount).ToArray();
+                    string mlLog = String.Join("\n", mlSlice);
+                    return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = mlLog, Lines = mlSlice.Length, TotalLines = mlTotalLines } };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>list_captains</c> command.
+        /// </summary>
+        private async Task<object> ListCaptainsCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery captainQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch captainSw = Stopwatch.StartNew();
+            EnumerationResult<Captain> captainResult = await _Database.Captains.EnumerateAsync(captainQuery).ConfigureAwait(false);
+            captainResult.TotalMs = Math.Round(captainSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_captains", data = (object)captainResult };
+        }
+
+        /// <summary>
+        /// Run the <c>get_captain</c> command.
+        /// </summary>
+        private async Task<object> GetCaptainCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string getCaptainId = command.Id ?? "";
+            Captain? foundCaptain = await _Database.Captains.ReadAsync(getCaptainId).ConfigureAwait(false);
+            if (foundCaptain == null)
+                return new { type = "command.error", action = "get_captain", error = "Captain not found" };
+            else
+                return new { type = "command.result", action = "get_captain", data = (object)foundCaptain };
+        }
+
+        /// <summary>
+        /// Run the <c>create_captain</c> command.
+        /// </summary>
+        private async Task<object> CreateCaptainCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Captain? newCaptainInput = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data;
+            if (newCaptainInput == null)
+                return new { type = "command.error", action = "create_captain", error = "Captain data is required" };
+            string? createOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, null);
+            if (createOwnedFieldError != null)
+                return new { type = "command.error", action = "create_captain", error = createOwnedFieldError };
+            Captain captainToCreate = CaptainInputMapping.ForCreate(newCaptainInput);
+            captainToCreate.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            captainToCreate.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            Captain newCaptain = await _Database.Captains.CreateAsync(captainToCreate).ConfigureAwait(false);
+            return new { type = "command.result", action = "create_captain", data = (object)newCaptain };
+        }
+
+        /// <summary>
+        /// Run the <c>update_captain</c> command.
+        /// </summary>
+        private async Task<object> UpdateCaptainCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string updCptId = command.Id ?? "";
+            Captain? existCpt = await _Database.Captains.ReadAsync(updCptId).ConfigureAwait(false);
+            if (existCpt == null)
+                return new { type = "command.error", action = "update_captain", error = "Captain not found" };
+            else
+            {
+                Captain? updCptInput = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data;
+                if (updCptInput == null)
+                    return new { type = "command.error", action = "update_captain", error = "Captain data is required" };
+                string? updateOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                    JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, existCpt);
+                if (updateOwnedFieldError != null)
+                    return new { type = "command.error", action = "update_captain", error = updateOwnedFieldError };
+                Captain updCpt = await _Database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(existCpt, updCptInput)).ConfigureAwait(false);
+                return new { type = "command.result", action = "update_captain", data = (object)updCpt };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>delete_captain</c> command.
+        /// </summary>
+        private async Task<object> DeleteCaptainCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string delCptId = command.Id ?? "";
+            Captain? delCpt = await _Database.Captains.ReadAsync(delCptId).ConfigureAwait(false);
+            if (delCpt == null)
+                return new { type = "command.error", action = "delete_captain", error = "Captain not found" };
+            else if (delCpt.State == CaptainStateEnum.Working)
+                return new { type = "command.error", action = "delete_captain", error = "Cannot delete captain while state is Working. Stop the captain first." };
+            else
+            {
+                List<Mission> delCptMissions = await _Database.Missions.EnumerateByCaptainAsync(delCptId).ConfigureAwait(false);
+                int delCptActiveCount = delCptMissions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
+                if (delCptActiveCount > 0)
+                    return new { type = "command.error", action = "delete_captain", error = "Cannot delete captain with " + delCptActiveCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
+                else
+                {
+                    await _Database.Captains.DeleteAsync(delCptId).ConfigureAwait(false);
+                    return new { type = "command.result", action = "delete_captain", data = (object)new { status = "deleted" } };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>get_captain_log</c> command.
+        /// </summary>
+        private async Task<object> GetCaptainLogCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string clId = command.Id ?? "";
+            Captain? clCaptain = await _Database.Captains.ReadAsync(clId).ConfigureAwait(false);
+            if (clCaptain == null)
+                return new { type = "command.error", action = "get_captain_log", error = "Captain not found" };
+            else if (_Settings == null)
+                return new { type = "command.error", action = "get_captain_log", error = "Logs not available — settings not configured" };
+            else
+            {
+                string clPointerPath = System.IO.Path.Combine(_Settings.LogDirectory, "captains", clId + ".current");
+                string? clLogPath = null;
+                if (System.IO.File.Exists(clPointerPath))
+                {
+                    string clTarget = (await ReadFileSharedAsync(clPointerPath).ConfigureAwait(false)).Trim();
+                    if (System.IO.File.Exists(clTarget))
+                        clLogPath = clTarget;
+                }
+                if (clLogPath == null)
+                    return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clId, Log = "", Lines = 0, TotalLines = 0 } };
+                else
+                {
+                    string[] clAllLines = await ReadLinesSharedAsync(clLogPath).ConfigureAwait(false);
+                    int clTotalLines = clAllLines.Length;
+                    int clOffset = command.Offset ?? 0;
+                    int clLineCount = command.Lines ?? 100;
+                    string[] clSlice = clAllLines.Skip(clOffset).Take(clLineCount).ToArray();
+                    string clLog = String.Join("\n", clSlice);
+                    return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clId, Log = clLog, Lines = clSlice.Length, TotalLines = clTotalLines } };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>list_signals</c> command.
+        /// </summary>
+        private async Task<object> ListSignalsCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery signalQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch signalSw = Stopwatch.StartNew();
+            EnumerationResult<Signal> signalResult = await _Database.Signals.EnumerateAsync(signalQuery).ConfigureAwait(false);
+            signalResult.TotalMs = Math.Round(signalSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_signals", data = (object)signalResult };
+        }
+
+        /// <summary>
+        /// Run the <c>send_signal</c> command.
+        /// </summary>
+        private async Task<object> SendSignalCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Signal newSignal = JsonSerializer.Deserialize<WebSocketDataCommand<Signal>>(rawBody, _JsonOptions)?.Data!;
+            newSignal.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            newSignal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            newSignal = await _Database.Signals.CreateAsync(newSignal).ConfigureAwait(false);
+            return new { type = "command.result", action = "send_signal", data = (object)newSignal };
+        }
+
+        /// <summary>
+        /// Run the <c>list_events</c> command.
+        /// </summary>
+        private async Task<object> ListEventsCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery eventQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch eventSw = Stopwatch.StartNew();
+            EnumerationResult<ArmadaEvent> eventResult = await _Database.Events.EnumerateAsync(eventQuery).ConfigureAwait(false);
+            eventResult.TotalMs = Math.Round(eventSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_events", data = (object)eventResult };
+        }
+
+        /// <summary>
+        /// Run the <c>list_docks</c> command.
+        /// </summary>
+        private async Task<object> ListDocksCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery dockQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch dockSw = Stopwatch.StartNew();
+            EnumerationResult<Dock> dockResult = await _Database.Docks.EnumerateAsync(dockQuery).ConfigureAwait(false);
+            dockResult.TotalMs = Math.Round(dockSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_docks", data = (object)dockResult };
+        }
+
+        /// <summary>
+        /// Run the <c>list_merge_queue</c> command.
+        /// </summary>
+        private async Task<object> ListMergeQueueCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            EnumerationQuery mergeQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch mergeSw = Stopwatch.StartNew();
+            List<MergeEntry> mergeAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
+            int mergeTotal = mergeAll.Count;
+            List<MergeEntry> mergePage = mergeAll.Skip(mergeQuery.Offset).Take(mergeQuery.PageSize).ToList();
+            EnumerationResult<MergeEntry> mergeResult = EnumerationResult<MergeEntry>.Create(mergeQuery, mergePage, mergeTotal);
+            mergeResult.TotalMs = Math.Round(mergeSw.Elapsed.TotalMilliseconds, 2);
+            return new { type = "command.result", action = "list_merge_queue", data = (object)mergeResult };
+        }
+
+        /// <summary>
+        /// Run the <c>get_merge_entry</c> command.
+        /// </summary>
+        private async Task<object> GetMergeEntryCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string meId = command.Id ?? "";
+            MergeEntry? foundEntry = await _MergeQueue.GetAsync(meId).ConfigureAwait(false);
+            if (foundEntry == null)
+                return new { type = "command.error", action = "get_merge_entry", error = "Merge entry not found" };
+            else
+                return new { type = "command.result", action = "get_merge_entry", data = (object)foundEntry };
+        }
+
+        /// <summary>
+        /// Run the <c>enqueue_merge</c> command.
+        /// </summary>
+        private async Task<object> EnqueueMergeCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            MergeEntry newEntry = JsonSerializer.Deserialize<WebSocketDataCommand<MergeEntry>>(rawBody, _JsonOptions)?.Data!;
+            newEntry.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            newEntry.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            newEntry = await _MergeQueue.EnqueueAsync(newEntry).ConfigureAwait(false);
+            return new { type = "command.result", action = "enqueue_merge", data = (object)newEntry };
+        }
+
+        /// <summary>
+        /// Run the <c>cancel_merge</c> command.
+        /// </summary>
+        private async Task<object> CancelMergeCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string cmEntryId = command.Id ?? "";
+            await _MergeQueue.CancelAsync(cmEntryId).ConfigureAwait(false);
+            return new { type = "command.result", action = "cancel_merge", data = (object)new { status = "cancelled" } };
+        }
+
+        /// <summary>
+        /// Run the <c>process_merge_queue</c> command.
+        /// </summary>
+        private async Task<object> ProcessMergeQueueCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            await _MergeQueue.ProcessQueueAsync().ConfigureAwait(false);
+            return new { type = "command.result", action = "process_merge_queue", data = (object)new { status = "processed" } };
+        }
+
+        /// <summary>
+        /// Run the <c>enumerate</c> command.
+        /// </summary>
+        private async Task<object> EnumerateCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string entityType = (command.EntityType ?? "").ToLowerInvariant();
+            EnumerationQuery enumQuery = command.Query ?? new EnumerationQuery();
+            Stopwatch enumSw = Stopwatch.StartNew();
+
+            object? enumData = null;
+            switch (entityType)
+            {
+                case "fleets":
+                case "fleet":
+                    EnumerationResult<Fleet> enumFleets = await _Database.Fleets.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                    enumFleets.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumFleets;
+                    break;
+                case "vessels":
+                case "vessel":
+                    EnumerationResult<Vessel> enumVessels = await _Database.Vessels.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                    enumVessels.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumVessels;
+                    break;
+                case "captains":
+                case "captain":
+                    EnumerationResult<Captain> enumCaptains = await _Database.Captains.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                    enumCaptains.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumCaptains;
+                    break;
+                case "missions":
+                case "mission":
+                    EnumerationResult<Mission> enumMissions = await _Database.Missions.EnumerateSummariesAsync(enumQuery).ConfigureAwait(false);
+                    enumMissions.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumMissions;
+                    break;
+                case "voyages":
+                case "voyage":
+                    EnumerationResult<Voyage> enumVoyages = await _Database.Voyages.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                    enumVoyages.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumVoyages;
+                    break;
+                case "docks":
+                case "dock":
+                    EnumerationResult<Dock> enumDocks = await _Database.Docks.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                    enumDocks.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumDocks;
+                    break;
+                case "signals":
+                case "signal":
+                    EnumerationResult<Signal> enumSignals = await _Database.Signals.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                    enumSignals.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumSignals;
+                    break;
+                case "events":
+                case "event":
+                    EnumerationResult<ArmadaEvent> enumEvents = await _Database.Events.EnumerateAsync(enumQuery).ConfigureAwait(false);
+                    enumEvents.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumEvents;
+                    break;
+                case "merge_queue":
+                case "merge-queue":
+                case "mergequeue":
+                    List<MergeEntry> enumMqAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
+                    int enumMqTotal = enumMqAll.Count;
+                    List<MergeEntry> enumMqPage = enumMqAll.Skip(enumQuery.Offset).Take(enumQuery.PageSize).ToList();
+                    EnumerationResult<MergeEntry> enumMerge = EnumerationResult<MergeEntry>.Create(enumQuery, enumMqPage, enumMqTotal);
+                    enumMerge.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
+                    enumData = enumMerge;
+                    break;
+            }
+
+            if (enumData == null)
+                return new { type = "command.error", action = "enumerate", error = "Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue" };
+            else
+                return new { type = "command.result", action = "enumerate", data = enumData };
+        }
+
+        /// <summary>
+        /// Run the <c>backup</c> command.
+        /// </summary>
+        private async Task<object> BackupCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            if (_Backups == null) return new { type = "command.error", action = "backup", error = "backup_unavailable" };
+            try
+            {
+                DatabaseBackupResult backupData = await _Backups.BackupAsync(command.OutputPath).ConfigureAwait(false);
+                return new { type = "command.result", action = "backup", data = (object)backupData };
+            }
+            catch (DatabaseBackupException ex)
+            {
+                return new { type = "command.error", action = "backup", error = ex.FailureReason };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>restore</c> command.
+        /// </summary>
+        private async Task<object> RestoreCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string restoreFilePath = command.FilePath ?? "";
+            if (String.IsNullOrEmpty(restoreFilePath))
+            {
+                return new { type = "command.error", action = "restore", error = "filePath is required" };
+            }
+            if (_Backups == null) return new { type = "command.error", action = "restore", error = "backup_unavailable" };
+            try
+            {
+                DatabaseRestoreResult restoreData = await _Backups.RestoreAsync(restoreFilePath).ConfigureAwait(false);
+                return new { type = "command.result", action = "restore", data = (object)restoreData };
+            }
+            catch (DatabaseBackupException ex)
+            {
+                return new { type = "command.error", action = "restore", error = ex.FailureReason };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>get_persona</c> command. The persona is found through the shared caller scope REST and MCP use.
+        /// </summary>
+        private async Task<object> GetPersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Persona? foundPersona = await ReadVisiblePersonaAsync(caller, command.Id).ConfigureAwait(false);
+            if (foundPersona == null)
+                return NotFound("get_persona", "Persona not found");
+            return new { type = "command.result", action = "get_persona", data = (object)foundPersona };
+        }
+
+        /// <summary>
+        /// Run the <c>create_persona</c> command. Ownership comes from the caller, a request cannot create a built-in
+        /// persona, and a default captain passes the shared default captain rule.
+        /// </summary>
+        private async Task<object> CreatePersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Persona newPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
+            newPersona.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            newPersona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            newPersona.IsBuiltIn = false;
+            string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_Database, newPersona, newPersona.DefaultCaptainId).ConfigureAwait(false);
+            if (defaultCaptainError != null)
+                return new { type = "command.error", action = "create_persona", error = defaultCaptainError };
+            newPersona = await _Database.Personas.CreateAsync(newPersona).ConfigureAwait(false);
+            return new { type = "command.result", action = "create_persona", data = (object)newPersona };
+        }
+
+        /// <summary>
+        /// Run the <c>update_persona</c> command. The persona is found through the shared caller scope and changed
+        /// only when the shared ownership rule lets the caller edit it.
+        /// </summary>
+        private async Task<object> UpdatePersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Persona? existPersona = await ReadVisiblePersonaAsync(caller, command.Id).ConfigureAwait(false);
+            if (existPersona == null)
+                return NotFound("update_persona", "Persona not found");
+            if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, existPersona))
+                return Forbidden("update_persona", "You may not change this persona");
+            Persona patchPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
+            if (patchPersona.Description != null) existPersona.Description = patchPersona.Description;
+            if (patchPersona.PromptTemplateName != null) existPersona.PromptTemplateName = patchPersona.PromptTemplateName;
+            PersonaRoutingUpdate? patchRouting = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data;
+            if (patchRouting?.Specialist != null) existPersona.Specialist = patchRouting.Specialist.Value;
+            if (patchRouting != null && patchRouting.DefaultCaptainIdSupplied)
+            {
+                string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_Database, existPersona, patchRouting.DefaultCaptainId).ConfigureAwait(false);
+                if (defaultCaptainError != null)
+                    return new { type = "command.error", action = "update_persona", error = defaultCaptainError };
+            }
+            existPersona = await _Database.Personas.UpdateAsync(existPersona).ConfigureAwait(false);
+            return new { type = "command.result", action = "update_persona", data = (object)existPersona };
+        }
+
+        /// <summary>
+        /// Run the <c>delete_persona</c> command. The persona is found through the shared caller scope and deleted
+        /// only when the shared ownership rule lets the caller edit it.
+        /// </summary>
+        private async Task<object> DeletePersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string delPersonaName = command.Id ?? "";
+            Persona? delPersona = await ReadVisiblePersonaAsync(caller, delPersonaName).ConfigureAwait(false);
+            if (delPersona == null)
+                return NotFound("delete_persona", "Persona not found");
+            if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, delPersona))
+                return Forbidden("delete_persona", "You may not delete this persona");
+            if (delPersona.IsBuiltIn)
+                return new { type = "command.error", action = "delete_persona", error = "Cannot delete built-in persona" };
+            await _Database.Personas.DeleteAsync(delPersona.Id).ConfigureAwait(false);
+            return new { type = "command.result", action = "delete_persona", data = (object)new { Status = "deleted", Name = delPersonaName } };
+        }
+
+        /// <summary>
+        /// Run the <c>get_prompt_template</c> command. The template is found through the shared caller scope REST and
+        /// MCP use.
+        /// </summary>
+        private async Task<object> GetPromptTemplateCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string getTemplateName = command.Id ?? "";
+            PromptTemplate? foundTemplate = String.IsNullOrEmpty(getTemplateName)
+                ? null
+                : await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                    caller,
+                    getTemplateName,
+                    (tenantId, templateName) => _Database.PromptTemplates.ReadByNameAsync(tenantId, templateName),
+                    () => _Database.PromptTemplates.EnumerateAsync(),
+                    record => record.Name).ConfigureAwait(false);
+            if (foundTemplate == null)
+                return NotFound("get_prompt_template", "Prompt template not found");
+            return new { type = "command.result", action = "get_prompt_template", data = (object)foundTemplate };
+        }
+
+        /// <summary>
+        /// Run the <c>update_prompt_template</c> command.
+        /// </summary>
+        private async Task<object> UpdatePromptTemplateCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string updTemplateName = command.Id ?? "";
+            PromptTemplate? existTemplate = await _Database.PromptTemplates.ReadByNameAsync(updTemplateName).ConfigureAwait(false);
+            if (existTemplate == null)
+                return new { type = "command.error", action = "update_prompt_template", error = "Prompt template not found" };
+            else
+            {
+                PromptTemplate patchTemplate = JsonSerializer.Deserialize<WebSocketDataCommand<PromptTemplate>>(rawBody, _JsonOptions)?.Data!;
+                if (patchTemplate.Content != null) existTemplate.Content = patchTemplate.Content;
+                if (patchTemplate.Description != null) existTemplate.Description = patchTemplate.Description;
+                existTemplate = await _Database.PromptTemplates.UpdateAsync(existTemplate).ConfigureAwait(false);
+                return new { type = "command.result", action = "update_prompt_template", data = (object)existTemplate };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>get_pipeline</c> command. The pipeline is found through the shared caller scope REST and MCP use.
+        /// </summary>
+        private async Task<object> GetPipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Pipeline? foundPipeline = await ReadVisiblePipelineAsync(caller, command.Id).ConfigureAwait(false);
+            if (foundPipeline == null)
+                return NotFound("get_pipeline", "Pipeline not found");
+            return new { type = "command.result", action = "get_pipeline", data = (object)foundPipeline };
+        }
+
+        /// <summary>
+        /// Run the <c>create_pipeline</c> command. Ownership comes from the caller, and a request cannot create a
+        /// built-in pipeline.
+        /// </summary>
+        private async Task<object> CreatePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Pipeline newPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
+            newPipeline.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+            newPipeline.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            newPipeline.IsBuiltIn = false;
+            newPipeline = await _Database.Pipelines.CreateAsync(newPipeline).ConfigureAwait(false);
+            return new { type = "command.result", action = "create_pipeline", data = (object)newPipeline };
+        }
+
+        /// <summary>
+        /// Run the <c>update_pipeline</c> command.
+        /// </summary>
+        private async Task<object> UpdatePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            Pipeline? existPipeline = await ReadVisiblePipelineAsync(caller, command.Id).ConfigureAwait(false);
+            if (existPipeline == null)
+                return NotFound("update_pipeline", "Pipeline not found");
+            else if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, existPipeline))
+                return Forbidden("update_pipeline", "You may not change this pipeline");
+            else
+            {
+                Pipeline patchPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
+                if (patchPipeline.Description != null) existPipeline.Description = patchPipeline.Description;
+                if (patchPipeline.Stages != null && patchPipeline.Stages.Count > 0)
+                {
+                    existPipeline.Stages = patchPipeline.Stages;
+                    foreach (PipelineStage stage in existPipeline.Stages)
+                        stage.PipelineId = existPipeline.Id;
+                }
+                existPipeline = await _Database.Pipelines.UpdateAsync(existPipeline).ConfigureAwait(false);
+                return new { type = "command.result", action = "update_pipeline", data = (object)existPipeline };
+            }
+        }
+
+        /// <summary>
+        /// Run the <c>delete_pipeline</c> command.
+        /// </summary>
+        private async Task<object> DeletePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            string delPipelineName = command.Id ?? "";
+            Pipeline? delPipeline = await ReadVisiblePipelineAsync(caller, delPipelineName).ConfigureAwait(false);
+            if (delPipeline == null)
+                return NotFound("delete_pipeline", "Pipeline not found");
+            if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, delPipeline))
+                return Forbidden("delete_pipeline", "You may not delete this pipeline");
+            if (delPipeline.IsBuiltIn)
+                return new { type = "command.error", action = "delete_pipeline", error = "Cannot delete built-in pipeline" };
+            await _Database.Pipelines.DeleteAsync(delPipeline.Id).ConfigureAwait(false);
+            return new { type = "command.result", action = "delete_pipeline", data = (object)new { Status = "deleted", Name = delPipelineName } };
+        }
+
+        #endregion
     }
 }

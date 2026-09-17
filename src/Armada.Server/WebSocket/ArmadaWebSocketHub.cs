@@ -21,7 +21,8 @@ namespace Armada.Server.WebSocket
     /// WebSocket hub for real-time event broadcasting.
     /// Runs on the main Watson7 REST server at the /ws path.
     /// Supports subscribe/command message routing and broadcasts mission/captain state changes.
-    /// Provides full command parity with the REST API and MCP tools.
+    /// Commands follow the declared rules in <see cref="WebSocketCommandRegistry"/>, which are never looser than the
+    /// matching REST routes and MCP tools.
     /// </summary>
     public class ArmadaWebSocketHub
     {
@@ -535,16 +536,8 @@ namespace Armada.Server.WebSocket
 
                 if (string.Equals(route, "command", StringComparison.OrdinalIgnoreCase))
                 {
-                    // The command handler applies no tenant or user scope, so only a global
-                    // administrator may drive it.
-                    if (!connection.Auth.IsAdmin)
-                    {
-                        EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(
-                            new { type = "command.error", error = "WebSocket commands require a global administrator." },
-                            _JsonOptions));
-                        return;
-                    }
-
+                    // Every command is authorized by its declared rule in WebSocketCommandRegistry, which the
+                    // handler enforces before the command runs; an undeclared command is refused.
                     WebSocketCommand command = JsonSerializer.Deserialize<WebSocketCommand>(body, _JsonOptions) ?? new WebSocketCommand();
                     object result = await _CommandHandler.HandleCommandAsync(command.Action, command, body, connection.Auth).ConfigureAwait(false);
                     EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(result, _JsonOptions));

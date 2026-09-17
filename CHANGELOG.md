@@ -137,6 +137,44 @@ All notable changes to Armada are documented in this file.
   `default`; the rule and model verdicts are recorded on every call; the reading
   is cached per mission.
 
+### Security
+
+- Every WebSocket command now has one declared authorization rule in
+  `WebSocketCommandRegistry`, and the command handler enforces it before the
+  command runs, for every caller. Before, the handler checked nothing: persona,
+  pipeline and prompt template reads and changes found records by name across
+  every tenant and never called the ownership rule, and only the hub's blanket
+  global-administrator gate kept narrower sessions out. The handler dispatches
+  only declared commands; an undeclared command returns `unknown_command`.
+- A command's rule is the stricter of its REST route and its MCP tool.
+  `get_persona`, `get_pipeline` and `get_prompt_template` are open to any
+  authenticated session and find the record through the shared caller scope, so
+  another tenant's record returns `not_found` with no data.
+  `list_missions_summary` keeps its caller-scoped query. Every other command
+  needs a global administrator and returns `global_administrator_required` to
+  anyone else, because the matching MCP tool is reserved for global
+  administrators. A command without a caller returns `authentication_required`.
+  A refused command writes nothing.
+- `update_persona`, `delete_persona`, `update_pipeline` and `delete_pipeline`
+  find the record through the shared caller scope and apply the shared edit
+  rule, returning `not_found` or `forbidden`.
+- WebSocket updates keep the fields REST keeps. `update_fleet` and
+  `update_vessel` could move a record to another tenant or owner through the
+  body, and `update_mission` replaced the whole mission, so it could set a status
+  past the transition gates. The three commands now share one merge rule with
+  their REST routes: ownership and creation time stay as stored, and a mission
+  update writes metadata only and refuses a vessel or voyage change
+  (`mission_binding_immutable`).
+- `create_persona` and `create_pipeline` over WebSocket can no longer create a
+  built-in record.
+- A persona create now applies the default captain rule on REST
+  (`POST /api/v1/personas`), MCP (`create_persona` accepts `defaultCaptainId`)
+  and WebSocket. Before, a create stored any `DefaultCaptainId`, including a
+  captain in another tenant. A refused create returns `default_captain_not_found` or `default_captain_persona_locked`
+  and writes nothing.
+- The dashboard persona pages show the server's refusal reason when a save
+  fails, instead of "Save failed.".
+
 ### Removed
 
 - The `routing_hint` typed decision and route `shapes` tags are retired in

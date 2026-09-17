@@ -3162,8 +3162,14 @@ Create a new persona.
 | `Description` | string | no | Persona description |
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
 | `Specialist` | boolean | no | When true, missions of this persona are routed only to Premium captains. Default false |
+| `DefaultCaptainId` | string | no | Captain id missions of this persona prefer; `null` or `""` for none |
 
 **Response:** `201 Created` - Persona
+**Error:** `400` - `default_captain_not_found`: no captain with that id exists in the caller's tenant (a captain in another tenant counts as not found)
+**Error:** `400` - `default_captain_persona_locked`: the captain's `AllowedPersonas` excludes the persona
+
+A refused create writes nothing. The MCP `create_persona` tool and the WebSocket
+`create_persona` command apply the same default-captain rule.
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/personas \

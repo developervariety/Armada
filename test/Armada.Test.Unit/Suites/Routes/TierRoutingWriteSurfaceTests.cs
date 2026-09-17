@@ -96,11 +96,11 @@ namespace Armada.Test.Unit.Suites.Routes
                     WebSocketCommandHandler handler = new WebSocketCommandHandler(null!, testDb.Driver, null!, null, null, null, _ServerJsonOptions, mission => { }, voyage => { });
 
                     string flag = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsReviewer", data = new { specialist = true } });
-                    await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "WsReviewer" }, flag).ConfigureAwait(false);
+                    await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "WsReviewer" }, flag, McpTestCaller.Operator).ConfigureAwait(false);
                     AssertTrue((await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false))!.Specialist, "the flag is set");
 
                     string describe = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsReviewer", data = new { description = "reviews" } });
-                    await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "WsReviewer" }, describe).ConfigureAwait(false);
+                    await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "WsReviewer" }, describe, McpTestCaller.Operator).ConfigureAwait(false);
                     Persona? kept = await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false);
                     AssertEqual("reviews", kept!.Description);
                     AssertTrue(kept.Specialist, "an update that omits the flag keeps it");
@@ -161,6 +161,28 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
+            await RunTest("Mcp persona create sets the default captain through the shared rule", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, Func<JsonElement?, Task<object>>> tools = PersonaTools(testDb.Driver);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("create-default-mcp")).ConfigureAwait(false);
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("OtherCreateDefaultTenant")).ConfigureAwait(false);
+                    Captain otherTenant = new Captain("other-tenant-create-default");
+                    otherTenant.TenantId = tenant.Id;
+                    otherTenant = await testDb.Driver.Captains.CreateAsync(otherTenant).ConfigureAwait(false);
+
+                    await tools["create_persona"](JsonSerializer.SerializeToElement(new { name = "CreatedDefaulted", promptTemplateName = "persona.worker", defaultCaptainId = captain.Id })).ConfigureAwait(false);
+                    Persona? created = await testDb.Driver.Personas.ReadByNameAsync("CreatedDefaulted").ConfigureAwait(false);
+                    AssertNotNull(created, "the persona is created");
+                    AssertEqual(captain.Id, created!.DefaultCaptainId, "the default captain named on create is stored");
+
+                    string foreign = JsonSerializer.Serialize(await tools["create_persona"](JsonSerializer.SerializeToElement(new { name = "CreatedForeign", promptTemplateName = "persona.worker", defaultCaptainId = otherTenant.Id })).ConfigureAwait(false));
+                    AssertContains(PersonaDefaultCaptainRule.NotFoundErrorCode, foreign, "a captain from another tenant is refused");
+                    AssertNull(await testDb.Driver.Personas.ReadByNameAsync("CreatedForeign").ConfigureAwait(false), "a refused create writes nothing");
+                }
+            });
+
             await RunTest("WebSocket persona update sets, clears and refuses the default captain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -171,16 +193,16 @@ namespace Armada.Test.Unit.Suites.Routes
                     WebSocketCommand command = new WebSocketCommand { Action = "update_persona", Id = "WsDefaulted" };
 
                     string set = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsDefaulted", data = new { defaultCaptainId = captain.Id } });
-                    await handler.HandleCommandAsync("update_persona", command, set).ConfigureAwait(false);
+                    await handler.HandleCommandAsync("update_persona", command, set, McpTestCaller.Operator).ConfigureAwait(false);
                     AssertEqual(captain.Id, (await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false))!.DefaultCaptainId, "the default captain is set");
 
                     string missing = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsDefaulted", data = new { defaultCaptainId = "cpt_examplemissing" } });
-                    string refused = JsonSerializer.Serialize(await handler.HandleCommandAsync("update_persona", command, missing).ConfigureAwait(false));
+                    string refused = JsonSerializer.Serialize(await handler.HandleCommandAsync("update_persona", command, missing, McpTestCaller.Operator).ConfigureAwait(false));
                     AssertContains(PersonaDefaultCaptainRule.NotFoundErrorCode, refused, "an unknown captain is refused");
                     AssertEqual(captain.Id, (await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false))!.DefaultCaptainId, "a refused update keeps the stored captain");
 
                     string clear = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsDefaulted", data = new { defaultCaptainId = (string?)null } });
-                    await handler.HandleCommandAsync("update_persona", command, clear).ConfigureAwait(false);
+                    await handler.HandleCommandAsync("update_persona", command, clear, McpTestCaller.Operator).ConfigureAwait(false);
                     AssertNull((await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false))!.DefaultCaptainId, "a null default captain clears it");
                 }
             });

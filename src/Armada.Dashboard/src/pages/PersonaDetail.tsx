@@ -111,7 +111,10 @@ export default function PersonaDetail() {
       setShowForm(false);
       pushToast('success', t('Persona "{{name}}" saved.', { name: persona.name }));
       load();
-    } catch { setError(t('Save failed.')); }
+    } catch (err) {
+      // The server's refusal names its reason (for example a default captain it will not accept).
+      setError(err instanceof Error && err.message ? err.message : t('Save failed.'));
+    }
   }
 
   async function handleSavePrompt() {

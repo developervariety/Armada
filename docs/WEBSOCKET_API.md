@@ -142,17 +142,20 @@ this frame and not in the URL. Query strings appear in request logs.
   closes the session.
 - No authentication within 15 seconds of connecting: the server sends
   `auth.required` and closes the session.
-- `command` requires a global administrator, because most command actions do
-  not apply tenant or user scope. Other sessions receive `command.error`.
-  `list_missions_summary` is the exception inside the handler: it reads through
-  the same caller-scoped query as `GET /api/v1/missions/summaries`, so it
-  returns exactly what REST returns to the same caller.
+- Each `command` action has a declared authorization rule; see
+  [Command Authorization](#command-authorization). Most actions need a global
+  administrator and return `command.error` with `code`
+  `global_administrator_required` to other sessions. `get_persona`,
+  `get_pipeline` and `get_prompt_template` are open to any authenticated session
+  and read through the caller's scope. `list_missions_summary` reads through the
+  same caller-scoped query as `GET /api/v1/missions/summaries`, so it returns
+  exactly what REST returns to the same caller.
 - A create command (`create_fleet`, `create_vessel`, `create_voyage`,
   `create_mission`, `create_captain`, `send_signal`, `enqueue_merge`,
   `create_persona`, `create_pipeline`) records the session caller's tenant and
   user as the owner, as the matching REST create does, and replaces any owner
   the `data` object names. Without an authenticated caller it returns
-  `command.error` and writes nothing. `create_voyage` with missions dispatches
+  `command.error` with `code` `authentication_required` and writes nothing. `create_voyage` with missions dispatches
   through the admiral, so the voyage and missions take the vessel's owner.
   `create_voyage` also accepts `skipStages` and `skipStagesReason`: when
   `skipStages` names a stage, the voyage materialises the vessel's effective
@@ -885,6 +888,131 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | **Prompt Template** | `get_prompt_template` | Get a prompt template by name | `id` (template name) |
 | | `update_prompt_template` | Update template content | `id` (template name), `data` (partial PromptTemplate) |
 
+### Command Authorization
+
+Every command has one declared rule in `WebSocketCommandRegistry`
+(`src/Armada.Server/WebSocket/WebSocketCommandRegistry.cs`). The command handler
+dispatches only declared commands and enforces the rule before a command runs,
+for every caller:
+
+1. An undeclared action returns `command.error` with `code` `unknown_command`.
+2. A command without an authenticated caller returns `authentication_required`.
+3. A `GlobalAdmin` command returns `global_administrator_required` to any caller
+   who is not a global administrator.
+4. A `ReadScoped` command finds its record through the shared caller scope that
+   the REST route and MCP tool use (`OwnedRecordScope`, `OwnershipPolicy`). A
+   record the caller may not read returns `not_found` with no record data, so
+   the reply never confirms that another tenant's record exists.
+5. A `ListScoped` command lists through the shared caller-scoped query, so the
+   result holds only records the caller may read.
+
+A refused command writes nothing. A command's rule is the stricter of its REST
+route and its MCP tool. MCP reserves most tools for global administrators, so a
+command is `GlobalAdmin` unless both its REST route and its MCP tool (when one
+exists) admit any authenticated caller through the shared ownership rule. A
+command with no counterpart would be `GlobalAdmin`. A unit test derives each
+rule from `AuthorizationConfig` and `McpToolAccessPolicy` and fails when a
+dispatched command has no declared rule.
+
+Inside a `GlobalAdmin` command the persona and pipeline changes still find the
+record through the shared caller scope and apply `OwnershipPolicy.CanEdit`:
+`not_found` for a record the caller cannot read, `forbidden` for one it can read
+but not change.
+
+**Census.** 59 commands. Before this rule, the handler checked no permission for
+any command. Only the hub let a global administrator alone send commands, so a
+narrower session could not reach the handler, but any other caller of the
+handler could. The table records the state after the change and the gap each
+command had against REST or MCP:
+
+- **G0** - no gap beyond the missing handler rule (all 59 commands had that).
+- **G1** - the record was found by name across every tenant with no ownership
+  check (`get_persona`, `update_persona`, `delete_persona`, `get_pipeline`,
+  `update_pipeline`, `delete_pipeline`, `get_prompt_template`). REST and MCP read
+  through the caller scope and change only with `CanEdit`.
+- **G2** - the body replaced server-owned fields that REST keeps: `update_fleet`
+  and `update_vessel` could move the record to another tenant or owner, and
+  `update_mission` replaced the whole mission, including status, owner, captain,
+  vessel and voyage. They now share one merge rule with their REST routes
+  (`FleetUpdateMerge`, `VesselUpdateMerge`, `MissionMetadataUpdate`); a mission
+  vessel or voyage change returns `mission_binding_immutable`.
+- **G3** - a create accepted `IsBuiltIn` from the body. REST forces it false.
+- **G4** - a create stored any `DefaultCaptainId` without the default captain
+  rule. REST `POST /api/v1/personas` and MCP `create_persona` had the same gap
+  and now apply the rule too.
+
+Change events: `cancel_voyage`, `cancel_mission`, `restart_mission` and
+`transition_mission_status` deliver their events to the changed record's owner
+scope and global administrators. No other command broadcasts.
+
+| Command | Operation | REST route | REST level | REST record scope | MCP tool | Rule now | Gap fixed |
+|---|---|---|---|---|---|---|---|
+| `status` | Read | `GET /api/v1/status` | AdminOnly | fleet-wide, no record scope | `armada_status` (global admin) | GlobalAdmin | G0 |
+| `stop_captain` | Action | `POST /api/v1/captains/{id}/stop` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_stop_captain` (global admin) | GlobalAdmin | G0 |
+| `stop_all` | Action | `POST /api/v1/captains/stop-all` | TenantAdmin | fleet-wide, no record scope | `armada_stop_all` (global admin) | GlobalAdmin | G0 |
+| `stop_server` | Action | `POST /api/v1/server/stop` | AdminOnly | fleet-wide, no record scope | `armada_stop_server` (global admin) | GlobalAdmin | G0 |
+| `list_fleets` | List | `GET /api/v1/fleets` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `get_fleet` | Read | `GET /api/v1/fleets/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_fleet` (global admin) | GlobalAdmin | G0 |
+| `create_fleet` | Create | `POST /api/v1/fleets` | TenantAdmin | owner = caller | `armada_create_fleet` (global admin) | GlobalAdmin | G0 |
+| `update_fleet` | Update | `PUT /api/v1/fleets/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_update_fleet` (global admin) | GlobalAdmin | G2 |
+| `delete_fleet` | Delete | `DELETE /api/v1/fleets/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_delete_fleet` (global admin) | GlobalAdmin | G0 |
+| `list_vessels` | List | `GET /api/v1/vessels` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `get_vessel` | Read | `GET /api/v1/vessels/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_vessel` (global admin) | GlobalAdmin | G0 |
+| `create_vessel` | Create | `POST /api/v1/vessels` | TenantAdmin | owner = caller | `armada_add_vessel` (global admin) | GlobalAdmin | G0 |
+| `update_vessel` | Update | `PUT /api/v1/vessels/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_update_vessel` (global admin) | GlobalAdmin | G2 |
+| `update_vessel_context` | Update | `PATCH /api/v1/vessels/{id}/context` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_update_vessel_context` (global admin) | GlobalAdmin | G0 |
+| `delete_vessel` | Delete | `DELETE /api/v1/vessels/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_delete_vessel` (global admin) | GlobalAdmin | G0 |
+| `list_voyages` | List | `GET /api/v1/voyages` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `get_voyage` | Read | `GET /api/v1/voyages/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_voyage_status` (global admin) | GlobalAdmin | G0 |
+| `create_voyage` | Create | `POST /api/v1/voyages` | TenantAdmin | owner = caller | `armada_dispatch` (global admin) | GlobalAdmin | G0 |
+| `cancel_voyage` | Action | `DELETE /api/v1/voyages/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_cancel_voyage` (global admin) | GlobalAdmin | G0 |
+| `purge_voyage` | Delete | `DELETE /api/v1/voyages/{id}/purge` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_purge_voyage` (global admin) | GlobalAdmin | G0 |
+| `list_missions` | List | `GET /api/v1/missions` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `list_missions_summary` | List | `GET /api/v1/missions/summaries` | Authenticated | caller-scoped query | - | ListScoped | G0 |
+| `get_mission` | Read | `GET /api/v1/missions/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_mission_status` (global admin) | GlobalAdmin | G0 |
+| `create_mission` | Create | `POST /api/v1/missions` | TenantAdmin | owner = caller | `armada_create_mission` (global admin) | GlobalAdmin | G0 |
+| `update_mission` | Update | `PUT /api/v1/missions/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_update_mission` (global admin) | GlobalAdmin | G2 |
+| `transition_mission_status` | Action | `PUT /api/v1/missions/{id}/status` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_transition_mission_status` (global admin) | GlobalAdmin | G0 |
+| `cancel_mission` | Action | `DELETE /api/v1/missions/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_cancel_mission` (global admin) | GlobalAdmin | G0 |
+| `purge_mission` | Delete | `DELETE /api/v1/missions/{id}/purge` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_purge_mission` (global admin) | GlobalAdmin | G0 |
+| `restart_mission` | Action | `POST /api/v1/missions/{id}/restart` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_restart_mission` (global admin) | GlobalAdmin | G0 |
+| `get_mission_diff` | Read | `GET /api/v1/missions/{id}/diff` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_mission_diff` (global admin) | GlobalAdmin | G0 |
+| `get_mission_log` | Read | `GET /api/v1/missions/{id}/log` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_mission_log` (global admin) | GlobalAdmin | G0 |
+| `list_captains` | List | `GET /api/v1/captains` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `get_captain` | Read | `GET /api/v1/captains/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_captain` (global admin) | GlobalAdmin | G0 |
+| `create_captain` | Create | `POST /api/v1/captains` | TenantAdmin | owner = caller | `armada_create_captain` (global admin) | GlobalAdmin | G0 |
+| `update_captain` | Update | `PUT /api/v1/captains/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_update_captain` (global admin) | GlobalAdmin | G0 |
+| `delete_captain` | Delete | `DELETE /api/v1/captains/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_delete_captain` (global admin) | GlobalAdmin | G0 |
+| `get_captain_log` | Read | `GET /api/v1/captains/{id}/log` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_captain_log` (global admin) | GlobalAdmin | G0 |
+| `list_signals` | List | `GET /api/v1/signals` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `send_signal` | Create | `POST /api/v1/signals` | TenantAdmin | owner = caller | `armada_send_signal` (global admin) | GlobalAdmin | G0 |
+| `list_events` | List | `GET /api/v1/events` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `list_docks` | List | `GET /api/v1/docks` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `list_merge_queue` | List | `GET /api/v1/merge-queue` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `get_merge_entry` | Read | `GET /api/v1/merge-queue/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_merge_entry` (global admin) | GlobalAdmin | G0 |
+| `enqueue_merge` | Create | `POST /api/v1/merge-queue` | TenantAdmin | owner = caller | `armada_enqueue_merge` (global admin) | GlobalAdmin | G0 |
+| `cancel_merge` | Delete | `DELETE /api/v1/merge-queue/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_cancel_merge` (global admin) | GlobalAdmin | G0 |
+| `process_merge_queue` | Action | `POST /api/v1/merge-queue/process` | TenantAdmin | fleet-wide, no record scope | `armada_process_merge_queue` (global admin) | GlobalAdmin | G0 |
+| `enumerate` | List | `POST /api/v1/<entity>/enumerate` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
+| `backup` | Action | `GET /api/v1/backup` | AdminOnly | fleet-wide, no record scope | `armada_backup` (global admin) | GlobalAdmin | G0 |
+| `restore` | Action | `POST /api/v1/restore` | AdminOnly | fleet-wide, no record scope | `armada_restore` (global admin) | GlobalAdmin | G0 |
+| `get_persona` | Read | `GET /api/v1/personas/{name}` | Authenticated | shared caller scope (CanView) | `get_persona` (any caller; shared caller scope) | ReadScoped | G1 |
+| `create_persona` | Create | `POST /api/v1/personas` | TenantAdmin | owner = caller | `create_persona` (global admin) | GlobalAdmin | G3, G4 |
+| `update_persona` | Update | `PUT /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_persona` (global admin) | GlobalAdmin | G1 |
+| `delete_persona` | Delete | `DELETE /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `delete_persona` (global admin) | GlobalAdmin | G1 |
+| `get_prompt_template` | Read | `GET /api/v1/prompt-templates/{name}` | Authenticated | shared caller scope (CanView) | `get_prompt_template` (any caller; shared caller scope) | ReadScoped | G1 |
+| `update_prompt_template` | Update | `PUT /api/v1/prompt-templates/{name}` | AdminOnly | by name, all tenants | `update_prompt_template` (global admin) | GlobalAdmin | G0 |
+| `get_pipeline` | Read | `GET /api/v1/pipelines/{name}` | Authenticated | shared caller scope (CanView) | `get_pipeline` (any caller; shared caller scope) | ReadScoped | G1 |
+| `create_pipeline` | Create | `POST /api/v1/pipelines` | TenantAdmin | owner = caller | `create_pipeline` (global admin) | GlobalAdmin | G3 |
+| `update_pipeline` | Update | `PUT /api/v1/pipelines/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_pipeline` (global admin) | GlobalAdmin | G1 |
+| `delete_pipeline` | Delete | `DELETE /api/v1/pipelines/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `delete_pipeline` (global admin) | GlobalAdmin | G1 |
+
+REST levels are those `AuthorizationConfig` returns. "admin all / tenant admin
+tenant / user own" means the route reads every tenant for a global
+administrator, the caller's tenant for a tenant administrator, and the caller's
+own records for anyone else. `enumerate` covers fleets, vessels, captains,
+missions, voyages, docks, signals, events and the merge queue under one rule.
+
 ---
 
 ### Status & Control
@@ -1156,6 +1284,10 @@ Update an existing fleet.
 | `id` | string | Yes | Fleet ID (prefix `flt_`) |
 | `data` | object | Yes | Fields to update |
 
+Like `PUT /api/v1/fleets/{id}`, the stored tenant, owner and creation time are
+kept whatever `data` names, and `Active` and `DefaultPlaybooks` keep their stored
+values unless `data` names them.
+
 **Response:**
 
 ```json
@@ -1320,6 +1452,8 @@ Update an existing vessel.
 | `action` | string | Yes | `"update_vessel"` |
 | `id` | string | Yes | Vessel ID (prefix `vsl_`) |
 | `data` | object | Yes | Fields to update |
+
+Like `PUT /api/v1/vessels/{id}`, the stored tenant, owner, creation time and auto-land calibration count are kept whatever `data` names.
 
 `data.gitHubTokenOverride` is write-only, on `create_vessel` and `update_vessel` alike. Omit it to keep the stored value; pass an empty string to clear it; any other value replaces it, trimmed. No result or event returns the value; vessel results carry `hasGitHubTokenOverride` instead.
 
@@ -1695,6 +1829,13 @@ Update an existing mission.
 | `action` | string | Yes | `"update_mission"` |
 | `id` | string | Yes | Mission ID (prefix `msn_`) |
 | `data` | object | Yes | Fields to update |
+
+Like `PUT /api/v1/missions/{id}`, the command writes metadata only: `Title`,
+`Description`, `Priority`, `BranchName`, `PrUrl`, `ParentMissionId` and
+`DependsOnMissionId`. Status, owner, captain, dock and timestamps stay as
+stored; change a status with `transition_mission_status`. A `VesselId` or
+`VoyageId` that differs from the stored value returns `command.error` with
+`code` `mission_binding_immutable` and writes nothing.
 
 ---
 
@@ -2590,7 +2731,29 @@ Sending an unrecognized `action` value returns:
 {
   "type": "command.error",
   "action": "bad_action",
-  "error": "Unknown action: bad_action"
+  "error": "Unknown action: bad_action",
+  "code": "unknown_command"
+}
+```
+
+### Authorization Refusals
+
+A refused command returns `command.error` with a `code` and writes nothing:
+
+| Code | Meaning |
+|---|---|
+| `unknown_command` | The action is not declared. |
+| `authentication_required` | The command has no authenticated caller. |
+| `global_administrator_required` | The command needs a global administrator. |
+| `not_found` | The record does not exist or the caller may not read it. The two read the same. |
+| `forbidden` | The caller may read the record but not change it. |
+
+```json
+{
+  "type": "command.error",
+  "action": "update_persona",
+  "error": "update_persona requires a global administrator",
+  "code": "global_administrator_required"
 }
 ```
 

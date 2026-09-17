@@ -289,7 +289,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     });
 
                     string resultJson = JsonSerializer.Serialize(await handler.HandleCommandAsync(
-                        "create_captain", new WebSocketCommand { Action = "create_captain" }, rawBody).ConfigureAwait(false));
+                        "create_captain", new WebSocketCommand { Action = "create_captain" }, rawBody, McpTestCaller.Operator).ConfigureAwait(false));
 
                     AssertContains("command.error", resultJson, "A server-owned field is refused");
                     AssertContains("State", resultJson, "The refusal names State");
@@ -315,7 +315,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     });
 
                     string resultJson = JsonSerializer.Serialize(await handler.HandleCommandAsync(
-                        "update_captain", new WebSocketCommand { Action = "update_captain", Id = captain.Id }, rawBody).ConfigureAwait(false));
+                        "update_captain", new WebSocketCommand { Action = "update_captain", Id = captain.Id }, rawBody, McpTestCaller.Operator).ConfigureAwait(false));
 
                     AssertContains("command.error", resultJson, "A server-owned field is refused");
                     AssertContains("State", resultJson, "The refusal names State");
@@ -348,7 +348,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     });
 
                     string resultJson = JsonSerializer.Serialize(await handler.HandleCommandAsync(
-                        "update_captain", new WebSocketCommand { Action = "update_captain", Id = captain.Id }, rawBody).ConfigureAwait(false));
+                        "update_captain", new WebSocketCommand { Action = "update_captain", Id = captain.Id }, rawBody, McpTestCaller.Operator).ConfigureAwait(false));
 
                     AssertContains("command.result", resultJson, "A config-only update is accepted");
                     Captain? persisted = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);

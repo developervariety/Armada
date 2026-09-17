@@ -304,18 +304,8 @@ namespace Armada.Server.Routes
                 }
                 Vessel updated = JsonSerializer.Deserialize<Vessel>(updateBodyText, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
-                updated.Id = id;
                 updated.AutoLandPredicate = updateAlpJson;
-                // The body replaces client-editable fields only. Ownership, creation time and server-maintained
-                // counters come from the stored record, because the providers write every column on update.
-                updated.TenantId = existing.TenantId;
-                updated.UserId = existing.UserId;
-                updated.CreatedUtc = existing.CreatedUtc;
-                updated.AutoLandCalibrationLandedCount = existing.AutoLandCalibrationLandedCount;
-                // The token override is write-only, so a client can never echo it back. An update that
-                // omits it keeps the stored credential; only an explicit value (empty clears) replaces it.
-                updated.GitHubTokenOverride = Vessel.ResolveGitHubTokenOverride(
-                    existing.GitHubTokenOverride, updated.GitHubTokenOverrideSpecified, updated.GitHubTokenOverride);
+                VesselUpdateMerge.KeepServerOwnedFields(existing, updated);
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },
