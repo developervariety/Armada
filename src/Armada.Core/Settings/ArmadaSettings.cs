@@ -794,6 +794,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Read-only captain-log screening policy. Default off with an empty boundary-pattern
+        /// list, so a fresh install reads no captain log and the boundary rule reports nothing
+        /// until an operator supplies the terms their deployment treats as private.
+        /// </summary>
+        public CaptainLogScreeningSettings CaptainLogScreening
+        {
+            get => _CaptainLogScreening;
+            set => _CaptainLogScreening = value ?? new CaptainLogScreeningSettings();
+        }
+
+        /// <summary>
         /// Extra prompt templates seeded on startup. Product defaults are empty; a
         /// deployment adds specialist-reviewer templates here instead of baking them
         /// into code. Applied at process start; a change requires a restart.
@@ -959,6 +970,7 @@ namespace Armada.Core.Settings
         private SelfDeploySettings _SelfDeploy = new SelfDeploySettings();
         private ModelTierSettings _ModelTier = new ModelTierSettings();
         private VoyageDispatchSettings _VoyageDispatch = new VoyageDispatchSettings();
+        private CaptainLogScreeningSettings _CaptainLogScreening = new CaptainLogScreeningSettings();
         private List<AdditionalPromptTemplateSettings> _AdditionalPromptTemplates = new List<AdditionalPromptTemplateSettings>();
         private List<AdditionalPersonaSettings> _AdditionalPersonas = new List<AdditionalPersonaSettings>();
         private List<AdditionalPipelineSettings> _AdditionalPipelines = new List<AdditionalPipelineSettings>();
@@ -1104,6 +1116,11 @@ namespace Armada.Core.Settings
             ApiCaptainCloudProviders = source.ApiCaptainCloudProviders;
             ModelTier.CopyFrom(source.ModelTier);
             VoyageDispatch.CopyFrom(source.VoyageDispatch);
+
+            // The log screen is constructed with a reference to this nested object, so it is copied
+            // in place: a sub-section left out of this copy is silently ignored on every reload and
+            // the feature reads as off however the settings file is edited.
+            CaptainLogScreening.CopyFrom(source.CaptainLogScreening);
 
             // Read through the shared settings instance on every use.
             CaptainQuarantine = source.CaptainQuarantine;

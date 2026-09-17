@@ -58,7 +58,51 @@ The Admiral runs a health-check loop on a configurable interval controlled by `H
 3. **Checks for stalled captains** -- captains that have not reported progress within the `StallThresholdMinutes` window (default: 10 minutes).
 4. **Runs escalation rules** -- triggers recovery or alerts for stalled or failed missions.
 
-After those steps the Admiral runs its periodic maintenance, each step on its own cadence in health-loop cycles: job maintenance, objective dispatch attempt reconciliation and stale background-job reaping every cycle, log rotation and planning-session maintenance every 10, data expiry every 100, disk lifecycle reconciliation every `diskLifecycle.reconcileIntervalCycles`, the code-index staleness sweep every `codeIndex.stalenessSweepIntervalCycles`, and the branch cleanup sweep every `branchCleanupSweepIntervalCycles` (default 200). Each step runs in isolation. A failing step logs `<step> failed: <reason>` and the steps after it still run. A failing health check does not stop the cycle count, so maintenance keeps its cadence.
+After those steps the Admiral runs its periodic maintenance, each step on its own cadence in health-loop cycles: job maintenance, objective dispatch attempt reconciliation and stale background-job reaping every cycle, log rotation and planning-session maintenance every 10, data expiry every 100, disk lifecycle reconciliation every `diskLifecycle.reconcileIntervalCycles`, captain log screening every cycle (the screen self-guards to `captainLogScreening.intervalSeconds` and returns immediately while it is off), the code-index staleness sweep every `codeIndex.stalenessSweepIntervalCycles`, and the branch cleanup sweep every `branchCleanupSweepIntervalCycles` (default 200). Each step runs in isolation. A failing step logs `<step> failed: <reason>` and the steps after it still run. A failing health check does not stop the cycle count, so maintenance keeps its cadence.
+
+## Captain Log Screening
+
+The Admiral can screen the log each in-progress mission is writing, read-only, on a cadence. A
+sweep reads a bounded tail of the mission's live log, runs every registered screening pass over it,
+and on a finding posts one voyage-tagged coordination-board note naming the rule classes with one
+line of evidence each, plus one `captain.log_screen` event. The voyage tag is what carries the note
+into that voyage's next stage brief.
+
+The screen never cancels, pauses, mails, re-dispatches, kills or steers a mission. Its only writes
+are the board note and the event.
+
+The shipped pass is deterministic: it matches mechanical shapes with no model call and no provider
+key. Its rule classes are `unproved_fix` (a success claim whose evidence is a tool's own success
+message, with no re-run of the failing command in the tail), `pipe_gated_build` (a build piped into
+a text search that then chains a test run, so the suite runs whenever the search matched),
+`silent_skip` (added content with an empty catch, or a skip with no stated reason), `plan_label`
+(a plan-block label in added content) and `boundary_token` (a line holding one of the
+operator-configured boundary patterns).
+
+Settings live under `captainLogScreening`:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Whether the screen runs. Off ships no log read at all. |
+| `intervalSeconds` | `300` | Minimum seconds between sweeps; clamped to at least 30. |
+| `tailLines` | `200` | Trailing lines read per mission per sweep; clamped to 20-2000. |
+| `cooldownMinutes` | `30` | Minutes a flagged mission is not flagged again; clamped to at least 1. |
+| `boundaryPatterns` | `[]` | Operator configuration for `boundary_token`. Empty by default, so that rule is inert until a deployment supplies its own terms. |
+
+The whole section hot-reloads: it is merged in place, so an edit to the settings file reaches the
+running screen without a restart.
+
+### Reading the counts
+
+Every screen that runs writes exactly one `captain.log_screen` event, whether or not anything was
+found, so a clean screen is distinguishable from a screen that never ran (which writes nothing). The
+payload carries `outcome` (`flagged` or `clean`), `counts` (findings per rule class), the pass names,
+and the tail's SHA-256 and byte count. The tail itself is never stored. Per-class counts over a date
+range are the sum of the `counts` maps on that event type in the window, read through the existing
+event query.
+
+A sweep that did no work names its reason rather than reporting an empty success: screening
+disabled, the interval not elapsed, no passes registered, or no in-progress missions.
 
 ## Manual Priority Override
 

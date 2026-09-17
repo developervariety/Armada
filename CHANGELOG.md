@@ -8,6 +8,23 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Read-only captain-log screening (`captainLogScreening`, default off). On a cadence the Admiral reads a
+  bounded tail of each in-progress mission's live log, runs every registered screening pass over it, and on a
+  finding posts exactly one voyage-tagged coordination-board note naming the rule classes with one line of
+  evidence each, plus one `captain.log_screen` event. The voyage tag carries the note into that voyage's next
+  stage brief. The screen never cancels, pauses, mails, re-dispatches, kills or steers a mission: its only
+  writes are the note and the event, and a failure on one mission does not stop the others being screened.
+  A tail whose hash is unchanged since the last screen costs no pass call at all.
+- The shipped screening pass is deterministic, with no model call and no provider key, so it is the fallback a
+  later model-backed pass sits behind. Its classes are `unproved_fix`, `pipe_gated_build`, `silent_skip`,
+  `plan_label` and `boundary_token`. `boundaryPatterns` is operator configuration and ships empty, so that
+  rule is inert until a deployment supplies its own terms.
+- Per-class screening counts are readable over a date range: every screen that runs writes one
+  `captain.log_screen` event, clean screens included, whose payload carries the outcome, the counts by rule
+  class, the pass names, and the tail's SHA-256 and byte count. A screen that never ran writes nothing, so an
+  absent event never reads as clean. The tail itself is never stored. The whole settings section is merged in
+  place by the hot reload, so an operator edit reaches the running screen without a restart.
+
 - Typed-decision training data (phase 0 of the local-classifier programme, owner ruling 2026-09-17). The
   retention section is carried by the settings hot reload, so enabling it takes effect without a restart. The REDACTED
   state of a decision call can now be retained on the host as JSON lines under

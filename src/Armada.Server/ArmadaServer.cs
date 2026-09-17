@@ -117,6 +117,7 @@ namespace Armada.Server
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
         private CoordinationService _CoordinationService = null!;
+        private CaptainLogScreenService _CaptainLogScreen = null!;
         private Armada.Core.Services.DispatchHold _DispatchHold = null!;
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
@@ -705,6 +706,17 @@ namespace Armada.Server
                 if (String.IsNullOrEmpty(target)) return;
                 await _RemoteTriggerService.FireBoardWakeAsync(target!, text, token).ConfigureAwait(false);
             };
+
+            // The read-only captain-log screen. It holds the screening settings section by reference so
+            // an operator edit reaches it without a restart, and it is driven by the health loop below.
+            // Its only writes are one voyage-tagged board note and one event per screened mission.
+            _CaptainLogScreen = new CaptainLogScreenService(
+                _Logging,
+                _Database,
+                _Settings.CaptainLogScreening,
+                new CaptainLogTailReader(_Settings),
+                new List<ICaptainLogScreenPass> { new DeterministicLogScreenPass(_Settings.CaptainLogScreening) },
+                new CoordinationVoyageNotePoster(_CoordinationService, "Captain Log Screen", _Logging));
 
             // D5 preflight text-half adapter. Always wired; without a key the effective mode is Off, so
             // the preview stays fully deterministic. It runs after the
@@ -2146,6 +2158,12 @@ namespace Armada.Server
 
                 HealthLoopMaintenanceStep.EveryCycles("planning session maintenance", () => 10,
                     async stepToken => await _PlanningSessions.MaintainSessionsAsync(stepToken).ConfigureAwait(false)),
+
+                // Read-only captain-log screening. The service self-guards to its configured interval
+                // and returns immediately while screening is off, so this step is cheap to schedule
+                // every cycle. It never changes a mission.
+                HealthLoopMaintenanceStep.EveryCycles("captain log screening", () => 1,
+                    async stepToken => await _CaptainLogScreen.SweepAsync(stepToken).ConfigureAwait(false)),
 
                 HealthLoopMaintenanceStep.EveryCycles("data expiry", () => 100,
                     async stepToken => await _DataExpiry.PurgeExpiredDataAsync(stepToken).ConfigureAwait(false)),
