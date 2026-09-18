@@ -400,14 +400,67 @@ namespace Armada.Runtimes
             try
             {
                 ToolResult result = await registry.ExecuteAsync(call.Id ?? String.Empty, call.Name, argsJson, workingDirectory, token).ConfigureAwait(false);
-                EmitToolActivity(processId, call.Name, detail, result.Success ? StructuredRuntimeLogFormatter.OkStatus : StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory);
+                EmitToolActivity(
+                    processId,
+                    call.Name,
+                    detail,
+                    result.Success ? StructuredRuntimeLogFormatter.OkStatus : StructuredRuntimeLogFormatter.ErrorStatus,
+                    workingDirectory,
+                    result.Success ? null : ReadFailureClass(result.Content));
                 return result.Content ?? String.Empty;
             }
             catch (Exception ex)
             {
+                string failureClass = ClassifyToolException(ex);
                 string message = "Tool execution failed: " + Truncate(ex.Message, 200);
-                EmitToolActivity(processId, call.Name, detail, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory);
-                return JsonSerializer.Serialize(new { error = "invalid_arguments", message });
+                EmitToolActivity(processId, call.Name, detail, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory, failureClass);
+                return JsonSerializer.Serialize(new { error = failureClass, message });
+            }
+        }
+
+        /// <summary>
+        /// Name the class of a tool failure that came back as an exception. Every one of these used to be
+        /// reported as invalid arguments, which made a path refused at the workspace boundary and a file
+        /// above the read limit indistinguishable from a malformed tool-call payload, in the log and in the
+        /// result the model reads.
+        /// </summary>
+        /// <param name="exception">Exception thrown by the tool.</param>
+        /// <returns>Short failure class.</returns>
+        internal static string ClassifyToolException(Exception exception)
+        {
+            if (exception is WorkspaceBoundaryException) return "boundary_refused";
+            if (exception is WorkspaceEnumerationLimitException) return "enumeration_limit";
+            if (exception is ToolSizeLimitException) return "size_limit";
+            if (exception is JsonException) return "invalid_arguments";
+            if (exception is OperationCanceledException) return "cancelled";
+            if (exception is UnauthorizedAccessException) return "permission_denied";
+            if (exception is FileNotFoundException || exception is DirectoryNotFoundException) return "not_found";
+            if (exception is IOException) return "io_error";
+            return "tool_failed";
+        }
+
+        /// <summary>
+        /// Read the failure class a tool already reported in its own result. Tool results carry
+        /// <c>{ "error": "...", "message": "..." }</c>; only the class is taken, because the message
+        /// carries absolute workspace paths that must not reach a log line.
+        /// </summary>
+        /// <param name="content">Tool result content.</param>
+        /// <returns>Failure class, or null when the content does not name one.</returns>
+        internal static string? ReadFailureClass(string? content)
+        {
+            if (String.IsNullOrWhiteSpace(content)) return null;
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(content);
+                if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+                if (!document.RootElement.TryGetProperty("error", out JsonElement error)) return null;
+                if (error.ValueKind != JsonValueKind.String) return null;
+                return error.GetString();
+            }
+            catch (JsonException)
+            {
+                return null;
             }
         }
 
@@ -463,7 +516,13 @@ namespace Armada.Runtimes
             try
             {
                 McpToolCallResult result = await mcpClient.CallToolAsync(call.Name, argsJson, token).ConfigureAwait(false);
-                EmitToolActivity(processId, call.Name, null, result.IsError ? StructuredRuntimeLogFormatter.ErrorStatus : StructuredRuntimeLogFormatter.OkStatus, workingDirectory);
+                EmitToolActivity(
+                    processId,
+                    call.Name,
+                    null,
+                    result.IsError ? StructuredRuntimeLogFormatter.ErrorStatus : StructuredRuntimeLogFormatter.OkStatus,
+                    workingDirectory,
+                    result.IsError ? (ReadFailureClass(result.Text) ?? "mcp_tool_error") : null);
                 return ToolExecution.LimitOutput(result.Text, ToolSafetyLimits.MaxProcessOutputBytes);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -472,7 +531,7 @@ namespace Armada.Runtimes
             }
             catch (Exception ex) when (ex is McpClientException || ex is HttpRequestException || ex is TaskCanceledException)
             {
-                EmitToolActivity(processId, call.Name, null, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory);
+                EmitToolActivity(processId, call.Name, null, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory, "mcp_tool_failed");
                 return JsonSerializer.Serialize(new { error = "mcp_tool_failed", message = Truncate(ex.Message, 500) });
             }
         }
@@ -480,13 +539,14 @@ namespace Armada.Runtimes
         // Tool calls are runtime activity, not the model's answer: they use the shared activity record so
         // chat, planning and mission output separate them from answer text. Only the primary argument is
         // rendered; file content and other arguments are never copied into activity.
-        private void EmitToolActivity(int processId, string? toolName, string? detail, string status, string workingDirectory)
+        private void EmitToolActivity(int processId, string? toolName, string? detail, string status, string workingDirectory, string? reason = null)
         {
             string record = StructuredRuntimeLogFormatter.BuildToolActivity(
                 String.IsNullOrWhiteSpace(toolName) ? "unknown" : toolName,
                 detail,
                 status,
-                workingDirectory);
+                workingDirectory,
+                reason);
             Emit(processId, record);
         }
 

@@ -39,6 +39,11 @@ namespace Armada.Runtimes
         public const int CommandDetailLimit = 240;
 
         /// <summary>
+        /// Maximum rendered length of a failure class in an activity record.
+        /// </summary>
+        public const int FailureReasonLimit = 48;
+
+        /// <summary>
         /// Maximum rendered length of a path, pattern, or query in an activity record.
         /// </summary>
         public const int ShortDetailLimit = 160;
@@ -198,12 +203,20 @@ namespace Armada.Runtimes
         /// <param name="detail">Optional primary argument (file path, command, pattern, query).</param>
         /// <param name="status">Optional status, outcome word, or "exit N".</param>
         /// <param name="workingDirectory">Optional dock root, stripped from rendered paths.</param>
+        /// <param name="reason">
+        /// Optional failure class for a failed call, rendered inside the status as "(error: class)".
+        /// A status word alone says a call failed and never says why, and that same line is what a
+        /// mission's recorded failure cause quotes. The class is a short token such as
+        /// <c>boundary_refused</c> or <c>size_limit</c>; the underlying message is not rendered,
+        /// because tool messages carry absolute workspace paths.
+        /// </param>
         /// <returns>Activity record, or an empty string when the tool name is missing.</returns>
         public static string BuildToolActivity(
             string? toolName,
             string? detail,
             string? status,
-            string? workingDirectory = null)
+            string? workingDirectory = null,
+            string? reason = null)
         {
             if (String.IsNullOrWhiteSpace(toolName))
                 return String.Empty;
@@ -216,9 +229,36 @@ namespace Armada.Runtimes
 
             string? normalizedStatus = NormalizeStatus(status);
             if (!String.IsNullOrEmpty(normalizedStatus))
-                rendered += " (" + normalizedStatus + ")";
+            {
+                string normalizedReason = NormalizeFailureReason(reason);
+                rendered += String.IsNullOrEmpty(normalizedReason)
+                    ? " (" + normalizedStatus + ")"
+                    : " (" + normalizedStatus + ": " + normalizedReason + ")";
+            }
 
             return rendered;
+        }
+
+        /// <summary>
+        /// Reduce a failure class to a short, log-safe token: lower case, at most 48 characters, and
+        /// limited to letters, digits and underscores, so a raw exception message or a path can never
+        /// reach the activity line through this field.
+        /// </summary>
+        /// <param name="reason">Failure class reported by the caller.</param>
+        /// <returns>Normalized token, or an empty string when there is nothing safe to render.</returns>
+        public static string NormalizeFailureReason(string? reason)
+        {
+            if (String.IsNullOrWhiteSpace(reason)) return String.Empty;
+
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            foreach (char character in reason.Trim().ToLowerInvariant())
+            {
+                if (builder.Length >= FailureReasonLimit) break;
+                if (Char.IsLetterOrDigit(character) || character == '_') builder.Append(character);
+                else if (character == ' ' || character == '-') builder.Append('_');
+            }
+
+            return builder.ToString().Trim('_');
         }
 
         /// <summary>

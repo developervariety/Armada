@@ -299,6 +299,14 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- A failed API-endpoint tool call now names its failure class on the activity line, as `(error: class)`.
+  Previously it rendered `(error)` and the reason existed nowhere outside the result the model read, so an
+  operator, the incident, the typed-decision classifier and the autonomous rescue all triaged a line
+  carrying no information — and a mission's recorded failure cause quotes that line verbatim. The classes
+  a thrown failure reports are also correct now: a path refused at the workspace boundary, a file above the
+  read limit and a stopped directory enumeration were all reported as `invalid_arguments`, the same class
+  as a malformed tool-call payload. Only the class is rendered, never the message, because tool messages
+  carry absolute workspace paths.
 - `armada_get_captain` and `armada_update_captain` return the captain's model endpoint reference, tier,
   preference rank and last process-alive time. The response projection omitted them, so they came back as
   `null` and `0` however the record was actually set, and an operator reading the response concluded an
