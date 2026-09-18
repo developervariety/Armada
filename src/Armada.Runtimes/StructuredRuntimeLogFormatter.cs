@@ -134,6 +134,7 @@ namespace Armada.Runtimes
                 { "exec", "bash" },
                 { "terminal", "bash" },
                 { "command_execution", "bash" },
+                { "run_command", "bash" },
                 { "run_shell_command", "bash" },
                 { "run_terminal_cmd", "bash" },
                 { "runterminalcommand", "bash" },

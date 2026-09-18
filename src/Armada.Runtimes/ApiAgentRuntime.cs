@@ -657,7 +657,9 @@ namespace Armada.Runtimes
             {
                 using JsonDocument document = JsonDocument.Parse(argsJson);
                 if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
-                foreach (string name in new[] { "file_path", "path", "pattern" })
+                // "command" first: for run_command the command text IS the record, exactly as a CLI
+                // harness's activity line shows the shell command it ran.
+                foreach (string name in new[] { "command", "file_path", "path", "pattern" })
                 {
                     if (document.RootElement.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String)
                         return value.GetString();

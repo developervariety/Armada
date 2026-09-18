@@ -340,6 +340,14 @@ namespace Test.Shared.Suites.Runtimes
                     AssertTrue(joined.Contains("1 file changed", StringComparison.Ordinal), "The model must see git's own diff summary: " + joined);
                     AssertTrue(joined.Contains("2 passed, 0 failed", StringComparison.Ordinal), "The model must see the test command's real output: " + joined);
                     AssertTrue(joined.Contains("\"exit_code\":0", StringComparison.Ordinal), "The model must see the real exit code: " + joined);
+
+                    // What an operator reads in the mission log: the command, under the canonical shell verb.
+                    List<string> activity;
+                    lock (output) activity = output.FindAll(line => line.StartsWith(ActivityRecords.ToolPrefix, StringComparison.Ordinal));
+                    AssertTrue(activity.Exists(line => line.Contains("bash git diff --stat", StringComparison.Ordinal)),
+                        "The mission log must show which command ran: " + String.Join(" | ", activity));
+                    AssertTrue(activity.Exists(line => line.Contains("bash sh test.sh", StringComparison.Ordinal)),
+                        "The mission log must show the test command: " + String.Join(" | ", activity));
                 }
                 finally
                 {

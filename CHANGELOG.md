@@ -342,6 +342,8 @@ All notable changes to Armada are documented in this file.
   confine what the command touches once it runs, or deny it the network. That needs kernel isolation, and
   the admiral's container permits none — user namespaces are refused and no sandbox binary is installed —
   so the tool is at parity with the CLI harnesses, which already run their own shells in that container.
+  Its activity line names the command under the canonical `bash` verb, as a CLI harness's shell line does,
+  so a mission log shows which command ran.
   The tool is registered only for a dispatched mission. The dashboard chat path builds the same runtime
   and leaves it off, because a chat caller is a different principal from a mission and a command tool there
   would hand the caller a shell in the admiral's container.

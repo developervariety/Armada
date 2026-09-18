@@ -211,6 +211,18 @@ namespace Armada.Test.Runtimes.Suites
                 finally { Directory.Delete(workspace, true); }
             });
 
+            await RunTest("A run_command activity line reads like a CLI harness's shell line", () =>
+            {
+                // An operator reading a mission log must see WHICH command ran, and see it under the same
+                // canonical verb every CLI runtime's shell tool renders as, so two missions compare directly.
+                string rendered = StructuredRuntimeLogFormatter.BuildToolActivity(
+                    "run_command", "git diff --stat origin/main...HEAD", StructuredRuntimeLogFormatter.OkStatus);
+                AssertContains("tool bash ", rendered, "run_command renders as the canonical bash verb");
+                AssertContains("git diff --stat origin/main...HEAD", rendered, "the command itself is on the line");
+                AssertTrue(rendered.EndsWith("(ok)", StringComparison.Ordinal));
+                return Task.CompletedTask;
+            });
+
             await RunTest("The command tool is registered only when a run opts in", () =>
             {
                 BuiltInToolRegistry defaultRegistry = new BuiltInToolRegistry();
