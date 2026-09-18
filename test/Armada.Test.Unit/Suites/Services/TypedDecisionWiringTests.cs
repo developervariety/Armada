@@ -63,6 +63,17 @@ namespace Armada.Test.Unit.Suites.Services
             typeof(McpTypedDecisionTools).Assembly
         };
 
+        // Where a consumer can hold a decision. An adapter lives in Armada.Core, but the thing that holds
+        // it may live anywhere: a service in Core, the server that wires it, or a runtime that consults it
+        // mid-run. A consumer assembly missing from this list makes its decisions read as unconsulted,
+        // which fails loudly; one that declares an adapter and never holds it must NOT pass.
+        private static readonly Assembly[] _ConsumerAssemblies =
+        {
+            typeof(TypedDecisionSettings).Assembly,
+            typeof(McpTypedDecisionTools).Assembly,
+            typeof(Armada.Runtimes.AgentRuntimeFactory).Assembly
+        };
+
         #endregion
 
         #region Protected-Methods
@@ -73,7 +84,8 @@ namespace Armada.Test.Unit.Suites.Services
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
             {
                 CaptainToolProbe probe = await ProbeCaptainToolsAsync(testDb).ConfigureAwait(false);
-                HashSet<string> wired = DiscoverAdapterDecisionPoints();
+                Dictionary<Type, string> declared = DiscoverDeclaredAdapters();
+                HashSet<string> wired = DiscoverConsumedDecisionPoints(declared, _ConsumerAssemblies);
                 foreach (string observed in probe.Observed) wired.Add(observed);
 
                 await RunTest("CaptainToolProbe_ObservesTheHelperDecisionsItDrives", () =>
@@ -87,6 +99,34 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(
                         probe.Observed.Contains(_MemoryHelperDecision),
                         "the memory-triage helper was observed consulting its decision; probe notes: " + probe.Notes);
+                });
+
+                await RunTest("TheWiredSet_ComesFromConsumers_NotFromAdapterClassesExisting", () =>
+                {
+                    // The guard used to read the adapter CLASSES, so adding an adapter marked its decision
+                    // wired with nothing calling it. Two measurements prove it now reads consumers instead.
+                    AssertTrue(declared.Count > 0, "adapter classes are discovered");
+
+                    // One: with no consumer assemblies, every declared adapter is unconsulted. If the answer
+                    // still came from the classes existing, this set would be full.
+                    HashSet<string> withoutConsumers = DiscoverConsumedDecisionPoints(declared, Array.Empty<Assembly>());
+                    AssertEqual(0, withoutConsumers.Count,
+                        "with nothing scanned for consumption, no decision counts as wired: "
+                            + String.Join(", ", withoutConsumers));
+
+                    // Two: a decision whose only consumer lives in Armada.Runtimes is wired when that
+                    // assembly is scanned and unwired when it is not, so the result tracks the holder.
+                    Assembly runtimes = typeof(Armada.Runtimes.AgentRuntimeFactory).Assembly;
+                    HashSet<string> coreOnly = DiscoverConsumedDecisionPoints(
+                        declared, _ConsumerAssemblies.Where(a => a != runtimes));
+                    HashSet<string> withRuntimes = DiscoverConsumedDecisionPoints(declared, _ConsumerAssemblies);
+                    AssertTrue(withRuntimes.Count >= coreOnly.Count, "scanning more consumers never finds fewer decisions");
+                    AssertTrue(
+                        withRuntimes.Contains("context_compaction"),
+                        "context_compaction is held by a consumer in Armada.Runtimes");
+                    AssertFalse(
+                        coreOnly.Contains("context_compaction"),
+                        "and it is NOT reported wired when its holder's assembly is not scanned");
                 });
 
                 await RunTest("EveryShippedDecision_IsConsultedOrDeclaredUnwiredWithAReason", () =>
@@ -159,19 +199,109 @@ namespace Armada.Test.Unit.Suites.Services
         /// asked through the same property its own call path reads; a stand-alone adapter is asked
         /// through the same constant it passes to the settings lookup.
         /// </summary>
-        private static HashSet<string> DiscoverAdapterDecisionPoints()
+        /// <summary>
+        /// Every decision an adapter class DECLARES, mapped to the adapter type that declares it. This is
+        /// the inventory of what exists, which is not the same question as what is consulted.
+        /// </summary>
+        private static Dictionary<Type, string> DiscoverDeclaredAdapters()
         {
-            HashSet<string> found = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<Type, string> declared = new Dictionary<Type, string>();
             foreach (Assembly assembly in _DecisionAssemblies)
             {
-                foreach (Type type in assembly.GetTypes())
+                foreach (Type type in SafeTypes(assembly))
                 {
                     if (!type.IsClass || type.IsAbstract || type.ContainsGenericParameters) continue;
                     string? decision = BuiltOnAdapterSkeleton(type) ? SkeletonDecisionPoint(type) : DeclaredDecisionPoint(type);
-                    if (!String.IsNullOrWhiteSpace(decision)) found.Add(decision!);
+                    if (!String.IsNullOrWhiteSpace(decision)) declared[type] = decision!;
                 }
             }
-            return found;
+            return declared;
+        }
+
+        /// <summary>
+        /// The decisions some consumer actually HOLDS, which is the question this guard exists to answer.
+        /// <para>
+        /// This used to report every decision an adapter class declared, so adding an adapter marked its
+        /// decision wired whether or not anything called it — a decision could ship in <c>Gate</c>, report
+        /// as enforced on every status surface, and consult nothing. That is the exact shape the unwired
+        /// list was built to expose, and the guard could not see it (2026-09-18, found while adding
+        /// <c>context_compaction</c>).
+        /// </para>
+        /// <para>
+        /// Consumption is read as a consumer TYPE naming the adapter type: a field, a property, a method or
+        /// constructor parameter, or a return type, including one level of generic argument. An adapter
+        /// naming itself does not count. The residual limit is honest and narrow: a consumer that holds an
+        /// adapter it never calls still counts as wiring. It cannot be fooled by the case that matters —
+        /// an adapter class nothing holds at all.
+        /// </para>
+        /// </summary>
+        /// <param name="declared">Adapter type to declared decision, from <see cref="DiscoverDeclaredAdapters"/>.</param>
+        /// <param name="consumerAssemblies">Assemblies whose types may hold an adapter.</param>
+        /// <returns>The decisions a consumer holds.</returns>
+        private static HashSet<string> DiscoverConsumedDecisionPoints(
+            Dictionary<Type, string> declared,
+            IEnumerable<Assembly> consumerAssemblies)
+        {
+            HashSet<string> consumed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Assembly assembly in consumerAssemblies)
+            {
+                foreach (Type type in SafeTypes(assembly))
+                {
+                    // An adapter holding its own type is not a consumer of itself.
+                    if (declared.ContainsKey(type)) continue;
+
+                    foreach (Type referenced in ReferencedTypes(type))
+                        if (declared.TryGetValue(referenced, out string? decision)) consumed.Add(decision);
+                }
+            }
+            return consumed;
+        }
+
+        /// <summary>Every type one consumer type names on its own members, one generic level deep.</summary>
+        /// <param name="type">The candidate consumer.</param>
+        /// <returns>The named types; empty when the type cannot be reflected over.</returns>
+        private static IEnumerable<Type> ReferencedTypes(Type type)
+        {
+            const BindingFlags all = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+            List<Type> named = new List<Type>();
+            try
+            {
+                foreach (FieldInfo field in type.GetFields(all)) Expand(named, field.FieldType);
+                foreach (PropertyInfo property in type.GetProperties(all)) Expand(named, property.PropertyType);
+                foreach (MethodInfo method in type.GetMethods(all))
+                {
+                    Expand(named, method.ReturnType);
+                    foreach (ParameterInfo parameter in method.GetParameters()) Expand(named, parameter.ParameterType);
+                }
+                foreach (ConstructorInfo constructor in type.GetConstructors(all))
+                    foreach (ParameterInfo parameter in constructor.GetParameters()) Expand(named, parameter.ParameterType);
+            }
+            catch (Exception)
+            {
+                // A type whose members cannot be loaded names nothing here; it can only make the guard
+                // stricter, never looser, because an unseen reference reports the decision unconsulted.
+            }
+            return named;
+        }
+
+        private static void Expand(List<Type> into, Type type)
+        {
+            if (type == null) return;
+            into.Add(type);
+            if (!type.IsGenericType) return;
+            foreach (Type argument in type.GetGenericArguments()) into.Add(argument);
+        }
+
+        private static IEnumerable<Type> SafeTypes(Assembly assembly)
+        {
+            try
+            {
+                return assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                return ex.Types.Where(t => t != null)!;
+            }
         }
 
         private static bool BuiltOnAdapterSkeleton(Type type)

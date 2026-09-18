@@ -388,6 +388,14 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   still over the hard limit after sparing compacts the spared results too and says
   so, because a compaction that stops shrinking converts a long run into a lost
   run. With the decision `Off` the compaction is deterministic.
+  Its gate threshold ships at **0.55, not the 0.90 default**, and the reason is
+  measured rather than chosen: across ten real candidates replayed through this
+  adapter against the live provider, settled outputs read 0.09-0.15 and
+  load-bearing ones read 0.60-0.67. Nothing reached 0.90, so a 0.90 gate would
+  spare nothing while still reporting as enforced. The per-candidate spare floor
+  stays at 0.5. Two test-failure outputs read 0.41-0.44 and are therefore
+  compacted; that is a conservative miss which costs the captain a re-run, not a
+  lost result.
 
 Two decision points read the papercut grouping:
 

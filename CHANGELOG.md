@@ -8,6 +8,17 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- The typed-decision wiring guard measures CONSUMPTION, not declaration. It used to derive the wired set
+  by reflecting over adapter classes, so adding an adapter marked its decision wired whether or not
+  anything called it: a decision could ship in `Gate`, report as enforced on every status surface, and
+  consult nothing — the exact shape the unwired list exists to expose. It now reads which consumer types
+  actually hold each adapter, and a test proves the answer comes from the consumers by measuring the same
+  inventory with no consumer assemblies scanned and with the holder's assembly excluded.
+- `context_compaction` ships at gate threshold **0.55**, not the 0.90 default. Measured, not chosen: ten
+  real candidates replayed through this adapter against the live provider read 0.09-0.15 for settled
+  outputs and 0.60-0.67 for load-bearing ones. Nothing reached 0.90, so the default would have spared
+  nothing while still reporting as enforced.
+
 - The `context_compaction` typed decision, over the API-endpoint runtime's conversation compaction. The
   deterministic pass replaces the content of every older tool result once a conversation passes its
   threshold, oldest first, without reading any of them; it discards a measurement the captain still needs as
