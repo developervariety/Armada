@@ -33,12 +33,31 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(settings.Decisions.Count >= 26, "the default decision map carries every named decision");
                 foreach (string name in new[] { "prior_art", "memory_review", "stage_necessity", "handoff_outcome", "lint_finding", "criteria_lint" })
                     AssertTrue(settings.Decisions.ContainsKey(name), name + " is in the decision map");
+                // A threshold below the 0.80 norm must be DELIBERATE, so each one is named here with the
+                // measurement behind it. The guard is that no decision reaches a low gate by accident or by
+                // an unset zero; it is not that every decision suits a high threshold. A decision whose
+                // readings never approach 0.90 would otherwise ship a gate that can never fire while its
+                // mode still reads as enforced.
+                Dictionary<string, double> belowNorm = new Dictionary<string, double>(StringComparer.Ordinal)
+                {
+                    // Measured across ten real candidates: settled outputs read 0.09-0.15, load-bearing ones
+                    // 0.60-0.67. Nothing reaches 0.90, so 0.90 would spare nothing.
+                    ["context_compaction"] = 0.55
+                };
+
                 foreach (KeyValuePair<string, TypedDecisionRuleSettings> entry in settings.Decisions)
                 {
                     AssertEqual(TypedDecisionModeEnum.Gate, entry.Value.Mode, entry.Key + " ships in Gate");
-                    AssertTrue(entry.Value.GateThreshold >= 0.80, entry.Key + " has a gate threshold");
+                    if (belowNorm.TryGetValue(entry.Key, out double documented))
+                        AssertEqual(documented, entry.Value.GateThreshold, entry.Key + " keeps its documented below-norm threshold");
+                    else
+                        AssertTrue(entry.Value.GateThreshold >= 0.80, entry.Key + " has a gate threshold at or above the norm, or a documented exception");
+                    AssertTrue(entry.Value.GateThreshold > 0.0, entry.Key + " is never left at an unset zero");
                     AssertEqual(TypedDecisionModeEnum.Gate, settings.For(entry.Key).Mode, entry.Key + " is effective in Gate");
                 }
+
+                foreach (string name in belowNorm.Keys)
+                    AssertTrue(settings.Decisions.ContainsKey(name), name + " still ships; delete its below-norm entry when it does not");
             });
 
             await RunTest("For_EffectiveModeIsMinOfGlobalAndDecision", () =>
