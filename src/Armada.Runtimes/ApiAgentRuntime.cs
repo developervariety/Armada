@@ -330,9 +330,15 @@ namespace Armada.Runtimes
                     if (response.ToolCalls == null)
                         response.ToolCalls = new List<ToolCall>();
 
-                    if (!String.IsNullOrEmpty(response.Text))
+                    // Reasoning must never reach the text a terminal marker or a Judge verdict is parsed
+                    // from. PolyPrompt keeps the provider's reasoning channel out of Text already, but a
+                    // proxy can still leak think markup INTO the content, and a stray closing tag has been
+                    // observed in a mission log. Strip it before the text is emitted or kept as the final
+                    // message; response.Reasoning is deliberately never emitted and never parsed.
+                    string visibleText = StripReasoningMarkup(response.Text);
+                    if (!String.IsNullOrEmpty(visibleText))
                     {
-                        finalText = ToolExecution.LimitOutput(response.Text!, ToolSafetyLimits.MaxProcessOutputBytes);
+                        finalText = ToolExecution.LimitOutput(visibleText, ToolSafetyLimits.MaxProcessOutputBytes);
                         Emit(processId, finalText);
                     }
 
@@ -416,6 +422,49 @@ namespace Armada.Runtimes
                 EmitToolActivity(processId, call.Name, detail, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory, failureClass);
                 return JsonSerializer.Serialize(new { error = failureClass, message });
             }
+        }
+
+        /// <summary>
+        /// Remove model reasoning markup from assistant text. A provider that serves a reasoning model
+        /// through an OpenAI-compatible shim normally streams reasoning on its own channel, but a leaked
+        /// think block or a lone closing tag inside the content reaches the same text a terminal marker
+        /// and a Judge verdict are parsed from, and a review without exactly one standalone verdict line is
+        /// discarded and re-run.
+        /// </summary>
+        /// <remarks>
+        /// A matched block is dropped whole. A lone closing tag means the opener was lost, so everything
+        /// before it was reasoning and is dropped with it. A lone opening tag means the model was still
+        /// reasoning at the end, so everything after it is dropped. Text with no markup is returned
+        /// unchanged, including its whitespace, so an ordinary answer is never reshaped.
+        /// </remarks>
+        /// <param name="text">Assistant text as the client returned it.</param>
+        /// <returns>Text safe to emit and to parse for markers.</returns>
+        internal static string StripReasoningMarkup(string? text)
+        {
+            if (String.IsNullOrEmpty(text)) return String.Empty;
+            if (text!.IndexOf("<think", StringComparison.OrdinalIgnoreCase) < 0
+                && text.IndexOf("</think", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                return text;
+            }
+
+            string stripped = System.Text.RegularExpressions.Regex.Replace(
+                text,
+                "<think[^>]*>.*?</think\\s*>",
+                String.Empty,
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            int lastClose = stripped.LastIndexOf("</think", StringComparison.OrdinalIgnoreCase);
+            if (lastClose >= 0)
+            {
+                int closeEnd = stripped.IndexOf('>', lastClose);
+                stripped = closeEnd >= 0 ? stripped.Substring(closeEnd + 1) : String.Empty;
+            }
+
+            int firstOpen = stripped.IndexOf("<think", StringComparison.OrdinalIgnoreCase);
+            if (firstOpen >= 0) stripped = stripped.Substring(0, firstOpen);
+
+            return stripped.Trim();
         }
 
         /// <summary>

@@ -9,7 +9,9 @@ namespace Armada.Test.Runtimes.Suites
     using Armada.Test.Common;
 
     /// <summary>
-    /// A failed tool call must say WHY it failed. The activity line is the only record an operator sees,
+    /// Two contracts for the API-endpoint runtime: a failed tool call must say WHY it failed, and model
+    /// reasoning must never reach the text a terminal marker or a Judge verdict is parsed from.
+    /// The activity line is the only failure record an operator sees,
     /// and a mission's recorded failure cause quotes that same line, so a status word with no class sends
     /// the incident, the classifier and the autonomous rescue to triage a string carrying no information.
     /// </summary>
@@ -82,6 +84,53 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(String.Empty, StructuredRuntimeLogFormatter.NormalizeFailureReason("   "));
                 AssertEqual("boundary_refused", StructuredRuntimeLogFormatter.NormalizeFailureReason("Boundary Refused"));
             });
+
+            await RunTest("Ordinary assistant text is never reshaped by the reasoning strip", () =>
+            {
+                string verdict = "## Verdict\n\nThe change is correct.\n\n[ARMADA:VERDICT] PASS";
+                AssertEqual(verdict, ApiAgentRuntime.StripReasoningMarkup(verdict), "text with no markup is returned unchanged");
+                AssertEqual(String.Empty, ApiAgentRuntime.StripReasoningMarkup(null));
+                AssertEqual(String.Empty, ApiAgentRuntime.StripReasoningMarkup(String.Empty));
+            });
+
+            await RunTest("Leaked reasoning markup cannot reach the text a verdict is parsed from", () =>
+            {
+                // A matched block is dropped whole and the verdict survives.
+                string matched = "<think>I should check the diff first.</think>\n## Verdict\n\n[ARMADA:VERDICT] PASS";
+                string strippedMatched = ApiAgentRuntime.StripReasoningMarkup(matched);
+                AssertFalse(strippedMatched.Contains("think", StringComparison.OrdinalIgnoreCase), "no think markup survives");
+                AssertFalse(strippedMatched.Contains("check the diff"), "the reasoning body does not survive");
+                AssertContains("[ARMADA:VERDICT] PASS", strippedMatched, "the verdict line survives");
+
+                // The shape actually observed in a mission log: a closing tag with no opener.
+                string orphanClose = "I will review from git metadata.\n</think>\n\n## Verdict\n\n[ARMADA:VERDICT] NEEDS_REVISION";
+                string strippedOrphan = ApiAgentRuntime.StripReasoningMarkup(orphanClose);
+                AssertFalse(strippedOrphan.Contains("think", StringComparison.OrdinalIgnoreCase), "the orphan tag is removed");
+                AssertFalse(strippedOrphan.Contains("I will review from git metadata"), "text before a lone closing tag was reasoning and is dropped");
+                AssertContains("[ARMADA:VERDICT] NEEDS_REVISION", strippedOrphan, "the verdict line survives an orphan closing tag");
+
+                // An opener with no close means the model was still reasoning when it stopped.
+                string orphanOpen = "## Verdict\n\n[ARMADA:VERDICT] FAIL\n<think>but wait, maybe";
+                string strippedOpen = ApiAgentRuntime.StripReasoningMarkup(orphanOpen);
+                AssertFalse(strippedOpen.Contains("but wait"), "trailing reasoning is dropped");
+                AssertContains("[ARMADA:VERDICT] FAIL", strippedOpen, "the verdict line survives an orphan opening tag");
+
+                // Exactly one standalone verdict line must remain, never two.
+                AssertEqual(1, CountOccurrences(strippedMatched, "[ARMADA:VERDICT]"), "the strip cannot duplicate a verdict line");
+            });
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0;
+            int index = haystack.IndexOf(needle, StringComparison.Ordinal);
+            while (index >= 0)
+            {
+                count++;
+                index = haystack.IndexOf(needle, index + needle.Length, StringComparison.Ordinal);
+            }
+
+            return count;
         }
     }
 }

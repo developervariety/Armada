@@ -299,6 +299,11 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Leaked model reasoning markup can no longer reach the text an API-endpoint captain's terminal marker and
+  Judge verdict are parsed from. The provider's reasoning channel is already kept out of the assistant text
+  by the client, but a proxy can leak a think block or a lone closing tag into the content, and one was
+  observed in a mission log. A matched block is dropped whole, text before a lone closing tag is dropped
+  with it, and text after a lone opening tag is dropped; text with no markup is returned unchanged.
 - A failed API-endpoint tool call now names its failure class on the activity line, as `(error: class)`.
   Previously it rendered `(error)` and the reason existed nowhere outside the result the model read, so an
   operator, the incident, the typed-decision classifier and the autonomous rescue all triaged a line
