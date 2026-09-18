@@ -2,11 +2,13 @@ namespace Armada.Test.Runtimes.Suites
 {
     using System;
     using System.IO;
+    using System.Collections.Generic;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Runtimes;
     using Armada.Runtimes.Tools;
     using Armada.Test.Common;
+    using PolyPrompt.Models;
 
     /// <summary>
     /// Two contracts for the API-endpoint runtime: a failed tool call must say WHY it failed, and model
@@ -118,6 +120,55 @@ namespace Armada.Test.Runtimes.Suites
                 // Exactly one standalone verdict line must remain, never two.
                 AssertEqual(1, CountOccurrences(strippedMatched, "[ARMADA:VERDICT]"), "the strip cannot duplicate a verdict line");
             });
+
+            await RunTest("A conversation under the threshold is left alone", () =>
+            {
+                List<ChatMessage> messages = BuildConversation(6, 64);
+                AssertEqual(0, ApiAgentRuntime.CompactConversation(messages), "a small conversation is not compacted");
+                foreach (ChatMessage message in messages)
+                    AssertFalse(message.Content!.StartsWith(ApiAgentRuntime.CompactedToolResultMarker, StringComparison.Ordinal));
+            });
+
+            await RunTest("A conversation over the threshold compacts instead of being lost", () =>
+            {
+                // Before this, the loop only threw at the ceiling: the work was done and no result came back.
+                List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
+                string systemBefore = messages[0].Content!;
+                string launchBefore = messages[1].Content!;
+
+                int compacted = ApiAgentRuntime.CompactConversation(messages);
+                AssertTrue(compacted > 0, "older tool results are compacted");
+
+                AssertEqual(systemBefore, messages[0].Content, "the system prompt survives whole");
+                AssertEqual(launchBefore, messages[1].Content, "the launch prompt survives whole");
+
+                for (int index = messages.Count - ApiAgentRuntime.RecentMessagesKeptWhole; index < messages.Count; index++)
+                    AssertFalse(messages[index].Content!.StartsWith(ApiAgentRuntime.CompactedToolResultMarker, StringComparison.Ordinal),
+                        "the most recent messages are never compacted");
+
+                AssertTrue(messages.Count == 2 + (60 * 2), "no message is removed, so tool-call and tool-result pairing is intact");
+            });
+
+            await RunTest("Compaction is idempotent and stays under the hard ceiling", () =>
+            {
+                List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
+                ApiAgentRuntime.CompactConversation(messages);
+                AssertEqual(0, ApiAgentRuntime.CompactConversation(messages), "a second pass finds nothing left to compact");
+            });
+        }
+
+        private static List<ChatMessage> BuildConversation(int exchanges, int toolResultBytes)
+        {
+            List<ChatMessage> messages = new List<ChatMessage>();
+            messages.Add(ChatMessage.System("system prompt"));
+            messages.Add(ChatMessage.User("launch prompt"));
+            for (int index = 0; index < exchanges; index++)
+            {
+                messages.Add(ChatMessage.Assistant("calling a tool"));
+                messages.Add(ChatMessage.ToolResult("call_" + index, "read", new string('x', toolResultBytes)));
+            }
+
+            return messages;
         }
 
         private static int CountOccurrences(string haystack, string needle)

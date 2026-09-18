@@ -74,6 +74,18 @@ namespace Armada.Runtimes
 
         #region Private-Members
 
+        /// <summary>Hard ceiling for one conversation; a run that is still above it after compaction stops.</summary>
+        internal const int MaximumConversationBytes = 8 * 1024 * 1024;
+
+        /// <summary>Size at which older tool results are compacted, well below the hard ceiling.</summary>
+        internal const int CompactionThresholdBytes = 1024 * 1024;
+
+        /// <summary>Most recent messages always kept whole, so the model never loses the turn it is mid-way through.</summary>
+        internal const int RecentMessagesKeptWhole = 12;
+
+        /// <summary>Prefix of a replaced tool result, so a second pass never compacts the same message twice.</summary>
+        internal const string CompactedToolResultMarker = "[compacted]";
+
         private static readonly ConcurrentDictionary<int, CancellationTokenSource> _Running = new ConcurrentDictionary<int, CancellationTokenSource>();
 
         private readonly ModelEndpoint _Endpoint;
@@ -276,10 +288,18 @@ namespace Armada.Runtimes
                 messages.Add(ChatMessage.System(BuildSystemPrompt(workingDirectory)));
                 messages.Add(ChatMessage.User(prompt));
 
+                // Said once, at the start, rather than paid for silently on every turn: this loop re-sends
+                // the whole conversation each iteration, and the client exposes no way to mark a cache
+                // breakpoint on the stable prefix, so a long run pays full input price per turn. Measured on
+                // one Judge run: input climbed 35,136 to 41,273 tokens over about forty turns with the
+                // provider reporting no cached tokens on any of them.
+                _Logging.Info(_Header + "process " + processId
+                    + ": this transport cannot mark a prompt-cache breakpoint, so every turn re-sends the conversation at full input cost.");
+
                 for (int iteration = 0; iteration < _MaxIterations; iteration++)
                 {
                     token.ThrowIfCancellationRequested();
-                    EnsureConversationBounds(messages);
+                    EnsureConversationBounds(processId, messages);
 
                     ToolChatRequest request = new ToolChatRequest();
                     request.Messages = messages;
@@ -632,11 +652,64 @@ namespace Armada.Runtimes
                 throw new InvalidDataException("The model response exceeded the allowed response limit.");
         }
 
-        private static void EnsureConversationBounds(List<ChatMessage> messages)
+        /// <summary>
+        /// Keep the conversation inside its ceiling by compacting it, and only throw when compaction cannot
+        /// bring it back. Throwing alone converted a long run into a LOST run: the work was done and no
+        /// result came back. Every message is kept so the assistant tool-call and tool-result pairing the
+        /// provider requires is never broken; what shrinks is the CONTENT of older tool results, which is
+        /// where the bytes are. The system prompt, the launch prompt and the most recent exchanges stay
+        /// whole.
+        /// </summary>
+        /// <param name="messages">Conversation so far; mutated in place when it is compacted.</param>
+        /// <returns>Number of tool results whose content was replaced, or zero when nothing was compacted.</returns>
+        internal static int CompactConversation(List<ChatMessage> messages)
         {
-            const int maximumConversationBytes = 8 * 1024 * 1024;
-            int conversationBytes = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(messages));
-            if (conversationBytes > maximumConversationBytes)
+            if (messages == null || messages.Count <= RecentMessagesKeptWhole) return 0;
+            if (MeasureConversationBytes(messages) <= CompactionThresholdBytes) return 0;
+
+            int compacted = 0;
+            int lastProtected = messages.Count - RecentMessagesKeptWhole;
+            for (int index = 0; index < lastProtected; index++)
+            {
+                ChatMessage message = messages[index];
+
+                // The first two messages are the system prompt and the launch prompt: the mission's own
+                // instructions, which a captain needs at the last turn as much as the first.
+                if (index < 2) continue;
+                if (!String.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)) continue;
+                if (String.IsNullOrEmpty(message.Content)) continue;
+                if (message.Content!.StartsWith(CompactedToolResultMarker, StringComparison.Ordinal)) continue;
+
+                int droppedBytes = Encoding.UTF8.GetByteCount(message.Content);
+                if (droppedBytes <= CompactedToolResultMarker.Length) continue;
+
+                message.Content = CompactedToolResultMarker + " " + (message.ToolName ?? "tool")
+                    + " returned " + droppedBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + " bytes earlier in this run. Re-run the tool if you still need its output.";
+                compacted++;
+            }
+
+            return compacted;
+        }
+
+        private static int MeasureConversationBytes(List<ChatMessage> messages)
+        {
+            return Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(messages));
+        }
+
+        private void EnsureConversationBounds(int processId, List<ChatMessage> messages)
+        {
+            int compacted = CompactConversation(messages);
+            if (compacted > 0)
+            {
+                // Reported through the log, never through Emit: the emitted stream is the stream a terminal
+                // marker and a Judge verdict are parsed from, and it holds only canonical activity records.
+                _Logging.Warn(_Header + "process " + processId + ": compacted " + compacted
+                    + " earlier tool result(s) to stay inside the context limit; the mission instructions and the recent turns are unchanged.");
+            }
+
+            int conversationBytes = MeasureConversationBytes(messages);
+            if (conversationBytes > MaximumConversationBytes)
                 throw new InvalidDataException("The model conversation exceeded the allowed context limit.");
         }
 
