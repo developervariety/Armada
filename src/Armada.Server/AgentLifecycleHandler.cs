@@ -695,6 +695,14 @@ namespace Armada.Server
         public async Task<int> HandleLaunchAgentAsync(Captain captain, Mission mission, Dock dock)
         {
             _Logging.Info(_Header + "launching " + captain.Runtime + " agent for captain " + captain.Id);
+
+            string? capabilityError = ValidateRuntimeSupportsPersona(captain, mission.Persona);
+            if (capabilityError != null)
+            {
+                _Logging.Warn(_Header + "refusing to launch captain " + captain.Id + " for mission " + mission.Id + ": " + capabilityError);
+                throw new InvalidOperationException(capabilityError);
+            }
+
             Armada.Core.Settings.HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
             BaseAgentRuntime? harborAdapter = harborRoute != null ? CreateHarborAdapter(captain) : null;
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = harborAdapter ?? await CreateRuntimeAsync(captain).ConfigureAwait(false);
@@ -1728,6 +1736,31 @@ namespace Armada.Server
             if (!String.IsNullOrEmpty(error))
                 throw new InvalidOperationException(error);
             ApplyNativeEndpointCredentials(captain, endpoint!);
+        }
+
+        /// <summary>
+        /// Refuse to seat a captain in a persona its runtime cannot serve. The API-endpoint runtime offers
+        /// file tools only: no shell, no git and no test runner. A persona that must run commands can still
+        /// be filled by one, and the result is a confident, unfounded answer rather than a visible failure —
+        /// a Judge that cannot read the diff or run the gate still votes. A refusal at launch is loud; a
+        /// captain quietly working without the tools it needs is not.
+        /// </summary>
+        /// <remarks>
+        /// This is a capability gap, not a policy: when the runtime gains a bounded command tool, this
+        /// refusal goes away with it rather than being widened.
+        /// </remarks>
+        /// <param name="captain">Captain about to be launched.</param>
+        /// <param name="persona">Persona of the mission being launched.</param>
+        /// <returns>Null when the launch may proceed, otherwise the reason it may not.</returns>
+        public static string? ValidateRuntimeSupportsPersona(Captain captain, string? persona)
+        {
+            if (captain == null) return "The captain is required.";
+            if (captain.Runtime != AgentRuntimeEnum.ApiEndpoint) return null;
+            if (!PersonaCatalog.RequiresCommandExecution(persona)) return null;
+
+            return "An API-endpoint captain cannot serve the " + PersonaCatalog.NormalizeName(persona)
+                + " persona: that persona must run commands in its dock, and this runtime provides file tools only, with no shell, git or test runner. "
+                + "Assign a CLI-harness captain, or narrow this captain's allowed personas.";
         }
 
         /// <summary>

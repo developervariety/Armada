@@ -297,6 +297,19 @@ All notable changes to Armada are documented in this file.
 - A shipped typed decision that is missing from a stored
   `typedDecisions.decisions` map now runs at its shipped mode instead of `Off`.
 
+### Added
+
+- An API-endpoint captain is refused at launch for a persona that must run commands — Worker, Test
+  Engineer, Judge and Linter. That runtime provides file tools only, with no shell, git or test runner, so
+  such a captain filled the seat and produced a confident, unfounded result: a Judge that could not read
+  the diff or run the gate still voted, reporting "I have no shell/execution tool in this session" in its
+  own log. The analysis personas are unaffected, and the refusal names the missing capability. It is a
+  capability gap, not a policy, and goes away when the runtime gains a bounded command tool.
+- An API-endpoint conversation is compacted before its ceiling instead of throwing at it. Previously a long
+  run ended with the work done and no result returned. Compaction replaces the content of older tool
+  results, removes no message (so tool-call and tool-result pairing stays intact), and never touches the
+  system prompt, the launch prompt or the twelve most recent messages.
+
 ### Fixed
 
 - Leaked model reasoning markup can no longer reach the text an API-endpoint captain's terminal marker and

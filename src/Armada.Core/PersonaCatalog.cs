@@ -61,6 +61,33 @@ namespace Armada.Core
         public const string PriorArtAnalyst = "PriorArtAnalyst";
 
         /// <summary>
+        /// Whether a persona cannot do its job without running commands in its dock.
+        /// </summary>
+        /// <remarks>
+        /// A Worker builds and commits, a Test Engineer runs the suite it writes, a Judge reads the diff
+        /// and runs the vessel's gate before it votes, and a Linter runs the checks it reports on. A
+        /// runtime that offers file tools only can occupy one of these seats and produce a confident,
+        /// unfounded result: an API-endpoint Judge reported "I have no shell/execution tool in this
+        /// session" and reviewed from file reads alone. The analysis personas are absent from this list on
+        /// purpose, because reading and writing files is the whole of their work.
+        ///
+        /// This is the ONE definition. A caller asks it rather than re-deriving the list, so a persona
+        /// added later is classified in one place.
+        /// </remarks>
+        /// <param name="persona">Persona name, canonical or legacy.</param>
+        /// <returns>True when the persona needs to run commands.</returns>
+        public static bool RequiresCommandExecution(string? persona)
+        {
+            string name = NormalizeName(persona);
+            if (String.IsNullOrEmpty(name)) return false;
+
+            return Matches(name, Worker)
+                || Matches(name, TestEngineer)
+                || Matches(name, Judge)
+                || Matches(name, Linter);
+        }
+
+        /// <summary>
         /// Normalize a persona name to the canonical built-in display name when applicable.
         /// </summary>
         /// <param name="persona">Persona name.</param>
