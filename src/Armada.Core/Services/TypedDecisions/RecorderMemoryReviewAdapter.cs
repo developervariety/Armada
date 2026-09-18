@@ -236,10 +236,13 @@ namespace Armada.Core.Services
             string modelVerdict = Verdict(proposeDuplicate, proposeStale, proposeWrongType, proposeAiMemory);
             double confidence = new[] { proposeDuplicate ? duplicateConfidence : 0.0, stale, 1.0 - typeOk, aiMemory }.Max();
 
-            if (cfg.Mode != TypedDecisionModeEnum.Gate || !anyProposed)
+            // The compound proposal reduces to one gate confidence (the strongest proposed signal), so the
+            // mode-and-threshold decision and its shadow label come from the shared gate, not a local copy.
+            // The per-signal proposals above stay: they choose which record to adjust, not whether to gate.
+            TypedGateOutcome gate = TypedDecisionGate.Classify(cfg, available: true, confidence: confidence);
+            if (gate != TypedGateOutcome.Gated || !anyProposed)
             {
-                string label = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                await _Recorder.RecordShadowAsync(Context(mission, "keep", modelVerdict, confidence, result, redacted), label, token).ConfigureAwait(false);
+                await _Recorder.RecordShadowAsync(Context(mission, "keep", modelVerdict, confidence, result, redacted), TypedDecisionGate.ShadowOutcomeLabel(gate), token).ConfigureAwait(false);
                 return true;
             }
 

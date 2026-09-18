@@ -148,17 +148,20 @@ namespace Armada.Core.Services
                 return;
             }
 
-            bool gate = cfg.Mode == TypedDecisionModeEnum.Gate;
-            bool alreadyDone = reading.AlreadyDone >= cfg.GateThreshold;
-            bool integrate = reading.Integrate >= cfg.GateThreshold;
-            bool analystBand = !alreadyDone
+            // The mode-and-threshold gate lives once, in the shared gate; each independent prior-art signal
+            // gates when its own confidence clears the decision threshold in Gate mode. The uncertain-band
+            // analyst recommendation is a bespoke rule, not a threshold gate, so it keeps its own mode read.
+            bool alreadyDone = TypedDecisionGate.Classify(cfg, available: true, confidence: reading.AlreadyDone) == TypedGateOutcome.Gated;
+            bool integrate = TypedDecisionGate.Classify(cfg, available: true, confidence: reading.Integrate) == TypedGateOutcome.Gated;
+            bool analystBand = cfg.Mode == TypedDecisionModeEnum.Gate
+                && !alreadyDone
                 && reading.AlreadyDone >= _UncertainBandLow
                 && reading.AlreadyDone <= _UncertainBandHigh
                 && IsLargeObjective(objective);
 
             string candidateList = PriorArtDecisionShapes.RenderCandidates(retrieval);
 
-            if (gate && alreadyDone)
+            if (alreadyDone)
             {
                 AddIssue(result, AlreadyDoneIssueCode, ReadinessSeverityEnum.Error,
                     "Prior art: the objective's deliverable already appears in a candidate; close or re-scope the row before dispatch. Candidates: "
@@ -166,14 +169,14 @@ namespace Armada.Core.Services
                     candidateList);
             }
 
-            if (gate && integrate)
+            if (integrate)
             {
                 AddIssue(result, IntegrateIssueCode, ReadinessSeverityEnum.Warning,
                     "Prior art: consume an existing seam rather than write a new type. Landed seams to consume: " + candidateList,
                     candidateList);
             }
 
-            if (gate && analystBand)
+            if (analystBand)
             {
                 AddIssue(result, AnalystStageIssueCode, ReadinessSeverityEnum.Warning,
                     "Prior art is uncertain (already_done in the uncertain band) on a large objective; consider a read-only "
@@ -182,7 +185,7 @@ namespace Armada.Core.Services
                     candidateList);
             }
 
-            bool applied = gate && (alreadyDone || integrate || analystBand);
+            bool applied = alreadyDone || integrate || analystBand;
             if (applied)
                 await RecordGatedAsync(retrieval, redacted, decision, reading, null, token).ConfigureAwait(false);
             else
@@ -239,7 +242,7 @@ namespace Armada.Core.Services
                 return null;
             }
 
-            bool gate = cfg.Mode == TypedDecisionModeEnum.Gate && reading.Reimplements >= cfg.GateThreshold;
+            bool gate = TypedDecisionGate.Classify(cfg, available: true, confidence: reading.Reimplements) == TypedGateOutcome.Gated;
             if (gate)
             {
                 await RecordGatedAsync(retrieval, redacted, decision, reading, mission, token).ConfigureAwait(false);

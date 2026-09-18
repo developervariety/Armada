@@ -345,10 +345,13 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "decision '" + DecisionPoint + "' reading observer failed, rule stands: " + ex.Message);
             }
 
-            if (cfg.Mode == TypedDecisionModeEnum.Shadow || model.Confidence < cfg.GateThreshold)
+            // The mode, threshold and fallback rule live once, in the shared gate; this adapter maps the
+            // outcome to its recorded event and verdict. The model reached here available, so the outcome
+            // is Shadow, BelowThreshold or Gated.
+            TypedGateOutcome outcome = TypedDecisionGate.Classify(cfg, available: true, confidence: model.Confidence);
+            if (outcome != TypedGateOutcome.Gated)
             {
-                string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                await RecordShadowAsync(input, ruleVerdict, model, result, outcome, redacted, token).ConfigureAwait(false);
+                await RecordShadowAsync(input, ruleVerdict, model, result, TypedDecisionGate.ShadowOutcomeLabel(outcome), redacted, token).ConfigureAwait(false);
                 return ruleVerdict;
             }
 

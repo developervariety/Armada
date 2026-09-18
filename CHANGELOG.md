@@ -156,6 +156,17 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Every typed-decision adapter now decides its mode, threshold, and fallback through one shared gate,
+  `TypedDecisionGate.Classify`. The adapter base and the two adapters that do not fit the single-confidence
+  base — prior art (three independent confidences, two seams) and the Recorder memory review (a compound
+  proposal) — each held their own copy of the "Off / unavailable / Shadow / below-threshold / gate at or
+  above threshold" rule, and a copy that answered one mode × availability × confidence cell differently
+  would silently gate where the model may not, or drop a gated signal. The rule now lives once; the bespoke
+  uncertain-band analyst recommendation keeps its own mode read. Behaviour is unchanged. A behavioural
+  matrix suite drives the classifier across the whole matrix and drives a probe adapter on the base through
+  the same cells, checking the returned verdict, the recorded event, the conservative-only direction, and
+  the global mode cap.
+
 - `DecisionStateRedactor` no longer erases a decision's engineering content. The host, hash, and key-blob
   rules each matched far more than their target: every dotted run became `<host>` (a diff's file names,
   namespaces, and member accesses with it), every 7-40 hex run became `#sha` (plain source numbers and
