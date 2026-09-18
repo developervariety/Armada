@@ -148,8 +148,7 @@ namespace Armada.Runtimes
             {
                 // The rule verdict is supplied here, at the one place that knows the decision's direction:
                 // the deterministic pass spares nothing, so the decision can only ever retain more.
-                runtime.ContextCompactionDecider = (input, token) => adapter.DecideAsync(
-                    input, Armada.Core.Services.ContextCompactionVerdict.SpareNone(), token);
+                runtime.ContextCompactionDecider = (input, token) => adapter.DecideAllowedAsync(input, token);
             }
             return runtime;
         }

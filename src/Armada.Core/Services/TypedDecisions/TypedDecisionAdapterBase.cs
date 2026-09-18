@@ -108,27 +108,33 @@ namespace Armada.Core.Services
                 return ruleVerdict;
             }
 
+            if (CarriesExcludedContent(input))
+            {
+                await RecordUnavailableAsync(input, ruleVerdict, EgressExcludedContent(), String.Empty, token).ConfigureAwait(false);
+                return ruleVerdict;
+            }
+
             TypedDecisionBatchItem? item = Prepare(input);
             if (item == null) return ruleVerdict;
 
-            TypedDecisionResult result;
-            try
+            TypedDecisionResult result = await SendAsync(item, token).ConfigureAwait(false);
+
+            // A dense state can exceed the provider's per-request token limit at a character budget that
+            // most states fit comfortably, and the provider rejects it outright. Lowering the budget for
+            // every decision to fit the densest state would truncate a third of real states to rescue a
+            // fraction of one percent, so the one rejected request is retried once at half the size.
+            if (!result.Available
+                && String.Equals(result.UnavailableReason, RequestTooLargeReason, StringComparison.Ordinal)
+                && item.State.Text.Length > MinimumRetryChars)
             {
-                // The caller's token is forwarded unchanged so the client links its settings timeout to
-                // it: a slow decision cancels through this same token and returns unavailable, not late.
-                result = await _Client.DecideAsync(new TypedDecisionRequest
+                TypedDecisionBatchItem? smaller = Prepare(input, item.State.Text.Length / 2);
+                if (smaller != null)
                 {
-                    DecisionPoint = DecisionPoint,
-                    State = item.State.State,
-                    Questions = item.Questions
-                }, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // The client is contracted never to throw into a caller; guard anyway so a decision is
-                // never able to break recovery, refusal handling, or runtime classification.
-                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' client threw, rule stands: " + ex.Message);
-                result = TypedDecisionResult.Exception();
+                    _Logging.Warn(_Header + "decision '" + DecisionPoint + "' request rejected as too large at "
+                        + item.State.Text.Length + " state characters; retrying once at " + smaller.State.Text.Length);
+                    item = smaller;
+                    result = await SendAsync(item, token).ConfigureAwait(false);
+                }
             }
 
             return await CompleteAsync(input, ruleVerdict, result, item.State.Text, cfg, token).ConfigureAwait(false);
@@ -163,6 +169,12 @@ namespace Armada.Core.Services
                 if (!AllowsEgress(inputs[index]))
                 {
                     await RecordUnavailableAsync(inputs[index], ruleVerdicts[index], EgressExcluded(), String.Empty, token).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (CarriesExcludedContent(inputs[index]))
+                {
+                    await RecordUnavailableAsync(inputs[index], ruleVerdicts[index], EgressExcludedContent(), String.Empty, token).ConfigureAwait(false);
                     continue;
                 }
 
@@ -274,7 +286,68 @@ namespace Armada.Core.Services
         }
 
         /// <summary>The unavailable reason a vessel egress exclusion records.</summary>
-        public const string EgressExcludedReason = "egress_excluded_vessel";
+        public const string EgressExcludedReason = TypedDecisionEgress.ExcludedVesselReason;
+
+        /// <summary>The unavailable reason a content-marker exclusion records.</summary>
+        public const string EgressExcludedContentReason = TypedDecisionEgress.ExcludedContentReason;
+
+        /// <summary>How the client labels a request the provider rejected as malformed or too large.</summary>
+        public const string RequestTooLargeReason = "http_400";
+
+        // Below this a rejected request is not a size problem, so halving it would only repeat the failure.
+        private const int MinimumRetryChars = 2000;
+
+        /// <summary>The typed-decision settings this adapter reads.</summary>
+        protected TypedDecisionSettings Settings => _Settings;
+
+        /// <summary>
+        /// Whether the input's UNREDACTED state names one of this decision's excluded markers. Checked on the
+        /// state before redaction, because the redactor replaces absolute workspace paths, markers and all. A state that cannot
+        /// be built is treated as excluded: when the check cannot run, nothing is sent. A decision that
+        /// filters its own content at a finer grain overrides this.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>True when the state must not leave the host.</returns>
+        protected virtual bool CarriesExcludedContent(TInput input)
+        {
+            IReadOnlyList<string> markers = _Settings.MarkersFor(DecisionPoint);
+            if (markers.Count == 0) return false;
+            try
+            {
+                return TypedDecisionSettings.FirstMarkerIn(markers, TypedDecisionEgress.RawText(BuildState(input))) != null;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        private static TypedDecisionResult EgressExcludedContent()
+        {
+            return new TypedDecisionResult { Available = false, UnavailableReason = EgressExcludedContentReason };
+        }
+
+        private async Task<TypedDecisionResult> SendAsync(TypedDecisionBatchItem item, CancellationToken token)
+        {
+            try
+            {
+                // The caller's token is forwarded unchanged so the client links its settings timeout to
+                // it: a slow decision cancels through this same token and returns unavailable, not late.
+                return await _Client.DecideAsync(new TypedDecisionRequest
+                {
+                    DecisionPoint = DecisionPoint,
+                    State = item.State.State,
+                    Questions = item.Questions
+                }, token).ConfigureAwait(false) ?? TypedDecisionResult.Exception();
+            }
+            catch (Exception ex)
+            {
+                // The client is contracted never to throw into a caller; guard anyway so a decision is
+                // never able to break recovery, refusal handling, or runtime classification.
+                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' client threw, rule stands: " + ex.Message);
+                return TypedDecisionResult.Exception();
+            }
+        }
 
         private bool AllowsEgress(TInput input)
         {
@@ -297,6 +370,11 @@ namespace Armada.Core.Services
 
         private TypedDecisionBatchItem? Prepare(TInput input)
         {
+            return Prepare(input, _Settings.MaxStateChars);
+        }
+
+        private TypedDecisionBatchItem? Prepare(TInput input, int maxStateChars)
+        {
             try
             {
                 IReadOnlyDictionary<string, TypedQuestion> questions = BuildQuestions(input);
@@ -305,7 +383,7 @@ namespace Armada.Core.Services
                 if (questions == null || questions.Count == 0) return null;
 
                 return new TypedDecisionBatchItem(
-                    DecisionStateRedactor.RedactState(BuildState(input), _Settings.MaxStateChars),
+                    DecisionStateRedactor.RedactState(BuildState(input), maxStateChars),
                     questions);
             }
             catch (Exception ex)

@@ -37,6 +37,12 @@ namespace Armada.Core.Settings
         /// <summary>One-line description shown in the dashboard and the status API.</summary>
         public string Description { get; set; } = String.Empty;
 
+        /// <summary>
+        /// This custom decision's own excluded markers, replacing the global
+        /// <c>typedDecisions.egressExcludedMarkers</c> for it; null (the default) inherits the global list.
+        /// </summary>
+        public List<string>? EgressExcludedMarkers { get; set; } = null;
+
         /// <summary>Where the decision runs. Default the on-demand captain/operator tool.</summary>
         public CustomDecisionSurfaceEnum Surface { get; set; } = CustomDecisionSurfaceEnum.CaptainTool;
 
@@ -98,6 +104,8 @@ namespace Armada.Core.Settings
                 Binding = Binding,
                 StateFields = new List<string>(_StateFields),
                 Vessels = new List<string>(_Vessels),
+                // Copied here or lost: a reload replaces every custom definition with its clone.
+                EgressExcludedMarkers = EgressExcludedMarkers == null ? null : new List<string>(EgressExcludedMarkers),
                 Questions = questions
             };
         }

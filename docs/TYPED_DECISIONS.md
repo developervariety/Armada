@@ -66,6 +66,36 @@ The safety contract holds whenever it is enabled:
   scp-style remote's repo short-name, a cue-less short hash indistinguishable from
   a number) are the ones a URL or internal suffix catches by another route.
 
+## Egress rules
+
+Three rules decide whether a state leaves the host at all, and every path that
+sends state asks the same ones: the adapter skeleton, custom decisions, the
+captain tools and `context_compaction`.
+
+- **Vessel exclusion.** A mission on a vessel in `egressExcludedVesselIds`
+  sends nothing (`egress_excluded_vessel`).
+- **Content markers.** A state whose UNREDACTED text contains one of the
+  markers that apply sends nothing (`egress_excluded_content`). The check
+  reads the state before redaction because the redactor replaces absolute
+  workspace paths - where dock and sibling-checkout paths live - with a
+  placeholder, taking a marker inside them along. The markers are the global
+  `egressExcludedMarkers` unless the decision or custom definition sets its
+  own list; an empty own list opts out, which suits a decision whose state is
+  only brief or objective text (a brief names paths but does not carry their
+  content). `context_compaction` applies the markers per candidate instead:
+  a marked earlier output is never sent and never spared, the rest are still
+  asked about, and a harness plugin keeps the marked output in the dock's
+  archive, so the captain can read it back.
+- **A rejected request is retried once at half size.** Redacted state
+  averages about 3.6 characters per provider token but reaches 1.9 on dense
+  text, so a state inside the character budget can still exceed the
+  provider's 32,000-token request limit. Lowering the budget for everyone to
+  fit the densest state would truncate about a third of real states to
+  rescue a fraction of one percent, so a request the provider rejects
+  (`http_400`) is retried once with the state re-redacted to half its size,
+  and a rejected batch is split in half. Every other unavailable reason keeps
+  the rule without a retry.
+
 ## Retained training data
 
 **Owner ruling 2026-09-17.** The REDACTED state of a decision call may be kept

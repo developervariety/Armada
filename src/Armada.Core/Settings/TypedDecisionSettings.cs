@@ -111,6 +111,69 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Text markers meaning a decision state carries content that must never leave this host, for example
+        /// the name of a directory that holds decrypted vendor data. They apply to EVERY egress path - the
+        /// adapter skeleton, custom decisions and the captain tools - unless a decision or a custom definition
+        /// sets its own list. A state whose UNREDACTED text contains one, compared without case, is not sent:
+        /// the rule stands and the decision records <c>egress_excluded_content</c>. Ships empty: which markers
+        /// apply is an operator's configuration, never a product default.
+        /// </summary>
+        public List<string> EgressExcludedMarkers
+        {
+            get => _EgressExcludedMarkers;
+            set => _EgressExcludedMarkers = value ?? new List<string>();
+        }
+
+        /// <summary>The markers that apply to a built-in decision: its own list when it sets one, else the global list.</summary>
+        /// <param name="decisionPoint">Decision key; a key with no entry (a captain tool) takes the global list.</param>
+        /// <returns>The markers.</returns>
+        public IReadOnlyList<string> MarkersFor(string decisionPoint)
+        {
+            if (!String.IsNullOrWhiteSpace(decisionPoint)
+                && _Decisions.TryGetValue(decisionPoint, out TypedDecisionRuleSettings? rule)
+                && rule?.EgressExcludedMarkers != null)
+                return rule.EgressExcludedMarkers;
+            return _EgressExcludedMarkers;
+        }
+
+        /// <summary>The markers that apply to a custom decision: its own list when it sets one, else the global list.</summary>
+        /// <param name="name">Custom decision name.</param>
+        /// <returns>The markers.</returns>
+        public IReadOnlyList<string> MarkersForCustom(string name)
+        {
+            if (!String.IsNullOrWhiteSpace(name)
+                && _Custom.TryGetValue(name, out CustomTypedDecisionSettings? definition)
+                && definition?.EgressExcludedMarkers != null)
+                return definition.EgressExcludedMarkers;
+            return _EgressExcludedMarkers;
+        }
+
+        /// <summary>The first built-in-decision marker found in a text, or null.</summary>
+        /// <param name="decisionPoint">Decision key.</param>
+        /// <param name="text">Unredacted text about to be considered for egress.</param>
+        /// <returns>The matching marker, or null.</returns>
+        public string? ExcludedMarkerIn(string decisionPoint, string? text) => FirstMarkerIn(MarkersFor(decisionPoint), text);
+
+        /// <summary>
+        /// The one matcher every egress path uses: the first marker the text contains, compared without case,
+        /// or null. Unreadable state (see <see cref="Armada.Core.Services.TypedDecisionEgress"/>) counts as a match.
+        /// </summary>
+        /// <param name="markers">The markers that apply.</param>
+        /// <param name="text">Unredacted text.</param>
+        /// <returns>The matching marker, or null.</returns>
+        public static string? FirstMarkerIn(IReadOnlyList<string> markers, string? text)
+        {
+            if (markers == null || markers.Count == 0 || String.IsNullOrEmpty(text)) return null;
+            if (Armada.Core.Services.TypedDecisionEgress.IsUnreadable(text!)) return "(unreadable state)";
+            foreach (string marker in markers)
+            {
+                if (String.IsNullOrWhiteSpace(marker)) continue;
+                if (text!.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0) return marker;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Whether a mission on this vessel may send decision state off the host.
         /// </summary>
         /// <param name="vesselId">The mission's vessel id, or null when unknown.</param>
@@ -135,6 +198,7 @@ namespace Armada.Core.Settings
         private int _TimeoutSeconds = 10;
         private int _MaxStateChars = 60000;
         private List<string> _EgressExcludedVesselIds = new List<string>();
+        private List<string> _EgressExcludedMarkers = new List<string>();
         private Dictionary<string, TypedDecisionRuleSettings> _Decisions = DefaultDecisions();
         private TypedDecisionCaptainToolSettings _CaptainTool = new TypedDecisionCaptainToolSettings();
         private Dictionary<string, CustomTypedDecisionSettings> _Custom = new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
@@ -228,6 +292,7 @@ namespace Armada.Core.Settings
             // Copied, not shared: the live object is read by every adapter, so a reload must never leave
             // an adapter holding the previous file's list.
             EgressExcludedVesselIds = new List<string>(source.EgressExcludedVesselIds ?? new List<string>());
+            EgressExcludedMarkers = new List<string>(source.EgressExcludedMarkers ?? new List<string>());
             Decisions = source.Decisions;
             CaptainTool = source.CaptainTool;
             Custom = CloneCustom(source.Custom);
@@ -343,6 +408,14 @@ namespace Armada.Core.Settings
         /// and never enters an event payload. Default false.
         /// </summary>
         public bool RetainState { get; set; } = false;
+
+        /// <summary>
+        /// This decision's own excluded markers, replacing the global list for it; null (the default) inherits
+        /// <see cref="TypedDecisionSettings.EgressExcludedMarkers"/>. An empty list opts the decision out, which
+        /// fits a decision whose state is only brief or objective text: a brief names paths but does not carry
+        /// their content, so matching it would stop the decision for no protection.
+        /// </summary>
+        public List<string>? EgressExcludedMarkers { get; set; } = null;
 
         /// <summary>
         /// Confidence at or above which the model may gate this decision. Below it, the rule

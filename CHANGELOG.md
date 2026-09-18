@@ -8,6 +8,19 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Content markers for typed-decision egress: `typedDecisions.egressExcludedMarkers`, with a per-decision and
+  per-custom-definition override. A state whose UNREDACTED text names a marker sends nothing and records
+  `egress_excluded_content`. One rule, asked by every path that sends state - the adapter skeleton, custom
+  decisions, the captain tools and context compaction - and a test sends one marked state through three of those
+  paths and requires all three to refuse it. It reads the state before redaction because the redactor replaces
+  absolute workspace paths, markers and all. Context compaction filters per candidate, so one marked output does
+  not stop the rest from being asked about. Custom decisions now also honour `egressExcludedVesselIds`, which they
+  bypassed. Ships empty; which markers apply is operator configuration.
+- A request the provider rejects as too large is retried once with the state halved, and a rejected batch is split.
+  Measured on 1,056 real calls at the 60,000-character budget: density ranges down to 1.9 characters per token, so
+  the densest states exceed the request limit, but a lower budget would truncate about a third of states to rescue
+  a fraction of one percent.
+
 - Retained typed-decision samples carry `redactor_version`, the new `DecisionStateRedactor.Version` (2 for the
   identifier-preserving rules), because redacted text cannot be re-redacted and samples redacted under different
   rules must not train together. `armada_typed_decision_labels` counts only the running version towards the

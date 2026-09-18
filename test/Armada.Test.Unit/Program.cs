@@ -363,6 +363,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypedRevisionKindAdapterTests());
             runner.AddSuite(new TypedTestCoversAdapterTests());
             runner.AddSuite(new TypedContextCompactionAdapterTests());
+            runner.AddSuite(new TypedDecisionEgressRuleTests());
             runner.AddSuite(new TypedLintFindingAdapterTests());
             runner.AddSuite(new LeakHunkAdapterTests());
             runner.AddSuite(new PriorArtRetrieverTests());

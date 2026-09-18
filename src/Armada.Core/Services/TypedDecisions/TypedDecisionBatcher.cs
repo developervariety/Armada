@@ -88,6 +88,30 @@ namespace Armada.Core.Services
                     shared = Unavailable("exception", null);
                 }
 
+                // A batch the provider rejected as too large is split in half and each half decided on its own,
+                // rather than failing every item in it. A single item cannot be split here.
+                if (!shared.Available
+                    && String.Equals(shared.UnavailableReason, TypedDecisionAdapterRequestTooLarge, StringComparison.Ordinal)
+                    && size > 1)
+                {
+                    int half = size / 2;
+                    List<TypedDecisionBatchItem> left = new List<TypedDecisionBatchItem>();
+                    List<TypedDecisionBatchItem> right = new List<TypedDecisionBatchItem>();
+                    for (int offset = 0; offset < size; offset++)
+                        (offset < half ? left : right).Add(items[start + offset]);
+
+                    List<TypedDecisionResult> leftResults = await DecideAllAsync(client, decisionPoint, left, maxStateChars, token).ConfigureAwait(false);
+                    results.AddRange(leftResults);
+                    if (leftResults.Exists(r => !r.Available)) { FillUnavailable(results, items.Count, leftResults.Find(r => !r.Available)!); return results; }
+
+                    List<TypedDecisionResult> rightResults = await DecideAllAsync(client, decisionPoint, right, maxStateChars, token).ConfigureAwait(false);
+                    results.AddRange(rightResults);
+                    if (rightResults.Exists(r => !r.Available)) { FillUnavailable(results, items.Count, rightResults.Find(r => !r.Available)!); return results; }
+
+                    start = end;
+                    continue;
+                }
+
                 if (!shared.Available)
                 {
                     TypedDecisionResult unavailable = new TypedDecisionResult
@@ -114,6 +138,14 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        // Same label the client gives a provider rejection; the adapter skeleton retries on it too.
+        private const string TypedDecisionAdapterRequestTooLarge = "http_400";
+
+        private static void FillUnavailable(List<TypedDecisionResult> results, int total, TypedDecisionResult unavailable)
+        {
+            while (results.Count < total) results.Add(unavailable);
+        }
 
         private static int ChunkEnd(IReadOnlyList<TypedDecisionBatchItem> items, int start, int maxStateChars)
         {

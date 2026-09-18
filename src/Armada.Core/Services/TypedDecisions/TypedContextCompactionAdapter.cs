@@ -3,6 +3,8 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -194,10 +196,59 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Public-Methods
+
+        /// <summary>
+        /// Decide over the candidates whose content may leave the host. A candidate whose request or output
+        /// names one of this decision's excluded markers is removed BEFORE anything is built or sent; it is
+        /// never spared, so the caller compacts it by the deterministic rule, and a plugin still keeps it in
+        /// the dock's archive, so the captain can read it back. The returned positions index the caller's
+        /// ORIGINAL candidate list. Every caller goes through this, never through the skeleton directly.
+        /// </summary>
+        /// <param name="input">The decision input, with every candidate the caller would compact.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The verdict, in the caller's candidate positions.</returns>
+        public async Task<ContextCompactionVerdict> DecideAllowedAsync(ContextCompactionDecisionInput input, CancellationToken token)
+        {
+            List<int> originalPositions = new List<int>();
+            List<ContextCompactionCandidate> allowed = new List<ContextCompactionCandidate>();
+            IReadOnlyList<ContextCompactionCandidate> candidates = input?.Candidates ?? new List<ContextCompactionCandidate>();
+            for (int position = 0; position < candidates.Count; position++)
+            {
+                ContextCompactionCandidate candidate = candidates[position];
+                if (candidate == null) continue;
+                if (Settings.ExcludedMarkerIn(DecisionPoint, candidate.RequestSummary) != null) continue;
+                if (Settings.ExcludedMarkerIn(DecisionPoint, candidate.ResultHead) != null) continue;
+                originalPositions.Add(position);
+                allowed.Add(candidate);
+            }
+
+            ContextCompactionVerdict verdict = await DecideAsync(
+                new ContextCompactionDecisionInput { Mission = input?.Mission, Goal = input?.Goal ?? String.Empty, Candidates = allowed },
+                ContextCompactionVerdict.SpareNone(),
+                token).ConfigureAwait(false);
+
+            List<int> spared = new List<int>();
+            foreach (int position in verdict.SparedPositions)
+                if (position >= 0 && position < originalPositions.Count) spared.Add(originalPositions[position]);
+            return spared.Count == 0 ? ContextCompactionVerdict.SpareNone() : ContextCompactionVerdict.Sparing(spared);
+        }
+
+        #endregion
+
         #region Protected-Overrides
 
         /// <inheritdoc />
         protected override string DecisionPoint => "context_compaction";
+
+        /// <summary>
+        /// Never excluded as a whole: excluded content is removed per candidate in
+        /// <see cref="DecideAllowedAsync"/>, so the rest of the candidates can still be asked about. The goal is
+        /// the captain's brief, which names paths but does not carry their content.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>False.</returns>
+        protected override bool CarriesExcludedContent(ContextCompactionDecisionInput input) => false;
 
         /// <inheritdoc />
         protected override string _Header => "[TypedContextCompactionAdapter] ";

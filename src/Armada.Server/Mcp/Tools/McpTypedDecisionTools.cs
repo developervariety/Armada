@@ -528,6 +528,14 @@ namespace Armada.Server.Mcp.Tools
                     return Unavailable("egress_excluded_vessel", "This vessel's content may not leave the host. Decide it yourself.");
                 }
 
+                // 0b. A state whose UNREDACTED text names an excluded marker sends nothing. Checked on the raw
+                // state because the redactor replaces absolute workspace paths, markers and all; the same rule every path asks.
+                if (TypedDecisionSettings.FirstMarkerIn(settings.TypedDecisions.MarkersFor(decisionPoint), TypedDecisionEgress.RawText(parsed.State)) != null)
+                {
+                    await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(TypedDecisionEgress.ExcludedContentReason), TypedDecisionEgress.ExcludedContentReason).ConfigureAwait(false);
+                    return Unavailable(TypedDecisionEgress.ExcludedContentReason, "This state carries content that may not leave the host. Decide it yourself.");
+                }
+
                 // 1. The tool is disabled: no egress, one event, unavailable.
                 if (!toolSettings.Enabled)
                 {
@@ -968,9 +976,8 @@ namespace Armada.Server.Mcp.Tools
                 }
 
                 string goal = ReadOptionalString(root, "goal") ?? String.Empty;
-                ContextCompactionVerdict verdict = await adapter.DecideAsync(
+                ContextCompactionVerdict verdict = await adapter.DecideAllowedAsync(
                     new ContextCompactionDecisionInput { Mission = mission, Goal = goal, Candidates = candidates },
-                    ContextCompactionVerdict.SpareNone(),
                     CancellationToken.None).ConfigureAwait(false);
 
                 return new

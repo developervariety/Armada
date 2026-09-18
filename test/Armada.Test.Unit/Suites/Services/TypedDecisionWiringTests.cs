@@ -247,14 +247,24 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 foreach (Type type in SafeTypes(assembly))
                 {
-                    // An adapter holding its own type is not a consumer of itself.
-                    if (declared.ContainsKey(type)) continue;
+                    // An adapter holding its own type is not a consumer of itself - and neither is anything
+                    // nested inside it. An async method compiles to a hidden state-machine type nested in the
+                    // adapter, with a field of the adapter's type, which would otherwise make every adapter with
+                    // an async method report itself as wired.
+                    if (declared.ContainsKey(OutermostType(type))) continue;
 
                     foreach (Type referenced in ReferencedTypes(type))
                         if (declared.TryGetValue(referenced, out string? decision)) consumed.Add(decision);
                 }
             }
             return consumed;
+        }
+
+        private static Type OutermostType(Type type)
+        {
+            Type outer = type;
+            while (outer.DeclaringType != null) outer = outer.DeclaringType;
+            return outer;
         }
 
         /// <summary>Every type one consumer type names on its own members, one generic level deep.</summary>
