@@ -688,7 +688,9 @@ captain tool, returns `unavailable` and records one `typed_decision.captain`
 event (`not_found`, `dormant`, or `disabled`). A call that reaches the
 provider records one `typed_decision.gated`, `typed_decision.shadow`, or
 `typed_decision.unavailable` event under the decision point `custom:<name>`.
-A `MissionDiff` decision also runs by itself when a Worker stage hands off.
+A `MissionDiff` decision also runs by itself when a Worker stage hands off,
+on the vessels its `vessels` list names (every vessel when empty). A call by
+name through this tool ignores that scope.
 
 ## Typed Decision Evaluation
 

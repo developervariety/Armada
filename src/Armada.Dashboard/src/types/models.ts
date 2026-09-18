@@ -2802,6 +2802,8 @@ export interface CustomTypedDecision {
   binding: CustomDecisionBinding;
   stateFields: string[];
   questions: CustomTypedQuestion[];
+  /** MissionDiff only: vessel names or ids the decision reads. Empty means every vessel. */
+  vessels?: string[];
 }
 
 /** GET /api/v1/typed-decisions. The key itself is never returned. */

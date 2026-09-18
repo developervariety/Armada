@@ -357,6 +357,11 @@ function CustomDecisionsSection(props: {
           onChange={(e) => setDraft({ ...draft, stateFields: e.target.value.split(',').map((f) => f.trim()) })} />
         <span className="text-muted">{t('MissionDiff surface: runs when a Worker stage hands off; which mission fields to send (title, persona, diff, output_tail, changed_paths, failure_reason).')}</span>
       </div>
+      <div className="form-group">
+        <label>{t('Vessels (comma-separated names or ids; empty means every vessel)')}</label>
+        <input type="text" value={(draft.vessels ?? []).join(', ')} disabled={busy || draft.surface !== 'MissionDiff'}
+          onChange={(e) => setDraft({ ...draft, vessels: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })} />
+      </div>
 
       <h5>{t('Questions')}</h5>
       {draft.questions.map((q, i) => <div key={i} className="custom-decision-question">

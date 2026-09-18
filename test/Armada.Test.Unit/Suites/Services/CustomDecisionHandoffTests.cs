@@ -17,8 +17,8 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Operator-defined custom decisions on the MissionDiff surface run when a Worker stage hands off its
     /// diff. These tests drive a real handoff through the mission service: a bound decision that flags
-    /// becomes a Judge review instruction at the top of the next brief, and a decision that is Off, on
-    /// the CaptainTool surface, or unbound adds nothing.
+    /// becomes a Judge review instruction ahead of the Judge's own brief, and a decision that is Off,
+    /// on the CaptainTool surface, scoped to another vessel, or unbound adds nothing.
     /// </summary>
     public sealed class CustomDecisionHandoffTests : TestSuite
     {
@@ -36,6 +36,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     ArmadaSettings settings = CreateSettings();
                     settings.TypedDecisions.Custom["duplicates_logic"] = Decision(CustomDecisionSurfaceEnum.MissionDiff, CustomDecisionSeamEnum.MissionDiffFlag, TypedDecisionModeEnum.Gate);
+                    // Scoped by the vessel's NAME, which the handoff resolves from the mission's vessel id.
+                    settings.TypedDecisions.Custom["duplicates_logic"].Vessels = new List<string> { "custom-handoff-vessel" };
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("duplicates_existing", 0.95));
 
                     Mission judge = await RunWorkerHandoffAsync(testDb, settings, client).ConfigureAwait(false);
@@ -54,7 +56,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A decision that is Off, on the CaptainTool surface, or unbound adds no note", async () =>
+            await RunTest("A decision that is Off, on the CaptainTool surface, scoped elsewhere, or unbound adds no note", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -62,11 +64,14 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.TypedDecisions.Custom["off_decision"] = Decision(CustomDecisionSurfaceEnum.MissionDiff, CustomDecisionSeamEnum.MissionDiffFlag, TypedDecisionModeEnum.Off);
                     settings.TypedDecisions.Custom["tool_decision"] = Decision(CustomDecisionSurfaceEnum.CaptainTool, CustomDecisionSeamEnum.None, TypedDecisionModeEnum.Gate);
                     settings.TypedDecisions.Custom["unbound_decision"] = Decision(CustomDecisionSurfaceEnum.MissionDiff, CustomDecisionSeamEnum.None, TypedDecisionModeEnum.Gate);
+                    CustomTypedDecisionSettings elsewhere = Decision(CustomDecisionSurfaceEnum.MissionDiff, CustomDecisionSeamEnum.MissionDiffFlag, TypedDecisionModeEnum.Gate);
+                    elsewhere.Vessels = new List<string> { "some-other-vessel" };
+                    settings.TypedDecisions.Custom["scoped_elsewhere"] = elsewhere;
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("duplicates_existing", 0.99));
 
                     Mission judge = await RunWorkerHandoffAsync(testDb, settings, client).ConfigureAwait(false);
 
-                    AssertEqual(1, client.CallCount, "only the unbound MissionDiff decision is consulted; Off and CaptainTool are not");
+                    AssertEqual(1, client.CallCount, "only the unbound MissionDiff decision is consulted; Off, CaptainTool, and another vessel's are not");
                     AssertFalse((judge.Description ?? String.Empty).Contains(MissionService.CustomDecisionNotePhrase, StringComparison.Ordinal),
                         "an unbound decision records its answer but adds no note");
                 }

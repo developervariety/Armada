@@ -6042,8 +6042,14 @@ namespace Armada.Core.Services
 
             try
             {
+                string? vesselName = null;
+                if (!String.IsNullOrWhiteSpace(completedMission.VesselId))
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(completedMission.VesselId!, token).ConfigureAwait(false);
+                    vesselName = vessel?.Name;
+                }
                 List<CustomDecisionOutcome> outcomes = await CustomDecisionAdapter
-                    .RunMissionDiffAsync(completedMission, token).ConfigureAwait(false);
+                    .RunMissionDiffAsync(completedMission, vesselName, token).ConfigureAwait(false);
                 List<CustomDecisionOutcome> flags = outcomes.Where(o => o.DidFlag).ToList();
                 if (flags.Count == 0) return;
 

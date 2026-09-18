@@ -381,6 +381,8 @@ All notable changes to Armada are documented in this file.
   same rule.
 - `armada_run_custom_decision` records one event on every call, like the other captain tools. A
   call with the tool disabled, or to an unknown or `Off` decision, used to record nothing.
+- A MissionDiff custom decision can name the `vessels` it reads (names or ids). A decision about
+  one kind of repository then never asks its question of, or sends, another vessel's diff.
 - A custom Choice question can name `flagOptions`, the options that are the finding, and then
   gates when the model picks one of them. Without them a Choice still never gates.
 - A custom typed decision gates on the raw Noul probability, the same reading every built-in decision

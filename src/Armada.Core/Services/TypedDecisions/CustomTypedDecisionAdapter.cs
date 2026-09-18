@@ -112,13 +112,15 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Run every custom decision on the MissionDiff surface over a finished mission, in name order.
-        /// A decision that is Off is skipped without a call, and a mission with no diff runs nothing.
-        /// Returns one outcome per decision that consulted the provider. Never throws.
+        /// A decision that is Off, or scoped to other vessels, is skipped without a call, and a mission
+        /// with no diff runs nothing. Returns one outcome per decision that consulted the provider.
+        /// Never throws.
         /// </summary>
         /// <param name="mission">The finished mission whose diff is read.</param>
+        /// <param name="vesselName">The mission's vessel name, matched against a decision's vessel scope with its id; may be null.</param>
         /// <param name="token">Cancellation token, forwarded to each call.</param>
         /// <returns>The outcomes; empty when nothing ran.</returns>
-        public async Task<List<CustomDecisionOutcome>> RunMissionDiffAsync(Mission mission, CancellationToken token)
+        public async Task<List<CustomDecisionOutcome>> RunMissionDiffAsync(Mission mission, string? vesselName, CancellationToken token)
         {
             List<CustomDecisionOutcome> outcomes = new List<CustomDecisionOutcome>();
             if (mission == null || String.IsNullOrWhiteSpace(mission.DiffSnapshot)) return outcomes;
@@ -128,6 +130,7 @@ namespace Armada.Core.Services
             {
                 if (entry.Value == null || entry.Value.Surface != CustomDecisionSurfaceEnum.MissionDiff) continue;
                 if (_Settings.ForCustom(entry.Key).Mode == TypedDecisionModeEnum.Off) continue;
+                if (!AppliesToVessel(entry.Value, mission.VesselId, vesselName)) continue;
                 names.Add(entry.Key);
             }
             if (names.Count == 0) return outcomes;
@@ -352,6 +355,27 @@ namespace Armada.Core.Services
             foreach (double value in values.Values)
                 if (!best.HasValue || value > best.Value) best = value;
             return best;
+        }
+
+        /// <summary>
+        /// Whether a decision's vessel scope admits a vessel: an empty scope admits every vessel, and
+        /// otherwise the vessel's name or id must be listed (case-insensitive).
+        /// </summary>
+        /// <param name="definition">The custom decision.</param>
+        /// <param name="vesselId">The vessel id; may be null.</param>
+        /// <param name="vesselName">The vessel name; may be null.</param>
+        /// <returns>True when the decision reads this vessel's diffs.</returns>
+        public static bool AppliesToVessel(CustomTypedDecisionSettings definition, string? vesselId, string? vesselName)
+        {
+            if (definition == null) return false;
+            if (definition.Vessels.Count == 0) return true;
+            foreach (string listed in definition.Vessels)
+            {
+                if (String.IsNullOrWhiteSpace(listed)) continue;
+                if (!String.IsNullOrWhiteSpace(vesselId) && String.Equals(listed.Trim(), vesselId, StringComparison.OrdinalIgnoreCase)) return true;
+                if (!String.IsNullOrWhiteSpace(vesselName) && String.Equals(listed.Trim(), vesselName, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         private static void AddIfPresent(Dictionary<string, object?> context, string field, string? value)

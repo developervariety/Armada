@@ -649,7 +649,10 @@ A custom decision is **advisory by construction** and cannot break the safety co
 - It runs at its `surface`. **`MissionDiff`** runs when a **Worker stage hands off** to a
   later stage (the same seam as `prior_art` and `test_covers`): every MissionDiff decision
   that is not `Off` reads the finished Worker's diff, in name order. A Worker with no later
-  stage, a mission with no diff, and every other persona run nothing. **`CaptainTool`** runs
+  stage, a mission with no diff, and every other persona run nothing. An optional `vessels`
+  list (names or ids, case-insensitive) scopes a MissionDiff decision to those vessels, so a
+  question about one kind of repository is never asked of, and never sends, another's diff;
+  empty means every vessel. The route refuses `vessels` on the CaptainTool surface. **`CaptainTool`** runs
   only when called through `armada_run_custom_decision`, which can also run a MissionDiff
   decision by name with a caller-supplied `context`. It never wires itself into recovery or
   landing.

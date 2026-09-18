@@ -32,6 +32,9 @@ namespace Armada.Core.Models
         /// <summary>The mission fields it assembles (MissionDiff surface).</summary>
         public List<string> StateFields { get; set; } = new List<string>();
 
+        /// <summary>The vessels it reads, by name or id (MissionDiff surface); empty means every vessel.</summary>
+        public List<string> Vessels { get; set; } = new List<string>();
+
         /// <summary>Its questions.</summary>
         public List<CustomTypedQuestionSettings> Questions { get; set; } = new List<CustomTypedQuestionSettings>();
 
@@ -53,6 +56,7 @@ namespace Armada.Core.Models
                 Surface = definition.Surface,
                 Binding = definition.Binding,
                 StateFields = new List<string>(definition.StateFields),
+                Vessels = new List<string>(definition.Vessels),
                 Questions = questions
             };
         }

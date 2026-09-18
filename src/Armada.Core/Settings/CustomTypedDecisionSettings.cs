@@ -58,6 +58,18 @@ namespace Armada.Core.Settings
             set => _StateFields = value ?? new List<string>();
         }
 
+        /// <summary>
+        /// For the MissionDiff surface, the vessels the decision reads, by name or id (case-insensitive).
+        /// Empty means every vessel. A decision about one kind of repository names it here, so its
+        /// question is never asked of a diff it does not apply to, and that diff never leaves the host
+        /// for it.
+        /// </summary>
+        public List<string> Vessels
+        {
+            get => _Vessels;
+            set => _Vessels = value ?? new List<string>();
+        }
+
         /// <summary>The questions the decision asks. At least one is required to run.</summary>
         public List<CustomTypedQuestionSettings> Questions
         {
@@ -67,6 +79,7 @@ namespace Armada.Core.Settings
 
         private double _GateThreshold = 0.9;
         private List<string> _StateFields = new List<string>();
+        private List<string> _Vessels = new List<string>();
         private List<CustomTypedQuestionSettings> _Questions = new List<CustomTypedQuestionSettings>();
 
         /// <summary>Deep-copy this definition, so a hot reload replaces values in place without sharing lists.</summary>
@@ -84,6 +97,7 @@ namespace Armada.Core.Settings
                 Surface = Surface,
                 Binding = Binding,
                 StateFields = new List<string>(_StateFields),
+                Vessels = new List<string>(_Vessels),
                 Questions = questions
             };
         }

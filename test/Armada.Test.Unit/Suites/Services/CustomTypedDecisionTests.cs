@@ -234,7 +234,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DiffSnapshot = "diff --git a/src/Makefile b/src/Makefile\n--- a/src/Makefile\n+++ b/src/Makefile\n@@ -1 +1 @@\n-a\n+b\n",
                     AgentOutput = String.Concat(System.Linq.Enumerable.Repeat("filler line\n", 600)) + "last line TAIL MARKER"
                 };
-                List<CustomDecisionOutcome> outcomes = await adapter.RunMissionDiffAsync(mission, CancellationToken.None).ConfigureAwait(false);
+                List<CustomDecisionOutcome> outcomes = await adapter.RunMissionDiffAsync(mission, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual(1, outcomes.Count, "only the MissionDiff decision that is on runs");
                 AssertEqual("example_decision", outcomes[0].Name, "and it is that one");
                 AssertEqual(1, client.CallCount, "one provider call");
@@ -243,8 +243,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("TAIL MARKER", state, "the output tail keeps the end of the output");
 
                 Mission noDiff = new Mission("t", "d");
-                AssertEqual(0, (await adapter.RunMissionDiffAsync(noDiff, CancellationToken.None).ConfigureAwait(false)).Count, "a mission with no diff runs nothing");
+                AssertEqual(0, (await adapter.RunMissionDiffAsync(noDiff, null, CancellationToken.None).ConfigureAwait(false)).Count, "a mission with no diff runs nothing");
                 AssertEqual(1, client.CallCount, "and makes no call");
+            });
+
+            await RunTest("RunMissionDiff_VesselScope_SkipsOtherVessels", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
+                settings.Custom["example_decision"].Vessels = new List<string> { "PortVessel" };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.97));
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
+                Mission mission = new Mission("t", "d") { VesselId = "vsl_other", DiffSnapshot = "diff --git a/src/Makefile b/src/Makefile\n+b\n" };
+
+                AssertEqual(0, (await adapter.RunMissionDiffAsync(mission, "OtherVessel", CancellationToken.None).ConfigureAwait(false)).Count, "a scoped decision skips another vessel");
+                AssertEqual(0, client.CallCount, "and sends nothing for it");
+                AssertEqual(1, (await adapter.RunMissionDiffAsync(mission, "portvessel", CancellationToken.None).ConfigureAwait(false)).Count, "it runs on a listed vessel name, case-insensitive");
+                settings.Custom["example_decision"].Vessels = new List<string> { "vsl_other" };
+                AssertEqual(1, (await adapter.RunMissionDiffAsync(mission, null, CancellationToken.None).ConfigureAwait(false)).Count, "or a listed vessel id");
             });
 
             await RunTest("MissionContext_TailIsBounded", () =>
@@ -356,6 +372,13 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("typed_decisions_custom_flag_options_unknown", Refusal(Body("choice", "absent")), "an unknown option is refused");
                 AssertContains("typed_decisions_custom_flag_options_all", Refusal(Body("choice", "clean", "risky")), "every option as a finding is refused");
                 AssertContains("typed_decisions_custom_flag_options_kind", Refusal(Body("score", "low")), "a score with finding options is refused");
+
+                CustomTypedDecisionSettings scopedTool = Body("choice", "risky");
+                scopedTool.Surface = CustomDecisionSurfaceEnum.CaptainTool;
+                scopedTool.Vessels = new List<string> { "PortVessel" };
+                AssertContains("typed_decisions_custom_vessels_surface", Refusal(scopedTool), "a vessel scope on the CaptainTool surface is refused");
+                scopedTool.Surface = CustomDecisionSurfaceEnum.MissionDiff;
+                AssertEqual("accepted", Refusal(scopedTool), "a vessel scope on the MissionDiff surface is accepted");
             });
 
             await RunTest("DescribeRequest_SelectsStateFieldsAndBuildsQuestions", () =>

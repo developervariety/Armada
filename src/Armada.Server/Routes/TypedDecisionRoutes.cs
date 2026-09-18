@@ -391,6 +391,9 @@ namespace Armada.Server.Routes
             if (body.Binding == Armada.Core.Enums.CustomDecisionSeamEnum.MissionDiffFlag
                 && body.Surface != Armada.Core.Enums.CustomDecisionSurfaceEnum.MissionDiff)
                 throw new ArgumentException("typed_decisions_binding_surface_mismatch: MissionDiffFlag requires the MissionDiff surface.");
+            if (body.Vessels != null && body.Vessels.Count > 0
+                && body.Surface != Armada.Core.Enums.CustomDecisionSurfaceEnum.MissionDiff)
+                throw new ArgumentException("typed_decisions_custom_vessels_surface: a vessel scope applies only to the MissionDiff surface.");
             if (body.Questions == null || body.Questions.Count == 0)
                 throw new ArgumentException("typed_decisions_custom_no_questions: a custom decision needs at least one question.");
             HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
