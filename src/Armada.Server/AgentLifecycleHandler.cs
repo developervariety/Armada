@@ -1755,8 +1755,11 @@ namespace Armada.Server
         public static string? ValidateRuntimeSupportsPersona(Captain captain, string? persona)
         {
             if (captain == null) return "The captain is required.";
-            if (captain.Runtime != AgentRuntimeEnum.ApiEndpoint) return null;
-            if (!PersonaCatalog.RequiresCommandExecution(persona)) return null;
+
+            // The same predicate the assignment-time eligibility check asks, so the two cannot drift.
+            // This refusal is the backstop for a captain pinned by hand or by a captain override, which
+            // reaches launch without passing eligibility.
+            if (AgentRuntimeCapability.CanServePersona(captain.Runtime, persona)) return null;
 
             return "An API-endpoint captain cannot serve the " + PersonaCatalog.NormalizeName(persona)
                 + " persona: that persona must run commands in its dock, and this runtime provides file tools only, with no shell, git or test runner. "

@@ -9688,6 +9688,14 @@ namespace Armada.Core.Services
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrEmpty(persona)) return true;
+
+            // Capability is asked before permission, and it cannot be overridden by an allow-list: a
+            // captain whose runtime cannot run commands is not eligible for a persona that must run them,
+            // however its record reads. Leaving this to the launch guard alone made the dispatcher assign
+            // the mission and the launch refuse it, which turns "pick another captain" into a failed
+            // mission and a rescue.
+            if (!AgentRuntimeCapability.CanServePersona(captain.Runtime, persona)) return false;
+
             if (String.IsNullOrEmpty(captain.AllowedPersonas)) return true;
 
             try
