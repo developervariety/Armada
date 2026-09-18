@@ -428,6 +428,11 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.CapacityEscalationAdapter = new TypedCapacityEscalationAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                // context_compaction spares the earlier tool results an API-endpoint run still depends on.
+                // The runtime compacts deterministically without it, so an unset adapter, an Off decision and
+                // an unavailable provider are all the behaviour that shipped before the decision existed.
+                _RuntimeFactory.ContextCompactionAdapter = new TypedContextCompactionAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
             }
 
             _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex, _DispatchHold, _ObjectiveDispatchPreviewService);

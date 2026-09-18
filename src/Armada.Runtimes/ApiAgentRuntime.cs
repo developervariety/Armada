@@ -63,6 +63,19 @@ namespace Armada.Runtimes
         public event Action<int, int?>? OnProcessExited;
 
         /// <summary>
+        /// The context-compaction decision, or null to compact deterministically. It is consulted only
+        /// AFTER the deterministic threshold is crossed, and it may only spare a candidate the
+        /// deterministic pass would have replaced: it never removes a message and never drops a result the
+        /// rule would have kept. A null decider, an Off decision and an unavailable provider all leave the
+        /// deterministic behaviour exactly as it was.
+        /// <para>
+        /// A function, not the adapter itself, so this runtime keeps no typed-decision dependency and a
+        /// test can drive the seam without a decision client or a database.
+        /// </para>
+        /// </summary>
+        public Func<ContextCompactionDecisionInput, CancellationToken, Task<ContextCompactionVerdict>>? ContextCompactionDecider { get; set; }
+
+        /// <summary>
         /// Armada MCP tool access for the caller of the next run, or null for none. Only a caller-bound session
         /// credential grants access: the runtime never reads an MCP credential from the launch environment or the
         /// isolation plan, so the admiral launch credential cannot widen what a chat caller may do. A run reads
@@ -85,6 +98,10 @@ namespace Armada.Runtimes
 
         /// <summary>Prefix of a replaced tool result, so a second pass never compacts the same message twice.</summary>
         internal const string CompactedToolResultMarker = "[compacted]";
+
+        /// <summary>Characters of a tool result the compaction decision reads, so a candidate is judged on
+        /// its content and not on its size alone. Bounded because the whole point is to send less.</summary>
+        internal const int CandidateHeadChars = 400;
 
         private static readonly ConcurrentDictionary<int, CancellationTokenSource> _Running = new ConcurrentDictionary<int, CancellationTokenSource>();
 
@@ -299,7 +316,7 @@ namespace Armada.Runtimes
                 for (int iteration = 0; iteration < _MaxIterations; iteration++)
                 {
                     token.ThrowIfCancellationRequested();
-                    EnsureConversationBounds(processId, messages);
+                    await EnsureConversationBoundsAsync(processId, messages, prompt, token).ConfigureAwait(false);
 
                     ToolChatRequest request = new ToolChatRequest();
                     request.Messages = messages;
@@ -664,6 +681,89 @@ namespace Armada.Runtimes
         /// <returns>Number of tool results whose content was replaced, or zero when nothing was compacted.</returns>
         internal static int CompactConversation(List<ChatMessage> messages)
         {
+            return CompactConversation(messages, null);
+        }
+
+        /// <summary>
+        /// The message indices the deterministic pass would replace, in conversation order, with the
+        /// candidate descriptor the compaction decision reads for each. Selection is deterministic and is
+        /// the SAME predicate the compaction loop applies, so a candidate list and a compaction can never
+        /// disagree about what is eligible.
+        /// </summary>
+        /// <param name="messages">Conversation so far.</param>
+        /// <param name="messageIndices">Receives the message index of each returned candidate, in order.</param>
+        /// <returns>The candidates, oldest first.</returns>
+        internal static List<ContextCompactionCandidate> CollectCompactionCandidates(List<ChatMessage> messages, out List<int> messageIndices)
+        {
+            List<ContextCompactionCandidate> candidates = new List<ContextCompactionCandidate>();
+            messageIndices = new List<int>();
+            if (messages == null || messages.Count <= RecentMessagesKeptWhole) return candidates;
+
+            int lastProtected = messages.Count - RecentMessagesKeptWhole;
+            for (int index = 0; index < lastProtected; index++)
+            {
+                if (!IsCompactionCandidate(messages, index)) continue;
+                ChatMessage message = messages[index];
+                string content = message.Content ?? String.Empty;
+                candidates.Add(new ContextCompactionCandidate(
+                    message.ToolName ?? "tool",
+                    DescribeRequestFor(messages, index),
+                    content.Length <= CandidateHeadChars ? content : content.Substring(0, CandidateHeadChars),
+                    Encoding.UTF8.GetByteCount(content),
+                    messages.Count - index));
+                messageIndices.Add(index);
+            }
+
+            return candidates;
+        }
+
+        /// <summary>
+        /// Whether the message at an index is a tool result the deterministic pass would replace. One
+        /// predicate, consulted by both the candidate list and the compaction loop.
+        /// </summary>
+        /// <param name="messages">Conversation so far.</param>
+        /// <param name="index">Message index.</param>
+        /// <returns>True when the message is an eligible, not-yet-compacted tool result.</returns>
+        private static bool IsCompactionCandidate(List<ChatMessage> messages, int index)
+        {
+            // The first two messages are the system prompt and the launch prompt: the mission's own
+            // instructions, which a captain needs at the last turn as much as the first.
+            if (index < 2) return false;
+            ChatMessage message = messages[index];
+            if (!String.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.IsNullOrEmpty(message.Content)) return false;
+            if (message.Content!.StartsWith(CompactedToolResultMarker, StringComparison.Ordinal)) return false;
+            return Encoding.UTF8.GetByteCount(message.Content!) > CompactedToolResultMarker.Length;
+        }
+
+        /// <summary>
+        /// A bounded description of what the captain asked the tool for, read from the assistant turn that
+        /// precedes the result. Without it the model would judge an output with no idea what was requested.
+        /// </summary>
+        /// <param name="messages">Conversation so far.</param>
+        /// <param name="index">Index of the tool result.</param>
+        /// <returns>A bounded summary, or an empty string when the request cannot be found.</returns>
+        private static string DescribeRequestFor(List<ChatMessage> messages, int index)
+        {
+            for (int back = index - 1; back >= 0; back--)
+            {
+                ChatMessage candidate = messages[back];
+                if (String.Equals(candidate.Role, "tool", StringComparison.OrdinalIgnoreCase)) continue;
+                string text = candidate.Content ?? String.Empty;
+                return text.Length <= CandidateHeadChars ? text : text.Substring(0, CandidateHeadChars);
+            }
+
+            return String.Empty;
+        }
+
+        /// <summary>
+        /// Compact the conversation, leaving the named message indices whole.
+        /// </summary>
+        /// <param name="messages">Conversation so far; mutated in place when it is compacted.</param>
+        /// <param name="sparedIndices">Message indices to leave whole this pass, or null to spare none.</param>
+        /// <returns>Number of tool results whose content was replaced, or zero when nothing was compacted.</returns>
+        internal static int CompactConversation(List<ChatMessage> messages, IReadOnlyCollection<int>? sparedIndices)
+        {
             if (messages == null || messages.Count <= RecentMessagesKeptWhole) return 0;
             if (MeasureConversationBytes(messages) <= CompactionThresholdBytes) return 0;
 
@@ -671,17 +771,12 @@ namespace Armada.Runtimes
             int lastProtected = messages.Count - RecentMessagesKeptWhole;
             for (int index = 0; index < lastProtected; index++)
             {
+                if (sparedIndices != null && sparedIndices.Contains(index)) continue;
                 ChatMessage message = messages[index];
 
-                // The first two messages are the system prompt and the launch prompt: the mission's own
-                // instructions, which a captain needs at the last turn as much as the first.
-                if (index < 2) continue;
-                if (!String.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)) continue;
-                if (String.IsNullOrEmpty(message.Content)) continue;
-                if (message.Content!.StartsWith(CompactedToolResultMarker, StringComparison.Ordinal)) continue;
+                if (!IsCompactionCandidate(messages, index)) continue;
 
-                int droppedBytes = Encoding.UTF8.GetByteCount(message.Content);
-                if (droppedBytes <= CompactedToolResultMarker.Length) continue;
+                int droppedBytes = Encoding.UTF8.GetByteCount(message.Content!);
 
                 message.Content = CompactedToolResultMarker + " " + (message.ToolName ?? "tool")
                     + " returned " + droppedBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -697,20 +792,80 @@ namespace Armada.Runtimes
             return Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(messages));
         }
 
-        private void EnsureConversationBounds(int processId, List<ChatMessage> messages)
+        internal async Task EnsureConversationBoundsAsync(int processId, List<ChatMessage> messages, string goal, CancellationToken token)
         {
-            int compacted = CompactConversation(messages);
+            // Below the deterministic threshold nothing is compacted, so nothing is asked: the decision
+            // costs a provider call only on a conversation that was about to lose content anyway.
+            if (MeasureConversationBytes(messages) <= CompactionThresholdBytes) return;
+
+            List<int> spared = await ResolveSparedIndicesAsync(processId, messages, goal, token).ConfigureAwait(false);
+            int compacted = CompactConversation(messages, spared);
             if (compacted > 0)
             {
                 // Reported through the log, never through Emit: the emitted stream is the stream a terminal
                 // marker and a Judge verdict are parsed from, and it holds only canonical activity records.
                 _Logging.Warn(_Header + "process " + processId + ": compacted " + compacted
-                    + " earlier tool result(s) to stay inside the context limit; the mission instructions and the recent turns are unchanged.");
+                    + " earlier tool result(s) to stay inside the context limit; the mission instructions and the recent turns are unchanged."
+                    + (spared.Count > 0
+                        ? " Spared " + spared.Count + " still-load-bearing result(s) on the context_compaction decision."
+                        : String.Empty));
             }
 
             int conversationBytes = MeasureConversationBytes(messages);
+
+            // The decision may only RETAIN more than the rule, so its sparing can leave a conversation the
+            // rule would have brought under the ceiling above it. The ceiling wins: compact the spared ones
+            // too rather than lose the run, and say that the decision was overridden.
+            if (conversationBytes > MaximumConversationBytes && spared.Count > 0)
+            {
+                int forced = CompactConversation(messages, null);
+                _Logging.Warn(_Header + "process " + processId + ": the conversation was still over the hard ceiling after sparing, so "
+                    + forced + " spared result(s) were compacted as well; the ceiling overrides the context_compaction decision.");
+                conversationBytes = MeasureConversationBytes(messages);
+            }
+
             if (conversationBytes > MaximumConversationBytes)
                 throw new InvalidDataException("The model conversation exceeded the allowed context limit.");
+        }
+
+        /// <summary>
+        /// The message indices to leave whole this pass. Empty whenever no adapter is set, the decision is
+        /// Off or below threshold, the provider is unavailable, or nothing reads as load-bearing — every one
+        /// of which yields the deterministic compaction unchanged. Never throws.
+        /// </summary>
+        /// <param name="processId">Synthetic process id, for the log line.</param>
+        /// <param name="messages">Conversation so far.</param>
+        /// <param name="goal">What the captain is working towards; its own launch prompt.</param>
+        /// <param name="token">Cancellation token, forwarded to the decision client.</param>
+        /// <returns>Message indices to spare, possibly empty.</returns>
+        private async Task<List<int>> ResolveSparedIndicesAsync(int processId, List<ChatMessage> messages, string goal, CancellationToken token)
+        {
+            List<int> spared = new List<int>();
+            Func<ContextCompactionDecisionInput, CancellationToken, Task<ContextCompactionVerdict>>? decide = ContextCompactionDecider;
+            if (decide == null) return spared;
+
+            try
+            {
+                List<ContextCompactionCandidate> candidates = CollectCompactionCandidates(messages, out List<int> messageIndices);
+                if (candidates.Count == 0) return spared;
+
+                ContextCompactionVerdict verdict = await decide(
+                    new ContextCompactionDecisionInput { Goal = goal ?? String.Empty, Candidates = candidates },
+                    token).ConfigureAwait(false);
+
+                foreach (int position in verdict.SparedPositions)
+                    if (position >= 0 && position < messageIndices.Count) spared.Add(messageIndices[position]);
+            }
+            catch (Exception ex)
+            {
+                // The adapter is contracted never to throw into a caller; guard anyway, because a compaction
+                // that throws here would convert a long run into a lost run, which is the defect the
+                // deterministic compaction was added to fix. A cancelled run is not this path's business.
+                _Logging.Warn(_Header + "process " + processId + ": the context_compaction decision failed, compacting deterministically: " + ex.Message);
+                return new List<int>();
+            }
+
+            return spared;
         }
 
         private CompletionClientBase CreateProductionClient(ModelEndpoint endpoint, LoggingModule logging)

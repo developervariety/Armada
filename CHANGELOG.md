@@ -8,6 +8,25 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- The `context_compaction` typed decision, over the API-endpoint runtime's conversation compaction. The
+  deterministic pass replaces the content of every older tool result once a conversation passes its
+  threshold, oldest first, without reading any of them; it discards a measurement the captain still needs as
+  readily as a settled directory listing. The decision reads the candidates that pass is about to replace —
+  the tool, what was asked for, a bounded head of the answer, its full size and how far back it sits — and
+  spares the ones whose content the remaining work still depends on. One Noul per candidate, and one
+  question per candidate actually sent, so a verdict never names a position the caller cannot resolve.
+- The direction is fixed by the rule: the rule spares nothing, so the decision can only ever RETAIN more of
+  a captain's history and can never drop a result the rule would have kept. It removes no message, so the
+  tool-call and tool-result pairing the provider requires stays intact, and the system prompt, the launch
+  prompt and the most recent exchanges are never candidates. Off, below threshold, unavailable, a malformed
+  answer, a confidence with no Noul value, and a client that throws all leave the deterministic compaction
+  exactly as it shipped. The decision is consulted only after the deterministic threshold is crossed, so a
+  conversation that was not going to lose content costs no provider call.
+- The conversation ceiling overrides the decision. Sparing can leave a conversation the rule would have
+  brought under the hard limit above it, so a run still over the ceiling after sparing compacts the spared
+  results too and says so, rather than losing the run — the defect the deterministic compaction was added to
+  fix in the first place.
+
 - Read-only captain-log screening (`captainLogScreening`, default off). On a cadence the Admiral reads a
   bounded tail of each in-progress mission's live log, runs every registered screening pass over it, and on a
   finding posts exactly one voyage-tagged coordination-board note naming the rule classes with one line of

@@ -374,6 +374,20 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   finding becomes an **evidence note**; a routing note is prepended to the next
   brief. The Linter's own result is unchanged — only the routing is. With the
   decision `Off` the Linter output flows unchanged.
+- `context_compaction` sits inside the API-endpoint runtime's conversation
+  compaction, over the earlier tool results the deterministic pass is about to
+  replace. The model answers one `still_load_bearing` Noul per candidate — the
+  tool, what was asked for, a bounded head of the answer, its full size and how
+  far back it sits — and the candidates at or above the floor keep their full
+  output verbatim. **The rule spares nothing**, so the decision can only ever
+  RETAIN more of a captain's history; it never removes a message, so tool-call and
+  tool-result pairing stays intact, and the system prompt, the launch prompt and
+  the most recent exchanges are never candidates. It is consulted only AFTER the
+  deterministic threshold is crossed, so a conversation that was not going to lose
+  content costs no call. **The conversation ceiling overrides the decision**: a run
+  still over the hard limit after sparing compacts the spared results too and says
+  so, because a compaction that stops shrinking converts a long run into a lost
+  run. With the decision `Off` the compaction is deterministic.
 
 Two decision points read the papercut grouping:
 
