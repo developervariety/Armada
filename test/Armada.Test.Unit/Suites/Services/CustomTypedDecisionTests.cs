@@ -1,11 +1,15 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.Collections.Generic;
+    using System.IO;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.TypedDecisions;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -107,13 +111,111 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
-                // noul 0.6 -> confidence |0.6-0.5|*2 = 0.2, below the 0.9 threshold.
+                // The gate reads the raw noul, as the built-in decisions do: 0.6 is below the 0.9 threshold.
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.6));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
 
                 CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("recorded", outcome.Status, "below threshold records without flagging");
                 AssertFalse(outcome.DidFlag, "and never flags");
+            });
+
+            await RunTest("Adapter_ConfidentlyFalseNoul_DoesNotFlag", async () =>
+            {
+                // A noul is the probability that its statement (the finding) is true. 0.02 is a
+                // confident "no finding"; reading it as distance from 0.5 gave 0.96 and flagged it.
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.02));
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
+
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual("recorded", outcome.Status, "a confidently false finding records without flagging");
+                AssertFalse(outcome.DidFlag, "and never flags");
+                AssertEqual<double?>(0.02, outcome.Confidence, "the gate value is the raw noul");
+            });
+
+            await RunTest("Adapter_ChoiceAnswer_NeverGates", async () =>
+            {
+                // A custom definition does not say which option is the finding, so a confident choice
+                // cannot flag; it is recorded and returned to the caller only.
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
+                settings.Custom["example_decision"].Questions = new List<CustomTypedQuestionSettings>
+                {
+                    new CustomTypedQuestionSettings
+                    {
+                        Id = "kind", Type = "choice", Instructions = "what kind of change",
+                        Options = new Dictionary<string, string> { ["clean"] = "no finding", ["risky"] = "a finding" }
+                    }
+                };
+                TypedDecisionResult choice = new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["kind"] = new TypedAnswer { Type = "choice", Choice = "clean", Confidence = 0.99 }
+                    }
+                };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(choice);
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
+
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(1, client.CallCount, "the provider is consulted");
+                AssertEqual("recorded", outcome.Status, "a confident choice records without flagging");
+                AssertFalse(outcome.DidFlag, "and never flags");
+                AssertNull(outcome.Confidence, "a decision with no noul has no gate value");
+            });
+
+            await RunTest("Adapter_Flag_RecordsGatedEventUnderCustomDecisionPoint", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.97));
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
+
+                await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+
+                List<ArmadaEvent> gated = await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false);
+                AssertEqual(1, gated.Count, "a flag is one typed_decision.gated event");
+                AssertContains("\"decision\":\"custom:example_decision\"", gated[0].Payload ?? "", "under the custom decision point");
+                List<ArmadaEvent> shadow = await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false);
+                AssertEqual(0, shadow.Count, "and no second event");
+            });
+
+            await RunTest("Adapter_RetainState_RetainsTheCustomDecisionsSample", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string dataDirectory = Path.Combine(Path.GetTempPath(), "armada-custom-retain-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dataDirectory);
+                try
+                {
+                    TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
+                    settings.Retention.Enabled = true;
+                    TypedDecisionSampleStore store = new TypedDecisionSampleStore(dataDirectory, new LoggingModule());
+                    TypedDecisionRecorder recorder = new TypedDecisionRecorder(db.Driver, new LoggingModule(), store, () => settings);
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.4));
+                    CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, recorder, settings, new LoggingModule());
+                    string folder = Path.Combine(store.RootPath, "custom_example_decision");
+
+                    await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                    AssertFalse(Directory.Exists(folder), "a custom decision that has not opted in retains nothing");
+
+                    settings.Custom["example_decision"].RetainState = true;
+                    await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(Directory.Exists(folder), "the custom decision's own retainState retains its call");
+                    string[] files = Directory.GetFiles(folder, "*.jsonl");
+                    AssertEqual(1, files.Length, "one day file");
+                    TypedDecisionSample? sample = JsonSerializer.Deserialize<TypedDecisionSample>(
+                        File.ReadAllLines(files[0])[0], new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+                    AssertNotNull(sample, "the line is a sample");
+                    AssertEqual("custom:example_decision", sample!.DecisionPoint, "keyed by the custom decision point");
+                    AssertContains("-a", sample.RedactedState, "carrying the redacted state");
+                }
+                finally
+                {
+                    try { Directory.Delete(dataDirectory, true); } catch (IOException) { }
+                }
             });
 
             await RunTest("Adapter_Unavailable_DoesNotFlag", async () =>

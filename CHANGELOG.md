@@ -370,6 +370,14 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- A custom typed decision gates on the raw Noul probability, the same reading every built-in decision
+  uses, so the true pole of a custom Noul is its finding. It used to read a Noul as its distance from 0.5,
+  so a confident "no finding" (0.02) scored 0.96 and flagged. Choice and Score answers are still recorded
+  and returned but never gate, because a custom definition does not name which option is the finding.
+  The `test_covers_symptom` example seed is rephrased so its Nouls put the finding on the true pole.
+- A custom decision's `retainState` is honoured. Retention looked only at the built-in decision map, so a
+  custom decision's call (decision point `custom:<name>`) was never kept, and the labels report never
+  listed it. The report and the retention check now share one opt-in rule.
 - Leaked model reasoning markup can no longer reach the text an API-endpoint captain's terminal marker and
   Judge verdict are parsed from. The provider's reasoning channel is already kept out of the assistant text
   by the client, but a proxy can leak a think block or a lone closing tag into the content, and one was

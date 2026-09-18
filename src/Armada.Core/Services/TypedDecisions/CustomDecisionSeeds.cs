@@ -9,9 +9,10 @@ namespace Armada.Core.Services
     /// Built-in EXAMPLE custom decisions an operator can install and then edit, to see the shape of a
     /// user-defined decision. They are deliberately generic software-engineering checks with no
     /// project- or domain-specific content — a deployment's own decisions are created in the
-    /// dashboard or imported as configuration, never shipped in this source. The examples ship Off
-    /// and unbound, so installing them changes nothing until an operator turns one on, and they are
-    /// not auto-installed, so deleting one does not resurrect it.
+    /// dashboard or imported as configuration, never shipped in this source. The examples ship Off,
+    /// so installing them changes nothing until an operator turns one on, and they are not
+    /// auto-installed, so deleting one does not resurrect it. Every Noul is phrased with the finding
+    /// as its true pole, because a custom decision gates on the raw Noul probability.
     /// </summary>
     public static class CustomDecisionSeeds
     {
@@ -39,7 +40,7 @@ namespace Armada.Core.Services
 
             seeds["test_covers_symptom"] = new CustomTypedDecisionSettings
             {
-                Description = "An added test exercises the reported symptom and would fail before the change.",
+                Description = "An added test misses the reported symptom or would pass even before the change.",
                 Surface = CustomDecisionSurfaceEnum.MissionDiff,
                 Binding = CustomDecisionSeamEnum.MissionDiffFlag,
                 Mode = TypedDecisionModeEnum.Off,
@@ -47,8 +48,8 @@ namespace Armada.Core.Services
                 StateFields = new List<string> { "title", "diff" },
                 Questions = new List<CustomTypedQuestionSettings>
                 {
-                    Noul("covers_symptom", "An added test exercises the change's reported symptom, not an unrelated behaviour.", "covers the symptom", "does not cover the symptom"),
-                    Noul("would_fail_before", "The added test would fail against the code before the change and pass after it.", "distinguishes the fix", "would pass even before the fix")
+                    Noul("misses_symptom", "No added test exercises the change's reported symptom; the tests cover an unrelated behaviour.", "does not cover the symptom", "covers the symptom"),
+                    Noul("passes_before_fix", "The added test would pass even against the code before the change, so it does not distinguish the fix.", "would pass even before the fix", "distinguishes the fix")
                 }
             };
 

@@ -134,12 +134,7 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     List<TypedDecisionSampleCount> counts = samples.Summarize(live.Retention.MinimumSamplesPerDecision);
-                    List<string> optedIn = new List<string>();
-                    foreach (KeyValuePair<string, TypedDecisionRuleSettings> entry in live.Decisions)
-                    {
-                        if (entry.Value != null && entry.Value.RetainState) optedIn.Add(entry.Key);
-                    }
-                    optedIn.Sort(StringComparer.Ordinal);
+                    List<string> optedIn = TypedDecisionSampleStore.OptedInDecisionPoints(live);
 
                     return Task.FromResult<object>(new
                     {

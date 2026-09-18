@@ -19,9 +19,10 @@ namespace Armada.Core.Enums
         CaptainTool,
 
         /// <summary>
-        /// Runs as an advisory pass over a finished mission's diff and output. It records an event
-        /// and, when bound, takes its bound conservative action. It never lands, dispatches, or
-        /// approves.
+        /// An advisory read of a finished mission's diff and output, the surface a
+        /// <see cref="CustomDecisionSeamEnum.MissionDiffFlag"/> binding requires. Nothing runs it
+        /// automatically yet: it is reached only through the on-demand tool, whose caller supplies the
+        /// mission fields. It never lands, dispatches, or approves.
         /// </summary>
         [EnumMember(Value = "MissionDiff")]
         MissionDiff

@@ -240,10 +240,23 @@ runs a user-defined custom decision by name (see "Custom decisions" below). Ever
 above is caller-scoped, so a mission caller reaches it like the memory tools; defining a
 custom decision stays a settings write, which only an administrator makes. Authority does
 not travel with any of them. Each call redacts its state
-before egress (there is no per-mission call cap), writes exactly one event carrying only
-the state hash and byte count — `typed_decision.captain`, or `typed_decision.custom` from
-the custom runner — and has no side effect on any Armada record: it dispatches nothing,
-lands nothing, edits no objective, and writes no memory.
+before egress (there is no per-mission call cap) and has no side effect on any Armada
+record: it dispatches nothing, lands nothing, edits no objective, and writes no memory.
+The general tool and the pre-shaped helpers write exactly one `typed_decision.captain`
+event per call, whatever the outcome. The custom runner records through the custom
+decision's own path instead (see "Custom decisions" below). Every event carries only the
+state hash and byte count.
+
+The captain tools gate nothing, so they apply no threshold. A pre-shaped helper returns
+`unavailable` while its decision is `Off` and answers in every other mode, `Shadow`
+included; the general tool has no decision of its own and answers whenever the tool is
+enabled. Every answer comes back with its confidence (and its probabilities where the
+provider gives them), so the captain weighs a low-confidence answer itself. `Shadow`
+therefore does not quiet a captain tool: to stop a helper answering, set its decision
+`Off`. A pre-shaped helper records under its decision's own key (for example
+`premise_check`), so that decision's `retainState` also retains the helper's calls, with
+rule verdict `none`. The general tool records under `captain_tool`, which has no settings
+entry and so is never retained.
 The tools are enabled by default (`typedDecisions.captainTool.enabled` is `true`); setting
 it `false` makes every call return `unavailable`. See `docs/MCP_API.md` for the tool
 arguments.
@@ -628,23 +641,45 @@ decision carries its own questions and describes how to build its state, and it 
 
 A custom decision is **advisory by construction** and cannot break the safety contract:
 
-- It runs only at a generic `surface` — `CaptainTool` (invoked on demand through
-  `armada_run_custom_decision`) or `MissionDiff` (an advisory pass over a finished mission's
-  diff and output). It never wires itself into recovery, a Judge handoff, or landing.
+- It runs only when called through `armada_run_custom_decision`. Its `surface` is
+  `CaptainTool` or `MissionDiff`, and **nothing runs a `MissionDiff` decision
+  automatically yet**: no mission-completion, review, or landing path calls it. The surface
+  is validated and is the one a `MissionDiffFlag` binding requires, and the caller supplies
+  the mission fields (`diff`, `output_tail`, ...) in the tool's `context`. It never wires
+  itself into recovery, a Judge handoff, or landing.
 - Its `binding` is one of a fixed, non-approving list (`CustomDecisionSeamEnum`): today `None`
-  (record only) or `MissionDiffFlag` (record a loud advisory flag event when it gates). No
-  member lands, dispatches, approves a PASS, holds a rescue, or writes memory. Adding an
-  approving action would change the owner non-negotiables and needs a new ruling.
+  (record only, never flags) or `MissionDiffFlag` (when it gates, the call is recorded as a
+  `typed_decision.gated` event and the tool reply says `flagged: true`). No member lands,
+  dispatches, approves a PASS, holds a rescue, or writes memory. Adding an approving action
+  would change the owner non-negotiables and needs a new ruling.
 - Its effective mode is the minimum of the global mode and its own, so the global kill switch
   caps it. It is created `Off`, so nothing runs until an operator turns it on.
 - It gates only at or above its `gateThreshold`, and only its bound conservative action; below
-  the threshold, in Shadow, or unbound, it records and does nothing else.
+  the threshold, in Shadow, or unbound, it records and does nothing else. The tool still
+  returns the answers in Shadow and below the threshold; only `flagged` depends on the gate.
+- **The gate value is the highest raw Noul probability**, the same reading every built-in
+  decision uses: a Noul is the probability that its statement is true, so phrase each Noul
+  with the finding as its **true** pole ("the change duplicates existing logic", not "the
+  change reuses existing logic"). A Noul phrased the other way flags the good case. Choice and
+  Score answers are recorded and returned but never gate, because a definition does not say
+  which option is the finding; a decision with no Noul never flags.
 
 Each custom decision defines `questions` (choice, score, or noul, exactly like the built-ins),
-`stateFields` (which mission fields the `MissionDiff` surface sends), a `description`, and
-`retainState`. Every call records a `typed_decision.custom` event (or
-`typed_decision.custom_flagged` when it flags), carrying the state hash and byte count, never
-the state.
+`stateFields` (which context fields go into the state, in order), a `description`, and
+`retainState`. A call that consults the provider records one event through the shared
+recorder under the decision point `custom:<name>`: `typed_decision.gated` when it flags,
+`typed_decision.shadow` (`gate_outcome` `shadow_mode` or `below_threshold`) when it only
+records, and `typed_decision.unavailable` when the provider does not answer. A call to an
+unknown or `Off` decision, or with the captain tool disabled, records nothing. Events carry
+the state hash and byte count, never the state. Read them with:
+
+```sql
+select payload from events where payload like '%"decision":"custom:%';
+```
+
+`retainState` works as for a built-in decision: with `typedDecisions.retention.enabled` on,
+the call's redacted state is kept under `typed-decision-samples/custom_<name>/`, and
+`armada_typed_decision_labels` lists the decision as `custom:<name>`.
 
 Administrator routes (same permission as a settings write):
 
@@ -652,7 +687,7 @@ Administrator routes (same permission as a settings write):
 | --- | --- |
 | `PUT /api/v1/typed-decisions/custom/{name}` | Create or replace a custom decision. Refuses a name that collides with a shipped decision, an invalid mode/threshold/surface/binding, a `MissionDiffFlag` binding without the `MissionDiff` surface, or a malformed question, with 400. |
 | `DELETE /api/v1/typed-decisions/custom/{name}` | Remove a custom decision. Deleting one does not resurrect it from the seeds. |
-| `POST /api/v1/typed-decisions/custom/install-seeds` | Install the built-in generic example custom decisions that are not already present. They ship `Off` and unbound. |
+| `POST /api/v1/typed-decisions/custom/install-seeds` | Install the built-in generic example custom decisions that are not already present. They ship `Off`. |
 
 `GET /api/v1/typed-decisions` returns every custom decision under `custom`.
 

@@ -80,6 +80,9 @@ namespace Armada.Core.Services.TypedDecisions
         /// <summary>
         /// Whether this decision's state is retained under the current settings. Retention needs the
         /// feature enabled AND the decision's own opt-in, so enabling the feature alone retains nothing.
+        /// A custom decision (<c>custom:&lt;name&gt;</c>) opts in with its own definition's
+        /// <c>retainState</c>. A decision point with no settings entry (the general captain tool) has no
+        /// opt-in, so it is never retained.
         /// </summary>
         /// <param name="settings">Typed-decision settings.</param>
         /// <param name="decisionPoint">The decision point key.</param>
@@ -88,8 +91,29 @@ namespace Armada.Core.Services.TypedDecisions
         {
             if (settings == null || String.IsNullOrWhiteSpace(decisionPoint)) return false;
             if (!settings.Retention.Enabled) return false;
-            if (!settings.Decisions.TryGetValue(decisionPoint, out TypedDecisionRuleSettings? rule) || rule == null) return false;
-            return rule.RetainState;
+            return OptsIn(settings, decisionPoint!);
+        }
+
+        /// <summary>
+        /// Every decision point whose own opt-in is set, built-in and custom, sorted. The feature switch
+        /// is not consulted, so the report can name what would be retained once it is on. This is the
+        /// same rule <see cref="Retains"/> applies, read the same way.
+        /// </summary>
+        /// <param name="settings">Typed-decision settings.</param>
+        /// <returns>The opted-in decision points.</returns>
+        public static List<string> OptedInDecisionPoints(TypedDecisionSettings? settings)
+        {
+            List<string> optedIn = new List<string>();
+            if (settings == null) return optedIn;
+            foreach (string decisionPoint in settings.Decisions.Keys)
+                if (OptsIn(settings, decisionPoint)) optedIn.Add(decisionPoint);
+            foreach (string name in settings.Custom.Keys)
+            {
+                string decisionPoint = CustomTypedDecisionAdapter.DecisionPointFor(name);
+                if (OptsIn(settings, decisionPoint)) optedIn.Add(decisionPoint);
+            }
+            optedIn.Sort(StringComparer.Ordinal);
+            return optedIn;
         }
 
         /// <summary>
@@ -184,6 +208,20 @@ namespace Armada.Core.Services.TypedDecisions
         #endregion
 
         #region Private-Methods
+
+        private static bool OptsIn(TypedDecisionSettings settings, string decisionPoint)
+        {
+            if (decisionPoint.StartsWith(CustomTypedDecisionAdapter.DecisionPointPrefix, StringComparison.Ordinal))
+            {
+                string name = decisionPoint.Substring(CustomTypedDecisionAdapter.DecisionPointPrefix.Length);
+                return settings.Custom.TryGetValue(name, out CustomTypedDecisionSettings? custom)
+                    && custom != null
+                    && custom.RetainState;
+            }
+            return settings.Decisions.TryGetValue(decisionPoint, out TypedDecisionRuleSettings? rule)
+                && rule != null
+                && rule.RetainState;
+        }
 
         private bool Write(TypedDecisionSample sample)
         {

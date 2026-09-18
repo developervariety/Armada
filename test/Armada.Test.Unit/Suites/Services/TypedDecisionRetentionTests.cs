@@ -54,6 +54,49 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("A custom decision opts in with its own retainState and the report lists it", async () =>
+            {
+                ArmadaSettings settings = RetainingSettings("failure_cause");
+                settings.TypedDecisions.Custom["house_rule"] = new CustomTypedDecisionSettings();
+
+                AssertFalse(TypedDecisionSampleStore.Retains(settings.TypedDecisions, "custom:house_rule"),
+                    "a custom decision that has not opted in retains nothing");
+                settings.TypedDecisions.Custom["house_rule"].RetainState = true;
+                AssertTrue(TypedDecisionSampleStore.Retains(settings.TypedDecisions, "custom:house_rule"),
+                    "its own retainState turns retention on");
+                AssertFalse(TypedDecisionSampleStore.Retains(settings.TypedDecisions, "custom:missing"),
+                    "an unknown custom decision retains nothing");
+                AssertFalse(TypedDecisionSampleStore.Retains(settings.TypedDecisions, "captain_tool"),
+                    "the general captain tool has no opt-in and retains nothing");
+
+                List<string> optedIn = TypedDecisionSampleStore.OptedInDecisionPoints(settings.TypedDecisions);
+                AssertTrue(optedIn.Contains("custom:house_rule"), "the opted-in list names the custom decision");
+                AssertTrue(optedIn.Contains("failure_cause"), "and the built-in one");
+                foreach (string decisionPoint in optedIn)
+                    AssertTrue(TypedDecisionSampleStore.Retains(settings.TypedDecisions, decisionPoint),
+                        "every listed decision point is one Retains answers yes for: " + decisionPoint);
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string dataDirectory = NewTempDir("custom-report");
+                    try
+                    {
+                        TypedDecisionSampleStore store = new TypedDecisionSampleStore(dataDirectory, new LoggingModule());
+                        TypedDecisionRecorder recorder = new TypedDecisionRecorder(
+                            testDb.Driver, new LoggingModule(), store, () => settings.TypedDecisions);
+                        Dictionary<string, Func<JsonElement?, Task<object>>> handlers =
+                            new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                        McpTypedDecisionDataTools.Register(
+                            (name, description, schema, handler) => handlers[name] = handler,
+                            recorder, store, () => settings.TypedDecisions, new LoggingModule());
+
+                        string report = await CallAsync(handlers, McpTypedDecisionDataTools.LabelsToolName, new { }).ConfigureAwait(false);
+                        AssertContains("custom:house_rule", report, "the labels report names the opted-in custom decision");
+                    }
+                    finally { SafeDelete(dataDirectory); }
+                }
+            });
+
             await RunTest("A retained call keeps the redacted state in the store and out of the event", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

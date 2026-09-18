@@ -13,26 +13,30 @@ namespace Armada.Core.Services
     /// <summary>
     /// Runs a user-defined custom typed decision. Unlike the built-in adapters, a custom decision has
     /// no deterministic rule and no orchestration seam of its own: it assembles its state from a
-    /// supplied context, asks the operator's questions, records one event, and — only on the
-    /// MissionDiff surface and only when bound and gated at or above threshold — raises an advisory
-    /// flag. It never lands, dispatches, approves a PASS, holds a rescue, or writes memory. The
-    /// binding action list is fixed in <see cref="CustomDecisionSeamEnum"/> and every member is
-    /// non-approving by construction.
+    /// supplied context, asks the operator's questions, records one event, and — only when bound and
+    /// gated at or above threshold — reports an advisory flag to its caller. It never lands,
+    /// dispatches, approves a PASS, holds a rescue, or writes memory. The binding action list is fixed
+    /// in <see cref="CustomDecisionSeamEnum"/> and every member is non-approving by construction.
+    ///
+    /// The only caller today is the <c>armada_run_custom_decision</c> tool; nothing runs a decision on
+    /// the MissionDiff surface automatically. Events use the shared recorder types under the decision
+    /// point <c>custom:&lt;name&gt;</c>, so retention, reversal and every event query treat a custom
+    /// decision like a built-in one.
     ///
     /// The skeleton mirrors <see cref="TypedDecisionAdapterBase{TInput,TVerdict,TModel}"/>: Off makes
     /// no call, an unavailable provider records nothing acted, Shadow or below-threshold records the
     /// answer without acting, and Gate at or above threshold records and may raise the advisory flag.
-    /// It never throws into a caller.
+    /// The gate reads Noul answers the way the built-in decisions do: the raw probability that the
+    /// statement is true, so a custom Noul must be phrased with the finding as its true pole. Choice
+    /// and Score answers are recorded and returned but never gate, because a custom definition does
+    /// not say which option is the finding. It never throws into a caller.
     /// </summary>
     public sealed class CustomTypedDecisionAdapter
     {
         #region Public-Members
 
-        /// <summary>Event type for a custom decision that gated at or above its threshold and flagged.</summary>
-        public const string EventTypeFlagged = "typed_decision.custom_flagged";
-
-        /// <summary>Event type for a custom decision call that recorded its answer without acting.</summary>
-        public const string EventTypeRecorded = "typed_decision.custom";
+        /// <summary>Prefix of every custom decision's decision point, ahead of its name.</summary>
+        public const string DecisionPointPrefix = "custom:";
 
         #endregion
 
@@ -65,6 +69,14 @@ namespace Armada.Core.Services
         #endregion
 
         #region Public-Methods
+
+        /// <summary>The decision point a custom decision records under: <c>custom:&lt;name&gt;</c>.</summary>
+        /// <param name="name">Custom decision name.</param>
+        /// <returns>The decision point key.</returns>
+        public static string DecisionPointFor(string name)
+        {
+            return DecisionPointPrefix + name;
+        }
 
         /// <summary>
         /// Build the request a custom decision would send for a context, without calling the provider.
@@ -113,7 +125,7 @@ namespace Armada.Core.Services
             {
                 result = await _Client.DecideAsync(new TypedDecisionRequest
                 {
-                    DecisionPoint = "custom:" + name,
+                    DecisionPoint = DecisionPointFor(name),
                     State = item.State.State,
                     Questions = item.Questions
                 }, token).ConfigureAwait(false);
@@ -126,10 +138,10 @@ namespace Armada.Core.Services
 
             TypedDecisionEventContext eventContext = new TypedDecisionEventContext
             {
-                DecisionPoint = "custom:" + name,
+                DecisionPoint = DecisionPointFor(name),
                 RuleVerdict = "none",
                 ModelVerdict = Summarize(result),
-                Confidence = HighestConfidence(result),
+                Confidence = GateValue(result),
                 Result = result,
                 RedactedState = item.State.Text,
                 Mission = mission,
@@ -142,9 +154,11 @@ namespace Armada.Core.Services
                 return CustomDecisionOutcome.Unavailable(name, result);
             }
 
-            double confidence = HighestConfidence(result) ?? 0.0;
+            double? gateValue = GateValue(result);
+            double confidence = gateValue ?? 0.0;
             bool gated = cfg.Mode == TypedDecisionModeEnum.Gate
                 && definition.Binding != CustomDecisionSeamEnum.None
+                && gateValue.HasValue
                 && confidence >= cfg.GateThreshold
                 && cfg.GateThreshold > 0.0;
 
@@ -157,7 +171,7 @@ namespace Armada.Core.Services
 
             string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
             await _Recorder.RecordShadowAsync(eventContext, outcome, token).ConfigureAwait(false);
-            return CustomDecisionOutcome.Recorded(name, result, confidence);
+            return CustomDecisionOutcome.Recorded(name, result, gateValue);
         }
 
         #endregion
@@ -227,15 +241,17 @@ namespace Armada.Core.Services
             return String.Join(" ", parts);
         }
 
-        private static double? HighestConfidence(TypedDecisionResult result)
+        private static double? GateValue(TypedDecisionResult result)
         {
+            // The same reading as the built-in decisions: a Noul's value is the probability that its
+            // statement is true, and the true pole is the finding. A confidence is never a stand-in
+            // for that probability, and a confidently FALSE answer must not flag.
             if (!result.Available) return null;
             double? best = null;
             foreach (TypedAnswer answer in result.Answers.Values)
             {
-                double? confidence = answer.Confidence
-                    ?? (answer.Noul.HasValue ? Math.Abs(answer.Noul.Value - 0.5) * 2.0 : (double?)null);
-                if (confidence.HasValue && (!best.HasValue || confidence.Value > best.Value)) best = confidence.Value;
+                if (answer == null || !answer.Noul.HasValue) continue;
+                if (!best.HasValue || answer.Noul.Value > best.Value) best = answer.Noul.Value;
             }
             return best;
         }
@@ -255,7 +271,10 @@ namespace Armada.Core.Services
         /// <summary>The model answers, when the provider answered.</summary>
         public TypedDecisionResult? Result { get; init; }
 
-        /// <summary>The highest answer confidence, when answered.</summary>
+        /// <summary>
+        /// The gate value: the highest Noul probability among the answers, when any Noul was answered.
+        /// Null when the decision asked no Noul, since Choice and Score answers never gate.
+        /// </summary>
         public double? Confidence { get; init; }
 
         /// <summary>Whether the decision raised its advisory flag.</summary>
@@ -264,7 +283,7 @@ namespace Armada.Core.Services
         internal static CustomDecisionOutcome NotFound(string name) => new CustomDecisionOutcome { Name = name, Status = "not_found" };
         internal static CustomDecisionOutcome Inactive(string name) => new CustomDecisionOutcome { Name = name, Status = "inactive" };
         internal static CustomDecisionOutcome Unavailable(string name, TypedDecisionResult r) => new CustomDecisionOutcome { Name = name, Status = "unavailable", Result = r };
-        internal static CustomDecisionOutcome Recorded(string name, TypedDecisionResult r, double c) => new CustomDecisionOutcome { Name = name, Status = "recorded", Result = r, Confidence = c };
+        internal static CustomDecisionOutcome Recorded(string name, TypedDecisionResult r, double? c) => new CustomDecisionOutcome { Name = name, Status = "recorded", Result = r, Confidence = c };
         internal static CustomDecisionOutcome Flagged(string name, TypedDecisionResult r, double c) => new CustomDecisionOutcome { Name = name, Status = "flagged", Result = r, Confidence = c };
     }
 }

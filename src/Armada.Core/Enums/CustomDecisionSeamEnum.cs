@@ -14,15 +14,16 @@ namespace Armada.Core.Enums
     public enum CustomDecisionSeamEnum
     {
         /// <summary>
-        /// No binding. The decision only records its answer (and, on the MissionDiff surface, raises
-        /// an advisory flag event). This is the default and the safest.
+        /// No binding. The decision only records its answer and never flags, whatever its mode or
+        /// confidence. This is the default and the safest.
         /// </summary>
         [EnumMember(Value = "None")]
         None,
 
         /// <summary>
-        /// On the MissionDiff surface, record a loud advisory flag event naming the finding when the
-        /// decision gates. Takes no other action.
+        /// Requires the MissionDiff surface. When the decision gates at or above its threshold, the
+        /// call is recorded as a <c>typed_decision.gated</c> event and the caller is told it flagged.
+        /// Takes no other action.
         /// </summary>
         [EnumMember(Value = "MissionDiffFlag")]
         MissionDiffFlag
