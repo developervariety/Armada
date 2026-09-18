@@ -75,10 +75,22 @@ namespace Armada.Test.Unit.Suites.Routes
                 {
                     Dictionary<string, Func<JsonElement?, Task<object>>> tools = CaptainTools(testDb.Driver);
 
+                    ModelEndpoint endpoint = new ModelEndpoint
+                    {
+                        Name = "ProjectionEndpoint",
+                        Kind = ModelEndpointKindEnum.Inference,
+                        Scope = ScopeEnum.TenantWide,
+                        Provider = ModelProviderEnum.OpenAICompatible,
+                        BaseUrl = "http://localhost:9999",
+                        Model = "claude-fable-5",
+                        Enabled = true
+                    };
+                    endpoint = await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+
                     Captain seeded = new Captain("projection-captain");
                     seeded.Runtime = AgentRuntimeEnum.ClaudeCode;
                     seeded.Model = "claude-fable-5";
-                    seeded.ModelEndpointId = "mep_examplemodelendpoint";
+                    seeded.ModelEndpointId = endpoint.Id;
                     seeded.Tier = CaptainTierEnum.Premium;
                     seeded.PreferenceRank = 3;
                     seeded.AllowedPersonas = "[\"Judge\"]";
@@ -110,7 +122,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertEqual(0, mismatched.Count, "the returned captain must equal the persisted captain, but these differ: " + String.Join("; ", mismatched));
                     AssertEqual(5, returned!.PreferenceRank, "the rank the caller set comes back");
                     AssertEqual(CaptainTierEnum.Premium, returned.Tier, "an omitted tier comes back at its stored value, not null");
-                    AssertEqual("mep_examplemodelendpoint", returned.ModelEndpointId, "the endpoint reference comes back rather than reading as cleared");
+                    AssertEqual(endpoint.Id, returned.ModelEndpointId, "the endpoint reference comes back rather than reading as cleared");
                 }
             });
 

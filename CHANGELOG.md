@@ -299,6 +299,11 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- `armada_get_captain` and `armada_update_captain` return the captain's model endpoint reference, tier,
+  preference rank and last process-alive time. The response projection omitted them, so they came back as
+  `null` and `0` however the record was actually set, and an operator reading the response concluded an
+  update had wiped state it had not touched. The response is now compared against a fresh read of the
+  record by reflection over every captain property, so a field added later cannot be dropped unnoticed.
 - Tearing down a superseded dock no longer deletes the worktree a live dock is using. A dock's worktree
   path is keyed by mission, so every re-dispatched attempt of one mission yields a new dock record naming
   the same directory. `ReclaimAsync` consulted the ownership predicate for the worktree only, while
