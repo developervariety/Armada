@@ -40,20 +40,70 @@ namespace Armada.Core.Services
         private static readonly Regex _IPv4 = new Regex(
             @"\b(?:\d{1,3}\.){3}\d{1,3}\b",
             RegexOptions.Compiled);
-        private static readonly Regex _Hostnames = new Regex(
-            @"\b(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}\b",
+        // Dotted-name candidates. Every dotted run is a candidate; whether it is a HOST or a code
+        // symbol / file name is decided by <see cref="EvaluateDottedName"/>, not by the pattern. The
+        // old pattern replaced EVERY dotted run with &lt;host&gt;, so a diff's file names
+        // (LeakHunkAdapter.cs), namespaces (System.Text.Json) and member accesses (foo.Bar) were
+        // erased before the diff-reading decisions ever saw them. A real host has a known public or
+        // internal TLD in its final label; a code token does not.
+        private static readonly Regex _DottedNames = new Regex(
+            @"\b[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)+\b",
             RegexOptions.Compiled);
 
-        // 4. Commit-hash-shaped hex runs.
-        private static readonly Regex _Hex = new Regex(
-            @"\b[0-9a-fA-F]{7,40}\b",
+        // A hex run of 7-40 chars is a commit hash ONLY when it either MIXES a hex letter with a
+        // digit (a shape a plain decimal number or an English word cannot take) or sits in a commit
+        // context. The old pattern replaced every 7-40 hex run, so it erased plain source numbers
+        // (1234567), 8-digit constants (30000000), and hex-letter words ("defaced") as #sha.
+        //
+        // _HexContext: a pure-digit or pure-letter run that a commit cue introduces (commit 1234567,
+        // HEAD is now at deadbeef, index 1234568..89abcde). Variable-length lookbehind is a .NET
+        // feature. _HexMixed: a run carrying both a hex letter and a digit, redacted anywhere.
+        private static readonly Regex _HexContext = new Regex(
+            @"(?<=\b(?:commit|commits|sha|shas|hash|hashes|rev|revs|revision|revisions|HEAD|tip|tips|parent|parents|onto|checkout|checked out|index|blob|tree|show|ref|refs|at|from)\s{1,4})[0-9a-fA-F]{7,40}\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex _HexMixed = new Regex(
+            @"\b(?=[0-9a-fA-F]{7,40}\b)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]*[0-9][0-9a-fA-F]*\b",
             RegexOptions.Compiled);
 
-        // 5. Key-shaped tokens: provider key prefixes and long base64-ish runs. Prefix tails stop
-        // at JSON/prose delimiters so a key value in compact JSON does not over-consume.
-        private static readonly Regex _KeyShaped = new Regex(
-            @"\bsk-[^\s""',<>]+|\bghp_[^\s""',<>]+|\bglpat-[^\s""',<>]+|\b[A-Za-z0-9+/]{32,}={0,2}",
+        // Key-shaped tokens. The prefixed forms (provider keys) are unambiguous and always removed.
+        // The generic long base64-ish run is decided by <see cref="EvaluateBlob"/>: the old
+        // unconditional \b[A-Za-z0-9+/]{32,}={0,2} also matched any 32+-character identifier, so a
+        // long method name (TruncatesLongestLeafAndStaysValidJson) was erased as &lt;secret&gt;.
+        private static readonly Regex _KeyPrefixed = new Regex(
+            @"\bsk-[^\s""',<>]+|\bghp_[^\s""',<>]+|\bglpat-[^\s""',<>]+",
             RegexOptions.Compiled);
+        private static readonly Regex _KeyBlob = new Regex(
+            @"\b[A-Za-z0-9+/]{32,}={0,2}",
+            RegexOptions.Compiled);
+
+        // Known TLDs whose presence in a dotted name's final label marks it a host. Curated, not the
+        // full IANA list: short labels that collide with common code member names or Indonesian/other
+        // vanity TLDs are deliberately left out (id → obj.Id, info → logger.info, now → DateTime.Now,
+        // name, bar) because in this workspace those appear as code far more than as hostnames, and a
+        // real host almost always reaches egress inside a URL (removed first) or with an internal
+        // suffix below. Internal/reserved suffixes are the important half — they never appear in code.
+        private static readonly HashSet<string> _KnownTlds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // Common public TLDs.
+            "com", "net", "org", "io", "gov", "edu", "mil", "int", "biz", "dev", "app", "cloud",
+            "ai", "co", "uk", "us", "ca", "de", "fr", "eu", "ru", "cn", "jp", "au", "nl", "se",
+            "tv", "cc", "xyz", "tech", "online", "site", "store", "live", "sh", "ovh", "gg",
+            // Internal, private-use and reserved suffixes: never a source symbol, always a host.
+            "local", "lan", "corp", "arpa", "internal", "intranet", "home", "localdomain",
+            "test", "example", "invalid", "onion", "k8s", "svc", "cluster",
+        };
+
+        // Extensions that make a SINGLE-dotted name a file, not a host, even when the extension also
+        // exists as a TLD (run.sh, page.io would be a file only at one dot). A host reaches this list
+        // only with 2+ dots (relay.example.sh), matching the "2+ dots and a known TLD" rule.
+        private static readonly HashSet<string> _SourceExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "sh", "md", "cs", "py", "js", "ts", "jsx", "tsx", "mjs", "cjs", "json", "txt", "xml",
+            "yml", "yaml", "sln", "csproj", "props", "targets", "cfg", "ini", "toml", "sql", "html",
+            "css", "scss", "go", "rb", "rs", "java", "kt", "cpp", "hpp", "git", "log", "lock",
+            "sample", "dll", "exe", "so", "dylib", "png", "jpg", "jpeg", "svg", "gif", "pdf", "csv",
+            "mermaid", "http", "razor", "cshtml", "config", "gitignore", "editorconfig", "ipynb",
+        };
 
         private const string _ArmadaMarker = "[ARMADA:";
 
@@ -62,9 +112,9 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Redact a state string and truncate it to the supplied character budget. Applies the six
-        /// redaction steps in order; step six keeps the head and tail while preserving any lines
-        /// carrying an <c>[ARMADA:</c> marker from the elided middle.
+        /// Redact a state string and truncate it to the supplied character budget. Applies the
+        /// redaction steps in order, then truncates: the final step keeps the head and tail while
+        /// preserving any lines carrying an <c>[ARMADA:</c> marker from the elided middle.
         /// </summary>
         /// <param name="text">The raw state text. Null is treated as empty.</param>
         /// <param name="maxChars">Maximum characters retained. Values below one are treated as one.</param>
@@ -79,9 +129,11 @@ namespace Armada.Core.Services
             working = _AbsolutePaths.Replace(working, "<path>");
             working = _Urls.Replace(working, "<host>");
             working = _IPv4.Replace(working, "<host>");
-            working = _Hostnames.Replace(working, "<host>");
-            working = _Hex.Replace(working, "#sha");
-            working = _KeyShaped.Replace(working, "<secret>");
+            working = _DottedNames.Replace(working, EvaluateDottedName);
+            working = _HexContext.Replace(working, "#sha");
+            working = _HexMixed.Replace(working, "#sha");
+            working = _KeyPrefixed.Replace(working, "<secret>");
+            working = _KeyBlob.Replace(working, EvaluateBlob);
 
             return Truncate(working, maxChars);
         }
@@ -126,6 +178,56 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        // Decide whether a dotted run is a host to remove or a code symbol / file name to keep. A
+        // host has a known public or internal TLD as its final label; a single-dotted file whose
+        // extension merely happens to also be a TLD (run.sh) is kept, while the same extension with
+        // two or more dots (relay.example.sh) is a host.
+        private static string EvaluateDottedName(Match match)
+        {
+            string token = match.Value;
+            int lastDot = token.LastIndexOf('.');
+            if (lastDot < 0 || lastDot == token.Length - 1) return token;
+
+            string tld = token.Substring(lastDot + 1);
+            int dots = 0;
+            for (int i = 0; i < token.Length; i++) if (token[i] == '.') dots++;
+
+            if (dots == 1 && _SourceExtensions.Contains(tld)) return token;
+            if (_KnownTlds.Contains(tld)) return "<host>";
+            return token;
+        }
+
+        // Decide whether a 32+-character base64-ish run is a secret to remove or a long identifier to
+        // keep. A base64 secret carries entropy a wordy identifier does not: a digit, a base64 special
+        // character, or a high density of upper/lower case transitions. A run that is all letters, one
+        // case-run per word (a method or type name), is kept. This can miss the rare secret that is
+        // pure mixed-case letters with few transitions, but that shape is statistically uncommon and
+        // an under-caught host reaches egress far more often through a URL or internal suffix, both
+        // removed earlier; erasing every long identifier instead is the larger, certain loss.
+        private static string EvaluateBlob(Match match)
+        {
+            string token = match.Value;
+            // '+' and '=' are base64-specific; '/' is deliberately NOT a signal, because the run may
+            // be a slash-joined code path (Services/TypedDecisions/TypedPriorArtAdapter), which the
+            // digit and case-transition tests below correctly keep.
+            if (token.IndexOfAny(_BlobSecretChars) >= 0) return "<secret>";
+            foreach (char c in token) if (c >= '0' && c <= '9') return "<secret>";
+
+            int transitions = 0;
+            for (int i = 1; i < token.Length; i++)
+            {
+                bool upperNow = Char.IsUpper(token[i]);
+                bool upperPrev = Char.IsUpper(token[i - 1]);
+                if (upperNow != upperPrev) transitions++;
+            }
+            // A ratio of one case transition per two characters or denser reads as random base64, not
+            // an identifier whose words run several same-case characters at a time.
+            if (transitions * 2 >= token.Length) return "<secret>";
+            return token;
+        }
+
+        private static readonly char[] _BlobSecretChars = new[] { '+', '=' };
 
         // The shortest a string leaf is cut to while fitting an object to its budget; below this a
         // leaf carries too little to be worth keeping, and the text fallback is used instead.

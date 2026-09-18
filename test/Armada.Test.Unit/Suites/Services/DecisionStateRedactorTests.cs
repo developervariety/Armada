@@ -64,6 +64,85 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("RC20", redacted);
             });
 
+            await RunTest("Redact_DiffWithFileNamesAndCodeSymbols_KeepsThem", () =>
+            {
+                // A source diff is what the diff-reading decisions judge. Its file names, dotted
+                // namespaces, member accesses, plain numbers, and long identifiers are engineering
+                // content, not hosts, hashes, or keys, and must reach the model intact.
+                string diff = String.Join("\n", new[]
+                {
+                    "diff --git a/src/Armada.Core/Services/LeakHunkAdapter.cs b/src/Armada.Core/Services/LeakHunkAdapter.cs",
+                    "+++ b/README.md",
+                    "+using System.Text.Json;",
+                    "+var value = foo.Bar + obj.Id + request.Name + DateTime.Now + row.ID;",
+                    "+logger.info(\"started\"); console.info(value);",
+                    "+// see docs/ops/01-intro.example.md, scripts/run.sh, tools/check.py and CHANGELOG.md",
+                    "+const int Budget = 1234567; long TimeoutTicks = 30000000;",
+                    "+string word = \"defaced\";",
+                    "+public void TruncatesLongestLeafAndStaysValidJson() { }",
+                    "+// moved to Services/TypedDecisions/TypedPriorArtAdapter"
+                });
+
+                string redacted = DecisionStateRedactor.Redact(diff, 8000);
+
+                foreach (string kept in new[]
+                {
+                    "src/Armada.Core/Services/LeakHunkAdapter.cs", "README.md", "System.Text.Json",
+                    "foo.Bar", "obj.Id", "request.Name", "DateTime.Now", "row.ID",
+                    "logger.info", "console.info",
+                    "01-intro.example.md", "run.sh", "check.py", "CHANGELOG.md",
+                    "1234567", "30000000", "defaced",
+                    "TruncatesLongestLeafAndStaysValidJson", "Services/TypedDecisions/TypedPriorArtAdapter"
+                })
+                {
+                    AssertContains(kept, redacted);
+                }
+                AssertFalse(redacted.Contains("<host>", StringComparison.Ordinal), "a code symbol was read as a host: " + redacted);
+                AssertFalse(redacted.Contains("#sha", StringComparison.Ordinal), "a number or word was read as a hash: " + redacted);
+                AssertFalse(redacted.Contains("<secret>", StringComparison.Ordinal), "an identifier was read as a key: " + redacted);
+            });
+
+            await RunTest("Redact_NarrowedRules_StillRemoveEveryRealHostHashAndKey", () =>
+            {
+                // The narrowed host, hash, and key rules must not open a leak. Each line carries a
+                // value the redactor must still remove, including the shapes nearest to code.
+                Dictionary<string, string> mustGo = new Dictionary<string, string>
+                {
+                    ["db.internal.net"] = "connect to db.internal.net now",
+                    ["build01.corp"] = "runner build01.corp is down",
+                    ["nas.local"] = "backup on nas.local failed",
+                    ["myhost.home.arpa"] = "resolved myhost.home.arpa",
+                    ["gitlab.com"] = "remote git@gitlab.com:owner/private-repo.git",
+                    ["Example.com"] = "mail relay Example.com rejected",
+                    ["EXAMPLE.COM"] = "kerberos realm EXAMPLE.COM",
+                    ["api.provider.example.io"] = "endpoint api.provider.example.io timed out",
+                    ["relay.example.sh"] = "tunnel relay.example.sh dropped",
+                    ["gateway.lan"] = "gateway.lan unreachable",
+                    ["https://internal.example.com/x"] = "fetched https://internal.example.com/x",
+                    ["10.20.30.40"] = "at 10.20.30.40",
+                    ["/srv/app/run.log"] = "log /srv/app/run.log",
+                    ["msn_example0001abc"] = "mission msn_example0001abc failed",
+                    ["a1b2c3d"] = "landed a1b2c3d on main",
+                    ["0123456789abcdef0123456789abcdef01234567"] = "tip 0123456789abcdef0123456789abcdef01234567",
+                    ["1234567"] = "commit 1234567 landed",
+                    ["7654321"] = "git show 7654321",
+                    ["deadbeef"] = "HEAD is now at deadbeef",
+                    ["89abcde"] = "index 1234568..89abcde 100644",
+                    ["sk-live0123456789abcdef"] = "key sk-live0123456789abcdef",
+                    ["AbC9dEf0GhIjKlMnOpQrStUvWxYz0123456789=="] = "blob AbC9dEf0GhIjKlMnOpQrStUvWxYz0123456789==",
+                    ["QWxhZGRpbjpvcGVuIHNlc2FtZQQWxhZGRpbjpvcGVu"] = "token QWxhZGRpbjpvcGVuIHNlc2FtZQQWxhZGRpbjpvcGVu",
+                    ["kqzXwVbTrPlMnJhGfDsAqWeRtYuIoPlKjHgFdSa"] = "secret kqzXwVbTrPlMnJhGfDsAqWeRtYuIoPlKjHgFdSa",
+                    ["abcd/EFGH+ijkl/MNOP+qrst/UVWX+yzab/CDEF"] = "value abcd/EFGH+ijkl/MNOP+qrst/UVWX+yzab/CDEF"
+                };
+
+                foreach (KeyValuePair<string, string> item in mustGo)
+                {
+                    string redacted = DecisionStateRedactor.Redact(item.Value, 8000);
+                    AssertFalse(redacted.Contains(item.Key, StringComparison.Ordinal),
+                        "'" + item.Key + "' survived: " + redacted);
+                }
+            });
+
             await RunTest("Redact_LongState_TruncatesButKeepsArmadaMarkerLines", () =>
             {
                 StringBuilder sb = new StringBuilder();

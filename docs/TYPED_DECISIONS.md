@@ -53,7 +53,18 @@ The safety contract holds whenever it is enabled:
 - Nothing egresses unredacted. `DecisionStateRedactor` removes Armada ids,
   absolute paths, hosts, URLs, commit hashes, and key-shaped tokens, then
   truncates to the state cap. The Bearer key is never logged, recorded, stored
-  in settings, or returned by any response.
+  in settings, or returned by any response. The host, hash, and key rules match
+  by shape, not by any dot, hex run, or long token: a dotted name is a host only
+  when its final label is a known public or internal TLD (a single-dotted source
+  file whose extension coincides with a TLD is kept; the same name at two dots is
+  a host); a hex run is a hash only when it mixes a letter with a digit or a
+  commit cue introduces it; a base64 run is a key only on a digit, a `+`/`=`, or
+  dense case transitions. So a source diff keeps its file names, namespaces, and
+  symbols for the decisions that read it, while every real host, id, path, hash,
+  and key is still removed. Narrowing is deliberate: an under-redaction is a leak,
+  so the excluded shapes (vanity TLDs that collide with code member names, an
+  scp-style remote's repo short-name, a cue-less short hash indistinguishable from
+  a number) are the ones a URL or internal suffix catches by another route.
 
 ## Retained training data
 

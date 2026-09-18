@@ -134,6 +134,18 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- `DecisionStateRedactor` no longer erases a decision's engineering content. The host, hash, and key-blob
+  rules each matched far more than their target: every dotted run became `<host>` (a diff's file names,
+  namespaces, and member accesses with it), every 7-40 hex run became `#sha` (plain source numbers and
+  hex-letter words with it), and every 32+ alphanumeric run became `<secret>` (long identifiers with it). So
+  the decisions that read diffs and paths — leak_hunk, change_quality, change_substance, test_covers,
+  prior_art, lint_finding, and the brief and failure readers — lost the very symbols they judge. A dotted run
+  is now a host only when its final label is a known public or internal TLD (a single-dotted source file whose
+  extension merely coincides with a TLD is kept, the same name at two dots is a host); a hex run is a hash only
+  when it mixes a letter with a digit or a commit cue introduces it; a base64 run is a key only on a digit, a
+  `+`/`=`, or dense case transitions. Every real host, IP, URL, id, path, short and full hash, and provider key
+  is still removed, proven by a leak-guarantee test alongside the diff-preservation test.
+
 - `docs/TYPED_DECISIONS.md` describes the captain-facing MCP tools the server actually registers, instead of a
   stale count and a short helper list. The paragraph now names `armada_change_quality` and its `change_quality`
   decision and `armada_run_custom_decision`, says which tools are caller-scoped and which needs an administrator
