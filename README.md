@@ -214,10 +214,11 @@ unredacted state. Captains can consult read-only tools
 | `model` | `jev-latest` | Model id sent with each request. |
 | `apiKeyEnv` | `ARMADA_TYPESAFE_KEY` | Environment variable holding the Bearer key. When unset, the key file `<data directory>/secrets/typesafe-api-key` is read. The key is never stored in settings. |
 | `timeoutSeconds` | `10` | Per-request timeout; a slower decision is unavailable, not late. |
-| `maxStateChars` | `8000` | Character cap on redacted state per request. |
+| `maxStateChars` | `60000` | Character cap on redacted state per request, about 20,000 provider tokens. A batch also stays under 80,000 characters of state plus question text, inside the provider's 32,000-token request limit. |
+| `egressExcludedVesselIds` | empty | Vessels whose content must never leave the host. Every decision about a mission on one of them keeps its rule, sends nothing, and records an unavailable event with reason `egress_excluded_vessel`. |
 | `decisions` | all `Gate` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
 | `evalOnModelChange` | `true` | Run the synthetic evaluation set in the background when the provider reports a model version not yet evaluated. |
-| `captainTool` | enabled | Captain-facing tool: `enabled`, `maxStateChars`. There is no per-mission call cap. |
+| `captainTool` | enabled | Captain-facing tool: `enabled`, `maxStateChars` (default `60000`). There is no per-mission call cap. |
 | `retention` | off | Host-local retention of REDACTED decision state as training data: `enabled`, `retentionDays`, `minimumSamplesPerDecision`, plus `retainState` per decision. Nothing leaves the host and no event carries the state. |
 
 Without a key no decision calls a client or records an event. `mode` and

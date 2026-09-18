@@ -164,7 +164,8 @@ until it fits. Decisions that ask about several independent items —
 `criteria_lint`, `inbox_triage`, `memory_candidate`, `followup_routing`,
 `memory_review`, and `owner_digest` — share requests: items are packed in order
 into requests of at most 100 questions whose combined state stays within
-`maxStateChars`, and each item is still gated and recorded on its own event
+`maxStateChars` and whose state plus question text stays within 80,000
+characters, and each item is still gated and recorded on its own event
 (with an even share of the request's tokens). `papercut_merge` still asks per
 pair, because each comparison depends on the merges before it.
 
@@ -425,6 +426,39 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   stays at 0.5. Two test-failure outputs read 0.41-0.44 and are therefore
   compacted; that is a conservative miss which costs the captain a re-run, not a
   lost result.
+
+  It runs on three surfaces, all through this one adapter:
+
+  - **API-endpoint runtime**, in-process, as above.
+  - **Claude Code captains**, through a plugin shipped under
+    `Plugins/claude-code/armada-context-compaction` and passed with
+    `--plugin-dir`, with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` set beside it:
+    without that switch Claude Code loads, registers and validates the plugin
+    and never runs its hooks. The plugin does NOT replace Claude Code's
+    compaction, which already summarises the older part and keeps the recent
+    part verbatim by message id; replacing it with a hand-built history was
+    measured to make the model restart its task, once in a 443-turn loop. It
+    steers it instead, with one `next` call (a second call silently skips the
+    compaction or throws): it quotes the results this decision spares verbatim,
+    and it saves every earlier output under `.armada-compaction/` in the dock,
+    a directory whose own `.gitignore` ignores everything, and has the summary
+    cite each file, so a captain reads an output back instead of re-running the
+    call. Measured against the harness alone on the same task: the same 49
+    reads and correct answer, 30-47 file citations per summary against none,
+    at a larger summary call (+20% to +60% cost on that task).
+  - **OpenCode captains**, through a plugin module passed in the per-launch
+    configuration only when the MCP endpoint is. It edits each request's
+    message array, counts recency in tool parts (OpenCode keeps many tool calls
+    in one message), asks once per new candidate, and re-applies earlier
+    decisions without another call. Measured: no restart; with nothing spared,
+    the model re-read only the one file it needed.
+
+  Every plugin failure path hands the compaction back to the harness unchanged.
+  A plugin holds no provider key: it calls `armada_context_compaction` as the
+  captain, with the MCP credential the launch carries. The launch sets
+  `ARMADA_MISSION_ID` and `ARMADA_MCP_URL` for it; the admiral resolves the vessel itself.
+  Codex, Cursor, Gemini and Mux have no seam that can remove a tool result, so
+  they keep their own compaction.
 
 Two decision points read the papercut grouping:
 

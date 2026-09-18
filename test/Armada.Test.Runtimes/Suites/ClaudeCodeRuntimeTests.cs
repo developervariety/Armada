@@ -103,6 +103,46 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(5528L, captured.CacheWriteTokens);
             });
 
+            await RunTest("The context-compaction plugin and its hooks switch are passed only when the plugin is shipped", () =>
+            {
+                // Without the switch Claude Code loads the plugin, registers it and validates its hooks, and never
+                // runs them - so the two must travel together, and neither may point at a plugin that is not there.
+                string previous = HarnessPlugins.Root;
+                string root = Path.Combine(Path.GetTempPath(), "armada-plugins-" + Guid.NewGuid().ToString("N"));
+                string plugin = Path.Combine(root, "claude-code", "armada-context-compaction");
+                try
+                {
+                    Directory.CreateDirectory(Path.Combine(plugin, ".claude-plugin"));
+                    File.WriteAllText(Path.Combine(plugin, ".claude-plugin", "plugin.json"), "{}");
+                    HarnessPlugins.Root = root;
+
+                    List<string> args = CreateRuntime().Args("do the work");
+                    int at = args.IndexOf("--plugin-dir");
+                    AssertTrue(at >= 0 && at + 1 < args.Count, "the shipped plugin is passed explicitly");
+                    AssertEqual(plugin, args[at + 1]);
+                    AssertEqual("1", CreateRuntime().StartInfoWithEnvironment(null).Environment[HarnessPlugins.ClaudeCodeFunctionHooksVariable],
+                        "with the switch that makes its hooks run");
+
+                    // A plan for a remote runner carries neither: the path exists only here, and a runner refuses
+                    // a launch variable it does not know.
+                    InspectableClaudeCodeRuntime plan = CreateRuntime();
+                    plan.DeliversHarnessPlugins = false;
+                    AssertFalse(plan.Args("do the work").Contains("--plugin-dir"), "a remote-runner plan passes no plugin");
+                    AssertFalse(plan.StartInfoWithEnvironment(null).Environment.ContainsKey(HarnessPlugins.ClaudeCodeFunctionHooksVariable),
+                        "and no hooks switch the runner would refuse");
+
+                    HarnessPlugins.Root = Path.Combine(root, "not-shipped");
+                    AssertFalse(CreateRuntime().Args("do the work").Contains("--plugin-dir"), "no plugin, no flag");
+                    AssertFalse(CreateRuntime().StartInfoWithEnvironment(null).Environment.ContainsKey(HarnessPlugins.ClaudeCodeFunctionHooksVariable),
+                        "and no switch that would run some other plugin's hooks");
+                }
+                finally
+                {
+                    HarnessPlugins.Root = previous;
+                    try { Directory.Delete(root, true); } catch (IOException) { }
+                }
+            });
+
             await RunTest("BuildArguments Includes SettingSources ProjectLocal", () =>
             {
                 InspectableClaudeCodeRuntime runtime = CreateRuntime();

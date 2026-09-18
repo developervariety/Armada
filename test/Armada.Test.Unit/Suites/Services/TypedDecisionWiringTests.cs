@@ -114,19 +114,19 @@ namespace Armada.Test.Unit.Suites.Services
                         "with nothing scanned for consumption, no decision counts as wired: "
                             + String.Join(", ", withoutConsumers));
 
-                    // Two: a decision whose only consumer lives in Armada.Runtimes is wired when that
-                    // assembly is scanned and unwired when it is not, so the result tracks the holder.
-                    Assembly runtimes = typeof(Armada.Runtimes.AgentRuntimeFactory).Assembly;
+                    // Two: context_compaction is declared in Armada.Core but held only outside it - by the runtime
+                    // factory and by the captain tool. Scanning Core alone must not report it wired, and scanning
+                    // every consumer must, so the result tracks the holders rather than the declaring assembly.
                     HashSet<string> coreOnly = DiscoverConsumedDecisionPoints(
-                        declared, _ConsumerAssemblies.Where(a => a != runtimes));
-                    HashSet<string> withRuntimes = DiscoverConsumedDecisionPoints(declared, _ConsumerAssemblies);
-                    AssertTrue(withRuntimes.Count >= coreOnly.Count, "scanning more consumers never finds fewer decisions");
+                        declared, new[] { typeof(TypedDecisionSettings).Assembly });
+                    HashSet<string> everyConsumer = DiscoverConsumedDecisionPoints(declared, _ConsumerAssemblies);
+                    AssertTrue(everyConsumer.Count >= coreOnly.Count, "scanning more consumers never finds fewer decisions");
                     AssertTrue(
-                        withRuntimes.Contains("context_compaction"),
-                        "context_compaction is held by a consumer in Armada.Runtimes");
+                        everyConsumer.Contains("context_compaction"),
+                        "context_compaction is held by consumers outside the assembly that declares it");
                     AssertFalse(
                         coreOnly.Contains("context_compaction"),
-                        "and it is NOT reported wired when its holder's assembly is not scanned");
+                        "and it is NOT reported wired when only its declaring assembly is scanned");
                 });
 
                 await RunTest("EveryShippedDecision_IsConsultedOrDeclaredUnwiredWithAReason", () =>

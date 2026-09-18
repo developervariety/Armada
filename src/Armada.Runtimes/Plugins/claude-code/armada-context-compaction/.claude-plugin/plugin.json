@@ -1,0 +1,7 @@
+{
+  "name": "armada-context-compaction",
+  "version": "1.0.0",
+  "description": "When the harness compacts, keep the earlier tool results the captain still depends on verbatim and replace the settled ones with a one-line note, instead of summarising the whole history.",
+  "author": { "name": "Armada" },
+  "hooks": "./hooks/hooks.json"
+}

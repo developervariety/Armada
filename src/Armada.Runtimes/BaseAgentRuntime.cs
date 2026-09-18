@@ -17,6 +17,14 @@ namespace Armada.Runtimes
         #region Public-Members
 
         /// <summary>
+        /// Whether a launch from this runtime carries the harness plugins Armada ships beside its binaries.
+        /// True for a captain launched on this host. False for a launch PLAN built for a remote runner: a
+        /// plugin's path exists only beside the admiral, and a runner accepts only the launch variables it
+        /// knows, so a plan that carried one would be refused.
+        /// </summary>
+        public bool DeliversHarnessPlugins { get; set; } = true;
+
+        /// <summary>
         /// Runtime display name.
         /// </summary>
         public abstract string Name { get; }

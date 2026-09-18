@@ -58,6 +58,9 @@ namespace Armada.Server.Mcp
             "armada_change_quality",
             "armada_corpus_prelabel",
             "armada_run_custom_decision",
+            // Called by a captain's harness plugin, as the captain, when the harness compacts. It only
+            // answers which earlier results to keep verbatim; it writes no record.
+            "armada_context_compaction",
 
             // The captain-facing context fetch tool. It is read-only and informative: it returns
             // sanitized memory and docs leaf text, writes no record, and is budgeted per mission, so a

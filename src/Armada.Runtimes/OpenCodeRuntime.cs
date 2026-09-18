@@ -95,6 +95,17 @@ namespace Armada.Runtimes
                     mcpConfig.Contents);
             }
 
+            // The context-compaction plugin asks the admiral over the same MCP endpoint, so it is delivered
+            // only when that endpoint is: without it the plugin could not ask and would do nothing.
+            string? compactionPlugin = DeliversHarnessPlugins ? HarnessPlugins.OpenCodeContextCompaction : null;
+            if (mcpConfig != null && compactionPlugin != null)
+            {
+                launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = WithPlugin(
+                    launchEnvironment.TryGetValue("OPENCODE_CONFIG_CONTENT", out string? configured) ? configured : null,
+                    new Uri(compactionPlugin).AbsoluteUri);
+            }
+
             return await base.StartAsync(
                 workingDirectory,
                 prompt,
@@ -125,6 +136,26 @@ namespace Armada.Runtimes
                 captain?.ApiKey,
                 captain?.ApiBaseUrl,
                 _ModelProviders);
+        }
+
+        /// <summary>
+        /// Add a plugin to an OpenCode configuration, keeping every plugin it already lists.
+        /// </summary>
+        /// <param name="existingConfig">The configuration JSON, or null.</param>
+        /// <param name="pluginUri">The plugin's file URI.</param>
+        /// <returns>The configuration JSON with the plugin listed once.</returns>
+        internal static string WithPlugin(string? existingConfig, string pluginUri)
+        {
+            JsonObject config = String.IsNullOrWhiteSpace(existingConfig)
+                ? new JsonObject()
+                : (JsonNode.Parse(existingConfig) as JsonObject) ?? new JsonObject();
+            JsonArray plugins = config["plugin"] as JsonArray ?? new JsonArray();
+            bool present = false;
+            foreach (JsonNode? entry in plugins)
+                if (String.Equals(entry?.GetValue<string>(), pluginUri, StringComparison.Ordinal)) present = true;
+            if (!present) plugins.Add(pluginUri);
+            config["plugin"] = plugins.DeepClone();
+            return config.ToJsonString();
         }
 
         private static string MergeOpenCodeConfig(string? existingConfig, string overlayConfig)

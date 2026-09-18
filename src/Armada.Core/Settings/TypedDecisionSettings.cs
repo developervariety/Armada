@@ -48,7 +48,12 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// Maximum characters of decision state transmitted after redaction. State longer than
-        /// this is head/tail truncated.
+        /// this is head/tail truncated. Default 60,000: redacted state measures about three bytes per
+        /// provider token, so this is about 20,000 tokens, which leaves room for a decision's questions
+        /// under the provider's 32,000-token request limit. The request guard in
+        /// <see cref="Armada.Core.Services.TypedDecisionBatcher"/> keeps a batch under that limit.
+        /// The old 8,000 default truncated the decisions that carry real content (a diff, a log tail,
+        /// a Judge narrative) on most of their calls, so they judged a fragment.
         /// </summary>
         public int MaxStateChars
         {
@@ -93,6 +98,32 @@ namespace Armada.Core.Settings
         public TypedDecisionRetentionSettings Retention { get; set; } = new TypedDecisionRetentionSettings();
 
         /// <summary>
+        /// Vessels whose content must never leave this host, by vessel id. Every decision about a
+        /// mission on one of them keeps its deterministic rule, sends nothing, and records an
+        /// unavailable event whose reason is <c>egress_excluded_vessel</c>, so the exclusion is counted
+        /// rather than silent. Ships empty: which vessels hold content that may not be sent is an
+        /// operator's configuration, never a product default.
+        /// </summary>
+        public List<string> EgressExcludedVesselIds
+        {
+            get => _EgressExcludedVesselIds;
+            set => _EgressExcludedVesselIds = value ?? new List<string>();
+        }
+
+        /// <summary>
+        /// Whether a mission on this vessel may send decision state off the host.
+        /// </summary>
+        /// <param name="vesselId">The mission's vessel id, or null when unknown.</param>
+        /// <returns>False only when the vessel is on the exclusion list.</returns>
+        public bool AllowsEgress(string? vesselId)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) return true;
+            foreach (string excluded in _EgressExcludedVesselIds)
+                if (String.Equals(excluded, vesselId, StringComparison.Ordinal)) return false;
+            return true;
+        }
+
+        /// <summary>
         /// Configuration for the captain-facing typed-decision tool.
         /// </summary>
         public TypedDecisionCaptainToolSettings CaptainTool
@@ -102,7 +133,8 @@ namespace Armada.Core.Settings
         }
 
         private int _TimeoutSeconds = 10;
-        private int _MaxStateChars = 8000;
+        private int _MaxStateChars = 60000;
+        private List<string> _EgressExcludedVesselIds = new List<string>();
         private Dictionary<string, TypedDecisionRuleSettings> _Decisions = DefaultDecisions();
         private TypedDecisionCaptainToolSettings _CaptainTool = new TypedDecisionCaptainToolSettings();
         private Dictionary<string, CustomTypedDecisionSettings> _Custom = new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
@@ -193,6 +225,9 @@ namespace Armada.Core.Settings
             ApiKeyEnv = source.ApiKeyEnv;
             TimeoutSeconds = source.TimeoutSeconds;
             MaxStateChars = source.MaxStateChars;
+            // Copied, not shared: the live object is read by every adapter, so a reload must never leave
+            // an adapter holding the previous file's list.
+            EgressExcludedVesselIds = new List<string>(source.EgressExcludedVesselIds ?? new List<string>());
             Decisions = source.Decisions;
             CaptainTool = source.CaptainTool;
             Custom = CloneCustom(source.Custom);
@@ -334,7 +369,8 @@ namespace Armada.Core.Settings
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// Maximum characters of state a captain call may transmit after redaction.
+        /// Maximum characters of state a captain call may transmit after redaction. Default 60,000, the
+        /// same budget as the decisions the admiral asks itself.
         /// </summary>
         public int MaxStateChars
         {
@@ -342,7 +378,7 @@ namespace Armada.Core.Settings
             set => _MaxStateChars = Math.Max(256, value);
         }
 
-        private int _MaxStateChars = 8000;
+        private int _MaxStateChars = 60000;
     }
 
     /// <summary>

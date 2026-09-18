@@ -15,6 +15,36 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("DecideAll_QuestionText_CountsTowardTheRequest_SoABatchSplits", async () =>
+            {
+                // Two items whose STATE fits one batch easily but whose question text together exceeds the
+                // request budget. Counting state alone sent them as one request larger than the provider takes.
+                EchoClient client = new EchoClient();
+                List<TypedDecisionBatchItem> items = new List<TypedDecisionBatchItem> { WordyItem("first"), WordyItem("second") };
+                AssertTrue(TypedDecisionBatcher.QuestionChars(items[0].Questions) * 2 > TypedDecisionBatcher.MaxRequestChars,
+                    "the fixture's questions together exceed the request budget");
+                AssertTrue(TypedDecisionBatcher.QuestionChars(items[0].Questions) < TypedDecisionBatcher.MaxRequestChars,
+                    "each item alone fits");
+
+                List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
+                    client, "inbox_triage", items, 60000, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(2, client.Requests.Count, "the batch splits on question text, not only on state");
+                AssertEqual(2, results.Count, "each item still gets its answer");
+            });
+
+            await RunTest("QuestionChars_CountsInstructionsAndEveryOption", () =>
+            {
+                Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+                {
+                    ["n"] = new NoulQuestion("12345", TrueMeaning: "abc", FalseMeaning: "de"),
+                    ["c"] = new ChoiceQuestion("1234", new Dictionary<string, string> { ["k"] = "xyz" }),
+                    ["s"] = new ScoreQuestion("123", new List<string> { "lo", "hi" })
+                };
+                // keys (1+1+1) + noul (5+3+2) + choice (4 + 1+3) + score (3 + 2+2)
+                AssertEqual(3 + 10 + 8 + 7, TypedDecisionBatcher.QuestionChars(questions));
+            });
+
             await RunTest("DecideAll_OneItem_SendsTheItemUnwrapped", async () =>
             {
                 EchoClient client = new EchoClient();
@@ -124,6 +154,15 @@ namespace Armada.Test.Unit.Suites.Services
             System.Text.StringBuilder sb = new System.Text.StringBuilder(length + 8);
             while (sb.Length < length) sb.Append("gear ");
             return sb.ToString(0, length);
+        }
+
+        private static TypedDecisionBatchItem WordyItem(string text)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+            {
+                ["q1"] = new NoulQuestion(new string('w', 45000))
+            };
+            return new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(new Dictionary<string, object?> { ["text"] = text }, 100000), questions);
         }
 
         private static TypedDecisionBatchItem Item(string text, int questionCount)

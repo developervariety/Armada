@@ -49,12 +49,14 @@ namespace Armada.Test.Unit.Suites.Services
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     Harness harness = Harness.Create(testDb, client, enabled: false);
 
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision", "armada_context_compaction" })
                         AssertTrue(harness.Handlers.ContainsKey(name), "Tool should be registered: " + name);
 
                     // A non-admin mission caller may list and call each tool, like the memory tools.
                     AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision" })
+                    // armada_context_compaction is called by a captain's harness plugin AS the captain: a tool
+                    // missing here is refused for every mission, and the plugin falls back to the harness forever.
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision", "armada_context_compaction" })
                         AssertTrue(McpToolAccessPolicy.IsAllowed(captain, name), "Mission caller may use: " + name);
                 }
             });
@@ -80,6 +82,101 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("\"available\":true", Compact(response));
                     foreach (string q in new[] { "dry_weak", "cognitive_complexity_weak", "modularity_weak", "readability_weak", "maintainability_weak" })
                         AssertTrue(client.LastQuestionIds.Contains(q), "asked dimension question: " + q);
+                }
+            });
+
+            await RunTest("armada_context_compaction needs a mission id", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
+                    string response = await harness.CallAsync("armada_context_compaction", CompactionArgs(null)).ConfigureAwait(false);
+                    AssertContains("\"available\":false", Compact(response));
+                    AssertContains("mission_required", response);
+                    AssertEqual(0, client.CallCount, "an unscoped call sends nothing");
+                }
+            });
+
+            await RunTest("armada_context_compaction is unavailable while its decision is Off", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    Harness harness = Harness.Create(testDb, client, enabled: true,
+                        configure: s => s.TypedDecisions.Decisions["context_compaction"].Mode = TypedDecisionModeEnum.Off);
+                    string missionId = await harness.SeedMissionAsync(testDb).ConfigureAwait(false);
+                    string response = await harness.CallAsync("armada_context_compaction", CompactionArgs(missionId)).ConfigureAwait(false);
+                    // Unavailable is the plugin's signal to compact exactly as the harness always has: Off is a full kill switch.
+                    AssertContains("\"available\":false", Compact(response));
+                    AssertContains("disabled", response);
+                    AssertEqual(0, client.CallCount);
+                }
+            });
+
+            await RunTest("armada_context_compaction spares what the model reads as load-bearing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = new TypedDecisionResult
+                    {
+                        Available = true,
+                        Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                        {
+                            ["still_load_bearing_1"] = new TypedAnswer { Type = "noul", Noul = 0.9 },
+                            ["still_load_bearing_2"] = new TypedAnswer { Type = "noul", Noul = 0.1 }
+                        }
+                    };
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
+                    string missionId = await harness.SeedMissionAsync(testDb).ConfigureAwait(false);
+                    string response = Compact(await harness.CallAsync("armada_context_compaction", CompactionArgs(missionId)).ConfigureAwait(false));
+                    AssertContains("\"available\":true", response);
+                    AssertContains("\"sparedPositions\":[0]", response);
+                    AssertEqual(1, client.CallCount);
+                    AssertEqual(2, client.LastQuestionIds.Count, "one question per candidate sent");
+                }
+            });
+
+            await RunTest("armada_context_compaction on an excluded vessel sends nothing and spares nothing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    Harness seeder = Harness.Create(testDb, client, enabled: true);
+                    string missionId = await seeder.SeedMissionAsync(testDb).ConfigureAwait(false);
+                    Mission? seeded = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    Harness harness = Harness.Create(testDb, client, enabled: true,
+                        configure: s => s.TypedDecisions.EgressExcludedVesselIds = new List<string> { seeded!.VesselId! });
+                    string response = Compact(await harness.CallAsync("armada_context_compaction", CompactionArgs(missionId)).ConfigureAwait(false));
+                    // Still an answer: the plugin compacts by the deterministic rule, which needs no egress.
+                    AssertContains("\"available\":true", response);
+                    AssertContains("\"sparedPositions\":[]", response);
+                    AssertEqual(0, client.CallCount, "the vessel's content never left the host");
+                }
+            });
+
+            await RunTest("A captain tool about a mission on an excluded vessel sends nothing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    Harness seeder = Harness.Create(testDb, client, enabled: true);
+                    string missionId = await seeder.SeedMissionAsync(testDb).ConfigureAwait(false);
+                    Mission? seeded = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    Harness harness = Harness.Create(testDb, client, enabled: true,
+                        configure: s => s.TypedDecisions.EgressExcludedVesselIds = new List<string> { seeded!.VesselId! });
+
+                    string response = await harness.CallAsync("armada_typed_decision", new
+                    {
+                        missionId,
+                        state = "a plain state to reason over",
+                        questions = new { cause = new { type = "choice", instructions = "Pick the cause", criteria = new { environmental = "host", provider = "provider" } } }
+                    }).ConfigureAwait(false);
+
+                    AssertContains("\"available\":false", Compact(response));
+                    AssertContains("egress_excluded_vessel", response);
+                    AssertEqual(0, client.CallCount, "the captain's state never left the host");
                 }
             });
 
@@ -426,6 +523,18 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("environmental", onResponse);
                 }
             });
+        }
+
+        private static object CompactionArgs(string? missionId)
+        {
+            object[] candidates =
+            {
+                new { tool = "bash", askedFor = "count the helper copies", outputHead = "11 matches across 7 files", outputBytes = 2048, turnsAgo = 30 },
+                new { tool = "bash", askedFor = "list the test directory", outputHead = "test_one.py test_two.py", outputBytes = 4096, turnsAgo = 40 }
+            };
+            return missionId == null
+                ? new { goal = "publish the count you measured", candidates }
+                : new { missionId, goal = "publish the count you measured", candidates };
         }
 
         private static object SampleGeneralArgs()

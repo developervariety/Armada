@@ -19,7 +19,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("ARMADA_TYPESAFE_KEY", settings.ApiKeyEnv);
                 AssertEqual("https://api.typesafe.ai", settings.BaseUrl);
                 AssertEqual("jev-latest", settings.Model);
-                AssertEqual(8000, settings.MaxStateChars);
+                AssertEqual(60000, settings.MaxStateChars);
+                AssertEqual(60000, settings.CaptainTool.MaxStateChars);
+                AssertEqual(0, settings.EgressExcludedVesselIds.Count, "no vessel is excluded by the product: which vessels hold banned content is operator configuration");
                 AssertEqual(10, settings.TimeoutSeconds);
                 AssertTrue(settings.EvalOnModelChange, "a new model version is evaluated by default");
                 AssertTrue(settings.CaptainTool.Enabled, "captain tool enabled by default");
@@ -58,6 +60,29 @@ namespace Armada.Test.Unit.Suites.Services
 
                 foreach (string name in belowNorm.Keys)
                     AssertTrue(settings.Decisions.ContainsKey(name), name + " still ships; delete its below-norm entry when it does not");
+            });
+
+            await RunTest("EgressExclusion_RefusesOnlyTheListedVessels", () =>
+            {
+                TypedDecisionSettings settings = new TypedDecisionSettings();
+                settings.EgressExcludedVesselIds = new List<string> { "vsl_banned" };
+                AssertFalse(settings.AllowsEgress("vsl_banned"), "a listed vessel sends nothing");
+                AssertTrue(settings.AllowsEgress("vsl_other"), "an unlisted vessel is unaffected");
+                AssertTrue(settings.AllowsEgress(null), "a decision with no mission is not a vessel's content");
+            });
+
+            await RunTest("HotReloadSwap_CarriesEgressExclusions_AsACopy", () =>
+            {
+                // Adapters hold the live object, so a reload copies in place. The list is copied, not shared,
+                // or the next file's edit would reach into the previous one.
+                TypedDecisionSettings live = new TypedDecisionSettings();
+                TypedDecisionSettings file = new TypedDecisionSettings { MaxStateChars = 42000 };
+                file.EgressExcludedVesselIds = new List<string> { "vsl_banned" };
+                live.CopyFrom(file);
+                AssertFalse(live.AllowsEgress("vsl_banned"), "the exclusion reaches the live object on reload");
+                AssertEqual(42000, live.MaxStateChars);
+                file.EgressExcludedVesselIds.Add("vsl_later");
+                AssertTrue(live.AllowsEgress("vsl_later"), "the live list is a copy, not the file's list");
             });
 
             await RunTest("For_EffectiveModeIsMinOfGlobalAndDecision", () =>

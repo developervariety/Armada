@@ -31,6 +31,15 @@ namespace Armada.Core.Services
         /// </summary>
         public const int MaxQuestionsPerRequest = 100;
 
+        /// <summary>
+        /// The character budget for one request: state plus question text. Sized from measured traffic
+        /// against the provider's 32,000-token request limit: redacted state runs about three bytes per
+        /// token and question prose about four, so 80,000 characters stays near 25,000 tokens with room
+        /// to spare. The state budget alone cannot keep a batch under the limit, because a batch's
+        /// questions grow with its item count and a large question set costs thousands of tokens.
+        /// </summary>
+        public const int MaxRequestChars = 80000;
+
         #endregion
 
         #region Private-Members
@@ -110,20 +119,63 @@ namespace Armada.Core.Services
         {
             int questions = 0;
             int stateChars = 0;
+            int requestChars = 0;
             int end = start;
             while (end < items.Count)
             {
                 TypedDecisionBatchItem item = items[end];
                 int itemQuestions = item.Questions.Count;
                 int itemChars = item.State.Text.Length + _WrapperCharsPerItem;
+                int itemRequestChars = itemChars + QuestionChars(item.Questions);
                 bool first = end == start;
-                if (!first && (questions + itemQuestions > MaxQuestionsPerRequest || stateChars + itemChars > maxStateChars))
+
+                // The first item always goes, alone if it must: splitting one item is not possible, and its
+                // own state is already capped by the state budget.
+                if (!first && (questions + itemQuestions > MaxQuestionsPerRequest
+                    || stateChars + itemChars > maxStateChars
+                    || requestChars + itemRequestChars > MaxRequestChars))
                     break;
                 questions += itemQuestions;
                 stateChars += itemChars;
+                requestChars += itemRequestChars;
                 end++;
             }
             return end;
+        }
+
+        /// <summary>
+        /// The characters a question set adds to a request: every instruction and every option's text.
+        /// </summary>
+        /// <param name="questions">The questions, keyed by id.</param>
+        /// <returns>The character count.</returns>
+        internal static int QuestionChars(IReadOnlyDictionary<string, TypedQuestion> questions)
+        {
+            if (questions == null) return 0;
+            int chars = 0;
+            foreach (KeyValuePair<string, TypedQuestion> entry in questions)
+            {
+                chars += entry.Key.Length;
+                switch (entry.Value)
+                {
+                    case NoulQuestion noul:
+                        chars += (noul.Instructions?.Length ?? 0) + (noul.TrueMeaning?.Length ?? 0) + (noul.FalseMeaning?.Length ?? 0);
+                        break;
+                    case ChoiceQuestion choice:
+                        chars += choice.Instructions?.Length ?? 0;
+                        if (choice.Criteria != null)
+                            foreach (KeyValuePair<string, string> option in choice.Criteria) chars += option.Key.Length + (option.Value?.Length ?? 0);
+                        break;
+                    case ScoreQuestion score:
+                        chars += score.Instructions?.Length ?? 0;
+                        if (score.Levels != null)
+                            foreach (string level in score.Levels) chars += level?.Length ?? 0;
+                        break;
+                    default:
+                        chars += entry.Value?.Instructions?.Length ?? 0;
+                        break;
+                }
+            }
+            return chars;
         }
 
         private static TypedDecisionRequest BuildRequest(string decisionPoint, IReadOnlyList<TypedDecisionBatchItem> items, int start, int size)

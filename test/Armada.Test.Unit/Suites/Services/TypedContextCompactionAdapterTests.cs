@@ -233,6 +233,43 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(result.HasSpared, "a client fault degrades to the deterministic compaction");
             }).ConfigureAwait(false);
 
+            await RunTest("AnExcludedVessel_SendsNothing_KeepsTheRule_AndRecordsWhy", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(LoadBearing((1, 0.99), (2, 0.99), (3, 0.99)));
+                TypedDecisionSettings settings = BuildSettings(TypedDecisionModeEnum.Gate);
+                settings.EgressExcludedVesselIds = new List<string> { "vsl_banned" };
+                TypedContextCompactionAdapter adapter = BuildAdapter(db, client, settings);
+
+                ContextCompactionDecisionInput banned = new ContextCompactionDecisionInput
+                {
+                    Mission = new Mission { VesselId = "vsl_banned" },
+                    Goal = BuildInput().Goal,
+                    Candidates = BuildInput().Candidates
+                };
+                ContextCompactionVerdict result = await adapter
+                    .DecideAsync(banned, ContextCompactionVerdict.SpareNone(), CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                AssertEqual(0, client.CallCount, "nothing about a mission on an excluded vessel leaves the host");
+                AssertFalse(result.HasSpared, "the rule stands");
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false),
+                    "the refusal is recorded, never silent");
+
+                // Control: the same call about another vessel is sent and answered.
+                ContextCompactionDecisionInput allowed = new ContextCompactionDecisionInput
+                {
+                    Mission = new Mission { VesselId = "vsl_other" },
+                    Goal = BuildInput().Goal,
+                    Candidates = BuildInput().Candidates
+                };
+                ContextCompactionVerdict answered = await adapter
+                    .DecideAsync(allowed, ContextCompactionVerdict.SpareNone(), CancellationToken.None)
+                    .ConfigureAwait(false);
+                AssertEqual(1, client.CallCount, "an unlisted vessel is asked as before");
+                AssertTrue(answered.HasSpared, "and its answer is used");
+            }).ConfigureAwait(false);
+
             await RunTest("NoCandidates_AsksNothing", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

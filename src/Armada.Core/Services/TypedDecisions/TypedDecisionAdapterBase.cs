@@ -100,6 +100,14 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
             if (cfg.Mode == TypedDecisionModeEnum.Off) return ruleVerdict;
 
+            // Checked before the state is even built: nothing about a mission on an excluded vessel is
+            // serialized, let alone sent. The rule stands and the refusal is recorded, never silent.
+            if (!AllowsEgress(input))
+            {
+                await RecordUnavailableAsync(input, ruleVerdict, EgressExcluded(), String.Empty, token).ConfigureAwait(false);
+                return ruleVerdict;
+            }
+
             TypedDecisionBatchItem? item = Prepare(input);
             if (item == null) return ruleVerdict;
 
@@ -152,6 +160,12 @@ namespace Armada.Core.Services
             List<TypedDecisionBatchItem> batch = new List<TypedDecisionBatchItem>();
             for (int index = 0; index < inputs.Count; index++)
             {
+                if (!AllowsEgress(inputs[index]))
+                {
+                    await RecordUnavailableAsync(inputs[index], ruleVerdicts[index], EgressExcluded(), String.Empty, token).ConfigureAwait(false);
+                    continue;
+                }
+
                 TypedDecisionBatchItem? item = Prepare(inputs[index]);
                 if (item == null) continue;
                 positions.Add(index);
@@ -257,6 +271,28 @@ namespace Armada.Core.Services
         public TypedDecisionBatchItem? DescribeRequest(TInput input)
         {
             return Prepare(input);
+        }
+
+        /// <summary>The unavailable reason a vessel egress exclusion records.</summary>
+        public const string EgressExcludedReason = "egress_excluded_vessel";
+
+        private bool AllowsEgress(TInput input)
+        {
+            Mission? mission;
+            try
+            {
+                mission = MissionOf(input);
+            }
+            catch (Exception)
+            {
+                mission = null;
+            }
+            return _Settings.AllowsEgress(mission?.VesselId);
+        }
+
+        private static TypedDecisionResult EgressExcluded()
+        {
+            return new TypedDecisionResult { Available = false, UnavailableReason = EgressExcludedReason };
         }
 
         private TypedDecisionBatchItem? Prepare(TInput input)

@@ -76,6 +76,12 @@ namespace Armada.Runtimes
         public Func<ContextCompactionDecisionInput, CancellationToken, Task<ContextCompactionVerdict>>? ContextCompactionDecider { get; set; }
 
         /// <summary>
+        /// The mission this run serves, when the launch knows it. The compaction decision records against it
+        /// and applies its vessel's egress rule; with none, the decision still runs but scopes to no mission.
+        /// </summary>
+        public Mission? CompactionMission { get; set; }
+
+        /// <summary>
         /// Armada MCP tool access for the caller of the next run, or null for none. Only a caller-bound session
         /// credential grants access: the runtime never reads an MCP credential from the launch environment or the
         /// isolation plan, so the admiral launch credential cannot widen what a chat caller may do. A run reads
@@ -867,7 +873,7 @@ namespace Armada.Runtimes
                 if (candidates.Count == 0) return spared;
 
                 ContextCompactionVerdict verdict = await decide(
-                    new ContextCompactionDecisionInput { Goal = goal ?? String.Empty, Candidates = candidates },
+                    new ContextCompactionDecisionInput { Mission = CompactionMission, Goal = goal ?? String.Empty, Candidates = candidates },
                     token).ConfigureAwait(false);
 
                 foreach (int position in verdict.SparedPositions)

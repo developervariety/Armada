@@ -8,6 +8,22 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `context_compaction` now reaches Claude Code and OpenCode captains, not only the API-endpoint runtime. Each
+  harness gets a shipped plugin that asks the new caller-scoped MCP tool `armada_context_compaction`, as the
+  captain, which earlier tool results are still load-bearing. The Claude Code plugin steers the harness's own
+  compaction rather than replacing it: it quotes the spared results verbatim and saves every earlier output to a
+  git-ignored `.armada-compaction/` directory in the dock, cited from the summary, so a captain reads an output
+  back instead of re-running the command that produced it. The OpenCode plugin edits each request's message
+  array. Every failure hands the compaction back to the harness unchanged, and the decision Off is a full kill
+  switch. No provider key enters a dock.
+- The typed-decision state budget is 60,000 characters, not 8,000, for every decision and the captain tool. The
+  old cap was measured truncating the decisions that carry real content: `change_substance` on every call,
+  `prior_art` on 86% and `preflight` on 73%. The batcher now also counts question text, so a batch stays under
+  80,000 characters and inside the provider's 32,000-token request limit; before, a batch was sized on state alone.
+- `typedDecisions.egressExcludedVesselIds`: a vessel whose content must never leave the host. Every decision about
+  a mission on one of them - adapter decisions and captain tools alike - sends nothing, keeps its rule, and
+  records `egress_excluded_vessel`, so the refusal is counted rather than silent. Ships empty.
+
 - The typed-decision wiring guard measures CONSUMPTION, not declaration. It used to derive the wired set
   by reflecting over adapter classes, so adding an adapter marked its decision wired whether or not
   anything called it: a decision could ship in `Gate`, report as enforced on every status surface, and
