@@ -28,7 +28,11 @@ namespace Armada.Runtimes.Tools
         /// task-planning tools are registered as well.
         /// </summary>
         /// <param name="taskPlan">The per-run task plan the task tools write to, or null to omit the task tools.</param>
-        public BuiltInToolRegistry(TaskPlan? taskPlan = null)
+        /// <param name="includeCommandTool">
+        /// Whether to register <see cref="RunCommandTool"/>. Off by default, so a caller has to opt in: the
+        /// mission launch path does, the dashboard chat path never does.
+        /// </param>
+        public BuiltInToolRegistry(TaskPlan? taskPlan = null, bool includeCommandTool = false)
         {
             RegisterTool(new ReadFileTool(), ToolMutationKind.ReadOnly);
             RegisterTool(new WriteFileTool(), ToolMutationKind.Mutating);
@@ -45,6 +49,11 @@ namespace Armada.Runtimes.Tools
             {
                 RegisterTool(new PlanTasksTool(taskPlan), ToolMutationKind.ReadOnly);
                 RegisterTool(new UpdateTaskTool(taskPlan), ToolMutationKind.ReadOnly);
+            }
+
+            if (includeCommandTool)
+            {
+                RegisterTool(new RunCommandTool(), ToolMutationKind.Mutating);
             }
         }
 

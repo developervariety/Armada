@@ -288,6 +288,99 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("mission_run_executes_git_and_tests_through_run_command", "A mission run executes git and the test command through run_command in a real repository", TestTags.Positive, async () =>
+            {
+                // End to end through the agent loop: a real repository, real git, a real test command. The model
+                // is scripted, but every tool call below runs for real and its output is what the model is shown.
+                string dir = NewTempDir();
+                try
+                {
+                    RunProcess(dir, "git", "init", "-q");
+                    RunProcess(dir, "git", "config", "user.email", "test@example.com");
+                    RunProcess(dir, "git", "config", "user.name", "Test");
+                    RunProcess(dir, "git", "config", "commit.gpgsign", "false");
+                    File.WriteAllText(Path.Combine(dir, "ledger.txt"), "first\n");
+                    File.WriteAllText(Path.Combine(dir, "test.sh"), "echo '2 passed, 0 failed'\nexit 0\n");
+                    RunProcess(dir, "git", "add", ".");
+                    RunProcess(dir, "git", "commit", "-q", "-m", "base");
+                    File.WriteAllText(Path.Combine(dir, "ledger.txt"), "first\nsecond\n");
+
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse
+                    {
+                        Success = true,
+                        ToolCalls = new List<ToolCall> { new ToolCall { Id = "g1", Name = "run_command", ArgumentsJson = "{\"command\":\"git diff --stat\"}" } }
+                    });
+                    script.Enqueue(new ToolChatResponse
+                    {
+                        Success = true,
+                        ToolCalls = new List<ToolCall> { new ToolCall { Id = "t1", Name = "run_command", ArgumentsJson = "{\"command\":\"sh test.sh\"}" } }
+                    });
+                    script.Enqueue(new ToolChatResponse { Success = true, Text = "Reviewed.", ToolCalls = new List<ToolCall>() });
+
+                    ScriptedClient client = new ScriptedClient(script, CreateLogging());
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(NewEndpoint("mission-commands"), CreateLogging(), 10, (ep, log) => client);
+                    runtime.CommandToolEnabled = true;
+
+                    int? exitCode = null;
+                    List<string> output = new List<string>();
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    runtime.OnOutputReceived += (pid, line) => { lock (output) output.Add(line); };
+                    runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+
+                    await runtime.StartAsync(dir, "Review the change.").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(60)), "The run must finish.");
+                    AssertEqual(0, exitCode ?? -1, "Runtime output: " + String.Join(" | ", output));
+
+                    AssertTrue(client.ToolNamesPerCall.Count > 0 && client.ToolNamesPerCall[0].Contains("run_command"),
+                        "A mission run must offer run_command to the model.");
+
+                    string joined = String.Join("\n", client.ToolResultsSeen);
+                    AssertTrue(joined.Contains("ledger.txt", StringComparison.Ordinal), "The model must see the real git diff naming the changed file: " + joined);
+                    AssertTrue(joined.Contains("1 file changed", StringComparison.Ordinal), "The model must see git's own diff summary: " + joined);
+                    AssertTrue(joined.Contains("2 passed, 0 failed", StringComparison.Ordinal), "The model must see the test command's real output: " + joined);
+                    AssertTrue(joined.Contains("\"exit_code\":0", StringComparison.Ordinal), "The model must see the real exit code: " + joined);
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
+            cases.Add(CaseAsync("run_without_opt_in_has_no_command_tool", "A run without the command opt-in, such as a chat turn, is offered no shell and cannot reach one", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    // The model asks for the tool anyway, as a prompt-injected or confused model would.
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse
+                    {
+                        Success = true,
+                        ToolCalls = new List<ToolCall> { new ToolCall { Id = "x1", Name = "run_command", ArgumentsJson = "{\"command\":\"echo reached > marker.txt\"}" } }
+                    });
+                    script.Enqueue(new ToolChatResponse { Success = true, Text = "Done.", ToolCalls = new List<ToolCall>() });
+
+                    ScriptedClient client = new ScriptedClient(script, CreateLogging());
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(NewEndpoint("chat-no-commands"), CreateLogging(), 5, (ep, log) => client);
+
+                    int? exitCode = null;
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                    await runtime.StartAsync(dir, "Answer the question.").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(30)), "The run must finish.");
+
+                    AssertFalse(client.ToolNamesPerCall[0].Contains("run_command"), "A run that did not opt in must not offer run_command.");
+                    AssertFalse(File.Exists(Path.Combine(dir, "marker.txt")), "The command must not have run.");
+                    AssertTrue(String.Join("\n", client.ToolResultsSeen).Contains("unknown_tool", StringComparison.Ordinal),
+                        "A request for the tool must be answered as an unknown tool.");
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
             cases.Add(CaseAsync("tool_calls_are_activity_records_not_answer_text", "Tool calls are reported as activity records separate from the model answer", TestTags.Positive, async () =>
             {
                 string dir = NewTempDir();
@@ -687,6 +780,24 @@ namespace Test.Shared.Suites.Runtimes
             };
         }
 
+        private static void RunProcess(string directory, string fileName, params string[] arguments)
+        {
+            System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo(fileName)
+            {
+                WorkingDirectory = directory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+            using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo)!)
+            {
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException(fileName + " " + String.Join(" ", arguments) + " failed: " + process.StandardError.ReadToEnd());
+            }
+        }
+
         private static string NewTempDir()
         {
             string dir = Path.Combine(Path.GetTempPath(), "armada-api-runtime-" + Guid.NewGuid().ToString("N"));
@@ -845,6 +956,33 @@ namespace Test.Shared.Suites.Runtimes
                 _Script = script;
             }
 
+            /// <summary>Tool names offered to the model, one list per inference call.</summary>
+            public List<List<string>> ToolNamesPerCall { get; } = new List<List<string>>();
+
+            /// <summary>Tool-result contents the model was shown, copied at each call because the loop reuses
+            /// one message list across turns.</summary>
+            public List<string> ToolResultsSeen { get; } = new List<string>();
+
+            private void Record(ToolChatRequest request)
+            {
+                List<string> names = new List<string>();
+                if (request.Tools != null)
+                {
+                    foreach (PolyPrompt.Models.ToolDefinition tool in request.Tools) names.Add(tool.Name);
+                }
+                ToolNamesPerCall.Add(names);
+
+                ToolResultsSeen.Clear();
+                if (request.Messages != null)
+                {
+                    foreach (ChatMessage message in request.Messages)
+                    {
+                        if (String.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase) && message.Content != null)
+                            ToolResultsSeen.Add(message.Content);
+                    }
+                }
+            }
+
             public override Task<ToolChatResponse> ToolChatAsync(ToolChatRequest request, CancellationToken token = default)
             {
                 if (_Script.Count == 0) return Task.FromResult(new ToolChatResponse { Success = true, Text = "", ToolCalls = new List<ToolCall>() });
@@ -855,6 +993,7 @@ namespace Test.Shared.Suites.Runtimes
             public override Task<ChatStreamingResponse> ChatStreamingAsync(string prompt, ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotImplementedException();
             public override Task<ToolChatStreamingResponse> ToolChatStreamingAsync(ToolChatRequest request, CancellationToken token = default)
             {
+                Record(request);
                 ToolChatResponse response = _Script.Count == 0
                     ? new ToolChatResponse { Success = true, Text = "", ToolCalls = new List<ToolCall>() }
                     : _Script.Dequeue();

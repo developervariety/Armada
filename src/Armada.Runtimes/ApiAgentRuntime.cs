@@ -83,6 +83,15 @@ namespace Armada.Runtimes
         /// </summary>
         public CallerMcpToolAccess? McpToolAccess { get; set; } = null;
 
+        /// <summary>
+        /// Whether the next run may run shell commands in its workspace through <see cref="Tools.RunCommandTool"/>.
+        /// Off by default. The mission launch path turns it on, because a Worker, Test Engineer, Judge or Linter
+        /// cannot do its work without git and the vessel's test command. The dashboard chat path leaves it off: a
+        /// chat caller is a different principal from a dispatched mission, and a command tool there would hand the
+        /// caller a shell in the admiral's container. A run reads this value once when it starts.
+        /// </summary>
+        public bool CommandToolEnabled { get; set; } = false;
+
         #endregion
 
         #region Private-Members
@@ -212,7 +221,8 @@ namespace Armada.Runtimes
 
             // Run the loop in the background so StartAsync returns the pid promptly, mirroring a process launch.
             CallerMcpToolAccess? mcpAccess = McpToolAccess;
-            _ = Task.Run(() => RunLoopAsync(processId, workingDirectory, prompt, model, finalMessageFilePath, mcpAccess, cts));
+            bool commandToolEnabled = CommandToolEnabled;
+            _ = Task.Run(() => RunLoopAsync(processId, workingDirectory, prompt, model, finalMessageFilePath, mcpAccess, commandToolEnabled, cts));
 
             return Task.FromResult(processId);
         }
@@ -278,6 +288,7 @@ namespace Armada.Runtimes
             string? model,
             string? finalMessageFilePath,
             CallerMcpToolAccess? mcpAccess,
+            bool commandToolEnabled,
             CancellationTokenSource cts)
         {
             int exitCode = 0;
@@ -292,7 +303,7 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrWhiteSpace(effectiveModel)) client.Model = effectiveModel;
 
                 TaskPlan taskPlan = new TaskPlan();
-                BuiltInToolRegistry registry = new BuiltInToolRegistry(taskPlan);
+                BuiltInToolRegistry registry = new BuiltInToolRegistry(taskPlan, commandToolEnabled);
                 List<PolyToolDefinition> tools = BuildToolDefinitions(registry);
 
                 HashSet<string> mcpToolNames = new HashSet<string>(StringComparer.Ordinal);
@@ -518,6 +529,10 @@ namespace Armada.Runtimes
             if (exception is WorkspaceEnumerationLimitException) return "enumeration_limit";
             if (exception is ToolSizeLimitException) return "size_limit";
             if (exception is JsonException) return "invalid_arguments";
+
+            // ToolArgumentParser wraps a malformed payload's JsonException in an ArgumentException, and a
+            // missing required argument is an ArgumentException too; both are the caller's arguments.
+            if (exception is ArgumentException) return "invalid_arguments";
             if (exception is OperationCanceledException) return "cancelled";
             if (exception is UnauthorizedAccessException) return "permission_denied";
             if (exception is FileNotFoundException || exception is DirectoryNotFoundException) return "not_found";

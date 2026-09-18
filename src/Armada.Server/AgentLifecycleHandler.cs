@@ -1712,7 +1712,14 @@ namespace Armada.Server
             if (!String.IsNullOrEmpty(validationError))
                 throw new InvalidOperationException(validationError);
 
-            return _RuntimeFactory.Create(captain.Runtime, endpoint);
+            Armada.Runtimes.Interfaces.IAgentRuntime missionRuntime = _RuntimeFactory.Create(captain.Runtime, endpoint);
+
+            // A dispatched mission gets the command tool; this is the one place it is switched on. The chat
+            // path builds the same runtime type and deliberately leaves it off.
+            if (missionRuntime is ApiAgentRuntime apiRuntime)
+                apiRuntime.CommandToolEnabled = true;
+
+            return missionRuntime;
         }
 
         /// <summary>
@@ -1739,15 +1746,16 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Refuse to seat a captain in a persona its runtime cannot serve. The API-endpoint runtime offers
-        /// file tools only: no shell, no git and no test runner. A persona that must run commands can still
-        /// be filled by one, and the result is a confident, unfounded answer rather than a visible failure —
-        /// a Judge that cannot read the diff or run the gate still votes. A refusal at launch is loud; a
-        /// captain quietly working without the tools it needs is not.
+        /// Refuse to seat a captain in a persona its runtime cannot serve. A persona that must run commands
+        /// can be filled by a runtime that cannot, and the result is a confident, unfounded answer rather than
+        /// a visible failure: a Judge that cannot read the diff or run the gate still votes. A refusal at launch
+        /// is loud; a captain quietly working without the tools it needs is not.
         /// </summary>
         /// <remarks>
-        /// This is a capability gap, not a policy: when the runtime gains a bounded command tool, this
-        /// refusal goes away with it rather than being widened.
+        /// A capability check, not a policy. Every runtime a mission can launch today runs commands, the
+        /// API-endpoint runtime included through its run_command tool, so this refuses nothing in practice. It
+        /// stays as the backstop that eligibility's answer is checked against, for a captain pinned by hand or
+        /// by a captain override, and for any runtime added later without a command tool.
         /// </remarks>
         /// <param name="captain">Captain about to be launched.</param>
         /// <param name="persona">Persona of the mission being launched.</param>
@@ -1761,9 +1769,9 @@ namespace Armada.Server
             // reaches launch without passing eligibility.
             if (AgentRuntimeCapability.CanServePersona(captain.Runtime, persona)) return null;
 
-            return "An API-endpoint captain cannot serve the " + PersonaCatalog.NormalizeName(persona)
-                + " persona: that persona must run commands in its dock, and this runtime provides file tools only, with no shell, git or test runner. "
-                + "Assign a CLI-harness captain, or narrow this captain's allowed personas.";
+            return "A " + captain.Runtime + " captain cannot serve the " + PersonaCatalog.NormalizeName(persona)
+                + " persona: that persona must run commands in its dock, and this runtime provides no command tool. "
+                + "Assign a captain whose runtime can run commands, or narrow this captain's allowed personas.";
         }
 
         /// <summary>

@@ -329,21 +329,26 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
-- An API-endpoint captain is not eligible for, and is refused at launch for, a persona that must run
-  commands — Worker, Test Engineer, Judge and Linter. That runtime provides file tools only, with no shell,
-  git or test runner, so such a captain filled the seat and produced a confident, unfounded result: a Judge
-  that could not read the diff or run the gate still voted, reporting "I have no shell/execution tool in
-  this session" in its own log. The analysis personas are unaffected, and the refusal names the missing
-  capability. It is a capability gap, not a policy, and goes away when the runtime gains a bounded command
-  tool.
-  The rule holds in two places on purpose and they ask one predicate,
-  `AgentRuntimeCapability.CanServePersona`. Eligibility keeps such a captain out of selection so the
-  dispatcher picks a capable one; the launch refusal is the backstop for a captain pinned by hand or by a
-  captain override, which reaches launch without passing eligibility. Capability is asked before the
-  captain's allow-list and cannot be overridden by it, including by the empty allow-list that otherwise
-  means "any persona". A test compares the two answers across every runtime and persona, because
-  eligibility that is more permissive than the launch guard assigns a mission to a captain that then
-  refuses it — turning "pick another captain" into a failed mission, an incident and a rescue.
+- An API-endpoint mission can run shell commands through a new built-in `run_command` tool, so it can use
+  git, build, and run the vessel's tests: the work a Worker, Test Engineer, Judge or Linter cannot do with
+  file tools alone. Previously that runtime offered file tools only, and a Judge on it produced a
+  confident, unfounded result — it could not read the diff or run the gate, reported "I have no
+  shell/execution tool in this session", and still voted.
+  What the tool enforces: a working directory inside the workspace (the same path policy as the file tools,
+  reparse points included); an environment built from an allowlist, so no admiral or provider credential
+  reaches the command; a closed standard input, so a prompting command fails instead of hanging; a timeout
+  (default 120 s, maximum 3600 s) that kills the whole process tree; and an output cap that keeps the
+  beginning AND the end, because a test runner prints its totals last. What it does not enforce: it does not
+  confine what the command touches once it runs, or deny it the network. That needs kernel isolation, and
+  the admiral's container permits none — user namespaces are refused and no sandbox binary is installed —
+  so the tool is at parity with the CLI harnesses, which already run their own shells in that container.
+  The tool is registered only for a dispatched mission. The dashboard chat path builds the same runtime
+  and leaves it off, because a chat caller is a different principal from a mission and a command tool there
+  would hand the caller a shell in the admiral's container.
+  Persona eligibility and the launch refusal both ask one predicate, `AgentRuntimeCapability.CanServePersona`,
+  which now answers yes for the API-endpoint runtime. The predicate stays as the single seam: a runtime
+  added later without a command tool is excluded from those personas by changing one answer, in both places
+  at once, and a test compares the two answers across every runtime and persona, including one that refuses.
 - An API-endpoint conversation is compacted before its ceiling instead of throwing at it. Previously a long
   run ended with the work done and no result returned. Compaction replaces the content of older tool
   results, removes no message (so tool-call and tool-result pairing stays intact), and never touches the
@@ -363,7 +368,9 @@ All notable changes to Armada are documented in this file.
   a thrown failure reports are also correct now: a path refused at the workspace boundary, a file above the
   read limit and a stopped directory enumeration were all reported as `invalid_arguments`, the same class
   as a malformed tool-call payload. Only the class is rendered, never the message, because tool messages
-  carry absolute workspace paths.
+  carry absolute workspace paths. A malformed payload now reads as `invalid_arguments` too: the argument
+  parser wraps its JSON error in an `ArgumentException`, which the first version of this classification
+  did not match, so such calls had been reported as `tool_failed`.
 - `armada_get_captain` and `armada_update_captain` return the captain's model endpoint reference, tier,
   preference rank and last process-alive time. The response projection omitted them, so they came back as
   `null` and `0` however the record was actually set, and an operator reading the response concluded an

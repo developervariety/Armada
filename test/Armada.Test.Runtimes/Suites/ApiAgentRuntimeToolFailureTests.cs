@@ -30,6 +30,9 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("boundary_refused", ApiAgentRuntime.ClassifyToolException(new WorkspaceBoundaryException()));
                 AssertEqual("enumeration_limit", ApiAgentRuntime.ClassifyToolException(new WorkspaceEnumerationLimitException(10)));
                 AssertEqual("invalid_arguments", ApiAgentRuntime.ClassifyToolException(new JsonException("bad payload")));
+                // The shape the argument parser actually throws: a JsonException wrapped in an ArgumentException.
+                AssertEqual("invalid_arguments", ApiAgentRuntime.ClassifyToolException(
+                    new ArgumentException("Tool arguments are invalid", new JsonException("bad payload"))));
                 AssertEqual("permission_denied", ApiAgentRuntime.ClassifyToolException(new UnauthorizedAccessException()));
                 AssertEqual("not_found", ApiAgentRuntime.ClassifyToolException(new FileNotFoundException()));
                 AssertEqual("not_found", ApiAgentRuntime.ClassifyToolException(new DirectoryNotFoundException()));

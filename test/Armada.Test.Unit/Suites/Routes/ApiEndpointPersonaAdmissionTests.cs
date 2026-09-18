@@ -10,15 +10,15 @@ namespace Armada.Test.Unit.Suites.Routes
     using Armada.Test.Common;
 
     /// <summary>
-    /// A captain must never be seated in a persona its runtime cannot serve. The API-endpoint runtime
-    /// provides file tools only, so a Judge on it reviews without reading the diff or running the gate and
-    /// still votes.
+    /// A captain must never be seated in a persona its runtime cannot serve: a Judge that cannot read the
+    /// diff or run the gate still votes. Every runtime a mission launches today can run commands, the
+    /// API-endpoint runtime through its run_command tool, so these cases pin two things: that the
+    /// API-endpoint runtime is now admitted, and that the refusal path still works for a runtime that has
+    /// proven no command tool.
     ///
-    /// The rule holds in two places and they must agree. ELIGIBILITY keeps such a captain out of selection,
-    /// so the dispatcher picks a capable one instead; the LAUNCH refusal is the backstop for a captain
-    /// pinned by hand or by a captain override, which reaches launch without passing eligibility. If
-    /// eligibility were the more permissive of the two, a mission would be assigned to a captain that then
-    /// refuses it, and "pick another captain" becomes a failed mission, an incident and a rescue.
+    /// The rule holds in two places and they must agree. ELIGIBILITY decides selection; the LAUNCH refusal
+    /// is the backstop for a captain pinned by hand or by a captain override. If eligibility were the more
+    /// permissive of the two, a mission would be assigned to a captain that then refuses it.
     /// </summary>
     public sealed class ApiEndpointPersonaAdmissionTests : TestSuite
     {
@@ -28,8 +28,10 @@ namespace Armada.Test.Unit.Suites.Routes
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            await RunTest("An API-endpoint captain is refused for a persona that must run commands", () =>
+            await RunTest("An API-endpoint mission is admitted to the execution personas now that it carries run_command", () =>
             {
+                // The launch path registers the command tool for an API-endpoint mission, so the persona
+                // that must run commands is now one this runtime can serve.
                 Captain captain = new Captain("api-judge");
                 captain.Runtime = AgentRuntimeEnum.ApiEndpoint;
 
@@ -42,10 +44,25 @@ namespace Armada.Test.Unit.Suites.Routes
                     PersonaCatalog.Linter
                 })
                 {
-                    string? error = AgentLifecycleHandler.ValidateRuntimeSupportsPersona(captain, persona);
-                    AssertNotNull(error, "the " + persona + " persona must be refused on this runtime");
-                    AssertContains("file tools only", error!, "the refusal names the missing capability");
+                    AssertNull(AgentLifecycleHandler.ValidateRuntimeSupportsPersona(captain, persona),
+                        "the " + persona + " persona must be admitted on an API-endpoint mission");
                 }
+            });
+
+            await RunTest("A runtime with no proven command tool is still refused, with a reason", () =>
+            {
+                // The refusal path must keep working for a runtime added later without a command tool. An
+                // unknown runtime value stands in for one: it has proven nothing, so it is not trusted.
+                Captain captain = new Captain("unknown-runtime");
+                captain.Runtime = (AgentRuntimeEnum)999;
+
+                string? error = AgentLifecycleHandler.ValidateRuntimeSupportsPersona(captain, PersonaCatalog.Judge);
+                AssertNotNull(error, "a runtime with no proven command tool must be refused the Judge persona");
+                AssertContains("no command tool", error!, "the refusal names the missing capability");
+                AssertFalse(MissionService.CaptainAllowsPersona(captain, PersonaCatalog.Judge),
+                    "and eligibility must agree with the refusal");
+                AssertNull(AgentLifecycleHandler.ValidateRuntimeSupportsPersona(captain, PersonaCatalog.Architect),
+                    "it is still admitted to a persona that needs no commands");
             });
 
             await RunTest("The same personas are admitted on a CLI-harness captain", () =>
@@ -88,31 +105,23 @@ namespace Armada.Test.Unit.Suites.Routes
                     "a mission with no persona is not refused by this guard");
             });
 
-            await RunTest("An API-endpoint captain is not ELIGIBLE for a persona that must run commands", () =>
+            await RunTest("An API-endpoint captain is ELIGIBLE for the execution personas its allow-list names", () =>
             {
-                // The guard has to bite at assignment, not only at launch. Refusing only at launch means
-                // the dispatcher picks this captain, the launch throws, and the mission fails with an
-                // incident and a rescue -- instead of the dispatcher simply choosing a capable captain.
+                // Capability is still asked before permission; it simply answers yes now. The allow-list then
+                // decides, exactly as it does for any other runtime.
                 Captain apiJudge = new Captain("api-judge");
                 apiJudge.Runtime = AgentRuntimeEnum.ApiEndpoint;
                 apiJudge.AllowedPersonas = "[\"Judge\"]";
-                AssertFalse(MissionService.CaptainAllowsPersona(apiJudge, PersonaCatalog.Judge),
-                    "an allow-list naming Judge cannot make an API-endpoint captain eligible for it");
+                AssertTrue(MissionService.CaptainAllowsPersona(apiJudge, PersonaCatalog.Judge),
+                    "an API-endpoint captain allowed Judge is eligible for Judge");
+                AssertFalse(MissionService.CaptainAllowsPersona(apiJudge, PersonaCatalog.Worker),
+                    "but its allow-list still excludes the personas it does not name");
 
-                // An empty allow-list means "any persona", which must still not defeat capability.
                 Captain apiAny = new Captain("api-any");
                 apiAny.Runtime = AgentRuntimeEnum.ApiEndpoint;
                 apiAny.AllowedPersonas = null;
-                AssertFalse(MissionService.CaptainAllowsPersona(apiAny, PersonaCatalog.Worker),
-                    "an unrestricted API-endpoint captain is still not eligible for Worker");
-                AssertTrue(MissionService.CaptainAllowsPersona(apiAny, PersonaCatalog.Architect),
-                    "an unrestricted API-endpoint captain is still eligible for Architect");
-
-                Captain cliJudge = new Captain("cli-judge");
-                cliJudge.Runtime = AgentRuntimeEnum.ClaudeCode;
-                cliJudge.AllowedPersonas = "[\"Judge\"]";
-                AssertTrue(MissionService.CaptainAllowsPersona(cliJudge, PersonaCatalog.Judge),
-                    "the same allow-list on a CLI-harness captain stays eligible");
+                AssertTrue(MissionService.CaptainAllowsPersona(apiAny, PersonaCatalog.Worker),
+                    "an unrestricted API-endpoint captain is eligible for Worker");
             });
 
             await RunTest("Eligibility and the launch guard agree over every runtime and persona", () =>
@@ -129,7 +138,12 @@ namespace Armada.Test.Unit.Suites.Routes
                 };
 
                 List<string> disagreements = new List<string>();
-                foreach (AgentRuntimeEnum runtime in Enum.GetValues<AgentRuntimeEnum>())
+                // Every real runtime answers yes today, so an unknown value is included to keep a refusing
+                // case in the domain; without it this comparison would only ever compare yes with yes.
+                List<AgentRuntimeEnum> runtimes = new List<AgentRuntimeEnum>(Enum.GetValues<AgentRuntimeEnum>());
+                runtimes.Add((AgentRuntimeEnum)999);
+
+                foreach (AgentRuntimeEnum runtime in runtimes)
                 {
                     foreach (string persona in personas)
                     {

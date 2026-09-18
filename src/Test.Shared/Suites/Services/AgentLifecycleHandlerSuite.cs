@@ -7,7 +7,6 @@ namespace Test.Shared.Suites.Services
     using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
-    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -300,9 +299,7 @@ namespace Test.Shared.Suites.Services
                             UserId = endpoint.UserId,
                             CaptainId = captain.Id,
                             Status = MissionStatusEnum.InProgress,
-                            // Not Worker: an API-endpoint captain is refused for a persona that must run
-                            // commands, and this case measures token accounting, not persona admission.
-                            Persona = PersonaCatalog.Architect,
+                            Persona = "Worker",
                             BranchName = "feature/api-usage"
                         };
                         captain.CurrentMissionId = mission.Id;

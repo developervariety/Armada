@@ -19,19 +19,39 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Whether a runtime can run commands in a dock: a shell, git, and the vessel's test command.
+        /// Whether a runtime can run commands in a dock for a dispatched mission: a shell, git, and the
+        /// vessel's test command.
         /// </summary>
         /// <remarks>
-        /// The API-endpoint runtime drives a model through an in-process tool loop over the built-in FILE
-        /// tools only. Every other runtime shells out to a CLI harness that carries its own command tool.
-        /// When the API-endpoint runtime gains a bounded command tool, this returns true for it and every
-        /// refusal built on it disappears at once.
+        /// Every CLI runtime shells out to a harness that carries its own command tool. The API-endpoint
+        /// runtime drives a model through an in-process tool loop, and a mission launch registers the
+        /// built-in <c>run_command</c> tool for it, so it qualifies too. The question is asked about MISSIONS
+        /// because that is the only place persona eligibility applies; the dashboard chat path builds the same
+        /// runtime with the command tool deliberately left off.
+        ///
+        /// Every runtime answers true today. The predicate stays as the one seam that eligibility and the
+        /// launch refusal both ask, so a runtime added later without a command tool is excluded from those
+        /// personas by changing this one answer, in both places at once.
         /// </remarks>
         /// <param name="runtime">Runtime to classify.</param>
-        /// <returns>True when the runtime can execute commands.</returns>
+        /// <returns>True when a mission on the runtime can execute commands.</returns>
         public static bool ExecutesCommands(AgentRuntimeEnum runtime)
         {
-            return runtime != AgentRuntimeEnum.ApiEndpoint;
+            switch (runtime)
+            {
+                case AgentRuntimeEnum.ClaudeCode:
+                case AgentRuntimeEnum.Codex:
+                case AgentRuntimeEnum.Gemini:
+                case AgentRuntimeEnum.Cursor:
+                case AgentRuntimeEnum.OpenCode:
+                case AgentRuntimeEnum.Mux:
+                case AgentRuntimeEnum.ApiEndpoint:
+                case AgentRuntimeEnum.Custom:
+                    return true;
+                default:
+                    // An unknown runtime has proven nothing, so it is not trusted with an execution persona.
+                    return false;
+            }
         }
 
         /// <summary>
