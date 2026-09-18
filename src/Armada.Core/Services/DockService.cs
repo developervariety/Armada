@@ -409,9 +409,14 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // One ownership answer guards every removal below. A dock's siblings live INSIDE its
+            // worktree path and the dock root is its parent, so guarding only the worktree still let a
+            // superseded record delete the live attempt's cross-repo source view.
+            bool pathOwnedByAnotherDock = await IsWorktreeOwnedByAnotherActiveDockAsync(dock, token).ConfigureAwait(false);
+
             if (!String.IsNullOrEmpty(dock.WorktreePath))
             {
-                if (await IsWorktreeOwnedByAnotherActiveDockAsync(dock, token).ConfigureAwait(false))
+                if (pathOwnedByAnotherDock)
                 {
                     _Logging.Warn(_Header + "skipping worktree removal for dock " + dockId +
                         " because another active dock now owns path " + dock.WorktreePath);
@@ -451,8 +456,11 @@ namespace Armada.Core.Services
                 }
             }
 
-            await RemoveSiblingReposForDockAsync(dock, token).ConfigureAwait(false);
-            TryRemoveEmptyDockRoot(dock.WorktreePath);
+            if (!pathOwnedByAnotherDock)
+            {
+                await RemoveSiblingReposForDockAsync(dock, token).ConfigureAwait(false);
+                TryRemoveEmptyDockRoot(dock.WorktreePath);
+            }
 
             TryDeleteDockStartCommitFile(dock.Id);
 
@@ -569,8 +577,23 @@ namespace Armada.Core.Services
         /// <summary>
         /// Clean up a dock's worktree by removing the git worktree and directory.
         /// </summary>
+        /// <remarks>
+        /// A worktree path is keyed by mission, so every re-dispatched attempt of one mission yields a
+        /// new dock record pointing at the same directory. Tearing down a superseded record must not
+        /// delete the directory a live attempt is working in, so this consults the same ownership
+        /// predicate the reclaim path uses. The dock's own start-commit metadata is keyed by dock id
+        /// and is removed either way.
+        /// </remarks>
         private async Task CleanupWorktreeAsync(Dock dock, CancellationToken token)
         {
+            if (await IsWorktreeOwnedByAnotherActiveDockAsync(dock, token).ConfigureAwait(false))
+            {
+                _Logging.Warn(_Header + "skipping worktree cleanup for dock " + dock.Id +
+                    " because another active dock now owns path " + dock.WorktreePath);
+                TryDeleteDockStartCommitFile(dock.Id);
+                return;
+            }
+
             if (!String.IsNullOrEmpty(dock.WorktreePath))
             {
                 try

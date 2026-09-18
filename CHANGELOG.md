@@ -299,6 +299,14 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Tearing down a superseded dock no longer deletes the worktree a live dock is using. A dock's worktree
+  path is keyed by mission, so every re-dispatched attempt of one mission yields a new dock record naming
+  the same directory. `ReclaimAsync` consulted the ownership predicate for the worktree only, while
+  `DeleteAsync` and `PurgeAsync` reached `CleanupWorktreeAsync`, which consulted nothing. Both paths now
+  take one ownership answer and gate the worktree, the dock's siblings (which for a nested dock live
+  inside that same path) and the dock root on it. The symptom was a captain's workspace emptying
+  mid-run: reads of files it had already read failed while the directory still listed and a fresh write
+  round-tripped.
 - The shared test runner (`src/Test.Automated`) redirects the default data directory to a per-run temp
   root as its first statement, as the unit and automated runners already did. It was the one runner
   without the redirect, so it alone resolved every default path -- settings, repos, docks, logs -- under
