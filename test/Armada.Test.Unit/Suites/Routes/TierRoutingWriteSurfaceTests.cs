@@ -69,6 +69,51 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
+            await RunTest("Mcp captain update returns every persisted field, not a lossy projection", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, Func<JsonElement?, Task<object>>> tools = CaptainTools(testDb.Driver);
+
+                    Captain seeded = new Captain("projection-captain");
+                    seeded.Runtime = AgentRuntimeEnum.ClaudeCode;
+                    seeded.Model = "claude-fable-5";
+                    seeded.ModelEndpointId = "mep_examplemodelendpoint";
+                    seeded.Tier = CaptainTierEnum.Premium;
+                    seeded.PreferenceRank = 3;
+                    seeded.AllowedPersonas = "[\"Judge\"]";
+                    seeded = await testDb.Driver.Captains.CreateAsync(seeded).ConfigureAwait(false);
+
+                    object response = await tools["armada_update_captain"](
+                        JsonSerializer.SerializeToElement(new { captainId = seeded.Id, preferenceRank = 5 })).ConfigureAwait(false);
+
+                    Captain? returned = response as Captain;
+                    AssertNotNull(returned, "the update tool returns a captain");
+                    Captain? persisted = await testDb.Driver.Captains.ReadAsync(seeded.Id).ConfigureAwait(false);
+                    AssertNotNull(persisted, "the captain is readable after the update");
+
+                    // Compared by reflection rather than by a hand-written field list, so a field added to
+                    // Captain later cannot be left out of the projection unnoticed. ApiKey is deliberately
+                    // masked in the response and is the one field allowed to differ.
+                    List<string> mismatched = new List<string>();
+                    foreach (System.Reflection.PropertyInfo property in typeof(Captain).GetProperties())
+                    {
+                        if (!property.CanRead) continue;
+                        if (String.Equals(property.Name, nameof(Captain.ApiKey), StringComparison.Ordinal)) continue;
+
+                        object? fromResponse = property.GetValue(returned);
+                        object? fromDatabase = property.GetValue(persisted);
+                        if (SameFieldValue(fromResponse, fromDatabase)) continue;
+                        mismatched.Add(property.Name + " (response '" + fromResponse + "', database '" + fromDatabase + "')");
+                    }
+
+                    AssertEqual(0, mismatched.Count, "the returned captain must equal the persisted captain, but these differ: " + String.Join("; ", mismatched));
+                    AssertEqual(5, returned!.PreferenceRank, "the rank the caller set comes back");
+                    AssertEqual(CaptainTierEnum.Premium, returned.Tier, "an omitted tier comes back at its stored value, not null");
+                    AssertEqual("mep_examplemodelendpoint", returned.ModelEndpointId, "the endpoint reference comes back rather than reading as cleared");
+                }
+            });
+
             await RunTest("Mcp persona create and update set the specialist flag and keep an omitted one", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -211,6 +256,22 @@ namespace Armada.Test.Unit.Suites.Routes
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Compare one captain field from a tool response against the same field read back from the
+        /// database. Timestamps are compared with a millisecond tolerance, because a driver may round a
+        /// stored time on the round trip and that difference is not a projection defect.
+        /// </summary>
+        /// <param name="fromResponse">Value carried by the tool response.</param>
+        /// <param name="fromDatabase">Value read back from the database.</param>
+        /// <returns>True when the two values agree.</returns>
+        private static bool SameFieldValue(object? fromResponse, object? fromDatabase)
+        {
+            if (fromResponse is DateTime responseTime && fromDatabase is DateTime databaseTime)
+                return Math.Abs((responseTime - databaseTime).TotalSeconds) < 1;
+
+            return Equals(fromResponse, fromDatabase);
+        }
 
         private static Dictionary<string, Func<JsonElement?, Task<object>>> CaptainTools(DatabaseDriver database)
         {
