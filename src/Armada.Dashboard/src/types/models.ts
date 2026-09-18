@@ -2784,6 +2784,8 @@ export interface CustomTypedQuestion {
   type: 'choice' | 'score' | 'noul';
   instructions: string;
   options?: Record<string, string>;
+  /** For a choice: the options that are the finding. The choice gates only when one of these is picked. */
+  flagOptions?: string[];
   levels?: string[];
   trueMeaning?: string | null;
   falseMeaning?: string | null;

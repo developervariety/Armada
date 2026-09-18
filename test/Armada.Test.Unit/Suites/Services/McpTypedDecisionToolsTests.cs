@@ -307,6 +307,74 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A helper in Shadow consults and records but returns unavailable", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = ChoiceResult("provider", 0.93);
+                    Harness harness = Harness.Create(testDb, client, enabled: true,
+                        configure: s => s.TypedDecisions.Decisions["premise_check"].Mode = TypedDecisionModeEnum.Shadow);
+
+                    string response = await harness.CallAsync("armada_check_premise", new { restatement = "I will add a retry to the uploader." }).ConfigureAwait(false);
+
+                    AssertContains("\"available\":false", Compact(response), "Shadow quiets the helper");
+                    AssertContains("shadow", response, "and says why");
+                    AssertEqual(1, client.CallCount, "Shadow still consults the provider");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one event");
+                    AssertContains("\"gate_outcome\":\"shadow\"", events[0].Payload ?? "", "recorded as a shadow call");
+                }
+            });
+
+            await RunTest("The custom runner records one event on every call that never reaches the provider", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = ChoiceResult("provider", 0.93);
+                    Harness enabled = Harness.Create(testDb, client, enabled: true,
+                        configure: s => s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Off));
+                    Harness disabled = Harness.Create(testDb, client, enabled: false,
+                        configure: s => s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Gate));
+
+                    await enabled.CallAsync("armada_run_custom_decision", new { name = "house_rule", context = new { diff = "a" } }).ConfigureAwait(false);
+                    await enabled.CallAsync("armada_run_custom_decision", new { name = "no_such_rule", context = new { diff = "a" } }).ConfigureAwait(false);
+                    await disabled.CallAsync("armada_run_custom_decision", new { name = "house_rule", context = new { diff = "a" } }).ConfigureAwait(false);
+
+                    AssertEqual(0, client.CallCount, "none of the three reaches the provider");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
+                    AssertEqual(3, events.Count, "one event per call");
+                    string payloads = String.Join("\n", events.ConvertAll(e => e.Payload ?? ""));
+                    AssertContains("\"gate_outcome\":\"dormant\"", payloads, "an Off decision is dormant");
+                    AssertContains("\"gate_outcome\":\"not_found\"", payloads, "an unknown decision is not_found");
+                    AssertContains("\"gate_outcome\":\"disabled\"", payloads, "a disabled tool is disabled");
+                    AssertContains("custom:house_rule", payloads, "under the custom decision point");
+                }
+            });
+
+            await RunTest("The custom runner in Shadow returns unavailable and records a shadow event", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = new TypedDecisionResult
+                    {
+                        Available = true,
+                        Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal) { ["finding"] = new TypedAnswer { Type = "noul", Noul = 0.97 } }
+                    };
+                    Harness harness = Harness.Create(testDb, client, enabled: true,
+                        configure: s => s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Shadow));
+
+                    string response = await harness.CallAsync("armada_run_custom_decision", new { name = "house_rule", context = new { diff = "a" } }).ConfigureAwait(false);
+
+                    AssertContains("\"available\":false", Compact(response), "Shadow quiets the custom runner");
+                    AssertContains("shadow", response, "and says why");
+                    AssertEqual(1, client.CallCount, "Shadow still consults the provider");
+                    AssertEqual(1, (await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false)).Count, "one shadow event");
+                }
+            });
+
             await RunTest("The tool has no side effect on any Armada record", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -476,6 +544,20 @@ namespace Armada.Test.Unit.Suites.Services
 
         #region Private-Types
 
+        private static CustomTypedDecisionSettings CustomDecision(TypedDecisionModeEnum mode)
+        {
+            return new CustomTypedDecisionSettings
+            {
+                Mode = mode,
+                GateThreshold = 0.9,
+                Surface = CustomDecisionSurfaceEnum.CaptainTool,
+                Questions = new List<CustomTypedQuestionSettings>
+                {
+                    new CustomTypedQuestionSettings { Id = "finding", Type = "noul", Instructions = "The change has the finding." }
+                }
+            };
+        }
+
         private sealed class Harness
         {
             public Dictionary<string, Func<JsonElement?, Task<object>>> Handlers { get; } = new Dictionary<string, Func<JsonElement?, Task<object>>>();
@@ -486,13 +568,15 @@ namespace Armada.Test.Unit.Suites.Services
                 bool enabled,
                 bool enablePremiseCheck = false,
                 bool enableMemoryRecord = false,
-                bool enableCorpusPrelabel = false)
+                bool enableCorpusPrelabel = false,
+                Action<ArmadaSettings>? configure = null)
             {
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.TypedDecisions.CaptainTool.Enabled = enabled;
                 settings.TypedDecisions.Decisions["premise_check"].Mode = enablePremiseCheck ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
                 settings.TypedDecisions.Decisions["memory_record"].Mode = enableMemoryRecord ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
                 settings.TypedDecisions.Decisions["corpus_prelabel"].Mode = enableCorpusPrelabel ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
+                configure?.Invoke(settings);
 
                 Harness harness = new Harness();
                 TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());

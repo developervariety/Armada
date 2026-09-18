@@ -553,16 +553,17 @@ make. They are caller-scoped, next to the memory tools. Authority does not
 travel with them: every call redacts its state before egress (there is no
 per-mission call cap) and has **no side effect on any Armada record** - it
 dispatches nothing, lands nothing, edits no objective, and writes no memory.
-Every tool except `armada_run_custom_decision` writes exactly one
-`typed_decision.captain` event per call, carrying only a `state_sha256` and
-byte count (never the state). A call returns typed answers, or an
+Every call writes exactly one event, carrying only a `state_sha256` and byte
+count (never the state): `typed_decision.captain`, except that a custom
+decision which reaches the provider records under its own decision point. A call returns typed answers, or an
 `available: false` result with an `unavailableReason` the captain treats as
 "decide it yourself".
 
-The tools gate nothing, so no threshold applies. A helper answers whenever its
-decision is not `Off` (`Shadow` included) and returns every answer with its
-confidence, for the captain to weigh. `docs/TYPED_DECISIONS.md` owns the
-details.
+The tools gate nothing, so no threshold applies: every answer comes back with
+its confidence, for the captain to weigh. A helper answers while its decision
+is in `Gate`. In `Shadow` it consults and records, then returns
+`unavailableReason: shadow`; in `Off` it returns `unavailableReason: disabled`.
+`docs/TYPED_DECISIONS.md` owns the details.
 
 The tool ships enabled (`typedDecisions.captainTool.enabled` is `true`); when an
 operator sets it `false`, every call returns `unavailableReason: disabled`.
@@ -678,14 +679,16 @@ Run a custom decision an operator defined, by name. Args: `name` (required),
 `context` (required, a non-empty object whose fields the decision's
 `stateFields` select, for example `diff`, `output_tail`, `changed_paths`), and
 optional `missionId`. Returns `{ available, name, flagged, confidence, model,
-answers }`: `confidence` is the gate value (the highest Noul probability, or
-null when the decision asks no Noul), and `flagged` is true only when the
-decision is bound, in `Gate`, and at or above its threshold. It returns the
-answers in `Shadow` too. An unknown or `Off` decision, or a disabled captain
-tool, returns `unavailable` and records nothing. A call that reaches the
+flaggedQuestions, answers }`: `confidence` is the gate value (the highest Noul
+probability or finding-option confidence, or null when nothing can gate), and
+`flagged` is true only when the decision is bound, in `Gate`, and at or above
+its threshold. A decision in `Shadow` consults and records, then returns
+`unavailableReason: shadow`. An unknown or `Off` decision, or a disabled
+captain tool, returns `unavailable` and records one `typed_decision.captain`
+event (`not_found`, `dormant`, or `disabled`). A call that reaches the
 provider records one `typed_decision.gated`, `typed_decision.shadow`, or
 `typed_decision.unavailable` event under the decision point `custom:<name>`.
-This tool is the only way a custom decision runs, whatever its `surface`.
+A `MissionDiff` decision also runs by itself when a Worker stage hands off.
 
 ## Typed Decision Evaluation
 

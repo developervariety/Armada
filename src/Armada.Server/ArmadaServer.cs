@@ -769,6 +769,11 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.LintFindingAdapter = new TypedLintFindingAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                // Operator-defined custom decisions on the MissionDiff surface read a Worker stage's diff
+                // at handoff. Each follows its own mode under the global cap; a bound flag only adds a
+                // Judge review instruction to the next brief.
+                missionService.CustomDecisionAdapter = new CustomTypedDecisionAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
 
                 // D7 leak_hunk: an ADVISORY per-hunk pass behind the deterministic dock-boundary
                 // scanner, on the pre-land mission scan and the merge-queue integration scan. It only

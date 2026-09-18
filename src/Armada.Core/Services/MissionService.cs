@@ -151,6 +151,16 @@ namespace Armada.Core.Services
         public TypedLintFindingAdapter? LintFindingAdapter { get; set; }
 
         /// <summary>
+        /// The runner for operator-defined custom decisions on the MissionDiff surface, when wired. Null
+        /// runs none, which is the operationally-off state. Set by the server after construction so
+        /// existing construction sites and tests are unchanged. When a Worker stage hands off its diff,
+        /// every MissionDiff decision that is not Off reads it; a bound decision that flags becomes a
+        /// Judge review instruction prepended to the next brief. It is never a verdict and never fails
+        /// the stage.
+        /// </summary>
+        public CustomTypedDecisionAdapter? CustomDecisionAdapter { get; set; }
+
+        /// <summary>
         /// The marker appended to a Judge NEEDS_REVISION failure reason when the D21 <c>revision_kind</c>
         /// decision reads every revision item as non-behavioural. Autonomous recovery recognises it and
         /// blocks the rescue with reason <c>revision_comment_only</c>, so the work is an operator
@@ -5454,6 +5464,15 @@ namespace Armada.Core.Services
                 await ApplyPriorArtJudgeHandoffAsync(completedMission, dependentMissions, token).ConfigureAwait(false);
             }
 
+            // Custom decisions (MissionDiff surface). When a Worker stage hands off, every operator-defined
+            // MissionDiff decision that is not Off reads the diff; each bound decision that flags becomes a
+            // Judge review instruction prepended to the next brief. A flag is never a verdict and never
+            // fails the stage, so the handoff proceeds normally afterwards.
+            if (CustomDecisionAdapter != null && IsPersona(completedMission.Persona, PersonaCatalog.Worker))
+            {
+                await ApplyCustomDecisionsHandoffAsync(completedMission, dependentMissions, token).ConfigureAwait(false);
+            }
+
             foreach (Mission nextMission in dependentMissions)
             {
                 await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
@@ -6003,6 +6022,51 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "prior_art handoff for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// The phrase that marks a custom-decision note in a brief, so a repeated handoff adds it once.
+        /// </summary>
+        public const string CustomDecisionNotePhrase = "custom decision check";
+
+        /// <summary>
+        /// Run the operator's MissionDiff custom decisions over a finished Worker stage and, when any
+        /// bound decision flags, prepend one Judge review instruction per flag to each pending
+        /// dependent's brief. Every call records its own event whether or not it flags. Never throws
+        /// into the handoff.
+        /// </summary>
+        private async Task ApplyCustomDecisionsHandoffAsync(Mission completedMission, List<Mission> dependentMissions, CancellationToken token)
+        {
+            if (CustomDecisionAdapter == null) return;
+
+            try
+            {
+                List<CustomDecisionOutcome> outcomes = await CustomDecisionAdapter
+                    .RunMissionDiffAsync(completedMission, token).ConfigureAwait(false);
+                List<CustomDecisionOutcome> flags = outcomes.Where(o => o.DidFlag).ToList();
+                if (flags.Count == 0) return;
+
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.AppendLine("[ORCHESTRATOR NOTES]");
+                sb.AppendLine("The " + CustomDecisionNotePhrase + " flagged this change. A flag is a review instruction, "
+                    + "not a verdict: as the Judge, verify each item below against the diff and treat a confirmed one as a finding.");
+                foreach (CustomDecisionOutcome flag in flags)
+                {
+                    string about = String.IsNullOrWhiteSpace(flag.Description) ? String.Empty : " (" + flag.Description.Trim() + ")";
+                    string questions = flag.FlaggedQuestions.Count > 0 ? " on " + String.Join(", ", flag.FlaggedQuestions) : String.Empty;
+                    string confidence = flag.Confidence.HasValue
+                        ? " at " + flag.Confidence.Value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
+                        : String.Empty;
+                    sb.AppendLine("- " + flag.Name + about + ": flagged" + questions + confidence + ".");
+                }
+                sb.Append("[/ORCHESTRATOR NOTES]");
+
+                await PrependOrchestratorNoteAsync(dependentMissions, CustomDecisionNotePhrase, sb.ToString(), token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "custom decision handoff for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
             }
         }
 

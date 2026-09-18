@@ -355,7 +355,7 @@ function CustomDecisionsSection(props: {
         <label>{t('State fields (comma-separated)')}</label>
         <input type="text" value={draft.stateFields.join(', ')} disabled={busy}
           onChange={(e) => setDraft({ ...draft, stateFields: e.target.value.split(',').map((f) => f.trim()) })} />
-        <span className="text-muted">{t('MissionDiff surface: which mission fields to send (title, persona, diff, output_tail, changed_paths, failure_reason).')}</span>
+        <span className="text-muted">{t('MissionDiff surface: runs when a Worker stage hands off; which mission fields to send (title, persona, diff, output_tail, changed_paths, failure_reason).')}</span>
       </div>
 
       <h5>{t('Questions')}</h5>
@@ -373,6 +373,9 @@ function CustomDecisionsSection(props: {
           <textarea value={q.instructions} disabled={busy} rows={2} onChange={(e) => setQuestion(i, { instructions: e.target.value })} /></div>
         {q.type === 'choice' && <div className="form-group"><label>{t('Options (one per line, name: meaning)')}</label>
           <textarea value={optionsToText(q.options)} disabled={busy} rows={3} onChange={(e) => setQuestion(i, { options: textToOptions(e.target.value) })} /></div>}
+        {q.type === 'choice' && <div className="form-group"><label>{t('Finding options (comma-separated; the choice flags only when one of these is picked)')}</label>
+          <input type="text" value={(q.flagOptions ?? []).join(', ')} disabled={busy}
+            onChange={(e) => setQuestion(i, { flagOptions: e.target.value.split(',').map((o) => o.trim()).filter(Boolean) })} /></div>}
         {q.type === 'score' && <div className="form-group"><label>{t('Levels (one per line, lowest first)')}</label>
           <textarea value={(q.levels ?? []).join('\n')} disabled={busy} rows={3} onChange={(e) => setQuestion(i, { levels: e.target.value.split('\n').map((l) => l.trim()).filter(Boolean) })} /></div>}
         {q.type === 'noul' && <div className="custom-decision-row">

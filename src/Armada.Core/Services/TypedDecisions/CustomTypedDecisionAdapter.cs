@@ -18,8 +18,9 @@ namespace Armada.Core.Services
     /// dispatches, approves a PASS, holds a rescue, or writes memory. The binding action list is fixed
     /// in <see cref="CustomDecisionSeamEnum"/> and every member is non-approving by construction.
     ///
-    /// The only caller today is the <c>armada_run_custom_decision</c> tool; nothing runs a decision on
-    /// the MissionDiff surface automatically. Events use the shared recorder types under the decision
+    /// Two callers run it: the <c>armada_run_custom_decision</c> tool runs one decision by name, and
+    /// the mission service runs every MissionDiff decision through <see cref="RunMissionDiffAsync"/>
+    /// when a Worker stage hands off its diff. Events use the shared recorder types under the decision
     /// point <c>custom:&lt;name&gt;</c>, so retention, reversal and every event query treat a custom
     /// decision like a built-in one.
     ///
@@ -27,9 +28,10 @@ namespace Armada.Core.Services
     /// no call, an unavailable provider records nothing acted, Shadow or below-threshold records the
     /// answer without acting, and Gate at or above threshold records and may raise the advisory flag.
     /// The gate reads Noul answers the way the built-in decisions do: the raw probability that the
-    /// statement is true, so a custom Noul must be phrased with the finding as its true pole. Choice
-    /// and Score answers are recorded and returned but never gate, because a custom definition does
-    /// not say which option is the finding. It never throws into a caller.
+    /// statement is true, so a custom Noul must be phrased with the finding as its true pole. A Choice
+    /// gates only when the model picks one of the question's <c>flagOptions</c>, at that option's
+    /// confidence; a Choice with no finding options, and every Score, is recorded and returned but
+    /// never gates. It never throws into a caller.
     /// </summary>
     public sealed class CustomTypedDecisionAdapter
     {
@@ -37,6 +39,9 @@ namespace Armada.Core.Services
 
         /// <summary>Prefix of every custom decision's decision point, ahead of its name.</summary>
         public const string DecisionPointPrefix = "custom:";
+
+        /// <summary>Characters of a mission's agent output sent as <c>output_tail</c> on the MissionDiff surface.</summary>
+        public const int OutputTailChars = 4096;
 
         #endregion
 
@@ -76,6 +81,72 @@ namespace Armada.Core.Services
         public static string DecisionPointFor(string name)
         {
             return DecisionPointPrefix + name;
+        }
+
+        /// <summary>
+        /// The fields a MissionDiff decision can select from a finished mission: <c>title</c>,
+        /// <c>persona</c>, <c>diff</c>, <c>output_tail</c> (the last <see cref="OutputTailChars"/>
+        /// characters of the agent output), <c>changed_paths</c> (one per line), and
+        /// <c>failure_reason</c>. Absent values are left out. The eval store builds its cases from the
+        /// same method, so a replay sends what production sends.
+        /// </summary>
+        /// <param name="mission">The finished mission.</param>
+        /// <returns>The context keyed by field name.</returns>
+        public static Dictionary<string, object?> MissionContext(Mission mission)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            Dictionary<string, object?> context = new Dictionary<string, object?>(StringComparer.Ordinal);
+            AddIfPresent(context, "title", mission.Title);
+            AddIfPresent(context, "persona", mission.Persona);
+            AddIfPresent(context, "diff", mission.DiffSnapshot);
+            if (!String.IsNullOrEmpty(mission.AgentOutput))
+            {
+                string output = mission.AgentOutput!;
+                AddIfPresent(context, "output_tail", output.Length > OutputTailChars ? output.Substring(output.Length - OutputTailChars) : output);
+            }
+            IReadOnlyList<string> paths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
+            if (paths.Count > 0) context["changed_paths"] = String.Join("\n", paths);
+            AddIfPresent(context, "failure_reason", mission.FailureReason);
+            return context;
+        }
+
+        /// <summary>
+        /// Run every custom decision on the MissionDiff surface over a finished mission, in name order.
+        /// A decision that is Off is skipped without a call, and a mission with no diff runs nothing.
+        /// Returns one outcome per decision that consulted the provider. Never throws.
+        /// </summary>
+        /// <param name="mission">The finished mission whose diff is read.</param>
+        /// <param name="token">Cancellation token, forwarded to each call.</param>
+        /// <returns>The outcomes; empty when nothing ran.</returns>
+        public async Task<List<CustomDecisionOutcome>> RunMissionDiffAsync(Mission mission, CancellationToken token)
+        {
+            List<CustomDecisionOutcome> outcomes = new List<CustomDecisionOutcome>();
+            if (mission == null || String.IsNullOrWhiteSpace(mission.DiffSnapshot)) return outcomes;
+
+            List<string> names = new List<string>();
+            foreach (KeyValuePair<string, CustomTypedDecisionSettings> entry in _Settings.Custom)
+            {
+                if (entry.Value == null || entry.Value.Surface != CustomDecisionSurfaceEnum.MissionDiff) continue;
+                if (_Settings.ForCustom(entry.Key).Mode == TypedDecisionModeEnum.Off) continue;
+                names.Add(entry.Key);
+            }
+            if (names.Count == 0) return outcomes;
+            names.Sort(StringComparer.Ordinal);
+
+            Dictionary<string, object?> context = MissionContext(mission);
+            foreach (string name in names)
+            {
+                try
+                {
+                    CustomDecisionOutcome outcome = await RunAsync(name, context, mission, mission.CaptainId, token).ConfigureAwait(false);
+                    if (outcome.Status != "inactive" && outcome.Status != "not_found") outcomes.Add(outcome);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "MissionDiff decision '" + name + "' failed for mission " + mission.Id + ", no action: " + ex.Message);
+                }
+            }
+            return outcomes;
         }
 
         /// <summary>
@@ -141,7 +212,7 @@ namespace Armada.Core.Services
                 DecisionPoint = DecisionPointFor(name),
                 RuleVerdict = "none",
                 ModelVerdict = Summarize(result),
-                Confidence = GateValue(result),
+                Confidence = Max(GateValues(definition, result)),
                 Result = result,
                 RedactedState = item.State.Text,
                 Mission = mission,
@@ -154,7 +225,8 @@ namespace Armada.Core.Services
                 return CustomDecisionOutcome.Unavailable(name, result);
             }
 
-            double? gateValue = GateValue(result);
+            Dictionary<string, double> values = GateValues(definition, result);
+            double? gateValue = Max(values);
             double confidence = gateValue ?? 0.0;
             bool gated = cfg.Mode == TypedDecisionModeEnum.Gate
                 && definition.Binding != CustomDecisionSeamEnum.None
@@ -164,14 +236,20 @@ namespace Armada.Core.Services
 
             if (gated)
             {
+                List<string> flaggedQuestions = new List<string>();
+                foreach (KeyValuePair<string, double> entry in values)
+                    if (entry.Value >= cfg.GateThreshold) flaggedQuestions.Add(entry.Key);
+                flaggedQuestions.Sort(StringComparer.Ordinal);
                 await _Recorder.RecordGatedAsync(eventContext, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "custom decision '" + name + "' flagged at " + confidence.ToString("0.00"));
-                return CustomDecisionOutcome.Flagged(name, result, confidence);
+                return CustomDecisionOutcome.Flagged(name, definition.Description, result, confidence, flaggedQuestions);
             }
 
-            string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-            await _Recorder.RecordShadowAsync(eventContext, outcome, token).ConfigureAwait(false);
-            return CustomDecisionOutcome.Recorded(name, result, gateValue);
+            bool shadow = cfg.Mode == TypedDecisionModeEnum.Shadow;
+            await _Recorder.RecordShadowAsync(eventContext, shadow ? "shadow_mode" : "below_threshold", token).ConfigureAwait(false);
+            return shadow
+                ? CustomDecisionOutcome.Shadow(name, result, gateValue)
+                : CustomDecisionOutcome.Recorded(name, result, gateValue);
         }
 
         #endregion
@@ -241,19 +319,44 @@ namespace Armada.Core.Services
             return String.Join(" ", parts);
         }
 
-        private static double? GateValue(TypedDecisionResult result)
+        private static Dictionary<string, double> GateValues(CustomTypedDecisionSettings definition, TypedDecisionResult result)
         {
             // The same reading as the built-in decisions: a Noul's value is the probability that its
-            // statement is true, and the true pole is the finding. A confidence is never a stand-in
-            // for that probability, and a confidently FALSE answer must not flag.
-            if (!result.Available) return null;
-            double? best = null;
-            foreach (TypedAnswer answer in result.Answers.Values)
+            // statement is true, and the true pole is the finding, so a confidently FALSE answer never
+            // flags. A Choice counts only when the model picked one of the question's finding options,
+            // at the confidence it gave that option. A Score has no finding direction and never counts.
+            Dictionary<string, double> values = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (!result.Available || result.Answers == null) return values;
+            foreach (CustomTypedQuestionSettings question in definition.Questions)
             {
-                if (answer == null || !answer.Noul.HasValue) continue;
-                if (!best.HasValue || answer.Noul.Value > best.Value) best = answer.Noul.Value;
+                if (question == null || String.IsNullOrWhiteSpace(question.Id)) continue;
+                if (!result.Answers.TryGetValue(question.Id, out TypedAnswer? answer) || answer == null) continue;
+                string kind = (question.Type ?? "noul").Trim().ToLowerInvariant();
+                if (kind == "noul" && answer.Noul.HasValue)
+                {
+                    values[question.Id] = answer.Noul.Value;
+                }
+                else if (kind == "choice"
+                    && !String.IsNullOrWhiteSpace(answer.Choice)
+                    && question.FlagOptions.Contains(answer.Choice!))
+                {
+                    values[question.Id] = TypedAnswerReader.ResolveChoiceConfidence(answer, answer.Choice!);
+                }
             }
+            return values;
+        }
+
+        private static double? Max(Dictionary<string, double> values)
+        {
+            double? best = null;
+            foreach (double value in values.Values)
+                if (!best.HasValue || value > best.Value) best = value;
             return best;
+        }
+
+        private static void AddIfPresent(Dictionary<string, object?> context, string field, string? value)
+        {
+            if (!String.IsNullOrWhiteSpace(value)) context[field] = value;
         }
 
         #endregion
@@ -265,7 +368,10 @@ namespace Armada.Core.Services
         /// <summary>The decision name.</summary>
         public string Name { get; init; } = String.Empty;
 
-        /// <summary>The status: <c>flagged</c>, <c>recorded</c>, <c>unavailable</c>, <c>inactive</c>, or <c>not_found</c>.</summary>
+        /// <summary>
+        /// The status: <c>flagged</c>, <c>recorded</c> (Gate, not flagged), <c>shadow</c> (recorded in
+        /// Shadow mode), <c>unavailable</c>, <c>inactive</c>, or <c>not_found</c>.
+        /// </summary>
         public string Status { get; init; } = "inactive";
 
         /// <summary>The model answers, when the provider answered.</summary>
@@ -280,10 +386,17 @@ namespace Armada.Core.Services
         /// <summary>Whether the decision raised its advisory flag.</summary>
         public bool DidFlag => Status == "flagged";
 
+        /// <summary>The decision's description, on a flag.</summary>
+        public string Description { get; init; } = String.Empty;
+
+        /// <summary>The question ids at or above the threshold, on a flag.</summary>
+        public IReadOnlyList<string> FlaggedQuestions { get; init; } = Array.Empty<string>();
+
         internal static CustomDecisionOutcome NotFound(string name) => new CustomDecisionOutcome { Name = name, Status = "not_found" };
         internal static CustomDecisionOutcome Inactive(string name) => new CustomDecisionOutcome { Name = name, Status = "inactive" };
         internal static CustomDecisionOutcome Unavailable(string name, TypedDecisionResult r) => new CustomDecisionOutcome { Name = name, Status = "unavailable", Result = r };
         internal static CustomDecisionOutcome Recorded(string name, TypedDecisionResult r, double? c) => new CustomDecisionOutcome { Name = name, Status = "recorded", Result = r, Confidence = c };
-        internal static CustomDecisionOutcome Flagged(string name, TypedDecisionResult r, double c) => new CustomDecisionOutcome { Name = name, Status = "flagged", Result = r, Confidence = c };
+        internal static CustomDecisionOutcome Shadow(string name, TypedDecisionResult r, double? c) => new CustomDecisionOutcome { Name = name, Status = "shadow", Result = r, Confidence = c };
+        internal static CustomDecisionOutcome Flagged(string name, string description, TypedDecisionResult r, double c, IReadOnlyList<string> questions) => new CustomDecisionOutcome { Name = name, Status = "flagged", Description = description ?? String.Empty, Result = r, Confidence = c, FlaggedQuestions = questions };
     }
 }

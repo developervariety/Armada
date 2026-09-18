@@ -22,8 +22,9 @@ namespace Armada.Core.Enums
 
         /// <summary>
         /// Requires the MissionDiff surface. When the decision gates at or above its threshold, the
-        /// call is recorded as a <c>typed_decision.gated</c> event and the caller is told it flagged.
-        /// Takes no other action.
+        /// call is recorded as a <c>typed_decision.gated</c> event; at a Worker handoff a Judge review
+        /// instruction is prepended to the next brief, and through the tool the caller is told it
+        /// flagged. A review instruction is never a verdict. Takes no other action.
         /// </summary>
         [EnumMember(Value = "MissionDiffFlag")]
         MissionDiffFlag

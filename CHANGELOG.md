@@ -370,6 +370,19 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Custom typed decisions on the `MissionDiff` surface now run. The surface was validated and
+  offered, but nothing called it. When a Worker stage hands off to a later stage, every MissionDiff
+  decision that is not `Off` reads the Worker's diff (the same seam as `prior_art` and
+  `test_covers`), and each bound decision that flags adds one Judge review instruction to the next
+  brief. A flag is a review instruction, never a verdict, and never fails the stage.
+- A captain typed-decision helper in `Shadow` now records its answer but returns
+  `unavailable` (reason `shadow`), so demoting a misleading decision to Shadow also stops it
+  advising captains. It used to answer in Shadow exactly as in Gate. The custom runner follows the
+  same rule.
+- `armada_run_custom_decision` records one event on every call, like the other captain tools. A
+  call with the tool disabled, or to an unknown or `Off` decision, used to record nothing.
+- A custom Choice question can name `flagOptions`, the options that are the finding, and then
+  gates when the model picks one of them. Without them a Choice still never gates.
 - A custom typed decision gates on the raw Noul probability, the same reading every built-in decision
   uses, so the true pole of a custom Noul is its finding. It used to read a Noul as its distance from 0.5,
   so a confident "no finding" (0.02) scored 0.96 and flagged. Choice and Score answers are still recorded

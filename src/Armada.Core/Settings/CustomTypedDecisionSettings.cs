@@ -92,7 +92,8 @@ namespace Armada.Core.Settings
     /// <summary>
     /// One question in a custom typed decision. The three question kinds mirror the built-in ones:
     /// a Choice picks one named option, a Score rates on ordered levels, and a Noul gives the
-    /// probability a statement is true.
+    /// probability a statement is true. A Noul gates on its raw probability, so phrase it with the
+    /// finding as its true pole.
     /// </summary>
     public class CustomTypedQuestionSettings
     {
@@ -112,6 +113,17 @@ namespace Armada.Core.Settings
             set => _Options = value ?? new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
+        /// <summary>
+        /// For a choice, the options that are the finding. A choice gates only when the model picks
+        /// one of these, at the confidence it gave that option; with none named, the choice never
+        /// gates. Each must be a key of <see cref="Options"/>. Ignored for other kinds.
+        /// </summary>
+        public List<string> FlagOptions
+        {
+            get => _FlagOptions;
+            set => _FlagOptions = value ?? new List<string>();
+        }
+
         /// <summary>For a score, the ordered level labels, lowest first. Ignored for other kinds.</summary>
         public List<string> Levels
         {
@@ -127,6 +139,7 @@ namespace Armada.Core.Settings
 
         private Dictionary<string, string> _Options = new Dictionary<string, string>(StringComparer.Ordinal);
         private List<string> _Levels = new List<string>();
+        private List<string> _FlagOptions = new List<string>();
 
         /// <summary>Deep-copy this question.</summary>
         /// <returns>An independent copy.</returns>
@@ -139,6 +152,7 @@ namespace Armada.Core.Settings
                 Instructions = Instructions,
                 Options = new Dictionary<string, string>(_Options, StringComparer.Ordinal),
                 Levels = new List<string>(_Levels),
+                FlagOptions = new List<string>(_FlagOptions),
                 TrueMeaning = TrueMeaning,
                 FalseMeaning = FalseMeaning
             };

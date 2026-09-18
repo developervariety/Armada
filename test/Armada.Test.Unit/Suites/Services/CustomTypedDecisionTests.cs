@@ -167,6 +167,94 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(outcome.Confidence, "a decision with no noul has no gate value");
             });
 
+            await RunTest("Adapter_ChoiceFindingOption_Gates_OtherOptionDoesNot", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
+                settings.Custom["example_decision"].Questions = new List<CustomTypedQuestionSettings>
+                {
+                    new CustomTypedQuestionSettings
+                    {
+                        Id = "kind", Type = "choice", Instructions = "what kind of change",
+                        Options = new Dictionary<string, string> { ["clean"] = "no finding", ["risky"] = "a finding" },
+                        FlagOptions = new List<string> { "risky" }
+                    }
+                };
+                string picked = "risky";
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(_ => new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["kind"] = new TypedAnswer { Type = "choice", Choice = picked, Confidence = 0.95 }
+                    }
+                });
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
+
+                CustomDecisionOutcome flagged = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual("flagged", flagged.Status, "a confident pick of a finding option flags");
+                AssertEqual(1, flagged.FlaggedQuestions.Count, "one flagged question");
+                AssertEqual("kind", flagged.FlaggedQuestions[0], "named by id");
+
+                picked = "clean";
+                CustomDecisionOutcome clean = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual("recorded", clean.Status, "a confident pick of a non-finding option never flags");
+            });
+
+            await RunTest("Adapter_Shadow_RecordsWithShadowStatus", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag, TypedDecisionModeEnum.Shadow);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.99));
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
+
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual("shadow", outcome.Status, "a Shadow decision consults and records, and says it is Shadow");
+                AssertFalse(outcome.DidFlag, "and never flags");
+                AssertEqual(1, (await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false)).Count, "one shadow event");
+            });
+
+            await RunTest("RunMissionDiff_RunsOnlyMissionDiffDecisionsThatAreOn_OverTheMissionFields", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
+                settings.Custom["example_decision"].StateFields = new List<string> { "diff", "changed_paths", "output_tail" };
+                CustomTypedDecisionSettings off = settings.Custom["example_decision"].Clone();
+                off.Mode = TypedDecisionModeEnum.Off;
+                settings.Custom["off_decision"] = off;
+                CustomTypedDecisionSettings tool = settings.Custom["example_decision"].Clone();
+                tool.Surface = CustomDecisionSurfaceEnum.CaptainTool;
+                tool.Binding = CustomDecisionSeamEnum.None;
+                settings.Custom["tool_decision"] = tool;
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.97));
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
+
+                Mission mission = new Mission("t", "d")
+                {
+                    DiffSnapshot = "diff --git a/src/Makefile b/src/Makefile\n--- a/src/Makefile\n+++ b/src/Makefile\n@@ -1 +1 @@\n-a\n+b\n",
+                    AgentOutput = String.Concat(System.Linq.Enumerable.Repeat("filler line\n", 600)) + "last line TAIL MARKER"
+                };
+                List<CustomDecisionOutcome> outcomes = await adapter.RunMissionDiffAsync(mission, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(1, outcomes.Count, "only the MissionDiff decision that is on runs");
+                AssertEqual("example_decision", outcomes[0].Name, "and it is that one");
+                AssertEqual(1, client.CallCount, "one provider call");
+                string state = FakeTypedDecisionClient.StateText(client.LastRequest);
+                AssertContains("\"changed_paths\":\"src/Makefile\"", state, "changed_paths reaches the state");
+                AssertContains("TAIL MARKER", state, "the output tail keeps the end of the output");
+
+                Mission noDiff = new Mission("t", "d");
+                AssertEqual(0, (await adapter.RunMissionDiffAsync(noDiff, CancellationToken.None).ConfigureAwait(false)).Count, "a mission with no diff runs nothing");
+                AssertEqual(1, client.CallCount, "and makes no call");
+            });
+
+            await RunTest("MissionContext_TailIsBounded", () =>
+            {
+                Mission mission = new Mission("t", "d") { AgentOutput = new string('x', 10000) };
+                Dictionary<string, object?> context = CustomTypedDecisionAdapter.MissionContext(mission);
+                AssertEqual(CustomTypedDecisionAdapter.OutputTailChars, ((string)context["output_tail"]!).Length, "the tail is capped");
+                AssertFalse(context.ContainsKey("diff"), "an absent field is left out");
+            });
+
             await RunTest("Adapter_Flag_RecordsGatedEventUnderCustomDecisionPoint", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -240,6 +328,34 @@ namespace Armada.Test.Unit.Suites.Services
                 CustomDecisionOutcome outcome = await adapter.RunAsync("missing", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("not_found", outcome.Status, "an unknown decision is not_found");
                 AssertEqual(0, client.CallCount, "and never calls the provider");
+            });
+
+            await RunTest("Validate_FlagOptions_MustBeSomeButNotAllOptionsOfAChoice", () =>
+            {
+                CustomTypedDecisionSettings Body(string type, params string[] flagOptions) => new CustomTypedDecisionSettings
+                {
+                    Questions = new List<CustomTypedQuestionSettings>
+                    {
+                        new CustomTypedQuestionSettings
+                        {
+                            Id = "kind", Type = type, Instructions = "what kind",
+                            Options = new Dictionary<string, string> { ["clean"] = "no finding", ["risky"] = "a finding" },
+                            Levels = new List<string> { "low", "high" },
+                            FlagOptions = new List<string>(flagOptions)
+                        }
+                    }
+                };
+                string Refusal(CustomTypedDecisionSettings body)
+                {
+                    try { Armada.Server.Routes.TypedDecisionRoutes.ValidateCustom("house_rule", body); return "accepted"; }
+                    catch (ArgumentException ex) { return ex.Message; }
+                }
+
+                AssertEqual("accepted", Refusal(Body("choice", "risky")), "one finding option of a choice is accepted");
+                AssertEqual("accepted", Refusal(Body("choice")), "a choice with no finding options is accepted");
+                AssertContains("typed_decisions_custom_flag_options_unknown", Refusal(Body("choice", "absent")), "an unknown option is refused");
+                AssertContains("typed_decisions_custom_flag_options_all", Refusal(Body("choice", "clean", "risky")), "every option as a finding is refused");
+                AssertContains("typed_decisions_custom_flag_options_kind", Refusal(Body("score", "low")), "a score with finding options is refused");
             });
 
             await RunTest("DescribeRequest_SelectsStateFieldsAndBuildsQuestions", () =>

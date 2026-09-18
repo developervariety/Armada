@@ -242,21 +242,26 @@ custom decision stays a settings write, which only an administrator makes. Autho
 not travel with any of them. Each call redacts its state
 before egress (there is no per-mission call cap) and has no side effect on any Armada
 record: it dispatches nothing, lands nothing, edits no objective, and writes no memory.
-The general tool and the pre-shaped helpers write exactly one `typed_decision.captain`
-event per call, whatever the outcome. The custom runner records through the custom
-decision's own path instead (see "Custom decisions" below). Every event carries only the
-state hash and byte count.
+Every call that carries its required arguments writes exactly one event, whatever the
+outcome. The general tool and the pre-shaped helpers write `typed_decision.captain`. The
+custom runner writes `typed_decision.captain` when the call never reaches the provider
+(the tool is disabled, or the decision is unknown or `Off`) and otherwise records through
+the custom decision's own path (see "Custom decisions" below). Every event carries only
+the state hash and byte count.
 
-The captain tools gate nothing, so they apply no threshold. A pre-shaped helper returns
-`unavailable` while its decision is `Off` and answers in every other mode, `Shadow`
-included; the general tool has no decision of its own and answers whenever the tool is
-enabled. Every answer comes back with its confidence (and its probabilities where the
-provider gives them), so the captain weighs a low-confidence answer itself. `Shadow`
-therefore does not quiet a captain tool: to stop a helper answering, set its decision
-`Off`. A pre-shaped helper records under its decision's own key (for example
+The captain tools gate nothing, so they apply no threshold. Every answer comes back with
+its confidence (and its probabilities where the provider gives them), so the captain
+weighs a low-confidence answer itself. A pre-shaped helper follows its decision's mode:
+`Off` makes no call and returns `unavailable` (reason `disabled`); **`Shadow` consults the
+provider and records the answer (`gate_outcome` `shadow`), but returns `unavailable` with
+reason `shadow`**, so the captain decides alone; `Gate` returns the answers. Shadow is the
+demotion target for a decision whose answers mislead, so it quiets the helper as well as
+recording it. The general tool has no decision of its own and answers whenever the tool
+is enabled. A pre-shaped helper records under its decision's own key (for example
 `premise_check`), so that decision's `retainState` also retains the helper's calls, with
 rule verdict `none`. The general tool records under `captain_tool`, which has no settings
-entry and so is never retained.
+entry and so is never retained: its state and questions are whatever the captain chose,
+so its calls do not form a training set for any one decision.
 The tools are enabled by default (`typedDecisions.captainTool.enabled` is `true`); setting
 it `false` makes every call return `unavailable`. See `docs/MCP_API.md` for the tool
 arguments.
@@ -641,37 +646,54 @@ decision carries its own questions and describes how to build its state, and it 
 
 A custom decision is **advisory by construction** and cannot break the safety contract:
 
-- It runs only when called through `armada_run_custom_decision`. Its `surface` is
-  `CaptainTool` or `MissionDiff`, and **nothing runs a `MissionDiff` decision
-  automatically yet**: no mission-completion, review, or landing path calls it. The surface
-  is validated and is the one a `MissionDiffFlag` binding requires, and the caller supplies
-  the mission fields (`diff`, `output_tail`, ...) in the tool's `context`. It never wires
-  itself into recovery, a Judge handoff, or landing.
+- It runs at its `surface`. **`MissionDiff`** runs when a **Worker stage hands off** to a
+  later stage (the same seam as `prior_art` and `test_covers`): every MissionDiff decision
+  that is not `Off` reads the finished Worker's diff, in name order. A Worker with no later
+  stage, a mission with no diff, and every other persona run nothing. **`CaptainTool`** runs
+  only when called through `armada_run_custom_decision`, which can also run a MissionDiff
+  decision by name with a caller-supplied `context`. It never wires itself into recovery or
+  landing.
+- On the MissionDiff surface the state is built from the finished mission: `title`,
+  `persona`, `diff`, `output_tail` (the last 4096 characters of the agent output),
+  `changed_paths` (one per line), and `failure_reason`; `stateFields` picks which, in order
+  (empty means `diff` and `output_tail`).
 - Its `binding` is one of a fixed, non-approving list (`CustomDecisionSeamEnum`): today `None`
-  (record only, never flags) or `MissionDiffFlag` (when it gates, the call is recorded as a
-  `typed_decision.gated` event and the tool reply says `flagged: true`). No member lands,
-  dispatches, approves a PASS, holds a rescue, or writes memory. Adding an approving action
-  would change the owner non-negotiables and needs a new ruling.
+  (record only, never flags) or `MissionDiffFlag`. When a `MissionDiffFlag` decision gates,
+  the call is recorded as a `typed_decision.gated` event and, at the Worker handoff, **one
+  Judge review instruction per flagged decision is prepended to the next brief** inside an
+  `[ORCHESTRATOR NOTES]` block that names the "custom decision check", the decision, the
+  flagged questions, and the gate value. The note says plainly that a flag is a review
+  instruction, not a verdict: the Judge still judges. Through the tool, the reply says
+  `flagged: true` and names `flaggedQuestions`. No member lands, dispatches, approves a PASS,
+  holds a rescue, fails a stage, or writes memory. Adding an approving action would change
+  the owner non-negotiables and needs a new ruling.
 - Its effective mode is the minimum of the global mode and its own, so the global kill switch
   caps it. It is created `Off`, so nothing runs until an operator turns it on.
 - It gates only at or above its `gateThreshold`, and only its bound conservative action; below
-  the threshold, in Shadow, or unbound, it records and does nothing else. The tool still
-  returns the answers in Shadow and below the threshold; only `flagged` depends on the gate.
+  the threshold, in Shadow, or unbound, it records and does nothing else. Through the tool,
+  `Gate` returns the answers (below the threshold too; only `flagged` depends on the gate)
+  and **`Shadow` records the answer but returns `unavailable` with reason `shadow`**, the
+  same as a pre-shaped helper.
 - **The gate value is the highest raw Noul probability**, the same reading every built-in
   decision uses: a Noul is the probability that its statement is true, so phrase each Noul
   with the finding as its **true** pole ("the change duplicates existing logic", not "the
-  change reuses existing logic"). A Noul phrased the other way flags the good case. Choice and
-  Score answers are recorded and returned but never gate, because a definition does not say
-  which option is the finding; a decision with no Noul never flags.
+  change reuses existing logic"). A Noul phrased the other way flags the good case. A
+  **Choice** gates only when it names `flagOptions` (the options that are the finding) and
+  the model picks one of them, at the confidence it gave that option; the route refuses a
+  finding option that is not an option, and a list naming every option. A Choice without
+  finding options, and every Score, is recorded and returned but never gates.
 
 Each custom decision defines `questions` (choice, score, or noul, exactly like the built-ins),
 `stateFields` (which context fields go into the state, in order), a `description`, and
 `retainState`. A call that consults the provider records one event through the shared
 recorder under the decision point `custom:<name>`: `typed_decision.gated` when it flags,
 `typed_decision.shadow` (`gate_outcome` `shadow_mode` or `below_threshold`) when it only
-records, and `typed_decision.unavailable` when the provider does not answer. A call to an
-unknown or `Off` decision, or with the captain tool disabled, records nothing. Events carry
-the state hash and byte count, never the state. Read them with:
+records, and `typed_decision.unavailable` when the provider does not answer. A tool call
+that never reaches the provider records one `typed_decision.captain` event under the same
+decision point, with `gate_outcome` `disabled` (the captain tool is off), `not_found` (no
+such decision), or `dormant` (the decision is `Off`). The handoff skips an `Off` decision
+without an event, like every built-in seam. Events carry the state hash and byte count,
+never the state. Read them with:
 
 ```sql
 select payload from events where payload like '%"decision":"custom:%';

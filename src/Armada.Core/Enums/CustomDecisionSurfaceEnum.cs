@@ -19,10 +19,10 @@ namespace Armada.Core.Enums
         CaptainTool,
 
         /// <summary>
-        /// An advisory read of a finished mission's diff and output, the surface a
-        /// <see cref="CustomDecisionSeamEnum.MissionDiffFlag"/> binding requires. Nothing runs it
-        /// automatically yet: it is reached only through the on-demand tool, whose caller supplies the
-        /// mission fields. It never lands, dispatches, or approves.
+        /// An advisory read of a finished Worker stage's diff and output, run when that stage hands
+        /// off to a later stage; the surface a <see cref="CustomDecisionSeamEnum.MissionDiffFlag"/>
+        /// binding requires. The on-demand tool can also run it by name. It never lands, dispatches,
+        /// approves, or fails a stage.
         /// </summary>
         [EnumMember(Value = "MissionDiff")]
         MissionDiff

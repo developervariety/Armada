@@ -366,7 +366,13 @@ namespace Armada.Server.Routes
             return copy;
         }
 
-        private static void ValidateCustom(string name, CustomTypedDecisionSettings body)
+        /// <summary>
+        /// Refuse a custom decision body the route must not store, with a coded
+        /// <see cref="ArgumentException"/> the route returns as 400.
+        /// </summary>
+        /// <param name="name">The decision name.</param>
+        /// <param name="body">The decision body.</param>
+        internal static void ValidateCustom(string name, CustomTypedDecisionSettings body)
         {
             if (String.IsNullOrWhiteSpace(name))
                 throw new ArgumentException("typed_decisions_custom_name_required: a decision name is required.");
@@ -401,6 +407,16 @@ namespace Armada.Server.Routes
                     throw new ArgumentException("typed_decisions_custom_question_type: question '" + question.Id + "' type must be choice, score, or noul.");
                 if (kind == "choice" && (question.Options == null || question.Options.Count < 2))
                     throw new ArgumentException("typed_decisions_custom_choice_options: choice question '" + question.Id + "' needs at least two options.");
+                if (question.FlagOptions != null && question.FlagOptions.Count > 0)
+                {
+                    if (kind != "choice")
+                        throw new ArgumentException("typed_decisions_custom_flag_options_kind: question '" + question.Id + "' names flagOptions, which only a choice question takes.");
+                    foreach (string option in question.FlagOptions)
+                        if (question.Options == null || !question.Options.ContainsKey(option ?? String.Empty))
+                            throw new ArgumentException("typed_decisions_custom_flag_options_unknown: flag option '" + option + "' is not an option of question '" + question.Id + "'.");
+                    if (question.FlagOptions.Count >= question.Options!.Count)
+                        throw new ArgumentException("typed_decisions_custom_flag_options_all: question '" + question.Id + "' names every option as a finding, so it would flag every answer.");
+                }
                 if (kind == "score" && (question.Levels == null || question.Levels.Count < 2))
                     throw new ArgumentException("typed_decisions_custom_score_levels: score question '" + question.Id + "' needs at least two levels.");
             }

@@ -26,7 +26,9 @@ namespace Armada.Server.Mcp.Tools
     /// objective, or write memory. Each returns typed answers, or an <c>unavailable</c> result the
     /// captain treats as "decide it yourself". The tools are enabled by default
     /// (<c>typedDecisions.captainTool.enabled</c> is true); an operator setting it false makes every
-    /// call return <c>unavailable</c>, and a decision that is Off does the same for its own tool.
+    /// call return <c>unavailable</c>, and a decision that is Off does the same for its own tool. A
+    /// decision in Shadow consults the provider and records the answer but returns <c>unavailable</c>
+    /// with reason <c>shadow</c>, so demoting a decision to Shadow also quiets its captain tool.
     /// </summary>
     public static class McpTypedDecisionTools
     {
@@ -292,7 +294,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 RunCustomToolName,
-                "Run a user-defined custom typed decision by name and return its typed answers. Supply 'name' (the custom decision an operator created in the dashboard) and 'context' (an object whose fields the decision's questions read; on a MissionDiff decision these are fields like diff, output_tail, changed_paths). Pass 'missionId' so the call is scoped and recorded. Advisory only: a custom decision never lands, dispatches, approves, or edits a record; it records its answer and, when its operator bound and gated it, raises an advisory flag. Returns 'unavailable' when the decision does not exist, is Off, or the provider is unreachable -- decide it yourself then. Your context is redacted before it leaves.",
+                "Run a user-defined custom typed decision by name and return its typed answers. Supply 'name' (the custom decision an operator created in the dashboard) and 'context' (an object whose fields the decision's questions read; on a MissionDiff decision these are fields like diff, output_tail, changed_paths). Pass 'missionId' so the call is scoped and recorded. Advisory only: a custom decision never lands, dispatches, approves, or edits a record; it records its answer and, when its operator bound and gated it, raises an advisory flag. Returns 'unavailable' when the decision does not exist, is Off or in Shadow, or the provider is unreachable -- decide it yourself then. Your context is redacted before it leaves.",
                 new
                 {
                     type = "object",
@@ -330,9 +332,6 @@ namespace Armada.Server.Mcp.Tools
                 if (String.IsNullOrWhiteSpace(name))
                     return Unavailable("invalid", "A custom decision 'name' is required.");
 
-                if (!settings.TypedDecisions.CaptainTool.Enabled)
-                    return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
-
                 Dictionary<string, object?> context = new Dictionary<string, object?>(StringComparer.Ordinal);
                 if (root.TryGetProperty("context", out JsonElement contextElement) && contextElement.ValueKind == JsonValueKind.Object)
                 {
@@ -354,15 +353,36 @@ namespace Armada.Server.Mcp.Tools
                     catch (Exception ex) { logging?.Warn("[McpTypedDecisionTools] mission lookup failed for " + missionId + ": " + ex.Message); }
                 }
 
+                // Every call that names a decision and carries a context records exactly one event, like
+                // the other tools: a call that never reaches the provider records a typed_decision.captain
+                // event with the reason, and one that does is recorded by the adapter. The state is
+                // redacted before the hash, so the event describes what WOULD have left, never the state.
+                string decisionPoint = CustomTypedDecisionAdapter.DecisionPointFor(name!);
+                string redactedContext = DecisionStateRedactor.RedactState(context, settings.TypedDecisions.CaptainTool.MaxStateChars).Text;
+
+                if (!settings.TypedDecisions.CaptainTool.Enabled)
+                {
+                    await RecordAsync(recorder, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
+                    return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
+                }
+
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, recorder, settings.TypedDecisions, logging ?? new LoggingModule());
                 CustomDecisionOutcome outcome = await adapter.RunAsync(name!, context, mission, participantKeyProvider(), CancellationToken.None).ConfigureAwait(false);
 
                 if (outcome.Status == "not_found")
+                {
+                    await RecordAsync(recorder, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("not_found"), "not_found").ConfigureAwait(false);
                     return Unavailable("invalid", "No custom decision named '" + name + "'. Create it in the dashboard first.");
+                }
                 if (outcome.Status == "inactive")
+                {
+                    await RecordAsync(recorder, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
                     return Unavailable("disabled", "The custom decision '" + name + "' is Off. Decide it yourself.");
+                }
                 if (outcome.Result == null || !outcome.Result.Available)
                     return Unavailable(outcome.Result?.UnavailableReason ?? "unavailable", "The provider was unavailable. Decide it yourself.");
+                if (outcome.Status == "shadow")
+                    return Unavailable("shadow", "The custom decision '" + name + "' is in Shadow: its answer is recorded for review, not returned. Decide it yourself.");
 
                 Dictionary<string, object?> answers = new Dictionary<string, object?>(StringComparer.Ordinal);
                 foreach (KeyValuePair<string, TypedAnswer> entry in outcome.Result.Answers)
@@ -375,6 +395,7 @@ namespace Armada.Server.Mcp.Tools
                     available = true,
                     name = name,
                     flagged = outcome.DidFlag,
+                    flaggedQuestions = outcome.FlaggedQuestions,
                     confidence = outcome.Confidence,
                     model = outcome.Result.Model,
                     answers
@@ -461,7 +482,11 @@ namespace Armada.Server.Mcp.Tools
                     return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
                 }
 
-                // 2. A helper whose decision is Off is dormant: built, but no egress until enabled.
+                // 2. A helper whose decision is Off is dormant: built, but no egress until enabled. A
+                // helper in Shadow consults the model and records the answer, but the captain decides
+                // alone: Shadow is the demotion target for a decision whose answers mislead, so it must
+                // quiet the helper as well as record it.
+                bool shadow = false;
                 if (hasDecisionGate)
                 {
                     ResolvedTypedDecision resolved = settings.TypedDecisions.For(decisionPoint);
@@ -470,6 +495,7 @@ namespace Armada.Server.Mcp.Tools
                         await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
                         return Unavailable("disabled", "This helper is dormant. Decide it yourself.");
                     }
+                    shadow = resolved.Mode == TypedDecisionModeEnum.Shadow;
                 }
 
                 // 3. Egress. There is no call cap: the provider's own limits and the fail-closed
@@ -482,11 +508,13 @@ namespace Armada.Server.Mcp.Tools
                 };
                 TypedDecisionResult result = await client.DecideAsync(request, CancellationToken.None).ConfigureAwait(false);
 
-                string outcome = result.Available ? "delivered" : "unavailable";
+                string outcome = !result.Available ? "unavailable" : shadow ? "shadow" : "delivered";
                 await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, result, outcome).ConfigureAwait(false);
 
                 if (!result.Available)
                     return Unavailable(result.UnavailableReason ?? "unavailable", "The typed-decision system did not answer. Decide it yourself.");
+                if (shadow)
+                    return Unavailable("shadow", "This helper is in Shadow: its answer is recorded for review, not returned. Decide it yourself.");
 
                 return BuildAnswer(result);
             }
