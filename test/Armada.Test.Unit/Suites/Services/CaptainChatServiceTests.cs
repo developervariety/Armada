@@ -122,6 +122,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("ChatAsync_ApiEndpointCaptainIsOfferedNoCommandTool", async () =>
+            {
+                // A chat caller is a different principal from a dispatched mission. The command tool is switched
+                // on only by the mission launch path; if chat ever offered it, a dashboard user would hold a shell
+                // in the admiral's container. This is the regression that would do that.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("ChatCommandTenant")).ConfigureAwait(false);
+                    UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "chat-command@chat.test", "pass")).ConfigureAwait(false);
+                    ModelEndpoint endpoint = new ModelEndpoint
+                    {
+                        Name = "chat-command-endpoint",
+                        TenantId = tenant.Id,
+                        UserId = user.Id,
+                        Scope = ScopeEnum.TenantWide,
+                        Provider = ModelProviderEnum.OpenAICompatible,
+                        Kind = ModelEndpointKindEnum.Inference,
+                        BaseUrl = "http://127.0.0.1:1",
+                        Model = "fixture-model",
+                        Enabled = true
+                    };
+                    await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                    Captain captain = new Captain("chat-api-command", AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        TenantId = tenant.Id,
+                        UserId = user.Id,
+                        ModelEndpointId = endpoint.Id,
+                        Model = "fixture-model"
+                    };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    OfferRecordingEndpointRuntimeFactory factory = new OfferRecordingEndpointRuntimeFactory(logging);
+                    CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, new ArmadaSettings());
+                    CaptainChatResponse response = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Run the tests for me." }).ConfigureAwait(false);
+
+                    AssertTrue(response.Success, "The chat turn should complete with the scripted client: " + response.Error);
+                    AssertEqual(1, factory.Runtimes.Count, "Chat must build exactly one API-endpoint runtime.");
+                    AssertFalse(factory.Runtimes[0].CommandToolEnabled, "A chat turn must not switch the command tool on.");
+                    AssertTrue(factory.Client.OfferedTools.Count > 0, "The model must have been offered the workspace tools.");
+                    AssertFalse(factory.Client.OfferedTools.Contains("run_command"),
+                        "A chat turn must not offer run_command; offered: " + String.Join(", ", factory.Client.OfferedTools));
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ChatAsync_PassesAskIsolationPlanAndCleansTemporaryConfig", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -633,6 +678,55 @@ namespace Armada.Test.Unit.Suites.Services
                 /// <summary>The HTTP status code.</summary>
                 public int StatusCode { get; }
             }
+        }
+
+        private sealed class OfferRecordingEndpointRuntimeFactory : AgentRuntimeFactory
+        {
+            public List<ApiAgentRuntime> Runtimes { get; } = new List<ApiAgentRuntime>();
+
+            public OfferRecordingClient Client { get; }
+
+            public OfferRecordingEndpointRuntimeFactory(LoggingModule logging) : base(logging)
+            {
+                Client = new OfferRecordingClient(logging);
+            }
+
+            public override IAgentRuntime Create(ModelEndpoint endpoint)
+            {
+                ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 2, (ep, log) => Client);
+                Runtimes.Add(runtime);
+                return runtime;
+            }
+        }
+
+        private sealed class OfferRecordingClient : PolyPrompt.Clients.CompletionClientBase
+        {
+            public OfferRecordingClient(LoggingModule logging) : base("http://127.0.0.1:1", null, logging) { }
+
+            public List<string> OfferedTools { get; } = new List<string>();
+
+            public override Task<ToolChatStreamingResponse> ToolChatStreamingAsync(ToolChatRequest request, CancellationToken token = default)
+            {
+                lock (OfferedTools)
+                {
+                    if (OfferedTools.Count == 0 && request.Tools != null)
+                    {
+                        foreach (PolyPrompt.Models.ToolDefinition tool in request.Tools) OfferedTools.Add(tool.Name);
+                    }
+                }
+
+                return Task.FromResult(new ToolChatStreamingResponse { Success = true, Text = "I can only read and edit files here.", ToolCalls = new List<ToolCall>() });
+            }
+
+            public override Task<ToolChatResponse> ToolChatAsync(ToolChatRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<ChatResponse> ChatAsync(string prompt, ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<ChatStreamingResponse> ChatStreamingAsync(string prompt, ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<EmbeddingResponse> EmbedAsync(string input, EmbeddingOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<EmbeddingResponse> EmbedAsync(List<string> inputs, EmbeddingOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<GenerationResponse> GenerateAsync(string prompt, GenerationOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<GenerationStreamingResponse> GenerateStreamingAsync(string prompt, GenerationOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override IAsyncEnumerable<ModelInformation> ListModelsAsync(CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<ModelInformation?> GetModelInformationAsync(string model, CancellationToken token = default) => throw new NotSupportedException();
         }
 
         private sealed class RecordingEndpointRuntimeFactory : AgentRuntimeFactory

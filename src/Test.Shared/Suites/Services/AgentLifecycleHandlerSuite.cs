@@ -332,6 +332,76 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("mission_launch_offers_api_endpoint_captain_the_command_tool", "A mission launch offers an API-endpoint captain the run_command tool", TestTags.Positive, async () =>
+            {
+                // The launch path is the ONE place the command tool is switched on. Without this case, deleting
+                // that line would pass every other test while eligibility kept admitting API-endpoint Judges that
+                // could no longer run a command.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_api_command_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+                    try
+                    {
+                        TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("ApiCommandTenant")).ConfigureAwait(false);
+                        UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "api-command@lifecycle.test", "pass")).ConfigureAwait(false);
+                        ModelEndpoint endpoint = new ModelEndpoint
+                        {
+                            TenantId = tenant.Id,
+                            UserId = user.Id,
+                            Name = "Command endpoint",
+                            Kind = ModelEndpointKindEnum.Inference,
+                            Provider = ModelProviderEnum.OpenAICompatible,
+                            BaseUrl = "http://127.0.0.1:9",
+                            Model = "command-model",
+                            Enabled = true
+                        };
+                        await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+
+                        UsageScriptRuntimeFactory factory = new UsageScriptRuntimeFactory(CreateLogging());
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, factory);
+                        Captain captain = new Captain("api-command-captain", AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            ModelEndpointId = endpoint.Id,
+                            Model = "command-model",
+                            State = CaptainStateEnum.Working
+                        };
+                        Mission mission = new Mission("API command mission")
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            CaptainId = captain.Id,
+                            Status = MissionStatusEnum.InProgress,
+                            Persona = "Judge",
+                            BranchName = "feature/api-command"
+                        };
+                        captain.CurrentMissionId = mission.Id;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        Dock dock = new Dock { BranchName = "feature/api-command", WorktreePath = worktreePath };
+
+                        int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+                        AssertTrue(processId > 0, "A Judge mission on an API-endpoint captain must launch.");
+
+                        await WaitForConditionAsync(() =>
+                        {
+                            lock (factory.Clients) return Task.FromResult(factory.Clients.Count > 0 && factory.Clients[0].OfferedTools.Count > 0);
+                        }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+                        List<string> offered;
+                        lock (factory.Clients) offered = new List<string>(factory.Clients[0].OfferedTools);
+                        AssertTrue(offered.Contains("run_command"),
+                            "A mission launch must offer the model run_command; offered: " + String.Join(", ", offered));
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("handle_launch_agent_async_passes_captain_model_to_runtime", "HandleLaunchAgentAsync passes captain model to runtime startup", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -949,6 +1019,9 @@ namespace Test.Shared.Suites.Services
         {
             public int EndpointCreations { get; private set; }
 
+            /// <summary>Every scripted client handed to a created runtime, so a case can read what the model was offered.</summary>
+            public List<UsageScriptClient> Clients { get; } = new List<UsageScriptClient>();
+
             public UsageScriptRuntimeFactory(LoggingModule logging) : base(logging)
             {
             }
@@ -956,16 +1029,32 @@ namespace Test.Shared.Suites.Services
             public override Armada.Runtimes.Interfaces.IAgentRuntime Create(ModelEndpoint endpoint)
             {
                 EndpointCreations++;
-                return new ApiAgentRuntime(endpoint, CreateLogging(), 2, (ep, log) => new UsageScriptClient(log));
+                return new ApiAgentRuntime(endpoint, CreateLogging(), 2, (ep, log) =>
+                {
+                    UsageScriptClient client = new UsageScriptClient(log);
+                    lock (Clients) Clients.Add(client);
+                    return client;
+                });
             }
         }
 
-        private sealed class UsageScriptClient : PolyPrompt.Clients.CompletionClientBase
+        internal sealed class UsageScriptClient : PolyPrompt.Clients.CompletionClientBase
         {
             public UsageScriptClient(LoggingModule logging) : base("http://127.0.0.1:9", null, logging) { }
 
+            /// <summary>Tool names offered to the model on the first inference call.</summary>
+            public List<string> OfferedTools { get; } = new List<string>();
+
             public override Task<PolyPrompt.Models.ToolChatStreamingResponse> ToolChatStreamingAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default)
             {
+                lock (OfferedTools)
+                {
+                    if (OfferedTools.Count == 0 && request.Tools != null)
+                    {
+                        foreach (PolyPrompt.Models.ToolDefinition tool in request.Tools) OfferedTools.Add(tool.Name);
+                    }
+                }
+
                 return Task.FromResult(new PolyPrompt.Models.ToolChatStreamingResponse
                 {
                     Success = true,
