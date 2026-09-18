@@ -167,6 +167,22 @@ All notable changes to Armada are documented in this file.
   may only add informational ones, never remove a rule's. Ships in Gate at 0.90, fails closed to the deterministic
   weaknesses, records both verdicts. (Captain tool and orchestrator follow-up routing land next.)
 
+### Fixed
+
+- An accepted dispatch is no longer lost without a trace when the admiral restarts. Two defects together let an
+  `armada_dispatch` accepted during a deploy window vanish: `armada_job_status` answered `job_not_found`, no
+  voyage existed and nothing was recorded. The dispatch hold now refuses at submission, with
+  `dispatch_hold_active`, the holder, the time and the reason, on every entry point that dispatches work:
+  `armada_dispatch` plain and alias-ordered, REST `POST /api/v1/voyages`, WebSocket `create_voyage` and
+  `create_mission`, planning-session dispatch, and mission, architect and remote-control dispatch. Before, the MCP
+  tool accepted a job that failed in the background, REST answered 500 and WebSocket and planning threw an unnamed
+  error. Background jobs are journalled in the data directory before they are accepted; a job the previous process
+  never finished is recorded `Lost` (`job_lost_on_restart`) at the next start, `armada_job_status` returns that
+  record, and a `job.lost` or `job.failed` event lands on the job's objective. A job that cannot be journalled is
+  refused (`job_journal_unavailable`) rather than held in memory only, and a dispatch refused after acceptance now
+  ends `Failed`, not `Succeeded` with an error inside. `armada_dispatch_hold` `status` and `engage` list
+  `UnfinishedJobs`, the jobs a restart would lose. One test compares all seven dispatch entry points under one hold.
+
 ### Changed
 
 - Every typed-decision adapter now decides its mode, threshold, and fallback through one shared gate,

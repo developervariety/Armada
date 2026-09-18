@@ -251,11 +251,35 @@ resident helper process and an AgentWake process owner.
 
 Dispatch, code-index refresh, and merge processing can return an accepted job
 instead of blocking the request. Save the job ID and call `armada_job_status`
-until the job reaches a terminal state.
+until the job reaches a terminal state: `Succeeded`, `Failed` or `Lost`.
 
-`armada_dispatch` persists the voyage and mission rows before background
-assignment starts. A successful dispatch response is not evidence that a
-captain has started work.
+`armada_dispatch` validates the request, checks the dispatch hold and runs the
+objective preflight before it accepts anything. A refusal at that point returns
+its named code and creates nothing. Only then is the job accepted, and it is
+written to the job journal in the data directory before the `Accepted` response
+is returned. The voyage and mission rows are created when the job runs, not
+before the response: an `Accepted` job is not yet a voyage. Read the voyage ID
+from the job's result. A dispatch refused after acceptance (the hold engaged in
+between, or another dispatch won the objective) ends `Failed` with the refusal
+body as its error. A successful job is not evidence that a captain has started
+work.
+
+While the dispatch hold is engaged, every dispatch entry point refuses at
+submission with `dispatch_hold_active`, the holder (`SetBy`), `SetByUtc` and
+the reason, and accepts no job: `armada_dispatch` (plain and alias-ordered),
+REST `POST /api/v1/voyages`, WebSocket `create_voyage`, planning-session
+dispatch, and mission, architect and remote-control dispatch. The objective
+scheduler records `dispatch_hold` and autonomous rescue defers.
+
+A job survives the process that accepted it. When the admiral restarts before a
+job finishes, the next start records it as `Lost` with the reason
+`job_lost_on_restart`, and `armada_job_status` returns that record, never
+`job_not_found`. A lost job is never resumed: check whether its effect exists,
+then submit it again. Every job that ends `Failed` or `Lost` writes a
+`job.failed` or `job.lost` event on its objective (on the job when it names no
+objective). Finished records are kept for 14 days. `armada_dispatch_hold`
+`status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose;
+wait for that list to empty before restarting the admiral.
 
 For objective work, call `preview_objective_dispatch` before `armada_dispatch`.
 It performs the same read-only preflight that operator and autonomous objective

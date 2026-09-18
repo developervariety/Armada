@@ -423,6 +423,13 @@ whichever session or scheduler asks, and in-flight voyages continue. Engage it
 with your session name and a reason before an Admiral rebuild; a successful
 restart clears it by design. Hold changes require an authorized operator.
 
+The refusal happens at submission, before any job is accepted: every operator
+entry point answers `dispatch_hold_active` with `SetBy`, `SetByUtc` and
+`Reason` (`docs/MCP_API.md`, "Long Operations", lists them). `status` and
+`engage` return `UnfinishedJobs`: background jobs accepted before the hold and
+not yet finished. A restart records each one `Lost`, so wait for the list to
+empty before restarting.
+
 Autonomous recovery obeys the same hold. A recoverable failure that arrives
 while the hold is engaged gets no rescue voyage or mission and spends no
 recovery attempt. Its incident's `RecoveryNotes` gets one

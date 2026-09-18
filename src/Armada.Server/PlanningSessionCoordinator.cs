@@ -340,6 +340,10 @@ namespace Armada.Server
             if (session == null) throw new ArgumentNullException(nameof(session));
             if (request == null) throw new ArgumentNullException(nameof(request));
 
+            // The hold refuses at submission with its named reason, before the session is read or any
+            // objective is admitted.
+            _Admiral.DispatchHold?.ThrowIfActive();
+
             session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
             PlanningSessionMessage sourceMessage = await ResolveSourceMessageAsync(session, request.MessageId, token).ConfigureAwait(false);
 

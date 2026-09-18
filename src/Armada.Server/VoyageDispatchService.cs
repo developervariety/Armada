@@ -101,6 +101,12 @@ namespace Armada.Server
             VoyageDispatchResult? validation = ValidateRequest(request.Title, request.Missions);
             if (validation != null) return validation;
 
+            // The hold refuses at submission, before anything is accepted. The MCP dispatch runs these
+            // preconditions synchronously and only then accepts a background job, so a job is never
+            // accepted into a queue that the restart the hold announces would erase.
+            VoyageDispatchResult? held = HoldRefusalResult();
+            if (held != null) return held;
+
             try
             {
                 PipelineStageSkip.ValidateNamesOrThrow(PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext));
@@ -214,10 +220,11 @@ namespace Armada.Server
             VoyageDispatchResult? preconditions = await ValidatePreconditionsAsync(request, token).ConfigureAwait(false);
             if (preconditions != null) return preconditions;
 
-            // The admiral's own hold rule, checked before admission and before either creation path. The
-            // alias path creates its voyage row directly, so waiting for the admiral would leave an empty
-            // voyage behind.
-            _Admiral.DispatchHold?.ThrowIfActive();
+            // The admiral's own hold rule, checked again before admission and before either creation path:
+            // a background job can start after a hold was engaged. The alias path creates its voyage row
+            // directly, so waiting for the admiral would leave an empty voyage behind.
+            VoyageDispatchResult? heldAtStart = HoldRefusalResult();
+            if (heldAtStart != null) return heldAtStart;
             LogDispatchInfo("dispatch step preconditions_ok elapsedMs=" + dispatchWatch.ElapsedMilliseconds);
 
             // Dispatch preparation can add objective text, inherited mode, start refs, and context
@@ -359,6 +366,10 @@ namespace Armada.Server
             catch (StageSkipRefusedException refused) when (voyage == null)
             {
                 return StageSkipRefusedResult(refused);
+            }
+            catch (DispatchHoldActiveException held) when (voyage == null)
+            {
+                return VoyageDispatchResult.Conflict(DispatchHoldRefusal.From(held.Hold));
             }
             catch (FleetCapacityAdmissionException capacity)
             {
@@ -1375,6 +1386,12 @@ namespace Armada.Server
                 refused.Persona,
                 Action = "Remove the refused name from skipStages. The Judge is never skippable; other names must match a stage of the effective pipeline."
             });
+        }
+
+        private VoyageDispatchResult? HoldRefusalResult()
+        {
+            DispatchHoldSnapshot? hold = _Admiral.DispatchHold?.Snapshot();
+            return hold == null ? null : VoyageDispatchResult.Conflict(DispatchHoldRefusal.From(hold));
         }
 
         private static VoyageDispatchResult CapacityConflictResult(FleetCapacityAdmissionException capacity)

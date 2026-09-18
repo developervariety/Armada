@@ -178,6 +178,10 @@ namespace Armada.Server.Mcp.Tools
                             new List<MissionDescription> { missionDesc },
                             mergedPlaybooks).ConfigureAwait(false);
                     }
+                    catch (DispatchHoldActiveException held)
+                    {
+                        return (object)DispatchHoldRefusal.From(held.Hold);
+                    }
                     catch (FleetCapacityAdmissionException capacity)
                     {
                         return (object)new

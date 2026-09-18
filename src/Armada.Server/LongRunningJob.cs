@@ -3,7 +3,8 @@ namespace Armada.Server
     using System;
 
     /// <summary>
-    /// Describes a process-local long-running operation and its current state.
+    /// Describes a long-running operation and its current state. The record is journalled to disk when
+    /// the owning service has a journal directory, so it outlives the process that accepted it.
     /// </summary>
     public class LongRunningJob
     {
@@ -49,9 +50,29 @@ namespace Armada.Server
         /// </summary>
         public string? FailureMessage { get; set; }
 
+        /// <summary>
+        /// Objective the job acts for, when known. A failed or lost job writes an event on it.
+        /// </summary>
+        public string? ObjectiveId { get; set; }
+
+        /// <summary>
+        /// Vessel the job acts on, when known.
+        /// </summary>
+        public string? VesselId { get; set; }
+
         #endregion
 
         #region Internal-Methods
+
+        /// <summary>
+        /// True for a status that no later transition leaves.
+        /// </summary>
+        internal static bool IsTerminal(LongRunningJobStatusEnum status)
+        {
+            return status == LongRunningJobStatusEnum.Succeeded
+                || status == LongRunningJobStatusEnum.Failed
+                || status == LongRunningJobStatusEnum.Lost;
+        }
 
         /// <summary>
         /// Create a snapshot that can be returned without exposing tracked state.
@@ -67,7 +88,9 @@ namespace Armada.Server
                 StartedAtUtc = StartedAtUtc,
                 CompletedAtUtc = CompletedAtUtc,
                 Result = Result,
-                FailureMessage = FailureMessage
+                FailureMessage = FailureMessage,
+                ObjectiveId = ObjectiveId,
+                VesselId = VesselId
             };
         }
 

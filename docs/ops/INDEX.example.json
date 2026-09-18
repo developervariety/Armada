@@ -42,7 +42,7 @@
     {
       "topic": "ops.standard-workflow.dispatch",
       "path": "docs/ops/05-standard-workflow.md#44-dispatch",
-      "summary": "armada_dispatch is durable-first; the tenant-scoped admission lease; the dispatch hold; data expiry.",
+      "summary": "armada_dispatch refuses a held dispatch at submission and journals accepted jobs (Lost after a restart, never job_not_found); the tenant-scoped admission lease; the dispatch hold; data expiry.",
       "read_when": "You are calling armada_dispatch, or a dispatch returned an admission, hold, or already-dispatched code.",
       "applies_to": ["orchestrator"],
       "tier": "leaf",

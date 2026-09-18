@@ -4,6 +4,7 @@
     "Dispatch Assignment State": "Wall-clock bound: asserts an operation finishes in under 500 ms.",
     "Captain Account Launch": "Wall-clock bound: asserts a hanging login probe is not awaited (under 500 ms); also sets ARMADA_TEST_OPENCODE, ARMADA_TEST_CURSOR_AGENT and a provider key variable.",
     "Autonomous Objective Scheduler": "Wall-clock bound: asserts a sweep completes in under 2 s with a 40 ms per-sweep budget.",
+    "Long Running Job Service": "Starts an in-process server on ports found by binding port 0.",
     "Objective Dispatch Attempts": "Wall-clock bound: asserts a contended admission returns in under 3 s; also starts an in-process server on ports found by binding port 0.",
     "Dispatch Code Context Bounded": "Wall-clock bound: asserts dispatch returns in under 5 s when code context stalls.",
     "Dispatch Fail Fast": "Wall-clock bound: asserts dispatch fails in under 15 s; also sets the git and code-context timeout environment variables.",

@@ -32,7 +32,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="coordination">Coordination service.</param>
         /// <param name="dispatchHold">Optional dispatch hold shared with the admiral's dispatch paths.</param>
         /// <param name="triageAdapter">Optional D11 <c>inbox_triage</c> adapter. When set and in Gate mode it annotates each board note with an <c>attention</c> label and a <c>noteKind</c> and sorts the read by attention; it never hides a note. Null or Off leaves the deterministic order.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService coordination, Armada.Core.Services.DispatchHold? dispatchHold = null, Armada.Core.Services.InboxTriageAdapter? triageAdapter = null)
+        /// <param name="jobs">Optional background job service. When set, hold status and engage list the jobs accepted but not finished, which a restart would record as Lost.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService coordination, Armada.Core.Services.DispatchHold? dispatchHold = null, Armada.Core.Services.InboxTriageAdapter? triageAdapter = null, LongRunningJobService? jobs = null)
         {
             register(
                 "armada_coordination_post",
@@ -440,7 +441,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "armada_dispatch_hold",
-                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board.",
+                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board. Status and engage list UnfinishedJobs: background jobs (dispatches included) accepted but not finished. A restart records each one Lost, so wait for the list to empty before restarting.",
                     new
                     {
                         type = "object",
@@ -458,7 +459,7 @@ namespace Armada.Server.Mcp.Tools
                         string action = String.IsNullOrWhiteSpace(request.Action) ? "status" : request.Action!.Trim().ToLowerInvariant();
 
                         if (String.Equals(action, "status", StringComparison.Ordinal))
-                            return (object)new { Active = dispatchHold.Snapshot() != null, Hold = dispatchHold.Snapshot() };
+                            return (object)new { Active = dispatchHold.Snapshot() != null, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs) };
 
                         if (String.Equals(action, "clear", StringComparison.Ordinal))
                         {
@@ -483,12 +484,54 @@ namespace Armada.Server.Mcp.Tools
                             dispatchHold.Engage(request.Reason!, request.SetBy);
                             await SafePostAsync(coordination, "[hold] Dispatching paused by " + request.SetBy + ": " + request.Reason + " Hold off dispatching new voyages until this is cleared.").ConfigureAwait(false);
                             await coordination.EmitHoldWakeAsync("[hold] Dispatching paused by " + request.SetBy + " (" + request.Reason + "). Hold new voyages; you will be woken on clear.").ConfigureAwait(false);
-                            return (object)new { Active = true, Hold = dispatchHold.Snapshot() };
+                            return (object)new { Active = true, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs) };
                         }
 
                         return (object)new { Error = "action must be engage, clear, or status" };
                     });
             }
+        }
+
+        private static List<UnfinishedJobRow> UnfinishedJobs(LongRunningJobService? jobs)
+        {
+            if (jobs == null) return new List<UnfinishedJobRow>();
+            return jobs.ListUnfinished().Select(job => new UnfinishedJobRow
+            {
+                JobId = job.JobId,
+                Operation = job.Operation,
+                Status = job.Status.ToString(),
+                SubmittedAtUtc = job.SubmittedAtUtc,
+                StartedAtUtc = job.StartedAtUtc,
+                ObjectiveId = job.ObjectiveId,
+                VesselId = job.VesselId
+            }).ToList();
+        }
+
+        /// <summary>
+        /// A background job accepted but not finished, as listed by the dispatch hold.
+        /// </summary>
+        public sealed class UnfinishedJobRow
+        {
+            /// <summary>Job identifier.</summary>
+            public string JobId { get; set; } = String.Empty;
+
+            /// <summary>Operation name.</summary>
+            public string Operation { get; set; } = String.Empty;
+
+            /// <summary>Accepted or Running.</summary>
+            public string Status { get; set; } = String.Empty;
+
+            /// <summary>When the job was accepted.</summary>
+            public DateTime SubmittedAtUtc { get; set; }
+
+            /// <summary>When the job started running, if it has.</summary>
+            public DateTime? StartedAtUtc { get; set; }
+
+            /// <summary>Objective the job acts for, when known.</summary>
+            public string? ObjectiveId { get; set; }
+
+            /// <summary>Vessel the job acts on, when known.</summary>
+            public string? VesselId { get; set; }
         }
 
         private static async Task SafePostAsync(CoordinationService coordination, string content)

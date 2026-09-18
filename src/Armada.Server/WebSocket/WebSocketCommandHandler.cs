@@ -592,6 +592,20 @@ namespace Armada.Server.WebSocket
                         persona = refused.Persona
                     };
                 }
+                catch (DispatchHoldActiveException held)
+                {
+                    DispatchHoldRefusal refusal = DispatchHoldRefusal.From(held.Hold);
+                    return new
+                    {
+                        type = "command.error",
+                        action = "create_voyage",
+                        error = refusal.Error,
+                        code = refusal.Code,
+                        setBy = refusal.SetBy,
+                        setByUtc = refusal.SetByUtc,
+                        reason = refusal.Reason
+                    };
+                }
                 catch (FleetCapacityAdmissionException capacity)
                 {
                     return new
@@ -785,6 +799,20 @@ namespace Armada.Server.WebSocket
             try
             {
                 newMission = await _Admiral.DispatchMissionAsync(newMission).ConfigureAwait(false);
+            }
+            catch (DispatchHoldActiveException held)
+            {
+                DispatchHoldRefusal refusal = DispatchHoldRefusal.From(held.Hold);
+                return new
+                {
+                    type = "command.error",
+                    action = "create_mission",
+                    error = refusal.Error,
+                    code = refusal.Code,
+                    setBy = refusal.SetBy,
+                    setByUtc = refusal.SetByUtc,
+                    reason = refusal.Reason
+                };
             }
             catch (FleetCapacityAdmissionException capacity)
             {

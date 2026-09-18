@@ -237,6 +237,13 @@ namespace Armada.Server
             await _Database.InitializeAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "database initialized");
 
+            // Background jobs are journalled under the data directory, so an accepted job outlives
+            // this process; interrupted jobs are recovered below, before any request is served.
+            _LongRunningJobs = new LongRunningJobService(
+                journalDirectory: Path.Combine(_Settings.DataDirectory, "jobs"),
+                onJobFailedAsync: RecordBackgroundJobFailureAsync,
+                warn: message => _Logging.Warn(_Header + message));
+
             // Initialize services
             // PR-fallback wiring: per-call factory selects the right platform CLI (gh / glab).
             // Path defaults match the design's Configuration table — env var override
@@ -871,6 +878,15 @@ namespace Armada.Server
             _Logging.Info(_Header + "WebSocket route registered at /ws");
 
             await ReconcileHarborJobsAsync().ConfigureAwait(false);
+
+            // A job the previous process accepted and never finished is recorded Lost, with an event
+            // on its objective, before REST or MCP accept a request: an accepted job never turns into
+            // job_not_found across a restart.
+            int lostJobs = await _LongRunningJobs.RecoverInterruptedJobsAsync().ConfigureAwait(false);
+            if (lostJobs > 0)
+                _Logging.Warn(_Header + lostJobs + " background job" + (lostJobs == 1 ? " was" : "s were")
+                    + " accepted by the previous process and never finished; recorded as Lost");
+
             RegisterHarbor();
 
             // Watson 7 StartAsync is long-running; Start() binds and returns after
@@ -1964,6 +1980,25 @@ namespace Armada.Server
                 contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 missionService: _MissionService);
 
+        }
+
+        /// <summary>
+        /// Record a background job that ended Failed or Lost as an event on its objective, or on the
+        /// job itself when it names none, so the failure is visible where the caller will look.
+        /// </summary>
+        private async Task RecordBackgroundJobFailureAsync(LongRunningJob job)
+        {
+            bool lost = job.Status == LongRunningJobStatusEnum.Lost;
+            string message = "Background job " + job.JobId + " (" + job.Operation + ") "
+                + (lost ? "was lost: " : "failed: ")
+                + (job.FailureMessage ?? "no reason recorded")
+                + " Accepted " + job.SubmittedAtUtc.ToString("u") + ".";
+            await EmitEventAsync(
+                lost ? "job.lost" : "job.failed",
+                message,
+                job.ObjectiveId != null ? "objective" : "job",
+                job.ObjectiveId ?? job.JobId,
+                vesselId: job.VesselId).ConfigureAwait(false);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

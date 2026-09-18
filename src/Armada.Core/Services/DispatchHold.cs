@@ -81,18 +81,30 @@ namespace Armada.Core.Services
             lock (_Lock)
             {
                 if (!_Active) return;
-                string holder = String.IsNullOrWhiteSpace(_SetBy) ? "unknown" : _SetBy!;
                 DispatchHoldSnapshot snapshot = new DispatchHoldSnapshot
                 {
                     Reason = _Reason,
                     SetBy = _SetBy,
                     SetByUtc = _SetByUtc
                 };
-                throw new DispatchHoldActiveException(snapshot,
-                    "Dispatch hold active since " + _SetByUtc.ToString("u") +
-                    " (set by " + holder + "): " + _Reason +
-                    " Clear the hold with armada_dispatch_hold action=clear once Armada is redeployed.");
+                throw new DispatchHoldActiveException(snapshot, RefusalMessage(snapshot));
             }
+        }
+
+        /// <summary>
+        /// The operator-facing refusal message for a held dispatch. It starts with
+        /// <see cref="DispatchHoldActiveException.ReasonCode"/>, so a surface that relays only the
+        /// message still carries the named reason.
+        /// </summary>
+        /// <param name="hold">The engaged hold.</param>
+        /// <returns>The refusal message naming the code, holder, time and reason.</returns>
+        public static string RefusalMessage(DispatchHoldSnapshot hold)
+        {
+            if (hold == null) throw new ArgumentNullException(nameof(hold));
+            string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
+            return DispatchHoldActiveException.ReasonCode + ": Dispatch hold active since " + hold.SetByUtc.ToString("u") +
+                " (set by " + holder + "): " + hold.Reason +
+                " Nothing was accepted or created. Dispatch again once the hold is cleared (armada_dispatch_hold action=clear after Armada is redeployed).";
         }
 
         #endregion

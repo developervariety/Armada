@@ -211,6 +211,10 @@ namespace Armada.Server.Mcp.Tools
                     {
                         mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
                     }
+                    catch (DispatchHoldActiveException held)
+                    {
+                        return (object)DispatchHoldRefusal.From(held.Hold);
+                    }
                     catch (FleetCapacityAdmissionException capacity)
                     {
                         return (object)new

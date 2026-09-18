@@ -819,6 +819,17 @@ namespace Armada.Server
             {
                 created = await _Admiral.DispatchMissionAsync(mission, token).ConfigureAwait(false);
             }
+            catch (DispatchHoldActiveException held)
+            {
+                DispatchHoldRefusal refusal = DispatchHoldRefusal.From(held.Hold);
+                return new RemoteTunnelRequestResult
+                {
+                    StatusCode = 409,
+                    ErrorCode = refusal.Code,
+                    Message = refusal.Error,
+                    Payload = new { refusal.SetBy, refusal.SetByUtc, refusal.Reason }
+                };
+            }
             catch (FleetCapacityAdmissionException capacity)
             {
                 return new RemoteTunnelRequestResult

@@ -123,7 +123,7 @@ namespace Armada.Server.Mcp
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
-            if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter);
+            if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);
             McpSignalTools.Register(register, database, () => remoteTriggerService?.GetAgentWakeStatus().EffectiveParticipantKey);
             McpEventTools.Register(register, database);
             McpTokenUsageTools.Register(register, database);

@@ -12,6 +12,11 @@ namespace Armada.Core.Services
         #region Public-Members
 
         /// <summary>
+        /// The reason code every dispatch surface reports when the hold refuses a dispatch.
+        /// </summary>
+        public const string ReasonCode = "dispatch_hold_active";
+
+        /// <summary>
         /// The hold that refused the dispatch.
         /// </summary>
         public DispatchHoldSnapshot Hold { get; }

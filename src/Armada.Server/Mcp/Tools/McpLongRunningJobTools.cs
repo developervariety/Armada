@@ -5,7 +5,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Threading.Tasks;
 
     /// <summary>
-    /// Registers MCP tools for querying process-local long-running jobs.
+    /// Registers MCP tools for querying journalled long-running jobs.
     /// </summary>
     public static class McpLongRunningJobTools
     {
@@ -33,7 +33,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_job_status",
-                "Get the current state of a long-running job. Successful jobs include their final result; failed jobs include a bounded error.",
+                "Get the current state of a long-running job. Successful jobs include their final result; Failed jobs include a bounded error; a job whose admiral restarted before it finished reads Lost with the reason. Jobs are journalled, so a restart never turns an accepted job into job_not_found.",
                 new
                 {
                     type = "object",
@@ -86,7 +86,7 @@ namespace Armada.Server.Mcp.Tools
                 };
             }
 
-            if (job.Status == LongRunningJobStatusEnum.Failed)
+            if (job.Status == LongRunningJobStatusEnum.Failed || job.Status == LongRunningJobStatusEnum.Lost)
             {
                 return new
                 {
@@ -96,6 +96,8 @@ namespace Armada.Server.Mcp.Tools
                     job.SubmittedAtUtc,
                     job.StartedAtUtc,
                     job.CompletedAtUtc,
+                    job.ObjectiveId,
+                    job.VesselId,
                     Error = job.FailureMessage
                 };
             }
@@ -106,7 +108,9 @@ namespace Armada.Server.Mcp.Tools
                 job.Operation,
                 job.Status,
                 job.SubmittedAtUtc,
-                job.StartedAtUtc
+                job.StartedAtUtc,
+                job.ObjectiveId,
+                job.VesselId
             };
         }
 

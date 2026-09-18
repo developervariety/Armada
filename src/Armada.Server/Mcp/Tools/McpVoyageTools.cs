@@ -218,10 +218,21 @@ namespace Armada.Server.Mcp.Tools
                             .ValidatePreconditionsAsync(dispatchRequest).ConfigureAwait(false);
                         if (invalid != null) return invalid.Value;
 
+                        // A refusal from the background run (a hold engaged after acceptance, a lost
+                        // admission race) fails the job with the refusal body as its error: a job reads
+                        // Succeeded only when a voyage exists, and a Failed job records an event on its objective.
                         return (object)jobs.Start(
                             "voyage_dispatch",
-                            async (token) => (object?)(await dispatchService
-                                .DispatchAsync(dispatchRequest, token).ConfigureAwait(false)).Value);
+                            async (token) =>
+                            {
+                                VoyageDispatchResult background = await dispatchService
+                                    .DispatchAsync(dispatchRequest, token).ConfigureAwait(false);
+                                if (!background.Succeeded)
+                                    throw new InvalidOperationException(JsonSerializer.Serialize(background.Value, background.Value.GetType()));
+                                return (object?)background.Value;
+                            },
+                            request.ObjectiveId,
+                            request.VesselId);
                     }
 
                     VoyageDispatchResult result = await dispatchService.DispatchAsync(dispatchRequest).ConfigureAwait(false);

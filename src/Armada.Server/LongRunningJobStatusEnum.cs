@@ -26,6 +26,13 @@ namespace Armada.Server
         /// <summary>
         /// The job completed with an error.
         /// </summary>
-        Failed
+        Failed,
+
+        /// <summary>
+        /// The admiral process that accepted the job stopped before the job finished (a restart or a
+        /// crash), so the operation did not complete. Recorded from the durable job journal at the next
+        /// start; the job never resumes by itself.
+        /// </summary>
+        Lost
     }
 }

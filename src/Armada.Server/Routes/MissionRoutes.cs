@@ -417,6 +417,11 @@ namespace Armada.Server.Routes
                 {
                     mission = await _admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
                 }
+                catch (DispatchHoldActiveException held)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return DispatchHoldRefusal.From(held.Hold);
+                }
                 catch (FleetCapacityAdmissionException capacity)
                 {
                     req.Http.Response.StatusCode = 409;
