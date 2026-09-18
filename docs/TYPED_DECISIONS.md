@@ -260,9 +260,11 @@ demotion target for a decision whose answers mislead, so it quiets the helper as
 recording it. The general tool has no decision of its own and answers whenever the tool
 is enabled. A pre-shaped helper records under its decision's own key (for example
 `premise_check`), so that decision's `retainState` also retains the helper's calls, with
-rule verdict `none`. The general tool records under `captain_tool`, which has no settings
-entry and so is never retained: its state and questions are whatever the captain chose,
-so its calls do not form a training set for any one decision.
+rule verdict `none`. The general tool records under `captain_tool`. It ships with no
+settings entry, so it is retained only when an operator adds `decisions.captain_tool`
+with `retainState: true`; its mode there has no effect, because the general tool follows
+only `captainTool.enabled`. Its state and questions are whatever the captain chose, so
+its samples are a general corpus rather than one decision's training set.
 The tools are enabled by default (`typedDecisions.captainTool.enabled` is `true`); setting
 it `false` makes every call return `unavailable`. See `docs/MCP_API.md` for the tool
 arguments.
