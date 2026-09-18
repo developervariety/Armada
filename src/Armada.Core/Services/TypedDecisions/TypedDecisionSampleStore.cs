@@ -48,6 +48,9 @@ namespace Armada.Core.Services.TypedDecisions
         {
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         };
+        // Plain UTF-8: a byte-order mark on a file's first line makes a strict JSON-lines reader
+        // reject the first sample of every day.
+        private static readonly UTF8Encoding _Utf8NoBom = new UTF8Encoding(false);
         private readonly LoggingModule? _Logging;
         private readonly object _Lock = new object();
 
@@ -179,22 +182,35 @@ namespace Armada.Core.Services.TypedDecisions
                 {
                     TypedDecisionSampleCount count = new TypedDecisionSampleCount
                     {
-                        DecisionPoint = Path.GetFileName(folder)
+                        DecisionPoint = Path.GetFileName(folder),
+                        CurrentRedactorVersion = DecisionStateRedactor.Version
                     };
                     foreach (string file in Directory.EnumerateFiles(folder, "*.jsonl"))
                     {
                         foreach (string line in File.ReadLines(file))
                         {
                             if (String.IsNullOrWhiteSpace(line)) continue;
-                            if (line.Contains("\"kind\":\"" + KindReversal + "\"", StringComparison.Ordinal)) count.Reversals++;
-                            else count.Samples++;
+                            if (line.Contains("\"kind\":\"" + KindReversal + "\"", StringComparison.Ordinal))
+                            {
+                                count.Reversals++;
+                                continue;
+                            }
+                            count.Samples++;
+                            int version = ReadRedactorVersion(line);
+                            count.SamplesByRedactorVersion[version] = count.SamplesByRedactorVersion.TryGetValue(version, out int seen) ? seen + 1 : 1;
+                            if (version == DecisionStateRedactor.Version) count.CurrentSamples++;
                         }
                     }
                     count.MinimumSamples = minimumSamples;
-                    count.Trainable = count.Samples >= minimumSamples;
+                    // Only samples redacted under the running rules train together; an older cohort is
+                    // reported beside them, never counted towards the minimum.
+                    count.Trainable = count.CurrentSamples >= minimumSamples;
+                    int older = count.Samples - count.CurrentSamples;
                     count.NotTrainableReason = count.Trainable
                         ? null
-                        : "only " + count.Samples + " of " + minimumSamples + " samples retained";
+                        : "only " + count.CurrentSamples + " of " + minimumSamples + " samples retained under redactor version "
+                          + DecisionStateRedactor.Version
+                          + (older > 0 ? " (" + older + " more under older or unknown redaction rules do not count)" : String.Empty);
                     counts.Add(count);
                 }
             }
@@ -208,6 +224,16 @@ namespace Armada.Core.Services.TypedDecisions
         #endregion
 
         #region Private-Methods
+
+        private static readonly System.Text.RegularExpressions.Regex _RedactorVersionField =
+            new System.Text.RegularExpressions.Regex("\"redactor_version\":(\\d+)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>The redactor version a sample line was stamped with, or zero when it carries none.</summary>
+        private static int ReadRedactorVersion(string line)
+        {
+            System.Text.RegularExpressions.Match match = _RedactorVersionField.Match(line);
+            return match.Success && Int32.TryParse(match.Groups[1].Value, out int version) ? version : 0;
+        }
 
         private static bool OptsIn(TypedDecisionSettings settings, string decisionPoint)
         {
@@ -233,7 +259,7 @@ namespace Armada.Core.Services.TypedDecisions
                 string line = JsonSerializer.Serialize(sample, _JsonOptions);
                 lock (_Lock)
                 {
-                    File.AppendAllText(file, line + Environment.NewLine, Encoding.UTF8);
+                    File.AppendAllText(file, line + Environment.NewLine, _Utf8NoBom);
                 }
                 return true;
             }
@@ -301,6 +327,13 @@ namespace Armada.Core.Services.TypedDecisions
 
         /// <summary>The mission the call belonged to, when any.</summary>
         public string? MissionId { get; set; }
+
+        /// <summary>
+        /// The <see cref="DecisionStateRedactor.Version"/> that produced <see cref="RedactedState"/>.
+        /// Zero on a line written before samples were stamped: its cohort is unknown until an
+        /// operator backfills it.
+        /// </summary>
+        public int RedactorVersion { get; set; }
     }
 
     /// <summary>What one decision has retained, and whether that is enough to train on.</summary>
@@ -323,5 +356,14 @@ namespace Armada.Core.Services.TypedDecisions
 
         /// <summary>Why the decision is not trainable, when it is not.</summary>
         public string? NotTrainableReason { get; set; }
+
+        /// <summary>The redactor version the running admiral applies.</summary>
+        public int CurrentRedactorVersion { get; set; }
+
+        /// <summary>Samples redacted under the running rules; only these count towards the minimum.</summary>
+        public int CurrentSamples { get; set; }
+
+        /// <summary>Samples per redactor version; version 0 means a line that was never stamped.</summary>
+        public Dictionary<int, int> SamplesByRedactorVersion { get; set; } = new Dictionary<int, int>();
     }
 }

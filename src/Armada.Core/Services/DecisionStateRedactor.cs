@@ -18,6 +18,20 @@ namespace Armada.Core.Services
     /// </summary>
     public static class DecisionStateRedactor
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Version of the redaction rules. Bump it in the same commit as any change to what this
+        /// class removes or keeps. Retained training samples are stamped with it, so samples redacted
+        /// under different rules are never mixed in one training set: redacted text cannot be
+        /// re-redacted later, because the original is never kept. Version 1 erased every dotted name
+        /// and every 7-40 character hex run; version 2 keeps code symbols, file names and plain
+        /// numbers.
+        /// </summary>
+        public const int Version = 2;
+
+        #endregion
+
         #region Private-Members
 
         // 1. Armada identifiers: a known entity prefix followed by the id body.

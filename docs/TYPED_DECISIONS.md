@@ -93,6 +93,16 @@ byte count and never the state, and nothing extra leaves the host.
   against.
 - **Retention never changes an outcome.** Every write is best effort; a failure is
   logged and swallowed, exactly like a recorder failure.
+- **Samples are grouped by redaction rules.** Each sample carries
+  `redactor_version`, the `DecisionStateRedactor.Version` that produced its
+  state. Redacted text cannot be re-redacted, because the original is never
+  kept, so samples redacted under different rules must never train together.
+  Only samples under the running version count towards
+  `minimumSamplesPerDecision`; the report lists the other cohorts beside them,
+  and a line with no stamp is its own cohort, version 0. Whoever changes a
+  redaction rule bumps `Version` in the same commit.
+- **Sample files are plain UTF-8 JSON lines**, with no byte-order mark, so a
+  strict JSON-lines reader accepts every line.
 - **Report before you train.** `armada_typed_decision_labels` names every decision
   with retained data and says which are short of the minimum and by how much.
 

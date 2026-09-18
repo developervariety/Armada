@@ -288,6 +288,71 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A sample is stamped with the redactor version and only the current cohort counts towards training", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string dataDirectory = NewTempDir("cohort");
+                    try
+                    {
+                        ArmadaSettings settings = RetainingSettings("failure_cause");
+                        TypedDecisionSampleStore store = new TypedDecisionSampleStore(dataDirectory, new LoggingModule());
+                        TypedDecisionRecorder recorder = new TypedDecisionRecorder(
+                            testDb.Driver, new LoggingModule(), store, () => settings.TypedDecisions);
+
+                        await recorder.RecordGatedAsync(Context("failure_cause", "current rules 1"), default).ConfigureAwait(false);
+                        await recorder.RecordGatedAsync(Context("failure_cause", "current rules 2"), default).ConfigureAwait(false);
+
+                        List<TypedDecisionSample> samples = ReadSamples(store, "failure_cause");
+                        AssertEqual(DecisionStateRedactor.Version, samples[0].RedactorVersion,
+                            "a retained sample names the redaction rules that produced it");
+
+                        // Lines written under older rules, and one written before stamping existed.
+                        string folder = Path.Combine(store.RootPath, "failure_cause");
+                        string olderFile = Path.Combine(folder, "2026-01-01.jsonl");
+                        File.WriteAllText(olderFile,
+                            "{\"kind\":\"decision\",\"decision_point\":\"failure_cause\",\"redactor_version\":" + (DecisionStateRedactor.Version - 1) + "}\n"
+                            + "{\"kind\":\"decision\",\"decision_point\":\"failure_cause\"}\n");
+
+                        List<TypedDecisionSampleCount> counts = store.Summarize(3);
+                        TypedDecisionSampleCount count = counts.Single(x => x.DecisionPoint == "failure_cause");
+                        AssertEqual(4, count.Samples, "every retained call is counted");
+                        AssertEqual(2, count.CurrentSamples, "only the two current-rule samples are in the training cohort");
+                        AssertEqual(DecisionStateRedactor.Version, count.CurrentRedactorVersion, "the report names the running rules");
+                        AssertEqual(1, count.SamplesByRedactorVersion[DecisionStateRedactor.Version - 1], "the older cohort is reported, not hidden");
+                        AssertEqual(1, count.SamplesByRedactorVersion[0], "an unstamped line is its own unknown cohort");
+                        AssertFalse(count.Trainable, "four samples in total, but only two under the running rules, is short of three");
+                        AssertContains("do not count", count.NotTrainableReason ?? "", "the reason says the older samples were left out");
+                    }
+                    finally { SafeDelete(dataDirectory); }
+                }
+            });
+
+            await RunTest("Sample files are plain UTF-8 JSON lines with no byte-order mark", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string dataDirectory = NewTempDir("nobom");
+                    try
+                    {
+                        ArmadaSettings settings = RetainingSettings("failure_cause");
+                        TypedDecisionSampleStore store = new TypedDecisionSampleStore(dataDirectory, new LoggingModule());
+                        TypedDecisionRecorder recorder = new TypedDecisionRecorder(
+                            testDb.Driver, new LoggingModule(), store, () => settings.TypedDecisions);
+                        await recorder.RecordGatedAsync(Context("failure_cause", "first line of the day"), default).ConfigureAwait(false);
+
+                        string file = Directory.EnumerateFiles(Path.Combine(store.RootPath, "failure_cause"), "*.jsonl").Single();
+                        byte[] bytes = File.ReadAllBytes(file);
+                        AssertEqual((byte)'{', bytes[0], "the first byte of a sample file is the opening brace, not a byte-order mark");
+                        using (JsonDocument document = JsonDocument.Parse(File.ReadAllLines(file)[0]))
+                        {
+                            AssertTrue(document.RootElement.ValueKind == JsonValueKind.Object, "the first line parses as strict JSON");
+                        }
+                    }
+                    finally { SafeDelete(dataDirectory); }
+                }
+            });
+
             await RunTest("Prune deletes only sample files older than the retention window", () =>
             {
                 string dataDirectory = NewTempDir("prune");

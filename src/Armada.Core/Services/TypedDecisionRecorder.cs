@@ -279,7 +279,8 @@ namespace Armada.Core.Services
                     GateOutcome = ReadPayloadString(original.Payload, "gate_outcome"),
                     CorrectedVerdict = correctedVerdict,
                     Reason = reason,
-                    MissionId = original.MissionId
+                    MissionId = original.MissionId,
+                    RedactorVersion = DecisionStateRedactor.Version
                 }, token).ConfigureAwait(false);
             }
 
@@ -375,7 +376,8 @@ namespace Armada.Core.Services
                 ModelVerdict = context.ModelVerdict,
                 Confidence = context.Confidence,
                 GateOutcome = gateOutcome,
-                MissionId = context.Mission?.Id
+                MissionId = context.Mission?.Id,
+                RedactorVersion = DecisionStateRedactor.Version
             }, token).ConfigureAwait(false);
         }
 

@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Retained typed-decision samples carry `redactor_version`, the new `DecisionStateRedactor.Version` (2 for the
+  identifier-preserving rules), because redacted text cannot be re-redacted and samples redacted under different
+  rules must not train together. `armada_typed_decision_labels` counts only the running version towards the
+  training minimum and reports every other cohort, including unstamped lines as version 0. Sample files no longer
+  start with a UTF-8 byte-order mark, which a strict JSON-lines reader rejected on the first line of each day.
+
 - `context_compaction` now reaches Claude Code and OpenCode captains, not only the API-endpoint runtime. Each
   harness gets a shipped plugin that asks the new caller-scoped MCP tool `armada_context_compaction`, as the
   captain, which earlier tool results are still load-bearing. The Claude Code plugin steers the harness's own
