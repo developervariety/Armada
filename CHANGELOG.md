@@ -20,6 +20,16 @@ All notable changes to Armada are documented in this file.
   Measured on 1,056 real calls at the 60,000-character budget: density ranges down to 1.9 characters per token, so
   the densest states exceed the request limit, but a lower budget would truncate about a third of states to rescue
   a fraction of one percent.
+- A built-in typed decision carries its declarative half — its questions, their option meanings, and
+  which fields of its input are serialized into the state — as a definition, shipped as an embedded
+  default and reworded in settings under `typedDecisions.decisions.<name>`. The engine that turns a
+  definition into questions and state is the one the custom decisions use. C# keeps only the deterministic
+  rule, `Combine`, `Interpret`, and any side effects. A settings override carries only wording: its type
+  has no field for a question's id set, its kind, its finding direction, or the state fields, and the
+  resolver applies a reword only to an existing question and an existing option, so no settings edit can
+  add or remove a question, change what an answer means for the gate, or flip a decision into an approving
+  direction. `refusal` is defined this way; it sends the same questions and state as before, proven by a
+  request-equality test, so its behaviour and evaluation cases are unchanged. See `docs/TYPED_DECISIONS.md`.
 
 - Retained typed-decision samples carry `redactor_version`, the new `DecisionStateRedactor.Version` (2 for the
   identifier-preserving rules), because redacted text cannot be re-redacted and samples redacted under different

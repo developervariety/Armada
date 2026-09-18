@@ -713,6 +713,68 @@ and no new persona (ships `Gate`):
   With the decision `Off` every seam runs its deterministic path unchanged, and a
   seam with no retrieved candidate never calls the model.
 
+## Built-in decisions: a declarative definition and a C# rule
+
+A built-in decision has two halves. Its **declarative** half is data: the questions and their
+option or level meanings, which fields of the decision's input are serialized into the state,
+and the direction that reads a finding. This half is a **definition** — the same shape a custom
+decision uses — shipped as an embedded default in source and overridable in settings under
+`typedDecisions.decisions.<name>`. The engine that turns a definition into questions and state,
+and reads the gate value from the answers, is the one the custom decisions use, so a built-in
+and a custom decision are asked the same way. The decision's threshold and mode are the
+`gateThreshold` and `mode` on its `typedDecisions.decisions.<name>` row.
+
+Its **behavioural** half is C#, never data:
+
+- **The deterministic rule** stays authoritative and is the fallback in every non-gated case. A
+  definition never produces a verdict.
+- **`Combine`** maps the rule verdict and the model reading to the effective verdict. A rule
+  hard-block always wins, and `Combine` returns the rule or a **more conservative** verdict,
+  never an approval. It is C#-only; a definition cannot express it.
+- **`Interpret` and side effects** — how a decision reads its own answers into the single gate
+  confidence, and any informative side signal such as the `refusal` blocked-on-premise papercut
+  — stay in code.
+
+### An owner-edited definition can never approve — enforced in code
+
+A definition carries questions, wording, and a finding direction; it carries no action and no
+verdict, because the verdict is `Combine`, which is C#-only and conservative at every confidence.
+An operator override is merged onto the embedded default through a **field whitelist**, in code:
+
+- **Overridable:** the human-facing wording (a question's instructions, the meanings of its
+  existing options, a Noul's true and false pole meanings), the `gateThreshold`, and the `mode`.
+- **Fixed by the embedded default, never taken from settings:** the set of question ids, each
+  question's kind, the finding direction (a Choice's `flagOptions`, a Noul's true pole as the
+  finding), and the `stateFields` whitelist.
+
+The override type carries only the whitelisted wording fields, so a settings edit has no field
+in which to add or remove a question, change a question's kind, change what an answer means for
+the gate, or widen what the decision serializes. The merge applies a wording override by
+matching an existing question id; an override for an unknown id is ignored, so the question set
+cannot grow. A threshold moves only **when** the conservative action fires — a higher threshold
+fires it less often, never the reverse — and the mode is capped by the global kill switch. The
+`Built-in Decision Definition` suite drives an override that names an unknown question and each
+forbidden change and asserts the effective definition's structure is unchanged, and drives a
+wording override and asserts only the wording changed.
+
+### `refusal`
+
+`refusal` is defined this way. Its embedded default carries the `outcome` Choice with its five
+options and their meanings, the `quoted_not_own` Noul with its poles, and the `stateFields`
+`mission_title`, `agent_output_tail`, and `marker_present`; its threshold and mode are the
+`refusal` row (`Gate`, `0.90`). The adapter holds the behavioural half: the deterministic rule
+(the structured `[ARMADA:RESULT] REFUSED` marker and the provider safeguard block are
+authoritative), `Interpret` (the action confidence is the `refused_policy` choice confidence on
+a promote, or `quoted_not_own` on a demote), `Combine` (promote a prose policy refusal the rule
+missed, demote a quoted phrase only at very high confidence, never overturn a hard-block), and
+the blocked-on-premise papercut side effect. An operator rewords the `outcome` options or moves
+the `refusal` threshold from settings without a deploy, and cannot change which outcomes are a
+refusal.
+
+The other built-in decisions carry their declaration in C# and adopt a definition one at a time.
+The current per-decision status is the `TypedDecisionWiring` list and the eval store, not this
+page.
+
 ## Custom decisions — operators define their own
 
 Beyond the shipped decisions, an operator can define **custom typed decisions** from the

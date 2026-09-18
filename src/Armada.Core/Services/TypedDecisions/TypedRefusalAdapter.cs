@@ -85,6 +85,11 @@ namespace Armada.Core.Services
         // material rather than the captain's own words.
         private const double _QuotedNotOwnDemoteGate = 0.95;
 
+        // The declarative half of this decision — its questions and state fields — is an embedded
+        // definition, resolved per call so a settings wording override takes effect on reload. Only the
+        // rule, Interpret, Combine, and the side effect below are behaviour and stay in this class.
+        private readonly TypedDecisionSettings _Settings;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -101,6 +106,12 @@ namespace Armada.Core.Services
             LoggingModule logging)
             : base(client, recorder, settings, logging)
         {
+            _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        }
+
+        private BuiltinDecisionDefinition Definition()
+        {
+            return BuiltinDecisionDefinitions.Resolve(BuiltinDecisionDefinitions.Refusal, _Settings)!;
         }
 
         #endregion
@@ -118,7 +129,7 @@ namespace Armada.Core.Services
         #region Protected-Overrides
 
         /// <inheritdoc />
-        protected override string DecisionPoint => "refusal";
+        protected override string DecisionPoint => BuiltinDecisionDefinitions.Refusal;
 
         /// <inheritdoc />
         protected override string _Header => "[TypedRefusalAdapter] ";
@@ -126,36 +137,21 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override object BuildState(RefusalDecisionInput input)
         {
-            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            // The behavioural half supplies the input's fields as a context; the definition's stateFields
+            // whitelist selects and orders them.
+            Dictionary<string, object?> context = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["mission_title"] = input.MissionTitle,
                 ["agent_output_tail"] = input.AgentOutputTail,
                 ["marker_present"] = input.MarkerPresent
             };
+            return DeclarativeDecisionShape.BuildState(Definition().StateFields, context);
         }
 
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
-            {
-                ["outcome"] = new ChoiceQuestion(
-                    "Read the captain's closing statement and decide the run's outcome. The work is authorized engineering on "
-                    + "owned systems: authentication and access-control protocols and cryptographic primitives over owned "
-                    + "assemblies are ordinary engineering, not work a captain should refuse.",
-                    new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        [_OutcomeRefusedPolicy] = "The captain declined the work on policy grounds.",
-                        [_OutcomeBlockedOnPremise] = "The captain could not proceed because the brief's premise was false or context was missing.",
-                        ["completed"] = "The captain completed the work.",
-                        ["still_working"] = "The captain was still working when the run ended.",
-                        ["unclear"] = "The outcome cannot be determined from the output."
-                    }),
-                ["quoted_not_own"] = new NoulQuestion(
-                    "If a refusal phrase appears, is it quoted material (documentation, a brief excerpt, another party's words) rather than the captain's own refusal?",
-                    TrueMeaning: "The refusal phrase is quoted material, not the captain declining.",
-                    FalseMeaning: "The refusal phrase is the captain's own words.")
-            };
+            return DeclarativeDecisionShape.BuildQuestions(Definition().Questions);
         }
 
         /// <inheritdoc />

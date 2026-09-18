@@ -427,6 +427,15 @@ namespace Armada.Core.Settings
             set => _GateThreshold = Math.Max(0.0, Math.Min(1.0, value));
         }
 
+        /// <summary>
+        /// For a built-in decision that ships an embedded definition, an optional operator override of its
+        /// wording only (a question's instructions and the meanings of its existing options and poles).
+        /// The override cannot add, remove, or rename a question, change a question's kind, or change a
+        /// finding direction — its type carries no field for any of those — so it can never flip the
+        /// decision into an approving direction. Null means the embedded default is used unchanged.
+        /// </summary>
+        public BuiltinDecisionDefinitionOverride? Definition { get; set; }
+
         private double _GateThreshold = 0.0;
     }
 
