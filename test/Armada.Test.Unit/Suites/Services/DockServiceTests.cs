@@ -1008,6 +1008,142 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("PurgeAsync does not delete a worktree path owned by another active dock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    LockingGitService git = new LockingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    // One mission, two attempts: the worktree path is keyed by mission, so the superseded
+                    // record and the live record name the same directory.
+                    string sharedWorktree = Path.Combine(settings.DocksDirectory, "shared-mission", "Vessel");
+                    Directory.CreateDirectory(sharedWorktree);
+                    await File.WriteAllTextAsync(Path.Combine(sharedWorktree, "CLAUDE.md"), "the live attempt is reading this").ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("shared-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock supersededDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = sharedWorktree,
+                        BranchName = "armada/attempt-2",
+                        Active = false
+                    };
+                    supersededDock = await testDb.Driver.Docks.CreateAsync(supersededDock).ConfigureAwait(false);
+
+                    Dock liveDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = sharedWorktree,
+                        BranchName = "armada/attempt-3",
+                        Active = true
+                    };
+                    liveDock = await testDb.Driver.Docks.CreateAsync(liveDock).ConfigureAwait(false);
+
+                    await service.PurgeAsync(supersededDock.Id).ConfigureAwait(false);
+
+                    AssertTrue(Directory.Exists(sharedWorktree), "Purging the superseded dock must not delete a path the live dock owns");
+                    AssertTrue(File.Exists(Path.Combine(sharedWorktree, "CLAUDE.md")), "The live attempt's files must survive a superseded dock's purge");
+
+                    Dock? reloadedLive = await testDb.Driver.Docks.ReadAsync(liveDock.Id).ConfigureAwait(false);
+                    AssertNotNull(reloadedLive, "Live dock should remain readable");
+                    AssertTrue(reloadedLive!.Active, "Live dock should remain active");
+                }
+            });
+
+            await RunTest("DeleteAsync does not delete a worktree path owned by another active dock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    LockingGitService git = new LockingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string sharedWorktree = Path.Combine(settings.DocksDirectory, "shared-mission", "Vessel");
+                    Directory.CreateDirectory(sharedWorktree);
+                    await File.WriteAllTextAsync(Path.Combine(sharedWorktree, "CLAUDE.md"), "the live attempt is reading this").ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("shared-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock supersededDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = sharedWorktree,
+                        BranchName = "armada/attempt-2",
+                        Active = false
+                    };
+                    supersededDock = await testDb.Driver.Docks.CreateAsync(supersededDock).ConfigureAwait(false);
+
+                    Dock liveDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = sharedWorktree,
+                        BranchName = "armada/attempt-3",
+                        Active = true
+                    };
+                    liveDock = await testDb.Driver.Docks.CreateAsync(liveDock).ConfigureAwait(false);
+
+                    bool deleted = await service.DeleteAsync(supersededDock.Id).ConfigureAwait(false);
+
+                    AssertTrue(deleted, "Deleting the superseded dock record should still succeed");
+                    AssertTrue(File.Exists(Path.Combine(sharedWorktree, "CLAUDE.md")), "The live attempt's files must survive a superseded dock's delete");
+                }
+            });
+
+            await RunTest("PurgeAsync still removes the worktree when no other dock owns the path", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    LockingGitService git = new LockingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    // The guard must not over-refuse: a dock that genuinely owns its path is still torn down.
+                    string ownedWorktree = Path.Combine(settings.DocksDirectory, "sole-mission", "Vessel");
+                    Directory.CreateDirectory(ownedWorktree);
+                    await File.WriteAllTextAsync(Path.Combine(ownedWorktree, "CLAUDE.md"), "nobody else owns this").ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("sole-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock soleDock = new Dock(vessel.Id)
+                    {
+                        WorktreePath = ownedWorktree,
+                        BranchName = "armada/sole",
+                        Active = false
+                    };
+                    soleDock = await testDb.Driver.Docks.CreateAsync(soleDock).ConfigureAwait(false);
+
+                    await service.PurgeAsync(soleDock.Id).ConfigureAwait(false);
+
+                    AssertFalse(Directory.Exists(ownedWorktree), "A dock that owns its path must still have its worktree removed");
+                }
+            });
+
             await RunTest("ReclaimAsync defers while a definition-of-done gate holds the dock lease", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
