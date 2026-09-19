@@ -108,7 +108,7 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
         <h5>{result.requireAccountLogin
           ? t('Captains refused with no account login')
           : t('Captains that would be refused if account login is required')}</h5>
-        <ul>{result.accountLoginRefusals.map((item) => <li key={item.captainId}>
+        <ul>{(result.accountLoginRefusals ?? []).map((item) => <li key={item.captainId}>
           {names.get(item.captainId) ?? item.captainId}
           {item.accountId ? ` (${item.accountId})` : ''} — <span className="mono">{item.reason}</span>
         </li>)}</ul>

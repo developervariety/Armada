@@ -53,6 +53,8 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Dashboard smart-routing preview TypeScript: map `accountLoginRefusals` through `?? []` so `tsc` accepts the optional field.
+
 - A failed or landing-failed mission with no voyage in its chain no longer lists in the operator
   inbox. Clearing voyage links after a landing used to leave those missions visible forever.
 - Reclaiming a dock kills processes whose working directory is inside it, so a captain's detached
