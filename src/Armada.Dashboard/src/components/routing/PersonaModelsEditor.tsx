@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLocale } from '../../context/LocaleContext';
 import {
-  MODEL_LISTS, personaModels, personaRows, type ModelAvailability, type ModelListName, type PersonaModelEntry,
+  MODEL_LISTS, isDeadModel, personaModels, personaRows, type DeadPersonaModelEntry, type ModelAvailability, type ModelListName, type PersonaModelEntry,
 } from '../../lib/smartRouting';
 import type { PolicyRecord } from '../../lib/subscriptionAccounts';
 import ModelChips from './ModelChips';
@@ -13,6 +13,8 @@ interface Props {
   availability: Record<string, ModelAvailability>;
   /** Replace `personaModels` in the draft policy. */
   onChange: (personaModels: Record<string, PersonaModelEntry>) => void;
+  /** Server census of list entries no eligible captain can satisfy. */
+  deadEntries?: DeadPersonaModelEntry[];
 }
 
 const EMPTY: PersonaModelEntry = { default: [], lighter: [], stronger: [] };
@@ -21,7 +23,7 @@ const EMPTY: PersonaModelEntry = { default: [], lighter: [], stronger: [] };
  * One row per persona with Default, Lighter, and Stronger model lists. An entry exists only while one of its lists
  * has a model, so a persona without lists keeps the Legacy Routing order.
  */
-export default function PersonaModelsEditor({ policy, personas, options, availability, onChange }: Props) {
+export default function PersonaModelsEditor({ policy, personas, options, availability, onChange, deadEntries = [] }: Props) {
   const { t } = useLocale();
   const [extras, setExtras] = useState<string[]>([]);
   const [newPersona, setNewPersona] = useState('');
@@ -53,7 +55,7 @@ export default function PersonaModelsEditor({ policy, personas, options, availab
 
   return <div className="persona-models">
     <h4>{t('Persona model lists')}</h4>
-    <p className="text-muted">{t('Captains running a Default model go first. The capacity decision can move the Lighter or Stronger list first for one mission. Captains on no list still go last.')}</p>
+    <p className="text-muted">{t('Captains running a Default model go first. The capacity decision can move the Lighter or Stronger list first for one mission. Captains on no list still go last. An entry with no eligible captain is marked dead; routing still falls through.')}</p>
     {!policy ? <p className="text-muted">{t('Fix the policy JSON to edit persona model lists.')}</p> : <>
       <div className="table-wrap"><table className="data-table persona-models-table">
         <thead><tr>
@@ -72,7 +74,9 @@ export default function PersonaModelsEditor({ policy, personas, options, availab
             </td>
             {MODEL_LISTS.map((list) => <td key={list}>
               <ModelChips label={`${persona} ${listLabels[list]}`} value={entry?.[list] ?? []} options={options}
-                availability={availability} onChange={(models) => setList(persona, list, models)} />
+                availability={availability}
+                deadModels={(entry?.[list] ?? []).filter((model) => isDeadModel(deadEntries, persona, list, model))}
+                onChange={(models) => setList(persona, list, models)} />
             </td>)}
             <td>{(entry || !catalogued) && (
               <button type="button" className="btn btn-secondary btn-sm" aria-label={t('Remove model lists for {{persona}}', { persona })}

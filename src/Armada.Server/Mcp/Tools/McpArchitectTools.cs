@@ -48,7 +48,8 @@ namespace Armada.Server.Mcp.Tools
             IAdmiralService admiral,
             ICodeIndexService? codeIndexService = null,
             LoggingModule? logging = null,
-            ArmadaSettings? settings = null)
+            ArmadaSettings? settings = null,
+            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null)
         {
             register(
                 "armada_decompose_plan",
@@ -131,7 +132,10 @@ namespace Armada.Server.Mcp.Tools
                             vesselId,
                             "armada_decompose_plan",
                             settings?.CodeIndex,
-                            logging).ConfigureAwait(false);
+                            logging,
+                            dispatchStalenessAdapter: dispatchStalenessAdapter,
+                            workTitle: title,
+                            workDescription: description).ConfigureAwait(false);
                         if (blockedByIndex != null) return blockedByIndex;
                     }
 

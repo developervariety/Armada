@@ -63,7 +63,8 @@ namespace Armada.Server.Mcp.Tools
             ICodeIndexService? codeIndexService = null,
             ObjectiveService? objectiveService = null,
             LongRunningJobService? jobs = null,
-            ObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
+            ObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
+            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null)
         {
             register(
                 "armada_dispatch",
@@ -205,7 +206,8 @@ namespace Armada.Server.Mcp.Tools
                         codeIndexService,
                         objectiveService,
                         settings,
-                        objectiveDispatchPreview);
+                        objectiveDispatchPreview,
+                        dispatchStalenessAdapter);
 
                     if (jobs != null)
                     {

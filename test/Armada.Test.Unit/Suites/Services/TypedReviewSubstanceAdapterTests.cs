@@ -63,6 +63,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static ReviewSubstanceVerdict MissingSectionsRule() => ReviewSubstanceVerdict.Rule(false, ReviewSubstanceRuleCategory.MissingSections, "Judge PASS verdict missing required review sections: Tests");
         private static ReviewSubstanceVerdict ShortNarrativeRule() => ReviewSubstanceVerdict.Rule(false, ReviewSubstanceRuleCategory.ShortNarrative, "Judge PASS verdict review is too short to justify approval");
         private static ReviewSubstanceVerdict EmptyRule() => ReviewSubstanceVerdict.Rule(false, ReviewSubstanceRuleCategory.EmptyOutput, "Judge PASS verdict missing review output");
+        private static ReviewSubstanceVerdict AcceptanceCriteriaRule() => ReviewSubstanceVerdict.Rule(false, ReviewSubstanceRuleCategory.AcceptanceCriteria, "Judge PASS names a NOT MET acceptance criterion");
 
         private static async Task<int> CountEventsAsync(TestDatabase db, string eventType)
         {
@@ -253,6 +254,18 @@ namespace Armada.Test.Unit.Suites.Services
                 ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), EmptyRule(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.Validated, "an empty-output rejection is a real ground, never overturned");
+            }).ConfigureAwait(false);
+
+            await RunTest("AcceptanceCriteria_RealGround_NotOverturned", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(SubstanceResult(AllStrong(), 3.0, 0.99));
+                TypedReviewSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), AcceptanceCriteriaRule(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertTrue(!result.Validated, "a failed acceptance walk is a real ground, never overturned");
+                AssertEqual("rule", result.Outcome);
             }).ConfigureAwait(false);
 
             await RunTest("NeverThrows_ClientThrows_ReturnsRule_RecordsUnavailable", async () =>

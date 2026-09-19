@@ -835,13 +835,15 @@ namespace Armada.Server
                 if (IsStopRequested(session.Id))
                     return;
 
+                CaptainLaunchIsolationPlan accountPlan = PlanningAccountPlan(captain);
                 int processId = await runtime.StartAsync(
                     dock.WorktreePath ?? vessel.WorkingDirectory ?? vessel.LocalPath ?? Directory.GetCurrentDirectory(),
                     prompt,
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
-                    captain: captain).ConfigureAwait(false);
+                    captain: captain,
+                    isolationPlan: accountPlan).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -1169,6 +1171,7 @@ namespace Armada.Server
 
             try
             {
+                CaptainLaunchIsolationPlan accountPlan = PlanningAccountPlan(captain);
                 processId = await runtime.StartAsync(
                     session.DockId != null
                         ? (await RequireDockAsync(session.DockId, token).ConfigureAwait(false)).WorktreePath ?? vessel.WorkingDirectory ?? vessel.LocalPath ?? Directory.GetCurrentDirectory()
@@ -1178,7 +1181,8 @@ namespace Armada.Server
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
                     captain: captain,
-                    token: token).ConfigureAwait(false);
+                    token: token,
+                    isolationPlan: accountPlan).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -1451,6 +1455,11 @@ namespace Armada.Server
             {
                 _StopOperations.TryRemove(sessionId, out _);
             }
+        }
+
+        private CaptainLaunchIsolationPlan PlanningAccountPlan(Captain captain)
+        {
+            return CaptainLaunchIsolationPlanner.ApplyAccountFromSettings(new CaptainLaunchIsolationPlan(), captain, _Settings.ModelTier.UsageRouting);
         }
 
         private Armada.Runtimes.Interfaces.IAgentRuntime CreatePlanningRuntime(Captain captain)

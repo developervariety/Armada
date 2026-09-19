@@ -17,12 +17,49 @@ All notable changes to Armada are documented in this file.
   thing that drops a chunk the rule would have kept. A 2026-09-19 census of 1,129 real Claude Code
   sessions found zero `compact_boundary` events (the 21 compact hits were `/tmp` probes), so no
   Bash `tool.call` hook ships.
+- Dispatch preflight question 14: the target tip is green, or the brief names the failures it
+  inherits. Numbered last so questions 1-13 stay stable. It is a recorded operator answer, not a
+  live suite run at preview time; an unanswered or no answer blocks the same way questions 1-12
+  do, and `forcePreflight` names 14 on the override event.
+- Dispatch preview lists the effective pipeline stages after a stored operator-confirmed stage skip,
+  using the shared `PipelineStageSkip` rule. An unconfirmed skip is reported as `stage_skip_unconfirmed`
+  without dropping stages. A skip dispatch would refuse is reported with the same code.
+- Saving a persona model list reports every entry no eligible captain for that persona can satisfy. Startup logs one summary of every dead entry. When the capacity-chosen list matches nothing eligible, routing falls through and the reason is `persona_models_matched_nothing` (an applied list names the captain as `persona_models_applied_<group>:<captainId>`). Settings GET/PUT and usage-preview carry `personaModelHealth` with the floor, eligible captains, and live/dead marks. Dispatch is not refused.
+- A Judge PASS must walk every acceptance criterion from the brief. The walk lives in
+  `JudgeAcceptanceWalk`: when the brief lists criteria, the review needs `## Acceptance Criteria`
+  with one MET or NOT MET line per criterion, and a NOT MET line forbids PASS. That refusal is a
+  real ground (`AcceptanceCriteria`); `review_substance` never overturns it. The objective brief
+  renders criteria before Scope so a tight budget drops Scope first, and mission-description
+  truncation pins the criteria block. `[DOD:DOC-ONLY]` non-code diffs tell the Judge not to run
+  the full suite.
+- `modelTier.usageRouting.requireAccountLogin` (default off) refuses Claude Code, Codex, OpenCode,
+  and Cursor captains with no account login binding on mission, Ask, planning, and refinement
+  launches. The Routing tab lists who would be refused before the setting is on. Cursor cards name
+  a missing key file and that API-key usage is unmeasurable (Unknown still routes under
+  `unknownUsagePolicy` Allow). A Cursor browser login never launches a captain.
+- The `dispatch_staleness` typed decision (ships `Gate`, threshold 0.90) runs at voyage dispatch
+  when a vessel's code index is stale on indexable source. It asks one closed Choice (`proceed`,
+  `refresh_inline`, `block`) over the configured policy, the relevance counts, whether an update
+  is in progress, the title, and a head of the description — never raw hunks. The deterministic
+  policy is the rule; a docs-only stale index still Proceeds. Combine never introduces a wait the
+  rule would not, and a `Block` rule always wins. Off, unavailable, and below threshold keep the
+  rule.
 
 ### Removed
 
 - The `context_compaction` typed decision and its adapter. API-endpoint compaction stays as a
   deterministic shape rule. Real captains do not compact, and a classifier cannot drop a progress
   chunk the rule would have kept.
+
+### Fixed
+
+- A failed or landing-failed mission with no voyage in its chain no longer lists in the operator
+  inbox. Clearing voyage links after a landing used to leave those missions visible forever.
+- Reclaiming a dock kills processes whose working directory is inside it, so a captain's detached
+  child cannot keep the mission branch registered after the captain goes Idle. A later stage that
+  hits git's "already used by worktree" refusal releases the holder and retries once; a second
+  refusal fails the mission with `dock_worktree_held` instead of looping Pending. The holding path
+  and occupant pids are in the failure reason.
 
 ### Changed
 
@@ -34,6 +71,9 @@ All notable changes to Armada are documented in this file.
   cannot drop a progress chunk the rule would have kept. README and
   `docs/TYPED_DECISIONS.md` describe that contract; the typed-decision catalogue
   does not list `context_compaction`.
+- `scripts/linux/bootstrap-server.sh` next steps name the dashboard path for AI runtime logins
+  (Settings > Routing > Subscription accounts). The script still only creates folders and mounts.
+
 
 - Content markers for typed-decision egress: `typedDecisions.egressExcludedMarkers`, with a per-decision and
   per-custom-definition override. A state whose UNREDACTED text names a marker sends nothing and records

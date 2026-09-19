@@ -12,8 +12,8 @@ namespace Armada.Core.Services
     /// The deterministic category a Judge-PASS structural validation returns. The D4
     /// <c>review_substance</c> adapter may only ever flip a <see cref="MissingSections"/> rejection —
     /// a FORM defect where the required headings failed the regex but the substance may still be
-    /// present. An <see cref="EmptyOutput"/> or <see cref="ShortNarrative"/> rejection is a REAL
-    /// ground the model never overturns.
+    /// present. An <see cref="EmptyOutput"/>, <see cref="ShortNarrative"/>, or
+    /// <see cref="AcceptanceCriteria"/> rejection is a REAL ground the model never overturns.
     /// </summary>
     public enum ReviewSubstanceRuleCategory
     {
@@ -27,7 +27,10 @@ namespace Armada.Core.Services
         MissingSections,
 
         /// <summary>The extracted narrative was too short to justify approval: a real ground, never flipped.</summary>
-        ShortNarrative
+        ShortNarrative,
+
+        /// <summary>The Judge omitted the acceptance-criteria walk or named a criterion NOT MET: a real ground, never flipped.</summary>
+        AcceptanceCriteria
     }
 
     /// <summary>
@@ -353,7 +356,7 @@ namespace Armada.Core.Services
             // The rule rejected this PASS. Only a heading-FORM rejection is ever flipped, and only when
             // every required section's substance is present (guaranteed at threshold by the gate) and
             // the whole review is at or above "evidenced". A rejection on a real ground — empty output
-            // or a too-short narrative, where substance cannot be present — is never overturned.
+            // or a too-short narrative, or a failed acceptance-criteria walk — is never overturned.
             if (ruleVerdict.Category == ReviewSubstanceRuleCategory.MissingSections
                 && model.AcceptEligible
                 && model.MinSectionNoul > 0.0)

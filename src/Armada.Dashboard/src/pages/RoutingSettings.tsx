@@ -12,6 +12,7 @@ import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useProxySessionContext } from '../lib/useProxySessionContext';
 import { mergeDraft } from '../lib/settingsDraft';
+import type { DeadPersonaModelEntry } from '../lib/smartRouting';
 
 type SettingsRecord = Record<string, unknown>;
 
@@ -22,6 +23,25 @@ function usageRoutingText(settings: SettingsRecord): string {
 
 function providerUsage(settings: SettingsRecord): Array<SettingsRecord> {
   return Array.isArray(settings.providerUsage) ? settings.providerUsage as Array<SettingsRecord> : [];
+}
+
+function deadEntries(settings: SettingsRecord | null): DeadPersonaModelEntry[] {
+  const health = settings?.personaModelHealth as Record<string, unknown> | undefined;
+  const raw = health?.dead;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => {
+    const row = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>;
+    return {
+      persona: String(row.persona ?? ''),
+      list: String(row.list ?? ''),
+      model: String(row.model ?? ''),
+    };
+  }).filter((entry) => entry.persona && entry.list && entry.model);
+}
+
+function healthSummary(settings: SettingsRecord | null): string {
+  const health = settings?.personaModelHealth as Record<string, unknown> | undefined;
+  return typeof health?.summary === 'string' ? health.summary : '';
 }
 
 /**
@@ -94,8 +114,12 @@ export default function RoutingSettings() {
     try {
       const usageRouting: unknown = JSON.parse(sent);
       if (!usageRouting || typeof usageRouting !== 'object' || Array.isArray(usageRouting)) throw new Error(t('Policy must be a JSON object.'));
-      applySaved(await updateSettings({ modelTier: { usageRouting } }) as SettingsRecord, sent);
-      setMessage(t('Smart Routing settings saved.'));
+      const result = await updateSettings({ modelTier: { usageRouting } }) as SettingsRecord;
+      applySaved(result, sent);
+      const summary = healthSummary(result);
+      setMessage(deadEntries(result).length > 0 && summary
+        ? t('Smart Routing settings saved.') + ' ' + summary
+        : t('Smart Routing settings saved.'));
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setSaving(false); }
   };
@@ -145,7 +169,7 @@ export default function RoutingSettings() {
         onSavePolicy={saveAccountChange} onRefresh={load} />
       <fieldset disabled={remoteProxyMode || saving} style={{ border: 0, padding: 0, minWidth: 0 }}>
         <UsageRoutingEditor value={policy} onChange={value => { setPolicy(value); setMessage(''); }} statuses={statuses}
-          personas={personas} captains={captains} />
+          personas={personas} captains={captains} deadEntries={deadEntries(saved)} />
         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', alignItems: 'center' }}>
           <button className="btn btn-primary" type="button" onClick={saveUsageRouting}>{saving ? t('Saving...') : t('Save routing policy')}</button>
           <button className="btn btn-secondary" type="button" onClick={() => setPolicy(policyBaseRef.current)} disabled={!usageDirty}>{t('Discard changes')}</button>

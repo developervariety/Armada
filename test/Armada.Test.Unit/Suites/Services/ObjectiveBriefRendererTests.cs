@@ -27,8 +27,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertInOrder(brief,
                     "# Objective Brief",
-                    "## Scope",
                     "## Acceptance Criteria",
+                    "## Scope",
                     "## Non-Goals",
                     "## Prepared Research",
                     "### Required Dispatch Gates",
@@ -157,6 +157,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("## Prepared Research", brief);
                 AssertContains("claim-DispatchEntryPoint", brief);
                 AssertContains("<!-- /armada-objective-brief -->", brief);
+            }).ConfigureAwait(false);
+
+            await RunTest("Render keeps acceptance criteria ahead of a huge scope", () =>
+            {
+                Objective objective = FullObjective();
+                objective.Description = new string('s', 12000);
+                objective.AcceptanceCriteria = new List<string> { "Gate stays green" };
+
+                string brief = ObjectiveBriefRenderer.Render(objective, 2000);
+
+                AssertTrue(brief.Length <= 2000, "The complete brief must stay bounded.");
+                AssertContains("## Acceptance Criteria", brief);
+                AssertContains("Gate stays green", brief);
+                int criteriaAt = brief.IndexOf("## Acceptance Criteria", System.StringComparison.Ordinal);
+                int scopeAt = brief.IndexOf("## Scope", System.StringComparison.Ordinal);
+                AssertTrue(criteriaAt >= 0 && (scopeAt < 0 || criteriaAt < scopeAt),
+                    "Criteria must render before Scope so a tight budget drops Scope first.");
             }).ConfigureAwait(false);
 
             await RunTest("An anchor without an immutable commit is labeled unresolved", () =>

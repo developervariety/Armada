@@ -999,6 +999,118 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(after.IsReady, "a model flag makes the preview not ready, so the scheduler skips it");
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Preview lists effective stages after a stored confirmed skip using PipelineStageSkip", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Pipeline pipeline = new Pipeline("SkipPreview")
+                    {
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "TestEngineer"),
+                            new PipelineStage(3, "Judge")
+                        }
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    StageSkipRequest skip = new StageSkipRequest
+                    {
+                        Stages = new List<string> { "TestEngineer" },
+                        Reason = "doc-only",
+                        ConfirmedBy = "UnitTest",
+                        ConfirmedUtc = DateTime.UtcNow
+                    };
+                    Objective objective = harness.CreateReadyObjective("stored-skip-preview");
+                    objective.Preparation.StageSkip = skip;
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, pipeline.Id).ConfigureAwait(false);
+
+                    PipelineStageSkipResult applied = PipelineStageSkip.Apply(pipeline, skip);
+                    List<string> expected = applied.Pipeline!.Stages.Select(stage => stage.PersonaName).ToList();
+                    AssertTrue(result.StageSkipConfirmed, "a stored confirmer is reported");
+                    AssertTrue(result.EffectivePipelineStages.SequenceEqual(expected),
+                        "preview and dispatch agree on the effective stages");
+                    AssertTrue(result.SkippedPipelineStages.SequenceEqual(new[] { "TestEngineer" }),
+                        "the dropped persona is listed");
+                    AssertTrue(result.RequiredRoles.Select(role => role.Persona).SequenceEqual(expected),
+                        "captain coverage follows the skipped pipeline");
+                    AssertEqual((string?)null, result.StageSkipRefusalCode, "a legal skip is not a refusal");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preview reports an unconfirmed skip without dropping stages", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Pipeline pipeline = new Pipeline("UnconfirmedSkipPreview")
+                    {
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "TestEngineer"),
+                            new PipelineStage(3, "Judge")
+                        }
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("unconfirmed-skip-preview");
+                    objective.Preparation.StageSkip = new StageSkipRequest
+                    {
+                        Stages = new List<string> { "TestEngineer" },
+                        Reason = "not yet confirmed"
+                    };
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, pipeline.Id).ConfigureAwait(false);
+
+                    AssertFalse(result.StageSkipConfirmed, "no confirmer means unconfirmed");
+                    AssertTrue(result.EffectivePipelineStages.SequenceEqual(new[] { "Worker", "TestEngineer", "Judge" }),
+                        "an unconfirmed skip does not drop stages");
+                    AssertEqual(0, result.SkippedPipelineStages.Count, "no stage is listed as skipped");
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "stage_skip_unconfirmed"),
+                        "the unconfirmed skip is named");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preview reports the named refusal a stored skip would hit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Pipeline pipeline = new Pipeline("JudgeSkipPreview")
+                    {
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "Judge")
+                        }
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("judge-skip-preview");
+                    objective.Preparation.StageSkip = new StageSkipRequest
+                    {
+                        Stages = new List<string> { "Judge" },
+                        ConfirmedBy = "UnitTest"
+                    };
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, pipeline.Id).ConfigureAwait(false);
+
+                    AssertEqual(PipelineStageSkip.JudgeRefusedCode, result.StageSkipRefusalCode,
+                        "preview names the same refusal dispatch would hit");
+                    AssertTrue(result.Issues.Any(issue => issue.Code == PipelineStageSkip.JudgeRefusedCode),
+                        "the refusal is a blocking preview issue");
+                    AssertTrue(result.EffectivePipelineStages.SequenceEqual(new[] { "Worker", "Judge" }),
+                        "a refused skip leaves the pipeline unchanged");
+                }
+            }).ConfigureAwait(false);
         }
 
         private static void SetAnswer(ObjectivePreflight preflight, int number, ObjectivePreflightAnswerEnum answer)

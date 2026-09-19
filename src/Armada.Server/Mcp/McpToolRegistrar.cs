@@ -105,6 +105,7 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.InboxTriageAdapter? inboxTriageAdapter = null,
             Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null,
             Armada.Core.Services.TypedChangeQualityAdapter? changeQualityAdapter = null,
+            Armada.Core.Services.TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null,
             Armada.Core.Services.Interfaces.IFollowUpRouter? changeQualityFollowUpRouter = null,
             Armada.Core.Context.ContextRetrievalService? contextRetrieval = null,
             Func<string?>? contextParticipantKeyProvider = null,
@@ -118,7 +119,7 @@ namespace Armada.Server.Mcp
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
-            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService);
+            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService, dispatchStalenessAdapter);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain, statusTransitions);
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
@@ -203,7 +204,7 @@ namespace Armada.Server.Mcp
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService, followUpRoutingAdapter);
             McpChangeQualityTools.Register(register, changeQualityAdapter, changeQualityFollowUpRouter, logging);
-            McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
+            McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings, dispatchStalenessAdapter);
             if (codeIndexService != null)
             {
                 McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);

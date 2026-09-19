@@ -22,6 +22,9 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="logging">Logging module used to schedule a background refresh. Null skips the refresh kick.</param>
         /// <param name="logWarning">Optional sink for the timeout warning.</param>
         /// <param name="token">Caller cancellation token.</param>
+        /// <param name="dispatchStalenessAdapter">Optional dispatch_staleness adapter. Null keeps the deterministic policy.</param>
+        /// <param name="workTitle">Voyage or objective title, when known, for the decision state.</param>
+        /// <param name="workDescription">Voyage or objective description, when known, for the decision state.</param>
         /// <returns>A blocked-response object, or null when dispatch may proceed.</returns>
         public static async Task<object?> BuildVoyageDispatchBlockedResponseAsync(
             ICodeIndexService? codeIndexService,
@@ -30,7 +33,10 @@ namespace Armada.Server.Mcp.Tools
             CodeIndexSettings? settings = null,
             LoggingModule? logging = null,
             Action<string>? logWarning = null,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null,
+            string? workTitle = null,
+            string? workDescription = null)
         {
             if (codeIndexService == null || String.IsNullOrWhiteSpace(vesselId))
                 return null;
@@ -61,23 +67,35 @@ namespace Armada.Server.Mcp.Tools
             {
                 if (policy == CodeIndexDispatchStalenessPolicyEnum.Block)
                 {
-                    string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? vesselId : status.VesselName;
-                    string started = status.UpdateStartedUtc.HasValue ? status.UpdateStartedUtc.Value.ToString("o") : "unknown time";
-                    string reason =
-                        "Voyage dispatch is blocked because Armada is currently refreshing the code index for vessel "
-                        + vesselId + " (" + vesselName + ") since " + started
-                        + ". Dispatch is delayed until indexing finishes so generated context packs and search results include the most recently landed code. Retry after codeIndex.updateInProgress is false.";
-
-                    return new
+                    CodeIndexDispatchStalenessPolicyEnum outcome = await ResolveReactionAsync(
+                        dispatchStalenessAdapter,
+                        DispatchStalenessRules.RuleVerdict(policy, new CodeIndexStalenessRelevance(), true),
+                        policy,
+                        new CodeIndexStalenessRelevance(),
+                        true,
+                        workTitle,
+                        workDescription,
+                        token).ConfigureAwait(false);
+                    if (outcome == CodeIndexDispatchStalenessPolicyEnum.Block)
                     {
-                        Error = reason,
-                        Code = "code_index_update_in_progress",
-                        Reason = reason,
-                        Action = actionName,
-                        VesselId = vesselId,
-                        VesselName = vesselName,
-                        CodeIndex = status
-                    };
+                        string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? vesselId : status.VesselName;
+                        string started = status.UpdateStartedUtc.HasValue ? status.UpdateStartedUtc.Value.ToString("o") : "unknown time";
+                        string reason =
+                            "Voyage dispatch is blocked because Armada is currently refreshing the code index for vessel "
+                            + vesselId + " (" + vesselName + ") since " + started
+                            + ". Dispatch is delayed until indexing finishes so generated context packs and search results include the most recently landed code. Retry after codeIndex.updateInProgress is false.";
+
+                        return new
+                        {
+                            Error = reason,
+                            Code = "code_index_update_in_progress",
+                            Reason = reason,
+                            Action = actionName,
+                            VesselId = vesselId,
+                            VesselName = vesselName,
+                            CodeIndex = status
+                        };
+                    }
                 }
 
                 logging?.Info("[CodeIndexDispatchGuard] code index for vessel " + vesselId
@@ -111,8 +129,18 @@ namespace Armada.Server.Mcp.Tools
                 return null;
             }
 
-            // The index is stale on indexable source: apply the configured policy.
-            switch (policy)
+            CodeIndexDispatchStalenessPolicyEnum rule = DispatchStalenessRules.RuleVerdict(policy, relevance, false);
+            CodeIndexDispatchStalenessPolicyEnum reaction = await ResolveReactionAsync(
+                dispatchStalenessAdapter,
+                rule,
+                policy,
+                relevance,
+                false,
+                workTitle,
+                workDescription,
+                token).ConfigureAwait(false);
+
+            switch (reaction)
             {
                 case CodeIndexDispatchStalenessPolicyEnum.Block:
                 {
@@ -152,6 +180,37 @@ namespace Armada.Server.Mcp.Tools
                         + " is stale; dispatch proceeds against the current index and a background refresh was scheduled.");
                     return null;
                 }
+            }
+        }
+
+        private static async Task<CodeIndexDispatchStalenessPolicyEnum> ResolveReactionAsync(
+            TypedDispatchStalenessAdapter? adapter,
+            CodeIndexDispatchStalenessPolicyEnum ruleVerdict,
+            CodeIndexDispatchStalenessPolicyEnum policy,
+            CodeIndexStalenessRelevance relevance,
+            bool updateInProgress,
+            string? workTitle,
+            string? workDescription,
+            CancellationToken token)
+        {
+            if (adapter == null) return ruleVerdict;
+            try
+            {
+                return await adapter.DecideAsync(
+                    new DispatchStalenessInput
+                    {
+                        Policy = policy,
+                        UpdateInProgress = updateInProgress,
+                        Relevance = relevance ?? new CodeIndexStalenessRelevance(),
+                        Title = workTitle ?? String.Empty,
+                        Description = workDescription ?? String.Empty
+                    },
+                    ruleVerdict,
+                    token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                return ruleVerdict;
             }
         }
 

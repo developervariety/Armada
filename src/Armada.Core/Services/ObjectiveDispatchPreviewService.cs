@@ -211,7 +211,8 @@ namespace Armada.Core.Services
             }
 
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
-            EvaluateCaptainCoverage(pipeline, captains, captainAssignments, missionDescriptions, result);
+            Pipeline? coveragePipeline = ApplyStoredStageSkip(objective, pipeline, result);
+            EvaluateCaptainCoverage(coveragePipeline, captains, captainAssignments, missionDescriptions, result);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
 
             // D5 preflight text half. Runs LAST, after the deterministic block computed the facts and
@@ -967,6 +968,58 @@ namespace Armada.Core.Services
             }
             ValidatePipeline(inherited, result);
             return inherited;
+        }
+
+        /// <summary>
+        /// Apply a stored operator-confirmed stage skip with the same <see cref="PipelineStageSkip.Apply"/>
+        /// rule dispatch uses. An unconfirmed skip is reported and not applied. A skip dispatch would
+        /// refuse is reported with the same code and not applied. Never throws into the preview.
+        /// </summary>
+        private static Pipeline? ApplyStoredStageSkip(
+            Objective objective,
+            Pipeline? pipeline,
+            ObjectiveDispatchPreview result)
+        {
+            List<PipelineStage> source = (pipeline?.Stages ?? new List<PipelineStage> { new PipelineStage(1, "Worker") })
+                .Where(stage => stage != null)
+                .OrderBy(stage => stage.Order)
+                .ToList();
+            result.EffectivePipelineStages = source.Select(stage => stage.PersonaName).ToList();
+
+            StageSkipRequest? skip = objective.Preparation?.StageSkip;
+            if (!StageSkipRequest.HasStages(skip))
+                return pipeline;
+
+            result.StageSkipConfirmed = !String.IsNullOrWhiteSpace(skip!.ConfirmedBy);
+            if (!result.StageSkipConfirmed)
+            {
+                AddIssue(result, "stage_skip_unconfirmed", "pipeline", ReadinessSeverityEnum.Warning,
+                    "The stored stage skip is not confirmed; autonomous dispatch will skip this objective.", null);
+                return pipeline;
+            }
+
+            try
+            {
+                PipelineStageSkipResult applied = PipelineStageSkip.Apply(pipeline, skip);
+                result.SkippedPipelineStages = applied.SkippedStages
+                    .Where(stage => stage != null)
+                    .Select(stage => stage.PersonaName)
+                    .ToList();
+                List<PipelineStage> kept = (applied.Pipeline?.Stages ?? new List<PipelineStage>())
+                    .Where(stage => stage != null)
+                    .OrderBy(stage => stage.Order)
+                    .ToList();
+                if (kept.Count == 0)
+                    kept.Add(new PipelineStage(1, "Worker"));
+                result.EffectivePipelineStages = kept.Select(stage => stage.PersonaName).ToList();
+                return applied.Pipeline;
+            }
+            catch (StageSkipRefusedException refused)
+            {
+                result.StageSkipRefusalCode = refused.Code;
+                AddIssue(result, refused.Code, "pipeline", ReadinessSeverityEnum.Error, refused.Message, refused.Persona);
+                return pipeline;
+            }
         }
 
         private static void ValidatePipeline(Pipeline pipeline, ObjectiveDispatchPreview result)

@@ -48,6 +48,18 @@ function isRuntime(value: unknown): value is AccountRuntime {
   return typeof value === 'string' && (ACCOUNT_RUNTIMES as string[]).includes(value);
 }
 
+function accountHasLogin(account: AccountRecord): boolean {
+  return Boolean(account.homeDirectory || account.launchCredentialEnv || account.launchCredentialFile);
+}
+
+function loginRefusalReason(captain: Captain, accounts: AccountRecord[], statuses: StatusRecord[]): string | null {
+  if (!isRuntime(captain.runtime) || captain.apiKey || captain.apiBaseUrl) return null;
+  const account = accounts.find(item => Array.isArray(item.captainIds) && (item.captainIds as string[]).includes(captain.id));
+  if (!account || !accountHasLogin(account)) return 'account_required';
+  const reason = String(statuses.find(item => String(item.accountId) === String(account.id))?.reason || '');
+  return reason.startsWith('account_') && reason !== 'account_provider_failure' ? reason : null;
+}
+
 /**
  * Guided subscription accounts: add any number of accounts per runtime, log each in from the browser, and
  * assign captains. Account folders are derived by the server; keys are sent once and never shown again.
@@ -108,6 +120,28 @@ export default function SubscriptionAccountsPanel({ savedPolicy, statuses, disab
     <h3>{t('Subscription accounts')}</h3>
     <p className="text-muted account-refresh-policy">{t('Usage refreshes every {{refresh}} min when read; data older than {{maxAge}} min counts as Unknown.', { refresh: refreshMinutes, maxAge: maxAgeText })}</p>
     <p className="text-muted">{t('Each account is its own provider login with its own allowance. Add as many accounts per runtime as you need, log each one in here, then assign captains. Confirm that each additional subscription is permitted under the provider terms before you use it.')}</p>
+    <label className="routing-mode-option">
+      <input type="checkbox" checked={Boolean(savedPolicy?.requireAccountLogin)} disabled={disabled || !savedPolicy}
+        aria-label={t('Require account login')}
+        onChange={() => { if (savedPolicy) void onSavePolicy(policy => ({ ...policy, requireAccountLogin: !policy.requireAccountLogin })); }} />
+      <span><strong>{t('Require account login')}</strong><br />
+        <span className="text-muted">{t('When on, Claude Code, Codex, OpenCode, and Cursor captains with no account login cannot launch, chat, plan, or refine. Off by default.')}</span></span>
+    </label>
+
+    {(() => {
+      const refusals = captains.map(captain => {
+        const reason = loginRefusalReason(captain, runtimeAccounts, statuses);
+        return reason ? { captain, reason } : null;
+      }).filter((item): item is { captain: Captain; reason: string } => item !== null);
+      return refusals.length === 0 ? null : <div className="account-login-refusals">
+        <h4>{savedPolicy?.requireAccountLogin
+          ? t('Captains refused with no account login')
+          : t('Captains that would be refused if account login is required')}</h4>
+        <ul>{refusals.map(({ captain, reason }) => <li key={captain.id}>
+          {captain.name || captain.id} — <span className="mono">{reason}</span>
+        </li>)}</ul>
+      </div>;
+    })()}
 
     {runtimeAccounts.length === 0
       ? <p className="text-muted">{t('No subscription accounts yet.')}</p>
@@ -193,6 +227,7 @@ function AccountCard({ account, status, accounts, captains, disabled, expanded, 
       <div><dt>{t('Usage')}</dt><dd>{shown ? String(shown.state) : t('Unknown')}</dd></div>
       <div><dt>{t('Observed')}</dt><dd>{observed || t('Never')}</dd></div>
     </dl>
+    {runtime === 'Cursor' && <p className="text-muted">{t('Cursor usage cannot be measured with an API key. Unknown still routes under unknownUsagePolicy Allow.')}</p>}
     <div className="account-inline account-refresh">
       <button type="button" className="btn btn-secondary" disabled={disabled || refreshing} aria-busy={refreshing}
         onClick={() => void refreshUsage()}>
@@ -205,7 +240,8 @@ function AccountCard({ account, status, accounts, captains, disabled, expanded, 
       {refreshError && <span role="alert" className="text-danger">{refreshError}</span>}
     </div>
     {expanded && <>
-      <LoginSection accountId={id} runtime={runtime} disabled={disabled} onRefresh={onRefresh} />
+      <LoginSection accountId={id} runtime={runtime} disabled={disabled} onRefresh={onRefresh}
+        loginReason={typeof shown?.loginReason === 'string' ? shown.loginReason : loginProblem} />
       <CaptainSection account={account} accounts={accounts} captains={captains} disabled={disabled}
         onSavePolicy={onSavePolicy} onCaptainsChanged={onCaptainsChanged} />
       <DeleteSection accountId={id} captainCount={captainIds.length} disabled={disabled} onDeleted={onDeleted} />
@@ -218,9 +254,10 @@ interface LoginProps {
   runtime: AccountRuntime;
   disabled: boolean;
   onRefresh: () => void;
+  loginReason?: string;
 }
 
-function LoginSection({ accountId, runtime, disabled, onRefresh }: LoginProps) {
+function LoginSection({ accountId, runtime, disabled, onRefresh, loginReason }: LoginProps) {
   const { t } = useLocale();
   const [status, setStatus] = useState<AccountLoginStatus | null>(null);
   const [session, setSession] = useState<AccountLoginSession | null>(null);
@@ -311,6 +348,8 @@ function LoginSection({ accountId, runtime, disabled, onRefresh }: LoginProps) {
     <h4>{t('Log in')}</h4>
     {status && <p>{t('Server login check')}: {status.loginReady === true ? t('ready')
       : status.loginReady === false ? <span className="text-danger">{status.loginReason}</span> : t('not configured')}</p>}
+    {(loginReason === 'account_launch_credential_unavailable' || status?.loginReason === 'account_launch_credential_unavailable') &&
+      <p className="text-danger">{t('Save a Cursor API key on this card. Captains use the key file, not the browser login.')}</p>}
 
     {usesKey && keyForm}
 

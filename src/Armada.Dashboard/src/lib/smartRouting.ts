@@ -16,6 +16,25 @@ export interface ModelAvailability {
   allExhausted: boolean;
 }
 
+/** One persona model-list entry the server marked as having no eligible captain. */
+export interface DeadPersonaModelEntry {
+  persona: string;
+  list: string;
+  model: string;
+}
+
+/** True when the server marked this persona/list/model as dead. */
+export function isDeadModel(
+  dead: DeadPersonaModelEntry[] | undefined, persona: string, list: ModelListName, model: string,
+): boolean {
+  if (!dead || dead.length === 0) return false;
+  const wantedPersona = normalizePersona(persona);
+  return dead.some((entry) =>
+    normalizePersona(entry.persona) === wantedPersona
+    && entry.list.toLowerCase() === list
+    && entry.model.toLowerCase() === model.toLowerCase());
+}
+
 /** Persona names match after normalization, the same way the server compares them (case, spaces, punctuation). */
 export function normalizePersona(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9*]/g, '');

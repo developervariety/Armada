@@ -208,6 +208,26 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("TruncateMissionDescription pins the acceptance-criteria block", async () =>
+            {
+                string head = "## Mission brief\nBase scope.\n";
+                string criteria = "\n## Acceptance Criteria\n- Gate stays green\n- CHANGELOG names the behaviour\n";
+                string middle = new string('m', 1500);
+                string after = new string('n', 1500);
+                string tail = "\n\n---\n" + MissionService.BuildHandoffMarker(_OtherUpstreamId) + "\n" +
+                    "## Prior Stage Output\n### Diff from prior stage\n```diff\n+the newest diff the judge must see\n```\n";
+                string full = head + middle + criteria + after + tail;
+                string bounded = MissionService.TruncateMissionDescription(full, 900);
+
+                AssertTrue(bounded.Length <= 900, "bounded description must fit the budget");
+                AssertContains("## Acceptance Criteria", bounded, "the criteria heading must survive the cut");
+                AssertContains("Gate stays green", bounded, "each criterion must survive the cut");
+                AssertContains("CHANGELOG names the behaviour", bounded, "each criterion must survive the cut");
+                AssertContains("the newest diff the judge must see", bounded, "the newest handoff block must still survive");
+
+                await Task.CompletedTask;
+            });
+
             await RunTest("TruncateMissionDescription marker names the branch holding the full change", async () =>
             {
                 string oversized = new string('x', 500);

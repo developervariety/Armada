@@ -64,7 +64,7 @@ namespace Armada.Core.Services
 
         // The text-half battery. Each entry is a noul phrased as the defect: a high answer names a
         // brief problem the deterministic block cannot settle on its own. The numbers match the
-        // thirteen-question dispatch preflight; Q2/Q3/Q10/Q11 are deterministic facts and Q1 pairs the
+        // fourteen-question dispatch preflight; Q2/Q3/Q10/Q11 are deterministic facts and Q1 pairs the
         // premise against those facts, so Q1 is a noul here too.
         private static readonly IReadOnlyList<PreflightNoul> _Nouls = new List<PreflightNoul>
         {

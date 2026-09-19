@@ -171,6 +171,17 @@ so a persona is never starved by its lists. Inside each group, the
 Legacy Routing and usage order stays. The first captain of the first
 non-empty group is assigned.
 
+A list entry is **dead** when no captain who may serve that persona (persona
+lock plus the capability tier floor) runs that model. Saving the policy still
+succeeds and reports every dead entry in `personaModelHealth` on
+`GET`/`PUT /api/v1/settings` and on `usage-preview`. Startup logs one summary
+so existing misconfiguration is visible without anyone asking. When the
+capacity-chosen list matches nothing eligible, assignment falls through to
+the remaining groups and the reason is `persona_models_matched_nothing`; an
+event `routing.persona_model_list_dead` names the list. A list that did
+supply the captain is `persona_models_applied_<group>:<captainId>`. Dead
+lists never refuse dispatch.
+
 The chosen list is `default` unless the `capacity_escalation` decision
 chooses another list. A mission with a concrete `preferredModel` skips the
 model lists; the pin wins. The tier floor stays a layer 1 constraint: a model
@@ -286,6 +297,13 @@ limit per runtime beyond the policy's 32 accounts. This is disabled by default:
 an account with no `runtime`, or no `homeDirectory`, `launchCredentialEnv`, or
 `launchCredentialFile`, launches its captains exactly as before.
 
+**Require account login.** `requireAccountLogin` (default `false`) refuses Claude Code, Codex,
+OpenCode, and Cursor captains that have no account login binding. The refusal applies to
+mission launch, Ask, planning sessions, and backlog refinement. Captains with their own
+`apiKey` or `apiBaseUrl`, and other runtimes, are unchanged. The Routing tab lists who would
+be refused before you turn the setting on. Usage-preview returns the same list as
+`accountLoginRefusals`.
+
 **Owner decision required before rollout.** Confirm that each additional
 subscription account is permitted for this use under the provider's terms
 (Anthropic, OpenAI, Cursor, OpenCode) before you add a second-account captain.
@@ -352,8 +370,13 @@ collector (`Codex`, `Claude`, `OpenCodeGo`; `Manual` for Cursor), and
 
 Cursor also offers a browser login (`cursor-agent login` with
 `NO_OPEN_BROWSER=1` and `HOME` set to the account folder, so the Admiral
-user's own Cursor login is untouched). Captains still launch with the API
-key, so the key step is the one that makes the account usable.
+user's own Cursor login is untouched). A browser login never launches a
+captain: replacing `HOME` would hide git, gh, and ssh configuration, so
+captains use only the API key file or named variable. A missing key is
+`account_launch_credential_unavailable`; save the key on the account card.
+Cursor usage cannot be measured from that key (the collector is `Manual`),
+so remaining usage is Unknown and still routes under `unknownUsagePolicy`
+(default `Allow`).
 
 **Assign captains.** Tick captains of the same runtime; a captain already on
 another account, or one with its own provider key or base URL, cannot be
@@ -502,7 +525,9 @@ steps of the selection:
 | `capacity` | `choice`, `source`, and `asked` |
 | `candidates` | The final order |
 | `chosen` | The captain that would be assigned, or null |
-| `reason` | The selection or wait reason |
+| `reason` | The selection or wait reason. `persona_models_applied_<group>:<captainId>` when a list supplied the captain; `persona_models_matched_nothing` when the capacity-chosen list admitted nobody |
+| `personaModelHealth` | Per-persona floor, eligible captains, and live/dead marks for each list entry |
+| `matchedNothing` / `deadListEntries` | Set when the capacity-chosen list matched no eligible captain |
 
 Without `missionTitle` and `missionText`, the preview does not call the
 typed-decision client and reports the `default` list (source

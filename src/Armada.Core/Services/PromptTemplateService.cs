@@ -1013,11 +1013,14 @@ namespace Armada.Core.Services
                     "- `## Correctness`\n" +
                     "- `## Tests`\n" +
                     "- `## Failure Modes`\n" +
+                    "- `## Acceptance Criteria` (required when the brief lists criteria: one line per criterion, marked MET with file:line or command evidence, or NOT MET)\n" +
                     "- `## Suggested Follow-ups`\n" +
                     "- `## Verdict`\n" +
                     "\n" +
                     "If you choose PASS, each section must contain concrete review reasoning. A shallow approval " +
-                    "or a verdict-only response is not acceptable.\n" +
+                    "or a verdict-only response is not acceptable. A NOT MET acceptance criterion forbids PASS.\n" +
+                    "When the mission description contains [DOD:DOC-ONLY] and the diff touches only non-code files, " +
+                    "do not run the full test suite; judge the document change from the diff.\n" +
                     "\n" +
                     "## Suggested Follow-ups\n" +
                     "\n" +

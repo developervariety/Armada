@@ -9,6 +9,8 @@ interface Props {
   availability: Record<string, ModelAvailability>;
   onChange: (value: string[]) => void;
   disabled?: boolean;
+  /** Models in this list that no eligible captain for the persona can satisfy. */
+  deadModels?: string[];
 }
 
 /** Captain count and usable-account state shown beside a model. */
@@ -25,7 +27,7 @@ export function ModelAvailabilityTags({ info }: { info: ModelAvailability | unde
 }
 
 /** A multi-select of model ids shown as removable chips, with an add picker for the unselected options. */
-export default function ModelChips({ label, value, options, availability, onChange, disabled }: Props) {
+export default function ModelChips({ label, value, options, availability, onChange, disabled, deadModels = [] }: Props) {
   const { t } = useLocale();
   const remaining = options.filter((m) => !value.includes(m));
   return <div className="model-chips" role="group" aria-label={label}>
@@ -33,6 +35,7 @@ export default function ModelChips({ label, value, options, availability, onChan
       <span key={model} className="model-chip">
         <span className="mono model-chip-name">{model}</span>
         <ModelAvailabilityTags info={availability[model]} />
+        {deadModels.includes(model) && <span className="tag warn" role="note">{t('No eligible captain')}</span>}
         <button type="button" className="model-chip-remove" disabled={disabled}
           aria-label={t('Remove {{model}} from {{list}}', { model, list: label })}
           onClick={() => onChange(value.filter((m) => m !== model))}>×</button>

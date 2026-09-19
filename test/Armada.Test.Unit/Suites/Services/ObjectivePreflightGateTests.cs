@@ -31,7 +31,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A complete preflight blocks nothing", () =>
             {
-                AssertTrue(ObjectivePreflightEvaluator.IsComplete(PreflightTestData.Complete()), "1-12 yes and 13 no is complete");
+                AssertTrue(ObjectivePreflightEvaluator.IsComplete(PreflightTestData.Complete()), "1-12 and 14 yes, 13 no is complete");
                 AssertEqual(0, ObjectivePreflightEvaluator.BlockingQuestions(PreflightTestData.Complete()).Count, "a complete preflight blocks nothing");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
@@ -48,7 +48,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("A yes on 1-12 and a no on 13 admit dispatch", () =>
+            await RunTest("A yes on 1-12 and 14 and a no on 13 admit dispatch", () =>
             {
                 ObjectivePreflight preflight = new ObjectivePreflight();
                 for (int number = 1; number <= ObjectivePreflight.QuestionCount; number++)
@@ -61,7 +61,26 @@ namespace Armada.Test.Unit.Suites.Services
                             : ObjectivePreflightAnswerEnum.Yes
                     });
                 }
-                AssertTrue(ObjectivePreflightEvaluator.IsComplete(preflight), "1-12 yes and 13 no admits dispatch");
+                AssertTrue(ObjectivePreflightEvaluator.IsComplete(preflight), "1-12 and 14 yes, 13 no admits dispatch");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("An unanswered question 14 blocks the same way questions 1-12 do", () =>
+            {
+                ObjectivePreflight preflight = PreflightTestData.Complete();
+                preflight.Questions.RemoveAll(question => question.Number == ObjectivePreflight.GreenTipQuestionNumber);
+                List<int> blocking = ObjectivePreflightEvaluator.BlockingQuestions(preflight).ToList();
+                AssertTrue(blocking.Contains(ObjectivePreflight.GreenTipQuestionNumber), "unanswered 14 blocks");
+                AssertEqual(1, blocking.Count, "no other question blocks");
+
+                preflight.Questions.Add(new ObjectivePreflightAnswer
+                {
+                    Number = ObjectivePreflight.GreenTipQuestionNumber,
+                    Answer = ObjectivePreflightAnswerEnum.No
+                });
+                blocking = ObjectivePreflightEvaluator.BlockingQuestions(preflight).ToList();
+                AssertTrue(blocking.Contains(ObjectivePreflight.GreenTipQuestionNumber), "a no on 14 blocks");
+                AssertEqual(1, blocking.Count, "no other question blocks");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

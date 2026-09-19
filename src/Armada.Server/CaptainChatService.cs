@@ -173,6 +173,7 @@ namespace Armada.Server
                     _Settings.McpPort,
                     runtimeConfigDirectory,
                     chatCredential);
+                CaptainLaunchIsolationPlanner.ApplyAccountFromSettings(isolationPlan, captain, _Settings.ModelTier.UsageRouting);
                 MaterializeIsolationPlan(isolationPlan, runtimeConfigDirectory);
 
                 try

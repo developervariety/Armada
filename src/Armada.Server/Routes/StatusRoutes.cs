@@ -447,7 +447,15 @@ namespace Armada.Server.Routes
                     Candidates = decision.Candidates.Select(c => new { c.Id, c.Name, c.Model, c.Runtime }).ToList(),
                     Chosen = chosen == null ? null : new { chosen.Id, chosen.Name, chosen.Model, chosen.Runtime },
                     Accounts = policy.Accounts.Select(a => usage.GetStatus(a, null, DateTime.UtcNow)).ToList(),
-                    Warnings = policy.Accounts.SelectMany(a => a.CaptainIds.Where(id => !captains.Any(c => c.Id == id)).Select(id => "Unknown captain: " + id)).ToList(),
+                    Warnings = policy.Accounts.SelectMany(a => a.CaptainIds.Where(id => !captains.Any(c => c.Id == id)).Select(id => "Unknown captain: " + id))
+                        .Concat(PersonaModelListHealth.FindDead(_settings.ModelTier, policy, captains).Select(entry =>
+                            "Dead persona model: " + entry.Persona + "." + entry.List + "=" + entry.Model)).ToList(),
+                    RequireAccountLogin = policy.RequireAccountLogin,
+                    AccountLoginRefusals = CaptainAccountLaunch.ListAccountLoginRefusals(policy, captains)
+                        .Select(item => new { item.CaptainId, item.Reason, item.AccountId }).ToList(),
+                    MatchedNothing = decision.MatchedNothing,
+                    DeadListEntries = decision.DeadListEntries,
+                    PersonaModelHealth = BuildPersonaModelHealth(_settings.ModelTier, policy, captains),
                     Scope = "Idle captains only. Live assignment reservations, retry exclusions, requested captains, and vessel gates apply at dispatch."
                 };
             }, api => api.WithTag("Settings").WithSummary("Preview Smart Routing for one persona").WithSecurity("ApiKey"));
@@ -462,7 +470,8 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 await UsageRoutingService.For(_settings).RefreshAsync(_settings.ModelTier.UsageRouting).ConfigureAwait(false);
-                return BuildSettingsResponse();
+                List<Captain> roster = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
+                return BuildSettingsResponse(roster);
             },
             api => api
                 .WithTag("Settings")
@@ -580,8 +589,12 @@ namespace Armada.Server.Routes
                     await _onRemoteControlSettingsChanged().ConfigureAwait(false);
 
                 _logging.Info(_Header + "settings updated via API");
+                List<Captain> roster = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
+                List<DeadPersonaModelEntry> dead = PersonaModelListHealth.FindDead(
+                    _settings.ModelTier, _settings.ModelTier.UsageRouting, roster);
+                _logging.Info(_Header + PersonaModelListHealth.FormatSummary(dead));
 
-                return BuildSettingsResponse();
+                return BuildSettingsResponse(roster);
             },
             api => api
                 .WithTag("Settings")
@@ -605,7 +618,8 @@ namespace Armada.Server.Routes
                     + _settings.MaxConcurrentCaptainWorkloads
                     + " maxConcurrentBuilds=" + _settings.ResourcePressureAdmission.MaxConcurrentBuilds);
 
-                return BuildSettingsResponse();
+                List<Captain> roster = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
+                return BuildSettingsResponse(roster);
             },
             api => api
                 .WithTag("Settings")
@@ -665,8 +679,9 @@ namespace Armada.Server.Routes
                 .WithSecurity("ApiKey"));
         }
 
-        private object BuildSettingsResponse()
+        private object BuildSettingsResponse(IReadOnlyList<Captain>? captains = null)
         {
+            captains ??= new List<Captain>();
             return new
             {
                 AdmiralPort = _settings.AdmiralPort,
@@ -696,7 +711,22 @@ namespace Armada.Server.Routes
                 AdditionalPipelines = _settings.AdditionalPipelines,
                 ModelProviders = _settings.ModelProviders,
                 ModelProvidersHotReload = false,
-                AdditionalAssetsHotReload = false
+                AdditionalAssetsHotReload = false,
+                PersonaModelHealth = BuildPersonaModelHealth(_settings.ModelTier, _settings.ModelTier.UsageRouting, captains)
+            };
+        }
+
+        private static object BuildPersonaModelHealth(
+            ModelTierSettings tiers,
+            UsageRoutingSettings policy,
+            IReadOnlyList<Captain> captains)
+        {
+            List<DeadPersonaModelEntry> dead = PersonaModelListHealth.FindDead(tiers, policy, captains);
+            return new
+            {
+                Dead = dead,
+                Summary = PersonaModelListHealth.FormatSummary(dead),
+                Personas = PersonaModelListHealth.BuildViews(tiers, policy, captains)
             };
         }
 

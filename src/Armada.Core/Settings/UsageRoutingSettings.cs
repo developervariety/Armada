@@ -22,6 +22,13 @@ namespace Armada.Core.Settings
         /// <summary>Enable Smart Routing: the usage filter, persona model groups, the capacity decision, and persona route restrictions.</summary>
         public bool Enabled { get; set; } = false;
 
+        /// <summary>
+        /// When true, Claude Code, Codex, OpenCode, and Cursor captains must have an account login binding
+        /// (home or Cursor key) before a mission, Ask turn, planning session, or refinement session can launch.
+        /// Captains with their own provider key or base URL, and other runtimes, are unchanged. Default false.
+        /// </summary>
+        public bool RequireAccountLogin { get; set; } = false;
+
         /// <summary>Accounts with shared captain membership and allowance sources.</summary>
         public List<UsageAccountSettings> Accounts { get; set; } = new List<UsageAccountSettings>();
 

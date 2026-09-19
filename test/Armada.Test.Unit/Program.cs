@@ -147,6 +147,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ManualCompletionProofServiceTests());
             runner.AddSuite(new GitInferenceTests());
             runner.AddSuite(new DockServiceTests());
+            runner.AddSuite(new DockPathOccupantsTests());
             runner.AddSuite(new LogRotationServiceTests());
             runner.AddSuite(new DataExpiryServiceTests());
             runner.AddSuite(new NotificationServiceTests());
@@ -202,6 +203,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new JudgeHybridFollowUpsTests());
             runner.AddSuite(new JudgeFollowUpPersistenceTests());
             runner.AddSuite(new JudgeVerdictRobustnessTests());
+            runner.AddSuite(new JudgeAcceptanceWalkTests());
             runner.AddSuite(new DependsOnMissionIdDispatchTests());
             runner.AddSuite(new AutoLandEvaluatorTests());
             runner.AddSuite(new OpenCodePermissionConfigBuilderTests());
@@ -381,6 +383,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CodeDuplicateFinderTests());
             runner.AddSuite(new ChangeQualityRulesTests());
             runner.AddSuite(new TypedChangeQualityAdapterTests());
+            runner.AddSuite(new TypedDispatchStalenessAdapterTests());
             runner.AddSuite(new ChangeQualityGateTests());
             runner.AddSuite(new McpChangeQualityToolsTests());
             runner.AddSuite(new McpCheckRunToolsTests());

@@ -502,6 +502,9 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("PASS is not allowed", judge.Content, "Judge template should constrain PASS when review is incomplete");
                     AssertContains("Delivery is proven by the DIFF, not by the tree", judge.Content, "Judge template must say delivery is proven by the diff, not by presence at the tip");
                     AssertContains("cite the diff hunk", judge.Content, "Judge template must demand a diff hunk per requirement");
+                    AssertContains("## Acceptance Criteria", judge.Content, "Judge template must name the acceptance-criteria walk");
+                    AssertContains("NOT MET", judge.Content, "Judge template must forbid PASS on a NOT MET criterion");
+                    AssertContains("[DOD:DOC-ONLY]", judge.Content, "Judge template must skip the full suite on a DOC-ONLY non-code diff");
 
                     PromptTemplate? testEngineer = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
                     AssertNotNull(testEngineer, "Test engineer template should resolve");

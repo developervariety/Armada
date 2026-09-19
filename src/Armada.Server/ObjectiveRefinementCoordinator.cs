@@ -633,13 +633,15 @@ namespace Armada.Server
                 if (IsStopRequested(session.Id))
                     return;
 
+                CaptainLaunchIsolationPlan accountPlan = RefinementAccountPlan(captain);
                 int processId = await runtime.StartAsync(
                     ResolveWorkingDirectory(vessel),
                     prompt,
                     logFilePath: logFilePath,
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
-                    captain: captain).ConfigureAwait(false);
+                    captain: captain,
+                    isolationPlan: accountPlan).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -901,6 +903,7 @@ namespace Armada.Server
 
             try
             {
+                CaptainLaunchIsolationPlan accountPlan = RefinementAccountPlan(captain);
                 processId = await runtime.StartAsync(
                     ResolveWorkingDirectory(vessel),
                     prompt,
@@ -908,7 +911,8 @@ namespace Armada.Server
                     finalMessageFilePath: finalMessageFilePath,
                     model: captain.Model,
                     captain: captain,
-                    token: token).ConfigureAwait(false);
+                    token: token,
+                    isolationPlan: accountPlan).ConfigureAwait(false);
 
                 session.ProcessId = processId;
                 session.LastUpdateUtc = DateTime.UtcNow;
@@ -1122,6 +1126,11 @@ namespace Armada.Server
             {
                 _StopOperations.TryRemove(sessionId, out _);
             }
+        }
+
+        private CaptainLaunchIsolationPlan RefinementAccountPlan(Captain captain)
+        {
+            return CaptainLaunchIsolationPlanner.ApplyAccountFromSettings(new CaptainLaunchIsolationPlan(), captain, _Settings.ModelTier.UsageRouting);
         }
 
         private IAgentRuntime CreateRefinementRuntime(Captain captain)

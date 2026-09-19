@@ -1008,6 +1008,140 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ReclaimAsync removes a dock pinned by a detached child after its captain is Idle", async () =>
+            {
+                if (!OperatingSystem.IsLinux())
+                {
+                    SkipTest("ReclaimAsync removes a dock pinned by a detached child after its captain is Idle", "occupant cwd inspection uses /proc and is Linux-only");
+                    return;
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+
+                    GitService git = new GitService(logging);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-dock-orphan-" + Guid.NewGuid().ToString("N"));
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    Process? child = null;
+                    try
+                    {
+                        Directory.CreateDirectory(sourceDir);
+                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                        Vessel vessel = new Vessel("orphan-vessel", sourceDir);
+                        vessel.DefaultBranch = "main";
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-orphan")).ConfigureAwait(false);
+                        Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-orphan/msn_one", "msn_one").ConfigureAwait(false);
+                        AssertNotNull(dock, "dock should be provisioned");
+
+                        child = Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "/bin/sleep",
+                            Arguments = "30",
+                            WorkingDirectory = dock!.WorktreePath,
+                            UseShellExecute = false
+                        });
+                        AssertNotNull(child, "detached child should start");
+                        SpinWait.SpinUntil(() => DockPathOccupants.ListPids(dock.WorktreePath!).Contains(child!.Id), 2000);
+
+                        captain.State = CaptainStateEnum.Idle;
+                        captain.CurrentDockId = null;
+                        captain.CurrentMissionId = null;
+                        await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                        await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
+
+                        AssertTrue(child.WaitForExit(4000), "reclaim must terminate the occupant");
+                        AssertFalse(Directory.Exists(dock.WorktreePath!), "the worktree must be gone after reclaim");
+                    }
+                    finally
+                    {
+                        try { if (child != null && !child.HasExited) child.Kill(entireProcessTree: true); } catch { }
+                        try { if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true); } catch { }
+                        try { if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true); } catch { }
+                        try { if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("ProvisionAsync self-heals a sequential stage whose predecessor dock is still registered with an Idle captain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+
+                    GitService git = new GitService(logging);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-dock-seq-" + Guid.NewGuid().ToString("N"));
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    try
+                    {
+                        Directory.CreateDirectory(sourceDir);
+                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                        Vessel vessel = new Vessel("seq-vessel", sourceDir);
+                        vessel.DefaultBranch = "main";
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain firstCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-seq-1")).ConfigureAwait(false);
+                        const string sharedBranch = "armada/captain-seq/msn_shared";
+                        Dock? first = await service.ProvisionAsync(vessel, firstCaptain, sharedBranch, "msn_first").ConfigureAwait(false);
+                        AssertNotNull(first, "first stage dock should be provisioned");
+
+                        firstCaptain.State = CaptainStateEnum.Idle;
+                        firstCaptain.CurrentDockId = null;
+                        await testDb.Driver.Captains.UpdateAsync(firstCaptain).ConfigureAwait(false);
+
+                        Mission finished = new Mission("finished predecessor")
+                        {
+                            VesselId = vessel.Id,
+                            CaptainId = firstCaptain.Id,
+                            DockId = first!.Id,
+                            Status = MissionStatusEnum.Complete,
+                            AssignmentState = MissionAssignmentStateEnum.Assigned
+                        };
+                        await testDb.Driver.Missions.CreateAsync(finished).ConfigureAwait(false);
+
+                        Captain secondCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-seq-2")).ConfigureAwait(false);
+                        Dock? second = await service.ProvisionAsync(vessel, secondCaptain, sharedBranch, "msn_second").ConfigureAwait(false);
+                        AssertNotNull(second, "the next stage must provision on the same branch after the predecessor captain went Idle");
+                        AssertTrue(Directory.Exists(second!.WorktreePath!), "second dock worktree must exist");
+                    }
+                    finally
+                    {
+                        try { if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true); } catch { }
+                        try { if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true); } catch { }
+                        try { if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("PurgeAsync does not delete a worktree path owned by another active dock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

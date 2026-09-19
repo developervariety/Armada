@@ -498,6 +498,9 @@ $(cat "${KEY}.pub")
 
   2. Clone your working repos under ${SRV_ROOT}/RiderProjects/
   3. Admiral: http://<host>:7890   MCP: 127.0.0.1:7891
+  4. Log in AI runtimes from the dashboard: Settings > Routing > Subscription
+     accounts. Claude Code, Codex, OpenCode and Cursor logins happen there, not
+     from this script. This script only creates the runtime folders and mounts.
 
 $(printf '%s' "$BLD")Remember$(printf '%s' "$RST")
   - 'glab auth status' may falsely report an invalid token. Verify with:

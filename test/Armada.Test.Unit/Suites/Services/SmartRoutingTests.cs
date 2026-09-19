@@ -275,7 +275,7 @@ namespace Armada.Test.Unit.Suites.Services
                 policy.PersonaModels["Worker"] = WorkerModels();
                 UsageRoutingDecision decision = await SelectAsync(policy, Pool());
                 AssertEqual("cpt-opus", decision.Candidates[0].Id, "Default is exhausted; Stronger follows Default");
-                AssertEqual(SmartRoutingSelector.ReasonGroupPrefix + "stronger", decision.Reason);
+                AssertEqual(PersonaModelListHealth.ReasonAppliedPrefix + "stronger:cpt-opus", decision.Reason);
             });
 
             await RunTest("A captain whose model is in no list stays reachable when every group is empty", async () =>
@@ -464,6 +464,76 @@ namespace Armada.Test.Unit.Suites.Services
                 policy.PersonaModels["Worker"].Default.Clear();
                 AssertThrows<ArgumentException>(() => UsageRoutingService.Validate(policy), "empty Default list");
             });
+
+            await RunTest("A Specialist stronger list that names a Standard-tier model falls through and says matched-nothing", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Captain grok = new Captain("cpt-grok")
+                    {
+                        Id = "cpt-grok",
+                        Model = "cursor-grok-4.6-high",
+                        Tier = CaptainTierEnum.Standard,
+                        AllowedPersonas = "[\"TestEngineer\"]",
+                        State = CaptainStateEnum.Idle
+                    };
+                    Captain fable = new Captain("cpt-fable")
+                    {
+                        Id = "cpt-fable",
+                        Model = "claude-fable-5",
+                        Tier = CaptainTierEnum.Premium,
+                        AllowedPersonas = "[\"TestEngineer\"]",
+                        State = CaptainStateEnum.Idle
+                    };
+                    UsageRoutingSettings policy = Policy();
+                    policy.PersonaModels["TestEngineer"] = new PersonaModelSettings
+                    {
+                        Default = new List<string> { "claude-fable-5" },
+                        Stronger = new List<string> { "cursor-grok-4.6-high" }
+                    };
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(CapacityResult("stronger", 0.99));
+                    Mission mission = new Mission
+                    {
+                        Id = "msn-dead-stronger",
+                        Persona = "TestEngineer",
+                        PreferredModel = "high",
+                        Priority = 100,
+                        Title = "work"
+                    };
+                    UsageRoutingDecision decision = await SelectAsync(
+                        policy, new List<Captain> { grok, fable }, mission, Resolver(db, client));
+
+                    AssertEqual("cpt-fable", decision.Candidates[0].Id, "eligibility order still supplies a Premium captain");
+                    AssertTrue(decision.MatchedNothing, "the capacity-chosen stronger list matched nobody eligible");
+                    AssertEqual(PersonaModelListHealth.ReasonMatchedNothing, decision.Reason,
+                        "the reason names matched-nothing, not an applied list");
+                    AssertFalse(decision.Reason.Contains("applied", StringComparison.Ordinal),
+                        "a dead list must not read as applied");
+                    AssertTrue(decision.DeadListEntries.Any(entry =>
+                            entry.List == "stronger" && entry.Model == "cursor-grok-4.6-high"),
+                        "the dead stronger entry is named");
+                    List<DeadPersonaModelEntry> dead = PersonaModelListHealth.FindDead(
+                        Tiers(), policy, new List<Captain> { grok, fable });
+                    AssertTrue(dead.Any(entry => entry.Persona == "TestEngineer" && entry.List == "stronger"),
+                        "save/startup census names the same dead stronger entry");
+                    AssertFalse(dead.Any(entry => entry.List == "default"),
+                        "the Default Premium model is live");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A live stronger list names the applied group and the captain", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    UsageRoutingSettings policy = Policy();
+                    policy.PersonaModels["Worker"] = WorkerModels();
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(CapacityResult("stronger", 0.99));
+                    UsageRoutingDecision decision = await SelectAsync(policy, Pool(), capacity: Resolver(db, client));
+                    AssertEqual("cpt-opus", decision.Candidates[0].Id);
+                    AssertFalse(decision.MatchedNothing);
+                    AssertEqual(PersonaModelListHealth.ReasonAppliedPrefix + "stronger:cpt-opus", decision.Reason);
+                }
+            }).ConfigureAwait(false);
         }
     }
 }

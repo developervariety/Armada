@@ -32,6 +32,7 @@ namespace Armada.Server
         private readonly ObjectiveService? _ObjectiveService;
         private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
         private readonly ArmadaSettings? _Settings;
+        private readonly TypedDispatchStalenessAdapter? _DispatchStalenessAdapter;
 
         private const string _CodeContextDestPath = "_briefing/context-pack.md";
         private const string _CodeContextModeAuto = "auto";
@@ -63,7 +64,8 @@ namespace Armada.Server
             ICodeIndexService? codeIndexService = null,
             ObjectiveService? objectiveService = null,
             ArmadaSettings? settings = null,
-            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
+            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -72,6 +74,7 @@ namespace Armada.Server
             _ObjectiveService = objectiveService;
             _Settings = settings;
             _ObjectiveDispatchPreview = objectiveDispatchPreview;
+            _DispatchStalenessAdapter = dispatchStalenessAdapter;
         }
 
         #endregion
@@ -172,7 +175,10 @@ namespace Armada.Server
                     _Settings?.CodeIndex,
                     _Logging,
                     LogCodeContextWarning,
-                    token).ConfigureAwait(false);
+                    token,
+                    _DispatchStalenessAdapter,
+                    request.Title,
+                    request.Description).ConfigureAwait(false);
                 if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);
             }
             else

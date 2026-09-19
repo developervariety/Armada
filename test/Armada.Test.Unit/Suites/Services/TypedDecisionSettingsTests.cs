@@ -33,7 +33,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 // Every named decision ships in Gate with a real threshold; none is left at an unset zero.
                 AssertTrue(settings.Decisions.Count >= 26, "the default decision map carries every named decision");
-                foreach (string name in new[] { "prior_art", "memory_review", "stage_necessity", "handoff_outcome", "lint_finding", "criteria_lint" })
+                foreach (string name in new[] { "prior_art", "memory_review", "stage_necessity", "handoff_outcome", "lint_finding", "criteria_lint", "dispatch_staleness" })
                     AssertTrue(settings.Decisions.ContainsKey(name), name + " is in the decision map");
                 AssertFalse(settings.Decisions.ContainsKey("context_compaction"), "context_compaction is not a shipped decision");
 

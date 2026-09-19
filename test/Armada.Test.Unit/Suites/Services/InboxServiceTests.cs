@@ -71,9 +71,14 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
+                    Voyage live = await testDb.Driver.Voyages.CreateAsync(new Voyage("Live voyage")
+                    {
+                        Status = VoyageStatusEnum.InProgress
+                    }).ConfigureAwait(false);
                     Mission mission = new Mission("Land this")
                     {
                         Status = MissionStatusEnum.LandingFailed,
+                        VoyageId = live.Id,
                         FailureReason = "merge conflicts in: src/Foo.cs"
                     };
                     await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
@@ -88,13 +93,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetInboxAsync hides a Failed mission with a null voyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission orphan = new Mission("Failed work with no voyage")
+                    {
+                        Status = MissionStatusEnum.Failed,
+                        FailureReason = "worker_produced_no_commits"
+                    };
+                    await testDb.Driver.Missions.CreateAsync(orphan).ConfigureAwait(false);
+
+                    InboxService service = CreateService(testDb.Driver);
+                    List<InboxItem> items = await service.GetInboxAsync().ConfigureAwait(false);
+
+                    AssertTrue(items.All(item => item.EntityId != orphan.Id), "a failed mission with a null voyage is not listed");
+                }
+            });
+
             await RunTest("GetInboxAsync surfaces a Failed mission", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
+                    Voyage live = await testDb.Driver.Voyages.CreateAsync(new Voyage("Live voyage")
+                    {
+                        Status = VoyageStatusEnum.InProgress
+                    }).ConfigureAwait(false);
                     Mission mission = new Mission("Failed work")
                     {
                         Status = MissionStatusEnum.Failed,
+                        VoyageId = live.Id,
                         FailureReason = "gate failed"
                     };
                     await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
@@ -197,7 +225,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(items.All(item => item.EntityId != haltedRescue.Id), "a rescue of a halted voyage is not actionable on its own");
                     AssertTrue(items.Any(item => item.Kind == "landing_failed" && item.EntityId == liveRescue.Id), "a rescue whose parent voyage is live stays actionable");
-                    AssertTrue(items.Any(item => item.Kind == "failed" && item.EntityId == orphan.Id), "a mission with no voyage in its chain stays visible");
+                    AssertTrue(items.All(item => item.EntityId != orphan.Id), "a mission with no voyage in its chain is not listed");
                 }
             });
 
@@ -312,9 +340,14 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     await testDb.Driver.Missions.CreateAsync(review).ConfigureAwait(false);
 
+                    Voyage live = await testDb.Driver.Voyages.CreateAsync(new Voyage("Live voyage")
+                    {
+                        Status = VoyageStatusEnum.InProgress
+                    }).ConfigureAwait(false);
                     Mission landingFailed = new Mission("Land this")
                     {
-                        Status = MissionStatusEnum.LandingFailed
+                        Status = MissionStatusEnum.LandingFailed,
+                        VoyageId = live.Id
                     };
                     await testDb.Driver.Missions.CreateAsync(landingFailed).ConfigureAwait(false);
 

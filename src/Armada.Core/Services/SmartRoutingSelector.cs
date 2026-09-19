@@ -119,6 +119,24 @@ namespace Armada.Core.Services
 
                 HashSet<string> placed = new HashSet<string>(StringComparer.Ordinal);
                 List<Captain> grouped = new List<Captain>();
+                List<string> chosenModels = reading.Choice == CapacityChoiceEnum.Lighter ? models.Lighter
+                    : reading.Choice == CapacityChoiceEnum.Stronger ? models.Stronger : models.Default;
+                if (chosenModels.Count > 0
+                    && !decision.LegacyOrder.Any(captain => chosenModels.Contains(captain.Model ?? String.Empty, StringComparer.OrdinalIgnoreCase)))
+                {
+                    decision.MatchedNothing = true;
+                    foreach (string model in chosenModels)
+                    {
+                        if (String.IsNullOrWhiteSpace(model)) continue;
+                        if (PersonaModelListHealth.ModelHasEligibleCaptain(request.Tiers, mission.Persona, model, request.Pool)) continue;
+                        decision.DeadListEntries.Add(new DeadPersonaModelEntry
+                        {
+                            Persona = mission.Persona ?? String.Empty,
+                            List = TypedCapacityEscalationAdapter.OptionName(reading.Choice),
+                            Model = model.Trim()
+                        });
+                    }
+                }
                 foreach (CapacityChoiceEnum choice in order)
                 {
                     List<string> list = choice == CapacityChoiceEnum.Lighter ? models.Lighter : choice == CapacityChoiceEnum.Stronger ? models.Stronger : models.Default;
@@ -155,8 +173,15 @@ namespace Armada.Core.Services
             {
                 Captain first = decision.Candidates[0];
                 bool firstDemoted = demoted.Contains(first);
-                decision.Reason = groupReason.Length > 0 ? groupReason + (firstDemoted ? "_" + ReasonDemotedOnly : String.Empty)
-                    : firstDemoted ? ReasonDemotedOnly : ReasonLegacyOrder;
+                if (decision.MatchedNothing)
+                    decision.Reason = PersonaModelListHealth.ReasonMatchedNothing;
+                else if (groupReason.StartsWith(ReasonGroupPrefix, StringComparison.Ordinal)
+                    && !groupReason.EndsWith("unlisted", StringComparison.Ordinal))
+                    decision.Reason = PersonaModelListHealth.ReasonAppliedPrefix + groupReason.Substring(ReasonGroupPrefix.Length) + ":" + first.Id
+                        + (firstDemoted ? "_" + ReasonDemotedOnly : String.Empty);
+                else
+                    decision.Reason = groupReason.Length > 0 ? groupReason + (firstDemoted ? "_" + ReasonDemotedOnly : String.Empty)
+                        : firstDemoted ? ReasonDemotedOnly : ReasonLegacyOrder;
             }
             else if (decision.LegacyOrder.Count == 0)
             {

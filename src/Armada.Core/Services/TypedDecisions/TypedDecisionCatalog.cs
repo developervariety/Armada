@@ -17,6 +17,7 @@ namespace Armada.Core.Services
             ["preflight"] = "Whether a dispatch brief passes the pre-dispatch checks the deterministic preflight cannot express.",
             ["papercut_merge"] = "Whether two papercut reports describe the same underlying issue.",
             ["capacity_escalation"] = "Smart Routing: whether a mission is lighter, default, or stronger work for its persona's model lists.",
+            ["dispatch_staleness"] = "Whether a stale code index should proceed, refresh inline, or wait, given the work and the configured policy.",
             ["leak_hunk"] = "Whether a diff hunk may carry private context that must not reach a repository.",
             ["log_watch"] = "Whether a running captain's log shows trouble worth an operator's attention.",
             ["premise_check"] = "Whether a brief's stated premise still holds at the target commit.",

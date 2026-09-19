@@ -157,6 +157,7 @@ namespace Armada.Server
         private FollowUpRoutingAdapter? _FollowUpRoutingAdapter;
         private Armada.Core.Services.Interfaces.IFollowUpRouter? _FollowUpRouter;
         private TypedChangeQualityAdapter? _ChangeQualityAdapter;
+        private TypedDispatchStalenessAdapter? _DispatchStalenessAdapter;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -855,6 +856,8 @@ namespace Armada.Server
                 _FollowUpRouter = followUpRouter;
                 _ChangeQualityAdapter = new TypedChangeQualityAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                _DispatchStalenessAdapter = new TypedDispatchStalenessAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
             }
 
             _CaptainTools = new CaptainToolService(
@@ -1474,7 +1477,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Voyages
-            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _ObjectiveService, _CodeIndex, _Settings, _JsonOptions, _ObjectiveDispatchPreviewService)
+            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _ObjectiveService, _CodeIndex, _Settings, _JsonOptions, _ObjectiveDispatchPreviewService, _DispatchStalenessAdapter)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions
@@ -1970,6 +1973,7 @@ namespace Armada.Server
                 inboxTriageAdapter: _InboxTriageAdapter,
                 followUpRoutingAdapter: _FollowUpRoutingAdapter,
                 changeQualityAdapter: _ChangeQualityAdapter,
+                dispatchStalenessAdapter: _DispatchStalenessAdapter,
                 changeQualityFollowUpRouter: _FollowUpRouter,
                 contextRetrieval: _ContextRetrieval,
                 contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
@@ -2081,6 +2085,16 @@ namespace Armada.Server
             {
                 await _Admiral.CleanupStaleCaptainsAsync(token).ConfigureAwait(false);
                 _Logging.Info(_Header + "startup stale captain cleanup completed");
+                try
+                {
+                    List<Captain> roster = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+                    _Logging.Info(_Header + PersonaModelListHealth.FormatSummary(
+                        PersonaModelListHealth.FindDead(_Settings.ModelTier, _Settings.ModelTier.UsageRouting, roster)));
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "startup persona model list census error: " + ex.Message);
+                }
             }
             catch (Exception ex)
             {

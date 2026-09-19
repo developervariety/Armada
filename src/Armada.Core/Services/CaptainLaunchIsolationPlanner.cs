@@ -123,12 +123,14 @@ namespace Armada.Core.Services
         /// <param name="captain">Captain being launched.</param>
         /// <param name="account">The captain's account, or null.</param>
         /// <param name="readEnvironment">Reads a server environment variable; defaults to the process environment.</param>
+        /// <param name="requireAccountLogin">When true, a supported-runtime captain with no account login is refused.</param>
         /// <returns>The same plan.</returns>
-        /// <exception cref="CaptainAccountLaunchException">The account cannot supply its login.</exception>
-        public static CaptainLaunchIsolationPlan ApplyAccount(CaptainLaunchIsolationPlan plan, Armada.Core.Models.Captain captain, Armada.Core.Settings.UsageAccountSettings? account, Func<string, string?>? readEnvironment = null)
+        /// <exception cref="CaptainAccountLaunchException">The account cannot supply its login, or an account is required and missing.</exception>
+        public static CaptainLaunchIsolationPlan ApplyAccount(CaptainLaunchIsolationPlan plan, Armada.Core.Models.Captain captain, Armada.Core.Settings.UsageAccountSettings? account, Func<string, string?>? readEnvironment = null, bool requireAccountLogin = false)
         {
             if (plan == null) throw new ArgumentNullException(nameof(plan));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
+            CaptainAccountLaunch.RequireLaunchIdentity(captain, account, requireAccountLogin);
             if (!CaptainAccountLaunch.HasLaunchIdentity(account)) return plan;
             // Captains that carry their own provider key or endpoint keep their launch unchanged.
             if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
@@ -136,6 +138,15 @@ namespace Armada.Core.Services
             foreach (System.Collections.Generic.KeyValuePair<string, string> pair in CaptainAccountLaunch.BuildEnvironment(captain.Runtime, account, readEnvironment))
                 plan.EnvironmentOverrides[pair.Key] = pair.Value;
             return plan;
+        }
+
+        /// <summary>
+        /// Apply the captain's usage-routing account (and the requireAccountLogin setting) to a launch plan.
+        /// </summary>
+        public static CaptainLaunchIsolationPlan ApplyAccountFromSettings(CaptainLaunchIsolationPlan plan, Armada.Core.Models.Captain captain, Armada.Core.Settings.UsageRoutingSettings? routing, Func<string, string?>? readEnvironment = null)
+        {
+            Armada.Core.Settings.UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(routing, captain.Id);
+            return ApplyAccount(plan, captain, account, readEnvironment, routing?.RequireAccountLogin == true);
         }
 
         /// <summary>

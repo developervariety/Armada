@@ -948,38 +948,14 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "dock provisioning threw for mission " + mission.Id + " vessel " + vessel.Id + " captain " + captain.Id + ": " + ex.Message);
-
-                // Revert mission to Pending; mark assignment as Failed for operator visibility
-                mission.AssignmentState = MissionAssignmentStateEnum.Failed;
-                mission.Status = MissionStatusEnum.Pending;
-                mission.CaptainId = null;
-                if (!preserveInheritedBranch)
-                    if (!preserveInheritedBranch)
-                        mission.BranchName = null;
-                mission.DockId = null;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
-
-                // Release captain back to Idle
-                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
-
+                await FailDockProvisionAsync(mission, captain, preserveInheritedBranch, ex.Message, token).ConfigureAwait(false);
                 return false;
             }
 
             if (dock == null)
             {
-                // Provisioning failed - revert mission assignment; mark as Failed for operator visibility
                 _Logging.Warn(_Header + "dock provisioning failed for captain " + captain.Id + " vessel " + vessel.Id + " mission " + mission.Id + " -- reverting to Pending");
-                mission.AssignmentState = MissionAssignmentStateEnum.Failed;
-                mission.Status = MissionStatusEnum.Pending;
-                mission.CaptainId = null;
-                if (!preserveInheritedBranch)
-                    mission.BranchName = null;
-                mission.DockId = null;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                await FailDockProvisionAsync(mission, captain, preserveInheritedBranch, "dock provisioning failed", token).ConfigureAwait(false);
                 return false;
             }
 
@@ -1574,6 +1550,50 @@ namespace Armada.Core.Services
             return mission;
         }
 
+
+        /// <summary>
+        /// Record a dock-provision failure so a status read shows it. A repeated
+        /// <c>dock_worktree_held</c> failure is bounded: the second one fails the mission instead of
+        /// reverting to Pending forever.
+        /// </summary>
+        private async Task FailDockProvisionAsync(
+            Mission mission,
+            Captain captain,
+            bool preserveInheritedBranch,
+            string cause,
+            CancellationToken token)
+        {
+            bool heldNow = cause.StartsWith("dock_worktree_held:", StringComparison.Ordinal);
+            bool heldBefore = mission.FailureReason != null
+                && mission.FailureReason.StartsWith("dock_worktree_held:", StringComparison.Ordinal);
+            bool bound = heldNow && heldBefore;
+
+            mission.AssignmentState = MissionAssignmentStateEnum.Failed;
+            mission.CaptainId = null;
+            if (!preserveInheritedBranch) mission.BranchName = null;
+            mission.DockId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            mission.FailureReason = heldNow ? cause : (String.IsNullOrEmpty(cause) ? mission.FailureReason : cause);
+
+            if (bound)
+            {
+                mission.Status = MissionStatusEnum.Failed;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.FailureReason = cause + " (retry bound)";
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "mission " + mission.Id + " failed: dock worktree held after a retry; " + cause);
+            }
+            else
+            {
+                mission.Status = MissionStatusEnum.Pending;
+                await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState
+                    + (heldNow ? " (dock_worktree_held)" : String.Empty));
+            }
+
+            try { await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false); }
+            catch (Exception releaseEx) { _Logging.Warn(_Header + "error releasing captain " + captain.Id + " after dock provision failure: " + releaseEx.Message); }
+        }
 
         /// <summary>
         /// Prove that a checkout provisioned from an explicit start ref contains the resolved
@@ -2288,7 +2308,7 @@ namespace Armada.Core.Services
                     // it MORE conservative — hold a thin PASS the rule accepted for operator review — or
                     // accept a heading-form-only rejection into the same Check gate below; it never
                     // fails a PASS the rule accepted, never lands, and never dispatches.
-                    JudgePassValidation ruleValidation = EvaluateJudgePassValidation(mission.AgentOutput, mission.IsReadOnlyMode);
+                    JudgePassValidation ruleValidation = EvaluateJudgePassValidation(mission.AgentOutput, mission.IsReadOnlyMode, mission.Description);
                     verdictFailureReason = ruleValidation.FailureReason;
                     ReviewSubstanceVerdict substanceVerdict = await RefineReviewSubstanceAsync(mission, ruleValidation, token).ConfigureAwait(false);
                     if (!substanceVerdict.Validated)
@@ -6892,8 +6912,18 @@ namespace Armada.Core.Services
                 ? " the full change is on the branch"
                 : " the full change is on branch " + branchName;
             string marker = "\n\n...(mission brief truncated to fit the budget; the middle of the prior-stage diff is elided;" + branchNote + ")\n";
-            int headChars = Math.Max(0, (maxChars - marker.Length) / 3);
-            return BuildBoundedDescription(description, maxChars, headChars, marker);
+            string criteriaBlock = JudgeAcceptanceWalk.FormatPinnedBlock(description) ?? String.Empty;
+            int reserved = criteriaBlock.Length == 0 ? 0 : criteriaBlock.Length + 2;
+            int headChars = Math.Max(0, (maxChars - marker.Length - reserved) / 3);
+            string bounded = BuildBoundedDescription(description, Math.Max(marker.Length + 1, maxChars - reserved), headChars, marker);
+            if (criteriaBlock.Length == 0) return bounded;
+            if (bounded.IndexOf("## " + JudgeAcceptanceWalk.SectionName, StringComparison.OrdinalIgnoreCase) >= 0)
+                return bounded.Length <= maxChars ? bounded : bounded.Substring(0, maxChars);
+            int insertAt = bounded.IndexOf(marker, StringComparison.Ordinal);
+            string withCriteria = insertAt >= 0
+                ? bounded.Substring(0, insertAt) + "\n" + criteriaBlock + bounded.Substring(insertAt)
+                : criteriaBlock + bounded;
+            return withCriteria.Length <= maxChars ? withCriteria : withCriteria.Substring(0, maxChars);
         }
 
         /// <summary>
@@ -9324,12 +9354,14 @@ namespace Armada.Core.Services
         /// seam and the D4 <c>review_substance</c> adapter both read it, so the rule has exactly one
         /// definition. The category lets the adapter tell a heading-FORM rejection (which it may accept
         /// when the substance is present) from a real ground (empty output, too-short narrative) it
-        /// never overturns.
+        /// never overturns. When the brief lists acceptance criteria, a missing walk or a NOT MET
+        /// line is the same class of real ground.
         /// </summary>
         /// <param name="agentOutput">The Judge mission output.</param>
         /// <param name="reportOnly">True for a read-only (Audit or Research) mission.</param>
+        /// <param name="missionDescription">The mission description the Judge was given, used to extract expected criteria.</param>
         /// <returns>The categorized validation result.</returns>
-        private JudgePassValidation EvaluateJudgePassValidation(string? agentOutput, bool reportOnly)
+        private JudgePassValidation EvaluateJudgePassValidation(string? agentOutput, bool reportOnly, string? missionDescription = null)
         {
             IReadOnlyList<string> required = JudgeReviewSections.Required(reportOnly);
 
@@ -9366,6 +9398,16 @@ namespace Armada.Core.Services
                 return new JudgePassValidation(
                     ReviewSubstanceRuleCategory.ShortNarrative,
                     "Judge PASS verdict review is too short to justify approval",
+                    substantiveReview,
+                    required);
+            }
+
+            string? walk = JudgeAcceptanceWalk.ValidatePass(agentOutput, missionDescription);
+            if (walk != null)
+            {
+                return new JudgePassValidation(
+                    ReviewSubstanceRuleCategory.AcceptanceCriteria,
+                    walk,
                     substantiveReview,
                     required);
             }
@@ -10018,6 +10060,7 @@ namespace Armada.Core.Services
                 if (usageSelected != null)
                     _Logging.Info(_Header + "smart routing selected captain " + usageSelected.Id + " for mission " + mission.Id + ": " + decision.Reason
                         + (decision.HasPersonaModels ? " (capacity " + decision.Capacity + ", " + decision.CapacitySource + ")" : String.Empty));
+                await PersonaModelListHealth.TryEmitAsync(_Database, mission, decision, token).ConfigureAwait(false);
                 if (request != null)
                     await RecordRequestedCaptainOutcomeAsync(mission, request, usageSelected, token).ConfigureAwait(false);
                 if (usageSelected == null && decision.LegacyOrder.Count > 0)

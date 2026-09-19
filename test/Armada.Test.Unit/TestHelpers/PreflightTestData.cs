@@ -12,8 +12,8 @@ namespace Armada.Test.Unit.TestHelpers
     public static class PreflightTestData
     {
         /// <summary>
-        /// A complete preflight: every question that must be yes is yes, and the open-owner question is
-        /// no. An objective carrying this is admitted by the preflight gate.
+        /// A complete preflight: every question that must be yes is yes (1-12 and 14), and the
+        /// open-owner question (13) is no. An objective carrying this is admitted by the preflight gate.
         /// </summary>
         /// <returns>A complete preflight answer set.</returns>
         public static ObjectivePreflight Complete()

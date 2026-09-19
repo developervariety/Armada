@@ -2762,6 +2762,8 @@ export interface SmartRoutingPreviewResult {
   candidates: SmartRoutingPreviewCaptain[];
   chosen: SmartRoutingPreviewCaptain | null;
   warnings?: string[];
+  requireAccountLogin?: boolean;
+  accountLoginRefusals?: Array<{ captainId: string; reason: string; accountId?: string | null }>;
   scope?: string;
 }
 

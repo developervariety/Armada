@@ -37,8 +37,8 @@ namespace Armada.Core.Services
             AppendAtomic(result, "# Objective Brief", coreLimit, true);
             AppendAtomic(result, "Objective: " + BoundItem(objective.Title), coreLimit, true);
 
-            AppendTextSection(result, "## Scope", objective.Description, coreLimit);
             AppendListSection(result, "## Acceptance Criteria", objective.AcceptanceCriteria, coreLimit);
+            AppendTextSection(result, "## Scope", objective.Description, coreLimit);
             AppendListSection(result, "## Non-Goals", objective.NonGoals, coreLimit);
 
             AppendAtomic(result, preparation, maxChars - endMarker.Length - 2, true);

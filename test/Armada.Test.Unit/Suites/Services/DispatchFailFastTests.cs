@@ -11,6 +11,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
 
     /// <summary>
     /// Proves the dispatch path fails fast instead of blocking when a code-index dependency stalls.
@@ -187,6 +188,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(blocked, "Block waits for the in-progress refresh");
                 AssertContains("code_index_update_in_progress", System.Text.Json.JsonSerializer.Serialize(blocked));
             });
+
+            await RunTest("DispatchGuard_ModelCannotBlockWhenPolicyIsProceed", async () =>
+            {
+                using Armada.Test.Unit.TestHelpers.TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                StaleCodeIndexService stale = new StaleCodeIndexService();
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(StalenessChoice("block", 0.99));
+                TypedDispatchStalenessAdapter adapter = BuildStalenessAdapter(testDb.Driver, client);
+                CodeIndexSettings settings = new CodeIndexSettings { DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.Proceed };
+                object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    stale, "vsl_test", "armada_dispatch", settings, Silent(), null, default, adapter, "Fix the encoder", "Edit src/FrameEncoder.cs").ConfigureAwait(false);
+                AssertNull(blocked, "the model cannot introduce a Block the Proceed policy would not");
+                AssertTrue(client.CallCount >= 1, "the adapter was consulted on a relevant stale index");
+            });
+
+            await RunTest("DispatchGuard_RefreshInline_ModelProceed_SkipsInlineRefresh", async () =>
+            {
+                using Armada.Test.Unit.TestHelpers.TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RecordingRefreshCodeIndexService svc = new RecordingRefreshCodeIndexService();
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(StalenessChoice("proceed", 0.95));
+                TypedDispatchStalenessAdapter adapter = BuildStalenessAdapter(testDb.Driver, client);
+                CodeIndexSettings settings = new CodeIndexSettings { DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.RefreshInline };
+                object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    svc, "vsl_test", "armada_dispatch", settings, Silent(), null, default, adapter, "Fix a README typo", "docs only").ConfigureAwait(false);
+                AssertNull(blocked, "demoting RefreshInline to Proceed still dispatches");
+                AssertEqual(0, svc.UpdateInvocations, "a Proceed demotion does not run the inline refresh before return");
+            });
+        }
+
+
+        private static TypedDecisionResult StalenessChoice(string choice, double confidence)
+        {
+            return new TypedDecisionResult
+            {
+                Available = true,
+                Answers = new System.Collections.Generic.Dictionary<string, TypedAnswer>(System.StringComparer.Ordinal)
+                {
+                    [TypedDispatchStalenessAdapter.QuestionId] = new TypedAnswer { Type = "choice", Choice = choice, Confidence = confidence }
+                }
+            };
+        }
+
+        private static TypedDispatchStalenessAdapter BuildStalenessAdapter(Armada.Core.Database.DatabaseDriver database, FakeTypedDecisionClient client)
+        {
+            TypedDecisionSettings settings = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
+            settings.Decisions["dispatch_staleness"].Mode = TypedDecisionModeEnum.Gate;
+            settings.Decisions["dispatch_staleness"].GateThreshold = 0.90;
+            TypedDecisionRecorder recorder = new TypedDecisionRecorder(database, new LoggingModule());
+            return new TypedDispatchStalenessAdapter(client, recorder, settings, Silent());
         }
 
         private static LoggingModule Silent()

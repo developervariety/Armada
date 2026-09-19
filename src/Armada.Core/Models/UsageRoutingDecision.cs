@@ -36,6 +36,15 @@ namespace Armada.Core.Models
         /// <summary>Explains the selection or the wait.</summary>
         public string Reason { get; set; } = String.Empty;
 
+        /// <summary>
+        /// True when the capacity-chosen list named models and no eligible captain ran any of them.
+        /// Routing still falls through; it does not refuse.
+        /// </summary>
+        public bool MatchedNothing { get; set; }
+
+        /// <summary>Dead entries on the capacity-chosen list, when <see cref="MatchedNothing"/> is true.</summary>
+        public List<DeadPersonaModelEntry> DeadListEntries { get; set; } = new List<DeadPersonaModelEntry>();
+
         #endregion
     }
 }

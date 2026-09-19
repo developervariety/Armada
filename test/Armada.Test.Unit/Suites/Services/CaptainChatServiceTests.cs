@@ -167,6 +167,24 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("ChatAsync refuses when requireAccountLogin is on and the captain has no account", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Captain captain = new Captain("chat-require-account", AgentRuntimeEnum.OpenCode);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    ReplayRuntimeFactory factory = new ReplayRuntimeFactory(logging, new[] { "should not run" });
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.ModelTier.UsageRouting.RequireAccountLogin = true;
+                    CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, settings);
+                    CaptainChatResponse response = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Question" }).ConfigureAwait(false);
+                    AssertFalse(response.Success, "Chat must refuse without an account login.");
+                    AssertContains(CaptainAccountLaunch.ReasonAccountRequired, response.Error ?? String.Empty, "Chat names account_required.");
+                    AssertTrue(factory.LastRuntime == null, "No runtime may start for a refused chat.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ChatAsync_PassesAskIsolationPlanAndCleansTemporaryConfig", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

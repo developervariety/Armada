@@ -16,7 +16,7 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Question numbers that block dispatch: any unanswered question, a no on a question that must
-        /// be yes, or a yes on the open-owner-question question.
+        /// be yes (including question 14), or a yes on the open-owner-question question (13).
         /// </summary>
         public List<int> IncompleteQuestions { get; set; } = new List<int>();
 

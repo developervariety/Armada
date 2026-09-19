@@ -435,6 +435,67 @@ namespace Armada.Test.Unit.Suites.Services
                 else AssertEqual(inherited, info.Environment["CODEX_HOME"]);
             });
 
+            await RunTest("ApplyAccountFromSettings honours requireAccountLogin from the policy", () =>
+            {
+                UsageRoutingSettings settings = new UsageRoutingSettings { RequireAccountLogin = true };
+                Captain captain = new Captain("chat", AgentRuntimeEnum.Codex) { Id = "chat" };
+                AssertLaunchRefused(captain, null, CaptainAccountLaunch.ReasonAccountRequired, requireAccountLogin: true);
+                try
+                {
+                    CaptainLaunchIsolationPlanner.ApplyAccountFromSettings(new CaptainLaunchIsolationPlan(), captain, settings);
+                }
+                catch (CaptainAccountLaunchException ex)
+                {
+                    AssertEqual(CaptainAccountLaunch.ReasonAccountRequired, ex.Code);
+                    return;
+                }
+                throw new Exception("Expected ApplyAccountFromSettings to refuse without an account");
+            });
+
+            await RunTest("requireAccountLogin refuses a supported captain with no account and leaves other runtimes unchanged", () =>
+            {
+                Captain claude = new Captain("claude-shared", AgentRuntimeEnum.ClaudeCode);
+                AssertLaunchRefused(claude, null, CaptainAccountLaunch.ReasonAccountRequired, requireAccountLogin: true);
+                CaptainLaunchIsolationPlan allowed = CaptainLaunchIsolationPlanner.ApplyAccount(new CaptainLaunchIsolationPlan(), claude, null);
+                AssertEqual(0, allowed.EnvironmentOverrides.Count);
+                CaptainLaunchIsolationPlanner.ApplyAccount(new CaptainLaunchIsolationPlan(), new Captain("gemini", AgentRuntimeEnum.Gemini), null, requireAccountLogin: true);
+                CaptainLaunchIsolationPlanner.ApplyAccount(new CaptainLaunchIsolationPlan(), new Captain("provider", AgentRuntimeEnum.ClaudeCode) { ApiKey = "k" }, null, requireAccountLogin: true);
+            });
+
+            await RunTest("requireAccountLogin preview lists unbound captains and missing logins", () =>
+            {
+                string home = TempDirectory("preview-req");
+                try
+                {
+                    File.WriteAllText(Path.Combine(home, ".credentials.json"), "{}");
+                    UsageRoutingSettings settings = new UsageRoutingSettings
+                    {
+                        RequireAccountLogin = true,
+                        Accounts = new List<UsageAccountSettings>
+                        {
+                            new UsageAccountSettings { Id = "bound", Runtime = AgentRuntimeEnum.ClaudeCode, HomeDirectory = home, CaptainIds = new List<string> { "cpt_bound" } }
+                        }
+                    };
+                    List<Captain> captains = new List<Captain>
+                    {
+                        new Captain("cpt_bound", AgentRuntimeEnum.ClaudeCode) { Id = "cpt_bound" },
+                        new Captain("cpt_free", AgentRuntimeEnum.Codex) { Id = "cpt_free" },
+                        new Captain("cpt_gemini", AgentRuntimeEnum.Gemini) { Id = "cpt_gemini" },
+                        new Captain("cpt_key", AgentRuntimeEnum.ClaudeCode) { Id = "cpt_key", ApiKey = "k" }
+                    };
+                    List<(string CaptainId, string Reason, string? AccountId)> refusals = CaptainAccountLaunch.ListAccountLoginRefusals(settings, captains);
+                    AssertEqual(1, refusals.Count);
+                    AssertEqual("cpt_free", refusals[0].CaptainId);
+                    AssertEqual(CaptainAccountLaunch.ReasonAccountRequired, refusals[0].Reason);
+                    File.Delete(Path.Combine(home, ".credentials.json"));
+                    refusals = CaptainAccountLaunch.ListAccountLoginRefusals(settings, captains);
+                    AssertTrue(refusals.Any(item => item.CaptainId == "cpt_bound" && item.Reason == CaptainAccountLaunch.ReasonLoginMissing), "missing login is previewed");
+                    AssertTrue(refusals.Any(item => item.CaptainId == "cpt_free" && item.Reason == CaptainAccountLaunch.ReasonAccountRequired), "unbound captain is previewed");
+                    AssertFalse(refusals.Any(item => item.CaptainId == "cpt_gemini" || item.CaptainId == "cpt_key"), "unsupported and provider captains stay off the list");
+                }
+                finally { Directory.Delete(home, true); }
+            });
+
             await RunTest("A missing login blocks launch with a named reason and never falls back to the shared login", () =>
             {
                 string home = TempDirectory("empty-home");
@@ -606,18 +667,18 @@ namespace Armada.Test.Unit.Suites.Services
             return new UsageRoutingSettings { Accounts = new List<UsageAccountSettings> { account } };
         }
 
-        private void AssertLaunchRefused(Captain captain, UsageAccountSettings account, string code)
+        private void AssertLaunchRefused(Captain captain, UsageAccountSettings? account, string code, bool requireAccountLogin = false)
         {
             try
             {
-                CaptainLaunchIsolationPlanner.ApplyAccount(new CaptainLaunchIsolationPlan(), captain, account);
+                CaptainLaunchIsolationPlanner.ApplyAccount(new CaptainLaunchIsolationPlan(), captain, account, requireAccountLogin: requireAccountLogin);
             }
             catch (CaptainAccountLaunchException ex)
             {
                 AssertEqual(code, ex.Code);
                 return;
             }
-            throw new Exception("Expected launch refusal " + code + " for account " + account.Id);
+            throw new Exception("Expected launch refusal " + code + " for account " + (account?.Id ?? "(none)"));
         }
     }
 }

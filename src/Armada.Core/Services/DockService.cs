@@ -166,11 +166,31 @@ namespace Armada.Core.Services
                 {
                     // Query active docks for this vessel to avoid deleting in-use worktrees
                     List<Dock> vesselDocks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
-                    HashSet<string> activeDockPaths = new HashSet<string>(
-                        vesselDocks
-                            .Where(d => d.Active && !String.IsNullOrEmpty(d.WorktreePath))
-                            .Select(d => d.WorktreePath!),
-                        StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> activeDockPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (Dock existingDock in vesselDocks)
+                    {
+                        if (!existingDock.Active || String.IsNullOrEmpty(existingDock.WorktreePath)) continue;
+                        if (await IsDockInLiveUseAsync(existingDock, token).ConfigureAwait(false)
+                            || !await HasFinishedMissionOnDockAsync(existingDock, token).ConfigureAwait(false))
+                        {
+                            activeDockPaths.Add(existingDock.WorktreePath!);
+                            continue;
+                        }
+
+                        // Active leftover after its mission finished: reclaim so an orphaned child
+                        // cannot keep the mission branch registered. An Active dock with no mission
+                        // row is treated as live — provision writes the dock before mission.DockId.
+                        _Logging.Warn(_Header + "reclaiming stale active dock " + existingDock.Id +
+                            " at " + existingDock.WorktreePath + " because its mission has finished");
+                        try
+                        {
+                            await ReclaimAsync(existingDock.Id, existingDock.TenantId, token).ConfigureAwait(false);
+                        }
+                        catch (Exception staleEx)
+                        {
+                            _Logging.Warn(_Header + "stale-dock reclaim failed for " + existingDock.Id + ": " + staleEx.Message);
+                        }
+                    }
 
                     // Sibling worktrees (e.g. docks/<Vessel>/<Sibling>) live alongside the
                     // per-mission dock directories and are SHARED by every concurrent dock on the
@@ -226,6 +246,7 @@ namespace Armada.Core.Services
                             if (isRegistered)
                             {
                                 _Logging.Info(_Header + "cleaning up stale worktree from previous captain: " + checkoutDir);
+                                ReleaseDockOccupants(checkoutDir);
                                 try
                                 {
                                     await _Git.RemoveWorktreeAsync(checkoutDir, token).ConfigureAwait(false);
@@ -308,7 +329,7 @@ namespace Armada.Core.Services
                 // instead of recreating it so downstream pipeline stages and retries preserve work.
                 // A detached checkout is used for personas that never commit, so they can share the
                 // mission branch's commit with a stage that still holds the branch attached.
-                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, vessel.DefaultBranch, detached: detachedWorktree, token: token).ConfigureAwait(false);
+                await CreateWorktreeReleasingHolderAsync(vessel, repoPath, worktreePath, branchName, vessel.DefaultBranch, detachedWorktree, token).ConfigureAwait(false);
                 await SeedDockMcpConfigAsync(vessel, worktreePath, missionId, token).ConfigureAwait(false);
                 await InstallBoundaryHooksAsync(repoPath, vessel, token).ConfigureAwait(false);
                 await WriteBoundaryConfigAsync(vessel, worktreePath, token).ConfigureAwait(false);
@@ -369,6 +390,9 @@ namespace Armada.Core.Services
                 {
                     await ForceRemoveDirectoryAsync(worktreePath, CancellationToken.None).ConfigureAwait(false);
                 }
+
+                if (ex.Message.StartsWith("dock_worktree_held:", StringComparison.Ordinal))
+                    throw;
 
                 return null;
             }
@@ -436,6 +460,7 @@ namespace Armada.Core.Services
 
                         if (isRegistered)
                         {
+                            ReleaseDockOccupants(dock.WorktreePath);
                             await _Git.RemoveWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
                             _Logging.Info(_Header + "reclaimed dock " + dockId + " at " + dock.WorktreePath);
                         }
@@ -2297,6 +2322,154 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// True when this dock still belongs to a live assignment. Captain Idle is not enough
+        /// to reclaim: provision runs before the captain is claimed, so a concurrent assignment
+        /// would otherwise delete an in-flight worktree. An Idle captain plus no live mission
+        /// is the leftover that an orphaned child turns into a live-lock.
+        /// </summary>
+        private async Task<bool> IsDockInLiveUseAsync(Dock dock, CancellationToken token)
+        {
+            if (DockLeaseRegistry.IsHeld(dock.Id)) return true;
+            if (!String.IsNullOrEmpty(dock.CaptainId))
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(dock.CaptainId, token).ConfigureAwait(false);
+                if (captain != null
+                    && captain.State != CaptainStateEnum.Idle
+                    && String.Equals(captain.CurrentDockId, dock.Id, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                List<Mission> missions = await _Database.Missions.EnumerateByCaptainAsync(dock.CaptainId, token).ConfigureAwait(false);
+                foreach (Mission mission in missions)
+                {
+                    if (!IsLiveAssignment(mission)) continue;
+                    if (String.Equals(mission.DockId, dock.Id, StringComparison.Ordinal)) return true;
+                    // Provision writes the dock row before the mission.DockId; protect that window.
+                    if (String.IsNullOrEmpty(mission.DockId)
+                        && mission.AssignmentState == MissionAssignmentStateEnum.Provisioning)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private async Task<bool> HasFinishedMissionOnDockAsync(Dock dock, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(dock.CaptainId)) return false;
+            List<Mission> missions = await _Database.Missions.EnumerateByCaptainAsync(dock.CaptainId, token).ConfigureAwait(false);
+            bool finished = false;
+            foreach (Mission mission in missions)
+            {
+                if (!String.Equals(mission.DockId, dock.Id, StringComparison.Ordinal)) continue;
+                if (IsLiveAssignment(mission)) return false;
+                if (mission.Status == MissionStatusEnum.Complete
+                    || mission.Status == MissionStatusEnum.Failed
+                    || mission.Status == MissionStatusEnum.Cancelled
+                    || mission.Status == MissionStatusEnum.LandingFailed)
+                {
+                    finished = true;
+                }
+            }
+            return finished;
+        }
+
+        private static bool IsLiveAssignment(Mission mission)
+        {
+            if (mission == null) return false;
+            if (mission.AssignmentState == MissionAssignmentStateEnum.Provisioning) return true;
+            return mission.Status == MissionStatusEnum.Assigned
+                || mission.Status == MissionStatusEnum.InProgress
+                || mission.Status == MissionStatusEnum.WorkProduced
+                || mission.Status == MissionStatusEnum.PullRequestOpen
+                || mission.Status == MissionStatusEnum.Testing
+                || mission.Status == MissionStatusEnum.Review;
+        }
+
+        private async Task<bool> IsHolderPathInLiveUseAsync(string vesselId, string holderPath, CancellationToken token)
+        {
+            string normalized = Path.GetFullPath(holderPath);
+            List<Dock> docks = await _Database.Docks.EnumerateByVesselAsync(vesselId, token).ConfigureAwait(false);
+            foreach (Dock dock in docks)
+            {
+                if (!dock.Active || String.IsNullOrEmpty(dock.WorktreePath)) continue;
+                string dockPath;
+                try { dockPath = Path.GetFullPath(dock.WorktreePath); }
+                catch (Exception) { continue; }
+                if (!dockPath.Equals(normalized, StringComparison.OrdinalIgnoreCase)
+                    && !normalized.StartsWith(dockPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    && !dockPath.StartsWith(normalized + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (await IsDockInLiveUseAsync(dock, token).ConfigureAwait(false)) return true;
+            }
+            return false;
+        }
+
+        private void ReleaseDockOccupants(string path)
+        {
+            List<int> pids = DockPathOccupants.Release(path);
+            if (pids.Count == 0) return;
+            _Logging.Warn(_Header + "released " + pids.Count.ToString() + " occupant process(es) of " + path +
+                ": " + String.Join(",", pids));
+        }
+
+        private async Task CreateWorktreeReleasingHolderAsync(
+            Vessel vessel,
+            string repoPath,
+            string worktreePath,
+            string branchName,
+            string baseBranch,
+            bool detached,
+            CancellationToken token)
+        {
+            try
+            {
+                await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                string? holder = DockPathOccupants.ParseHolderPath(ex.Message);
+                if (String.IsNullOrEmpty(holder)) throw;
+
+                if (await IsHolderPathInLiveUseAsync(vessel.Id, holder, token).ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException(
+                        "dock_worktree_held: branch " + branchName + " is held by a live dock at " + holder
+                        + ". Git reported: " + ex.Message,
+                        ex);
+                }
+
+                List<int> first = DockPathOccupants.Release(holder);
+                _Logging.Warn(_Header + "git refused branch " + branchName + " as already used at " + holder +
+                    "; released " + first.Count.ToString() + " occupant(s) and retrying once");
+                try { await _Git.RemoveWorktreeAsync(holder, token).ConfigureAwait(false); }
+                catch (Exception removeEx) { _Logging.Warn(_Header + "holder worktree remove failed for " + holder + ": " + removeEx.Message); }
+                try { await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false); }
+                catch (Exception pruneEx) { _Logging.Warn(_Header + "holder worktree prune failed for " + repoPath + ": " + pruneEx.Message); }
+
+                try
+                {
+                    await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token).ConfigureAwait(false);
+                }
+                catch (Exception retryEx)
+                {
+                    string retryHolder = DockPathOccupants.ParseHolderPath(retryEx.Message) ?? holder;
+                    List<int> still = DockPathOccupants.ListPids(retryHolder);
+                    throw new InvalidOperationException(
+                        "dock_worktree_held: branch " + branchName + " is held by worktree " + retryHolder
+                        + (still.Count > 0 ? " (pids " + String.Join(",", still) + ")" : String.Empty)
+                        + ". Git reported: " + retryEx.Message,
+                        retryEx);
+                }
+            }
+        }
+
         private async Task ForceRemoveDirectoryAsync(string path, CancellationToken token)
         {
             const int maxAttempts = 5;
@@ -2340,6 +2513,7 @@ namespace Armada.Core.Services
                 catch (Exception ex) when (attempt < maxAttempts - 1)
                 {
                     _Logging.Debug(_Header + "directory delete attempt " + (attempt + 1) + " failed for " + path + ": " + ex.Message);
+                    ReleaseDockOccupants(path);
                     continue;
                 }
                 catch (Exception ex)

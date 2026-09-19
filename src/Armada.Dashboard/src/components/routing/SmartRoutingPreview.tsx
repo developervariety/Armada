@@ -104,6 +104,16 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
         </li>)}</ol>
       </>}
 
+      {(result.accountLoginRefusals ?? []).length > 0 && <>
+        <h5>{result.requireAccountLogin
+          ? t('Captains refused with no account login')
+          : t('Captains that would be refused if account login is required')}</h5>
+        <ul>{result.accountLoginRefusals.map((item) => <li key={item.captainId}>
+          {names.get(item.captainId) ?? item.captainId}
+          {item.accountId ? ` (${item.accountId})` : ''} — <span className="mono">{item.reason}</span>
+        </li>)}</ul>
+      </>}
+
       {(result.warnings ?? []).map((w) => <p key={w} className="text-danger">{w}</p>)}
       <details><summary>{t('Raw preview response')}</summary>
         <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(result, null, 2)}</pre></details>

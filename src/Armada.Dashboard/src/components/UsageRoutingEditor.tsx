@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { accountTemplate } from '../lib/subscriptionAccounts';
-import { modelAvailability, modelOptions } from '../lib/smartRouting';
+import { modelAvailability, modelOptions, type DeadPersonaModelEntry } from '../lib/smartRouting';
 import type { Captain } from '../types/models';
 import PersonaModelsEditor from './routing/PersonaModelsEditor';
 import PersonaRestrictionsEditor from './routing/PersonaRestrictionsEditor';
 import SmartRoutingPreview from './routing/SmartRoutingPreview';
 
 export const emptyUsageRouting = {
-  enabled: false, monthlyBudget: 0, currency: 'USD', accounts: [], personaRoutes: {}, personaModels: {},
+  enabled: false, requireAccountLogin: false, monthlyBudget: 0, currency: 'USD', accounts: [], personaRoutes: {}, personaModels: {},
 };
 
 interface Props {
@@ -18,6 +18,7 @@ interface Props {
   /** Persona names from the personas catalogue. */
   personas?: string[];
   captains?: Captain[];
+  deadEntries?: DeadPersonaModelEntry[];
 }
 
 const NO_CAPTAINS: Captain[] = [];
@@ -27,7 +28,7 @@ const NO_NAMES: string[] = [];
  * The Smart Routing policy editor. The routing mode switch, persona model lists, persona restrictions, and the
  * Advanced JSON editor all edit the same draft policy text, so every view stays in sync. Preview never saves.
  */
-export default function UsageRoutingEditor({ value, onChange, statuses, personas = NO_NAMES, captains = NO_CAPTAINS }: Props) {
+export default function UsageRoutingEditor({ value, onChange, statuses, personas = NO_NAMES, captains = NO_CAPTAINS, deadEntries = [] }: Props) {
   const { t } = useLocale();
   let policy: Record<string, unknown> | null = null;
   try {
@@ -71,6 +72,7 @@ export default function UsageRoutingEditor({ value, onChange, statuses, personas
     <p>{t('Configured monthly costs')}: {String(policy?.currency || 'USD')} {cost.toFixed(2)}
       {Number(policy?.monthlyBudget) > 0 && cost > Number(policy?.monthlyBudget) && <strong> — {t('Above budget')}</strong>}</p>
     <PersonaModelsEditor policy={policy} personas={personas} options={options} availability={availability}
+      deadEntries={deadEntries}
       onChange={personaModels => update({ personaModels })} />
     <PersonaRestrictionsEditor policy={policy} personas={personas} captains={captains} options={options} availability={availability}
       onChange={personaRoutes => update({ personaRoutes })} />

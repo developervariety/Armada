@@ -40,6 +40,7 @@ namespace Armada.Core.Services
             AddReviewSubstance(cases, new TypedReviewSubstanceAdapter(silent, recorder, settings, logging));
             AddLintFinding(cases, new TypedLintFindingAdapter(silent, recorder, settings, logging));
             AddChangeQuality(cases, new TypedChangeQualityAdapter(silent, recorder, settings, logging));
+            AddDispatchStaleness(cases, new TypedDispatchStalenessAdapter(silent, recorder, settings, logging));
             return cases;
         }
 
@@ -337,6 +338,55 @@ namespace Armada.Core.Services
                 adapter.DescribeRequest(clearA),
                 adapter.DescribeRequest(clearB),
                 "readability_weak"));
+        }
+
+
+        private static void AddDispatchStaleness(List<TypedDecisionEvalCase> cases, TypedDispatchStalenessAdapter adapter)
+        {
+            DispatchStalenessInput searchesSource = new DispatchStalenessInput
+            {
+                Mission = EvalMission("Rewrite the frame encoder checksum", "Worker"),
+                Policy = CodeIndexDispatchStalenessPolicyEnum.RefreshInline,
+                UpdateInProgress = false,
+                Relevance = new CodeIndexStalenessRelevance { IsStale = true, IsRelevant = true, ChangedFileCount = 4, ChangedSourceFileCount = 3, DiffUnavailable = false },
+                Title = "Rewrite the frame encoder checksum",
+                Description = "Search src/FrameEncoder.cs and replace the checksum. Context packs must quote the current encoder."
+            };
+            DispatchStalenessInput docsWork = new DispatchStalenessInput
+            {
+                Mission = EvalMission("Fix a typo in the operator README", "Worker"),
+                Policy = CodeIndexDispatchStalenessPolicyEnum.RefreshInline,
+                UpdateInProgress = false,
+                Relevance = new CodeIndexStalenessRelevance { IsStale = true, IsRelevant = true, ChangedFileCount = 4, ChangedSourceFileCount = 3, DiffUnavailable = false },
+                Title = "Fix a typo in the operator README",
+                Description = "Edit docs/README.md. No source file is read or compiled."
+            };
+            cases.Add(Pair(
+                "dispatch_staleness.source_work_vs_docs_work",
+                "dispatch_staleness",
+                TypedDecisionEvalCaseKindEnum.Reference,
+                "Work that will search the changed source should refresh now; a docs-only edit can proceed against the current index.",
+                adapter.DescribeRequest(searchesSource),
+                adapter.DescribeRequest(docsWork),
+                Expect("reaction", new TypedDecisionExpectation { Choice = "refresh_inline" }),
+                Expect("reaction", new TypedDecisionExpectation { Choice = "proceed" })));
+
+            DispatchStalenessInput reword = new DispatchStalenessInput
+            {
+                Mission = EvalMission("Repair the frame encoder checksum", "Worker"),
+                Policy = searchesSource.Policy,
+                UpdateInProgress = false,
+                Relevance = searchesSource.Relevance,
+                Title = "Repair the frame encoder checksum",
+                Description = searchesSource.Description
+            };
+            cases.Add(Consistency(
+                "dispatch_staleness.title_reword_does_not_change_reaction",
+                "dispatch_staleness",
+                "A title reword does not change whether the work searches the stale source.",
+                adapter.DescribeRequest(searchesSource),
+                adapter.DescribeRequest(reword),
+                "reaction"));
         }
 
         private static Mission EvalMission(string title, string persona)

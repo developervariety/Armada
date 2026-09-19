@@ -91,6 +91,27 @@ namespace Armada.Core.Models
         public ObjectiveDependencyAnalysis DependencyAnalysis { get; set; } = new ObjectiveDependencyAnalysis();
 
         /// <summary>
+        /// Persona names of the pipeline stages that would be materialised, after a stored confirmed
+        /// stage skip. WorkerOnly is reported as a single Worker stage.
+        /// </summary>
+        public List<string> EffectivePipelineStages { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Persona names dropped by a stored confirmed stage skip. Empty when no skip is applied.
+        /// </summary>
+        public List<string> SkippedPipelineStages { get; set; } = new List<string>();
+
+        /// <summary>
+        /// True when the stored skip names a confirmer. An unconfirmed skip is not applied.
+        /// </summary>
+        public bool StageSkipConfirmed { get; set; }
+
+        /// <summary>
+        /// The named refusal a stored confirmed skip would hit, or null when the skip applies or none is stored.
+        /// </summary>
+        public string? StageSkipRefusalCode { get; set; } = null;
+
+        /// <summary>
         /// Dispatch-preflight readiness: whether the recorded answers admit dispatch, which questions
         /// still block it, and the facts the code determined for the deterministic questions.
         /// </summary>

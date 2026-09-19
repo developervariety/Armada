@@ -40,6 +40,15 @@ fault gives `default`. The reading is cached per mission in memory for 30
 minutes. The retired `routing_hint` decision and route `shapes` tags are
 ignored when a settings file still contains them.
 
+**`dispatch_staleness`** (ships `Gate`, threshold `0.90`) runs at voyage dispatch when a
+vessel's code index is stale on indexable source, or when an update is already in progress
+under `Block`. It asks one closed Choice (`proceed`, `refresh_inline`, `block`) over the
+configured policy, the relevance counts, whether an update is in progress, the title, and a
+head of the description. It never receives raw hunks. The deterministic policy is the rule
+verdict, except a stale index that touches no indexable source always Proceeds. Combine never
+introduces a wait the rule would not, and a `Block` rule always wins. Off, unavailable, and
+below threshold keep the rule.
+
 The safety contract holds whenever it is enabled:
 
 - The model never approves a Judge PASS, never lands, never dispatches, and

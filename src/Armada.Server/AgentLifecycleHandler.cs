@@ -851,6 +851,7 @@ namespace Armada.Server
 
             // An account login is a local home directory or key on the Admiral; it cannot travel to a runner.
             UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id);
+            CaptainAccountLaunch.RequireLaunchIdentity(captain, account, _Settings.ModelTier.UsageRouting.RequireAccountLogin);
             if (CaptainAccountLaunch.HasLaunchIdentity(account))
                 throw new HarborLaunchException("harbor_account_login_unsupported", account!.Id);
 
@@ -917,7 +918,7 @@ namespace Armada.Server
             // The account login switch applies whether or not MCP isolation is seeded. A captain on an account whose
             // login is missing fails this launch with a named reason instead of running on the shared login.
             UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id);
-            CaptainLaunchIsolationPlanner.ApplyAccount(plan, captain, account);
+            CaptainLaunchIsolationPlanner.ApplyAccount(plan, captain, account, requireAccountLogin: _Settings.ModelTier.UsageRouting.RequireAccountLogin);
             if (account != null)
             {
                 // A login the runtime last reported as rejected refuses the launch too; this reads the cached probe only.

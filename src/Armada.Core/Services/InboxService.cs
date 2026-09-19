@@ -307,8 +307,9 @@ namespace Armada.Core.Services
         /// live. Once the voyage is terminal the mission cannot be restarted in place; the record that
         /// carries any remaining action is the incident Armada opened for it, and the inbox lists open
         /// incidents on their own. A rescue mission carries no voyage of its own, so it follows the voyage
-        /// of the mission it rescues. A mission with no voyage anywhere in its chain stays visible, because
-        /// nothing proves it was handled.
+        /// of the mission it rescues. A mission with no voyage anywhere in its chain is not listed: the
+        /// usual cause is an operator clearing voyage links after the work landed, and listing it forever
+        /// trains operators to stop reading the inbox.
         /// </summary>
         private async Task<List<Mission>> FilterActionableAsync(
             List<Mission> missions,
@@ -320,7 +321,7 @@ namespace Armada.Core.Services
             foreach (Mission mission in missions)
             {
                 string? voyageId = await ResolveEffectiveVoyageIdAsync(mission, missionCache, token).ConfigureAwait(false);
-                if (String.IsNullOrWhiteSpace(voyageId) || liveVoyageIds.Contains(voyageId))
+                if (!String.IsNullOrWhiteSpace(voyageId) && liveVoyageIds.Contains(voyageId))
                     actionable.Add(mission);
             }
             return actionable;

@@ -28,8 +28,8 @@ const status = (accountId: string, session: Record<string, unknown> | null = nul
   accountId, runtime: null, configured: true, homeDirectory: `/data/accounts/${accountId}`, session, loginReady: false, loginReason: 'account_login_missing', loginCheckedUtc: null,
 });
 
-function renderPanel(policy: PolicyRecord, onSavePolicy = vi.fn().mockResolvedValue(undefined), onRefresh = vi.fn()) {
-  render(<SubscriptionAccountsPanel savedPolicy={policy} statuses={[]} disabled={false} onSavePolicy={onSavePolicy} onRefresh={onRefresh} />);
+function renderPanel(policy: PolicyRecord, onSavePolicy = vi.fn().mockResolvedValue(undefined), onRefresh = vi.fn(), statuses: Array<Record<string, unknown>> = []) {
+  render(<SubscriptionAccountsPanel savedPolicy={policy} statuses={statuses} disabled={false} onSavePolicy={onSavePolicy} onRefresh={onRefresh} />);
   return onSavePolicy;
 }
 
@@ -72,8 +72,35 @@ describe('Subscription accounts panel', () => {
     fireEvent.click(await screen.findByText('Start device login'));
     expect(await screen.findByText('https://auth.openai.com/codex/device')).toBeInTheDocument();
     expect(screen.getByText('ABCD-EFGH')).toBeInTheDocument();
-    expect((await screen.findAllByText(/codex-1/)).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/claude-1/)).not.toBeInTheDocument();
+    const assignList = document.querySelector('.account-captain-list');
+    expect(assignList?.textContent).toMatch(/codex-1/);
+    expect(assignList?.textContent).not.toMatch(/claude-1/);
+  });
+
+  it('names the missing Cursor key, the one-line fix, and that usage is unmeasurable', async () => {
+    vi.mocked(getAccountLoginStatus).mockResolvedValue({
+      ...status('cursor-a'), loginReady: false, loginReason: 'account_launch_credential_unavailable',
+    } as never);
+    renderPanel({ accounts: [account('cursor-a', 'Cursor')] }, undefined, undefined, [
+      { accountId: 'cursor-a', state: 'Unknown', reason: 'account_launch_credential_unavailable' },
+    ]);
+    expect(screen.getByText(/Cursor usage cannot be measured with an API key/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Manage'));
+    expect(await screen.findByText(/Save a Cursor API key on this card/)).toBeInTheDocument();
+  });
+
+  it('saves requireAccountLogin and lists captains that would be refused', async () => {
+    vi.mocked(listCaptains).mockResolvedValue({ objects: [
+      { id: 'cpt_codex', name: 'codex-1', runtime: 'Codex', model: 'gpt-x' },
+      { id: 'cpt_cursor', name: 'cursor-1', runtime: 'Cursor', model: 'cursor-x' },
+    ] } as never);
+    const onSave = renderPanel({ accounts: [account('codex', 'Codex', ['cpt_codex'])] });
+    expect(await screen.findByText(/cursor-1/)).toBeInTheDocument();
+    expect(screen.getByText('account_required')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Require account login'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const saved = onSave.mock.calls[0][0]({ accounts: [account('codex', 'Codex', ['cpt_codex'])] }) as PolicyRecord;
+    expect(saved.requireAccountLogin).toBe(true);
   });
 
   it('sends an OpenCode key once, clears the field, and never renders the key', async () => {

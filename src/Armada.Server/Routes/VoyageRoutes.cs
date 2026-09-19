@@ -28,6 +28,7 @@ namespace Armada.Server.Routes
         private readonly LoggingModule _logging;
         private readonly ObjectiveService _objectives;
         private readonly ObjectiveDispatchPreviewService? _objectiveDispatchPreview;
+        private readonly TypedDispatchStalenessAdapter? _dispatchStalenessAdapter;
         private readonly ICodeIndexService? _codeIndexService;
         private readonly ArmadaSettings? _settings;
         private readonly JsonSerializerOptions _jsonOptions;
@@ -55,7 +56,8 @@ namespace Armada.Server.Routes
             ICodeIndexService? codeIndexService,
             ArmadaSettings? settings,
             JsonSerializerOptions jsonOptions,
-            ObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
+            ObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
+            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null)
         {
             _database = database;
             _admiral = admiral;
@@ -67,6 +69,7 @@ namespace Armada.Server.Routes
             _settings = settings;
             _jsonOptions = jsonOptions;
             _objectiveDispatchPreview = objectiveDispatchPreview;
+            _dispatchStalenessAdapter = dispatchStalenessAdapter;
         }
 
         /// <summary>
@@ -364,7 +367,8 @@ namespace Armada.Server.Routes
                         _codeIndexService,
                         _objectives,
                         _settings,
-                        _objectiveDispatchPreview);
+                        _objectiveDispatchPreview,
+                        _dispatchStalenessAdapter);
                     VoyageDispatchResult dispatchResult = await dispatchService.DispatchAsync(dispatchRequest).ConfigureAwait(false);
                     if (!dispatchResult.Succeeded)
                     {

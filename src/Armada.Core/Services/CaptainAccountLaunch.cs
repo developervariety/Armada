@@ -32,6 +32,9 @@ namespace Armada.Core.Services
         /// <summary>The captain carries its own provider key or base URL, so an account login must not replace it.</summary>
         public const string ReasonProviderCaptain = "account_provider_captain_conflict";
 
+        /// <summary>requireAccountLogin is on and this captain has no account login binding.</summary>
+        public const string ReasonAccountRequired = "account_required";
+
         /// <summary>Claude Code config directory switch.</summary>
         public const string ClaudeConfigDirVariable = "CLAUDE_CONFIG_DIR";
 
@@ -68,6 +71,44 @@ namespace Armada.Core.Services
             return account != null && account.Runtime.HasValue
                 && (!String.IsNullOrWhiteSpace(account.HomeDirectory) || !String.IsNullOrWhiteSpace(account.LaunchCredentialEnv)
                     || !String.IsNullOrWhiteSpace(account.LaunchCredentialFile));
+        }
+
+        /// <summary>
+        /// Refuse a supported-runtime captain that has no account login when requireAccountLogin is on.
+        /// Provider-key captains and unsupported runtimes are unchanged.
+        /// </summary>
+        public static void RequireLaunchIdentity(Captain captain, UsageAccountSettings? account, bool requireAccountLogin)
+        {
+            if (!requireAccountLogin) return;
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (!IsSupportedRuntime(captain.Runtime)) return;
+            if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl)) return;
+            if (HasLaunchIdentity(account)) return;
+            throw new CaptainAccountLaunchException(ReasonAccountRequired, account?.Id ?? String.Empty);
+        }
+
+        /// <summary>
+        /// Captains that would be refused if requireAccountLogin is on: supported runtime, no provider key,
+        /// and no account login binding. Assigned accounts whose login is missing are listed with that reason.
+        /// </summary>
+        public static List<(string CaptainId, string Reason, string? AccountId)> ListAccountLoginRefusals(UsageRoutingSettings? settings, IEnumerable<Captain> captains)
+        {
+            List<(string CaptainId, string Reason, string? AccountId)> result = new List<(string, string, string?)>();
+            if (settings == null || captains == null) return result;
+            foreach (Captain captain in captains)
+            {
+                if (captain == null || String.IsNullOrWhiteSpace(captain.Id) || !IsSupportedRuntime(captain.Runtime)) continue;
+                if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl)) continue;
+                UsageAccountSettings? account = FindAccount(settings, captain.Id);
+                if (HasLaunchIdentity(account))
+                {
+                    string? ready = CheckReadiness(account);
+                    if (ready != null) result.Add((captain.Id, ready, account!.Id));
+                    continue;
+                }
+                result.Add((captain.Id, ReasonAccountRequired, account?.Id));
+            }
+            return result;
         }
 
         /// <summary>Find the account that lists a captain, or null.</summary>
