@@ -58,8 +58,14 @@ namespace Armada.Core.Services
         /// <summary>The check process exit code, when recorded.</summary>
         public int? ExitCode { get; init; }
 
-        /// <summary>The last lines of the check output.</summary>
-        public string Tail20 { get; init; } = String.Empty;
+        /// <summary>
+        /// A bounded window of the check output the rule read: a head and a tail for a failing check,
+        /// and a short tail for a passing one. The rule classifies an infra or contention fault from the
+        /// whole output, and such a fault often surfaces at the START (a setup step, a host or disk error)
+        /// rather than the last lines; carrying only the tail asked the model to overrule the rule on less
+        /// evidence than the rule had. <see cref="TypedFailureCauseAdapter.OutputEvidence"/> builds it.
+        /// </summary>
+        public string Diagnostics { get; init; } = String.Empty;
     }
 
     /// <summary>
@@ -154,6 +160,51 @@ namespace Armada.Core.Services
         // A repeat this likely holds the rescue on its own, per the D1 gate.
         private const double _RepeatLikelyGate = 0.9;
 
+        // Marks the middle removed from a failing check's output when its head and tail are both kept.
+        private const string _Elision = "\n…[output elided]…\n";
+
+        private static bool IsFailing(string? status)
+        {
+            return !String.IsNullOrEmpty(status)
+                && (status.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0
+                    || status.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// The bounded output evidence for one check: a failing check keeps a head and a tail, so an infra
+        /// or setup fault that surfaces at the START of the output survives beside the final error; a
+        /// passing check keeps only a short tail, because its output is not the evidence. The result never
+        /// exceeds <paramref name="maxChars"/> by more than the elision marker, so the joined checks stay
+        /// within the state budget the redactor caps.
+        /// </summary>
+        /// <param name="output">The raw check output; may be null.</param>
+        /// <param name="failed">Whether the check failed.</param>
+        /// <param name="maxChars">The character budget for this one check's evidence.</param>
+        /// <returns>The bounded evidence.</returns>
+        public static string OutputEvidence(string? output, bool failed, int maxChars = 6000)
+        {
+            if (String.IsNullOrEmpty(output)) return String.Empty;
+            string text = output.Replace("\r\n", "\n");
+            if (maxChars < 1) maxChars = 1;
+            if (text.Length <= maxChars) return text;
+            if (!failed)
+            {
+                // A passing check is not the evidence, so it keeps only a short tail. Keeping it small
+                // means many checks still fit the state budget without the redactor having to shrink the
+                // failing check's diagnostics, which it would otherwise cut first as the longest leaf.
+                int tailOnly = Math.Min(maxChars, 400);
+                return text.Substring(text.Length - tailOnly);
+            }
+            int half = Math.Max(1, (maxChars - _Elision.Length) / 2);
+            string head = text.Substring(0, half);
+            string tail = text.Substring(text.Length - half);
+            return head + _Elision + tail;
+        }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -193,15 +244,20 @@ namespace Armada.Core.Services
                 ["persona"] = input.Persona,
                 ["mission_mode"] = input.MissionMode,
                 ["recovery_attempts"] = input.RecoveryAttempts,
-                ["checks"] = input.Checks.Select(c => new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    ["label"] = c.Label,
-                    ["type"] = c.Type,
-                    ["status"] = c.Status,
-                    ["commit_matches_judge"] = c.CommitMatchesJudge,
-                    ["exit_code"] = c.ExitCode,
-                    ["tail20"] = c.Tail20
-                }).ToList(),
+                // Failing checks first: their output is the evidence, so if the redactor's blunt
+                // truncation to the state budget has to drop anything, it drops a passing check's tail,
+                // never the failing check's diagnostics the classification turns on.
+                ["checks"] = input.Checks
+                    .OrderByDescending(c => IsFailing(c.Status))
+                    .Select(c => new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["label"] = c.Label,
+                        ["type"] = c.Type,
+                        ["status"] = c.Status,
+                        ["commit_matches_judge"] = c.CommitMatchesJudge,
+                        ["exit_code"] = c.ExitCode,
+                        ["diagnostics"] = c.Diagnostics
+                    }).ToList(),
                 ["parent_failing_tests"] = input.ParentFailingTests.ToList()
             };
         }

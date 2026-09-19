@@ -45,7 +45,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RecoveryAttempts = 0,
                 Checks = new List<FailureCauseCheckFact>
                 {
-                    new FailureCauseCheckFact { Label = "unit", Type = "UnitTest", Status = "Failed", CommitMatchesJudge = true, ExitCode = 1, Tail20 = "1 failed" }
+                    new FailureCauseCheckFact { Label = "unit", Type = "UnitTest", Status = "Failed", CommitMatchesJudge = true, ExitCode = 1, Diagnostics = "1 failed" }
                 },
                 ParentFailingTests = new List<string>()
             };
@@ -221,6 +221,56 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
                 AssertTrue(client.LastRequest.Questions.ContainsKey("cause"), "questions must include cause");
                 AssertTrue(client.LastRequest.Questions.ContainsKey("repeat_likely"), "questions must include repeat_likely");
+            }).ConfigureAwait(false);
+
+            await RunTest("OutputEvidence_FailingCheck_KeepsHeadAndTail_WithinBudget", () =>
+            {
+                string output = "FATAL: no space left on device during setup\n" + new string('x', 20000) + "\nassertion failed: expected 3, got 4";
+                string evidence = TypedFailureCauseAdapter.OutputEvidence(output, failed: true, maxChars: 6000);
+
+                AssertTrue(evidence.Length <= 6060, "failing evidence stays within its budget plus the elision marker");
+                AssertTrue(evidence.Contains("no space left on device", StringComparison.Ordinal), "the infra fault at the head survives");
+                AssertTrue(evidence.Contains("assertion failed: expected 3, got 4", StringComparison.Ordinal), "the final error at the tail survives");
+            }).ConfigureAwait(false);
+
+            await RunTest("OutputEvidence_PassingCheck_KeepsShortTailOnly", () =>
+            {
+                string output = "HEAD-MARKER\n" + new string('y', 7000) + "\nOK done";
+                string evidence = TypedFailureCauseAdapter.OutputEvidence(output, failed: false, maxChars: 6000);
+
+                AssertTrue(evidence.Length <= 800, "a passing check keeps only a short tail");
+                AssertTrue(evidence.Contains("OK done", StringComparison.Ordinal), "the tail is kept");
+                AssertTrue(!evidence.Contains("HEAD-MARKER", StringComparison.Ordinal), "a passing check's head is not the evidence");
+            }).ConfigureAwait(false);
+
+            await RunTest("State_CarriesFailingCheckEvidence_WithinBudget", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(CauseResult("environmental", 0.95));
+                TypedFailureCauseAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                List<FailureCauseCheckFact> checks = new List<FailureCauseCheckFact>
+                {
+                    new FailureCauseCheckFact { Label = "build", Type = "Build", Status = "Failed", ExitCode = 1, Diagnostics = "INFRA-DISK-FULL at setup\n" + new string('d', 4000) }
+                };
+                // A full page of passing checks (the production read pages at 50): with each kept to a
+                // short tail, the failing check's fuller evidence still fits the state budget.
+                for (int i = 0; i < 50; i++)
+                    checks.Add(new FailureCauseCheckFact { Label = "t" + i, Type = "UnitTest", Status = "Passed", Diagnostics = new string('p', 400) });
+
+                FailureCauseDecisionInput input = new FailureCauseDecisionInput
+                {
+                    Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", VoyageId = "vyg_test", Title = "port a decoder" },
+                    FailureReason = "Build Check failed.",
+                    Checks = checks,
+                    ParentFailingTests = new List<string>()
+                };
+
+                TypedDecisionBatchItem? item = adapter.DescribeRequest(input);
+                AssertNotNull(item);
+                string state = item!.State.Text;
+                AssertTrue(state.Length <= new TypedDecisionSettings().MaxStateChars, "the state stays within the budget");
+                AssertTrue(state.Contains("INFRA-DISK-FULL", StringComparison.Ordinal), "the failing check's evidence survives budget truncation");
             }).ConfigureAwait(false);
         }
     }

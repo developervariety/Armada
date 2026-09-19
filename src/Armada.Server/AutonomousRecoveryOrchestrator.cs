@@ -1303,7 +1303,12 @@ namespace Armada.Server
                             && !String.IsNullOrWhiteSpace(mission.CommitHash)
                             && String.Equals(run.CommitHash, mission.CommitHash, StringComparison.Ordinal),
                         ExitCode = run.ExitCode,
-                        Tail20 = LastLines(run.Output, 20)
+                        // Carry the evidence the rule read: a head and a tail for a failing check (an
+                        // infra fault often surfaces at the start), a short tail for a passing one.
+                        Diagnostics = TypedFailureCauseAdapter.OutputEvidence(
+                            run.Output,
+                            run.Status.ToString().Contains("Fail", StringComparison.OrdinalIgnoreCase)
+                                || run.Status.ToString().Contains("Error", StringComparison.OrdinalIgnoreCase))
                     });
                 }
             }

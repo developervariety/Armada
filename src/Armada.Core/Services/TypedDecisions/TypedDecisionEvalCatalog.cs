@@ -64,7 +64,7 @@ namespace Armada.Core.Services
                         Status = "Failed",
                         CommitMatchesJudge = true,
                         ExitCode = 1,
-                        Tail20 = "error: could not write to the output directory: No space left on device"
+                        Diagnostics = "error: could not write to the output directory: No space left on device"
                     }
                 }
             };
@@ -83,7 +83,7 @@ namespace Armada.Core.Services
                         Status = "Failed",
                         CommitMatchesJudge = true,
                         ExitCode = 1,
-                        Tail20 = "FrameEncoder.cs(42,17): error CS0103: The name 'checksumSeed' does not exist in the current context"
+                        Diagnostics = "FrameEncoder.cs(42,17): error CS0103: The name 'checksumSeed' does not exist in the current context"
                     }
                 }
             };

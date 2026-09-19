@@ -195,6 +195,14 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The `failure_cause` decision state carries the evidence the rule read, not only the last lines. Each
+  check now carries a bounded head-and-tail window of its output (a failing check keeps both ends, since
+  an infra or setup fault often surfaces at the start; a passing check keeps only a short tail), failing
+  checks serialize first, and the windows are sized so a full page of checks stays within the state
+  budget. Before, the model was asked to overrule an `Infra` classification while seeing only a short
+  tail the rule had read in full. The classification effect is confirmed by re-scoring the decision's
+  cases (a state-shape change; re-extract and re-score on a host with database and provider access).
+
 - Every typed-decision adapter now decides its mode, threshold, and fallback through one shared gate,
   `TypedDecisionGate.Classify`. The adapter base and the two adapters that do not fit the single-confidence
   base — prior art (three independent confidences, two seams) and the Recorder memory review (a compound
