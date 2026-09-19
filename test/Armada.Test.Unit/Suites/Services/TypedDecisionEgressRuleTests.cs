@@ -18,11 +18,10 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
 
     /// <summary>
-    /// The egress rules every path that sends decision state off the host must share: the content markers, the
-    /// retry of a request the provider rejected as too large, and the per-candidate filter context compaction
-    /// applies. The central case sends ONE marked state through the three egress paths - the adapter skeleton,
-    /// a custom decision and a captain tool - and requires all three to refuse it, because a guard held by
-    /// three of four callers reads as held by all four.
+    /// The egress rules every path that sends decision state off the host must share: the content markers
+    /// and the retry of a request the provider rejected as too large. The central case sends ONE marked
+    /// state through the three egress paths - the adapter skeleton, a custom decision and a captain tool -
+    /// and requires all three to refuse it.
     /// </summary>
     public class TypedDecisionEgressRuleTests : TestSuite
     {
@@ -208,51 +207,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(3, client.CallCount, "the rejected pair, then each half");
                 AssertEqual(2, results.Count);
                 AssertTrue(results.All(r => r.Available), "both items are answered after the split");
-            }).ConfigureAwait(false);
-
-            await RunTest("Compaction_DropsAMarkedCandidate_AndMapsSparedPositionsBack", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                // After the marked candidate is removed, question slot 1 is the caller's position 1.
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("keep_result_1", 0.95));
-                TypedDecisionSettings settings = Settings(new[] { Marker }).TypedDecisions;
-                settings.Decisions["context_compaction"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.55 };
-                TypedContextCompactionAdapter adapter = new TypedContextCompactionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
-
-                ContextCompactionVerdict verdict = await adapter.DecideAllowedAsync(new ContextCompactionDecisionInput
-                {
-                    Goal = "port the record reader",
-                    Candidates = new List<ContextCompactionCandidate>
-                    {
-                        new ContextCompactionCandidate("read", "read private-export/data/records.xml", "<records>...", 40000, 30),
-                        new ContextCompactionCandidate("bash", "count the parser copies", "11 matches across 7 files", 2048, 20),
-                        new ContextCompactionCandidate("bash", "list the tests", "test_one.py", 900, 10)
-                    }
-                }, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(1, client.CallCount);
-                AssertEqual(4, client.LastRequest!.Questions.Count, "only the two unmarked candidates are asked about, two questions each");
-                AssertFalse(FakeTypedDecisionClient.StateText(client.LastRequest).Contains("<records>"), "the marked output never reaches the request");
-                AssertEqual(1, verdict.SparedPositions.Count);
-                AssertEqual(1, verdict.SparedPositions[0], "the spared slot maps back to the caller's position");
-            }).ConfigureAwait(false);
-
-            await RunTest("Compaction_WithEveryCandidateMarked_AsksNothing", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("keep_result_1", 0.95));
-                TypedDecisionSettings settings = Settings(new[] { Marker }).TypedDecisions;
-                settings.Decisions["context_compaction"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.55 };
-                TypedContextCompactionAdapter adapter = new TypedContextCompactionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
-                ContextCompactionVerdict verdict = await adapter.DecideAllowedAsync(new ContextCompactionDecisionInput
-                {
-                    Candidates = new List<ContextCompactionCandidate>
-                    {
-                        new ContextCompactionCandidate("read", "read /x/private-export/a.xml", "<a/>", 900, 5)
-                    }
-                }, CancellationToken.None).ConfigureAwait(false);
-                AssertEqual(0, client.CallCount, "nothing left to ask about means nothing is sent");
-                AssertFalse(verdict.HasSpared);
             }).ConfigureAwait(false);
         }
     }

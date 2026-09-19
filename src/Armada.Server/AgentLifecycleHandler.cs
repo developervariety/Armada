@@ -781,10 +781,6 @@ namespace Armada.Server
                         captain,
                         mission).ConfigureAwait(false);
 
-                    // The API-endpoint runtime consults context_compaction in-process, so it is told its mission
-                    // directly: the decision records against it and applies the vessel's egress rule.
-                    if (runtime is ApiAgentRuntime apiRuntime) apiRuntime.CompactionMission = mission;
-
                     processId = await runtime.StartAsync(
                         dock.WorktreePath ?? throw new InvalidOperationException("Dock worktree path is null"),
                         prompt,

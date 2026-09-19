@@ -36,8 +36,7 @@ namespace Armada.Core.Services
             ["memory_review"] = "Whether a reviewed memory's salience should be lowered.",
             ["lint_finding"] = "How a Linter finding routes to the next stage.",
             ["prior_art"] = "Whether the requested work already exists before a stage begins.",
-            ["change_quality"] = "A multi-dimension quality read of a focused diff: DRY, cognitive complexity, modularity, readability, and maintainability.",
-            ["context_compaction"] = "Which earlier tool results are still load-bearing, so a compaction keeps a bounded head of the settled ones and spares the rest."
+            ["change_quality"] = "A multi-dimension quality read of a focused diff: DRY, cognitive complexity, modularity, readability, and maintainability."
         };
 
         #endregion

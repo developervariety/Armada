@@ -11,17 +11,6 @@ namespace Armada.Runtimes
     /// </summary>
     public class AgentRuntimeFactory
     {
-        #region Public-Members
-
-        /// <summary>
-        /// The context-compaction decision handed to every API-endpoint runtime this factory creates, or
-        /// null to compact deterministically. Set after construction so existing construction sites and
-        /// tests are unchanged, exactly as the other typed-decision adapters are wired.
-        /// </summary>
-        public Armada.Core.Services.TypedContextCompactionAdapter? ContextCompactionAdapter { get; set; }
-
-        #endregion
-
         #region Private-Members
 
         private string _Header = "[AgentRuntimeFactory] ";
@@ -137,15 +126,7 @@ namespace Armada.Runtimes
         public virtual IAgentRuntime Create(ModelEndpoint endpoint)
         {
             if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
-            ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, _Logging);
-            Armada.Core.Services.TypedContextCompactionAdapter? adapter = ContextCompactionAdapter;
-            if (adapter != null)
-            {
-                // The rule verdict is supplied here, at the one place that knows the decision's direction:
-                // the deterministic pass spares nothing, so the decision can only ever retain more.
-                runtime.ContextCompactionDecider = (input, token) => adapter.DecideAllowedAsync(input, token);
-            }
-            return runtime;
+            return new ApiAgentRuntime(endpoint, _Logging);
         }
 
         /// <summary>
