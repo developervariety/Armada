@@ -25,6 +25,11 @@ runs at its own mode. Per decision group:
   (`captainLogScreening`). The screen reads the tail; the decision reads it for
   drift. With the screen off it is never called, whatever its mode says.
 
+Conversation compaction is not a typed decision. The API-endpoint runtime
+applies a deterministic inbound prune and truncate-head (see README,
+"API-endpoint compaction"). Harness captains keep their harness's own
+compaction. Armada ships no harness compaction plugin.
+
 **`capacity_escalation`** (ships `Gate`, threshold `0.90`) runs at assignment
 under Smart Routing, only for a persona whose `personaModels` entry has a
 `lighter` or `stronger` list. It asks one closed Choice (`lighter`, `default`,

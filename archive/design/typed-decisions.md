@@ -76,6 +76,7 @@ mode, which applies once a key is present. Names, not index numbers, are the sta
 | Name | Replaced by |
 | --- | --- |
 | `routing_hint` | `capacity_escalation`. The work-shape hint and route `shapes` tags are removed; a stored `routing_hint` entry or `shapes` list is ignored. |
+| `context_compaction` | A deterministic API-endpoint shape rule (inbound prune, truncate-head, diagnostic keep). Harness captains keep their harness's own compaction. Armada ships no harness plugin. A leftover settings key is ignored. |
 
 ## Captain-facing use
 

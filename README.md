@@ -199,7 +199,7 @@ variable named by `apiKeyEnv`, or from the key file
 `<data directory>/secrets/typesafe-api-key` that `PUT /api/v1/typed-decisions/key`
 writes; adding or removing it takes effect without a restart. The decision
 catalogue and its principles are documented in
-[archive/design/typed-decisions.md](archive/design/typed-decisions.md).
+[Typed decisions](docs/TYPED_DECISIONS.md).
 When a decision is enabled it can only make a call
 more conservative, never lands or dispatches, gates only at or above the
 confidence threshold, fails closed to the deterministic rule, and never egresses
@@ -232,6 +232,29 @@ event carrying the decision, verdicts, confidences, tokens, latency, and the
 state's hash and byte count — never the state itself. See
 [Typed decisions](docs/TYPED_DECISIONS.md) for the full
 contract.
+
+### API-endpoint compaction
+
+The `ApiEndpoint` runtime holds the conversation in process. Harness captains
+keep their harness's own compaction; Armada ships no harness plugin. This is a
+shape rule, not a typed decision.
+
+- Large `run_command` output is pruned inbound before it enters the conversation.
+  Past about 10,000 estimated tokens, progress-only chunks (download, compile,
+  cache, test progress dots) may drop. Diagnostics, test totals, JSON/XML/YAML,
+  diffs, source dumps and binary blobs stay. The full output is archived at
+  `.armada-tool-output/` in the workspace and cited on the result. A failed
+  archive leaves the original output.
+- When the conversation crosses about 1 MiB, older tool results keep a
+  300-character head plus a `[compacted]` marker. Diagnostic and test-total
+  lines stay. The conversation never drops a message, so tool-call and
+  tool-result pairing stays intact.
+- Past a hard ceiling of 8 MiB the same pass truncates remaining large results,
+  including diagnostics. A conversation that still exceeds the ceiling fails the
+  run.
+
+A 2026-09-19 census of 1,129 real Claude Code sessions found zero
+`compact_boundary` events, so no Bash `tool.call` hook ships.
 
 ### Code Index, Context Packs, and Graph Search
 
@@ -536,13 +559,13 @@ Useful REST areas include:
 ```text
 src/
   Armada.Core       Domain models, settings, database drivers, services, code index, and interfaces
-  Armada.Runtimes   Runtime adapters for Claude Code, Codex, Cursor, Gemini, OpenCode, and extensible agents
+  Armada.Runtimes   Runtime adapters for Claude Code, Codex, Cursor, Gemini, OpenCode, Mux, and the in-process ApiEndpoint loop
   Armada.Server     Admiral REST/MCP/WebSocket server, orchestrators, and dashboard host
   Armada.Helm       CLI for config, server start, and MCP setup
   Armada.Dashboard  React/Vite operator dashboard
 ```
 
-The server constructs most services directly in `ArmadaServer.cs` and runs the fork's background orchestrators (objective scheduler, automatic check runs, autonomous recovery, incident lifecycle, code-index refresh) off the health loop. Periodic maintenance on that loop (data expiry, disk reconciliation, branch cleanup) runs one isolated step at a time, so a failing step cannot skip the others. Database drivers cover SQLite, PostgreSQL, MySQL, and SQL Server. Runtime adapters implement the shared captain process contract while preserving each CLI's launch and environment requirements.
+The server constructs most services directly in `ArmadaServer.cs` and runs the fork's background orchestrators (objective scheduler, automatic check runs, autonomous recovery, incident lifecycle, code-index refresh) off the health loop. Periodic maintenance on that loop (data expiry, disk reconciliation, branch cleanup) runs one isolated step at a time, so a failing step cannot skip the others. Database drivers cover SQLite, PostgreSQL, MySQL, and SQL Server. Runtime adapters implement the shared captain process contract while preserving each CLI's launch and environment requirements. The `ApiEndpoint` adapter runs an in-process tool loop and applies a deterministic prune and truncate-head to that conversation.
 
 ---
 

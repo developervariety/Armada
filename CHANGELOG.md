@@ -31,7 +31,9 @@ All notable changes to Armada are documented in this file.
   and test-total lines stay. The conversation never drops a message, so
   tool-call and tool-result pairing stays intact. The `context_compaction`
   typed decision is removed: real captains do not compact, and a classifier
-  cannot drop a progress chunk the rule would have kept.
+  cannot drop a progress chunk the rule would have kept. README and
+  `docs/TYPED_DECISIONS.md` describe that contract; the typed-decision catalogue
+  does not list `context_compaction`.
 
 - Content markers for typed-decision egress: `typedDecisions.egressExcludedMarkers`, with a per-decision and
   per-custom-definition override. A state whose UNREDACTED text names a marker sends nothing and records
