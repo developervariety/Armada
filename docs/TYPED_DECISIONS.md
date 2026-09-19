@@ -14,6 +14,9 @@ runs at its own mode. Per decision group:
   and records the rule's verdict and the model's on every call, so a post-gate
   review can move a threshold or set one decision `Off` without a deploy. This
   includes `capacity_escalation`, the Smart Routing model group choice.
+  **Exception:** `context_compaction` ships `Off`. The API-endpoint deterministic
+  prune and truncate-head run without it. Enable it on a host that has a TypeSafe
+  key and API-endpoint captains.
 - Some shipped decisions reach no decision point yet, so their mode has no
   effect until one is wired. Each is declared with the reason it is inert in
   `TypedDecisionWiring.UnwiredDecisions`, and every status surface reports that
@@ -447,26 +450,33 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   decision `Off` the Linter output flows unchanged.
 - `context_compaction` sits inside the API-endpoint runtime's conversation
   compaction, over the earlier tool results the deterministic pass is about to
-  replace. The model answers one `still_load_bearing` Noul per candidate — the
-  tool, what was asked for, a bounded head of the answer, its full size and how
-  far back it sits — and the candidates at or above the floor keep their full
+  shrink. The model answers two Nouls per candidate — `keep_call` (whether
+  knowing the call was made still matters) and `keep_result` (whether the full
+  output is still load-bearing) — against a fitted conversation excerpt, the
+  tool, what was asked for, a bounded head of the answer, distinctive
+  diagnostic lines from the body, its full size and how far back it sits. The
+  candidates whose `keep_result` is at or above the floor keep their full
   output verbatim. **The rule spares nothing**, so the decision can only ever
-  RETAIN more of a captain's history; it never removes a message, so tool-call and
-  tool-result pairing stays intact, and the system prompt, the launch prompt and
+  RETAIN more of a captain's history; it never removes a message, so tool-call
+  and tool-result pairing stays intact, and `keep_call` does not change the
+  verdict. Unspared results keep a bounded head and a one-line note. Diagnostic
+  and test-total lines stay under the deterministic rule even when the decision
+  is Off or scores them below the floor (the live calibration put two
+  test-failure outputs at 0.41-0.44). The system prompt, the launch prompt and
   the most recent exchanges are never candidates. It is consulted only AFTER the
   deterministic threshold is crossed, so a conversation that was not going to lose
   content costs no call. **The conversation ceiling overrides the decision**: a run
-  still over the hard limit after sparing compacts the spared results too and says
+  still over the hard limit after sparing truncates the spared results too and says
   so, because a compaction that stops shrinking converts a long run into a lost
-  run. With the decision `Off` the compaction is deterministic.
+  run. With the decision `Off` the compaction is deterministic, including the
+  diagnostic keep and the bounded head. **It ships `Off`.** Enable it on a host
+  that has a TypeSafe key and API-endpoint captains.
   Its gate threshold ships at **0.55, not the 0.90 default**, and the reason is
   measured rather than chosen: across ten real candidates replayed through this
   adapter against the live provider, settled outputs read 0.09-0.15 and
   load-bearing ones read 0.60-0.67. Nothing reached 0.90, so a 0.90 gate would
   spare nothing while still reporting as enforced. The per-candidate spare floor
-  stays at 0.5. Two test-failure outputs read 0.41-0.44 and are therefore
-  compacted; that is a conservative miss which costs the captain a re-run, not a
-  lost result.
+  stays at 0.5.
 
   It runs on the API-endpoint runtime only, the one runtime whose conversation
   Armada holds in process. Harness captains (Claude Code, OpenCode, Codex and
@@ -474,7 +484,9 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   1M-token window and do not reach it on real missions; Codex compaction was not
   linked to worse mission outcomes; and adding the spared outputs to a harness
   summary was measured to leave the context too full after compaction, so
-  Claude Code stopped the session as thrashing.
+  Claude Code stopped the session as thrashing. A Claude Code Bash `tool.call`
+  prune hook waits on a census of real captain sessions that shows large Bash
+  output is the filling bytes.
 
 Two decision points read the papercut grouping:
 

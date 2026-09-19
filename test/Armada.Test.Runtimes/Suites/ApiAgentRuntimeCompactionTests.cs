@@ -14,8 +14,8 @@ namespace Armada.Test.Runtimes.Suites
 
     /// <summary>
     /// The contract between the deterministic compaction and the <c>context_compaction</c> decision that
-    /// layers on it. The deterministic pass replaces the content of every older tool result; the decision
-    /// may only SPARE one of those, so every failure mode of the decision — absent, unavailable,
+    /// layers on it. The deterministic pass truncates every older tool result to a bounded head; the
+    /// decision may only SPARE one of those, so every failure mode of the decision — absent, unavailable,
     /// throwing, or sparing so much that the conversation stays over the ceiling — must land back on the
     /// behaviour that shipped without it. A compaction that stops shrinking converts a long run into a
     /// lost run, which is the defect the deterministic pass was added to fix.
@@ -62,6 +62,20 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(first.TurnsAgo > 0, "the candidate says how far back it sits");
             });
 
+            await RunTest("A candidate carries distinctive protected lines from the body, not only the head", () =>
+            {
+                List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
+                int toolIndex = 3;
+                messages[toolIndex].Content = new string('x', 64 * 1024 - 80) + "\nFAILED: Assert.Equal expected 4 actual 5\nFailed: 1\n";
+                List<ContextCompactionCandidate> candidates =
+                    ApiAgentRuntime.CollectCompactionCandidates(messages, out List<int> indices);
+                AssertTrue(indices.Contains(toolIndex), "the failure result is a candidate");
+                ContextCompactionCandidate failure = candidates[indices.IndexOf(toolIndex)];
+                AssertContains("FAILED: Assert.Equal", failure.DistinctiveLine, "the assertion is in the distinctive line");
+                AssertFalse(failure.ResultHead.Contains("FAILED", StringComparison.Ordinal),
+                    "the bounded head is the start, where the assertion is not");
+            });
+
             await RunTest("A spared result keeps its full output while the rest are compacted", async () =>
             {
                 List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
@@ -78,6 +92,8 @@ namespace Armada.Test.Runtimes.Suites
 
                 AssertEqual(sparedBefore, messages[sparedMessageIndex].Content, "the spared result keeps its full output verbatim");
                 AssertTrue(IsCompacted(messages[otherMessageIndex]), "an unspared candidate is still compacted");
+                AssertTrue(messages[otherMessageIndex].Content!.Contains("Head kept:"),
+                    "an unspared result keeps a bounded head, not a wipe");
             });
 
             await RunTest("Below the deterministic threshold the decision is never consulted", async () =>
@@ -134,6 +150,49 @@ namespace Armada.Test.Runtimes.Suites
 
                 AssertTrue(MeasureBytes(messages) <= ApiAgentRuntime.MaximumConversationBytes,
                     "the ceiling override brought it back under the limit instead of throwing");
+            });
+
+            await RunTest("The fitted history excerpt reaches the compaction decision", async () =>
+            {
+                string? history = null;
+                List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
+                ApiAgentRuntime runtime = BuildRuntime((input, token) =>
+                {
+                    history = input.HistoryExcerpt;
+                    return Task.FromResult(ContextCompactionVerdict.SpareNone());
+                });
+                await runtime.EnsureConversationBoundsAsync(1, messages, "launch prompt", CancellationToken.None).ConfigureAwait(false);
+                AssertFalse(String.IsNullOrEmpty(history), "the decision receives a history excerpt");
+                AssertContains("launch prompt", history!, "the launch prompt is in the excerpt");
+            });
+
+            await RunTest("A test-failure result stays whole even when Jev scores it 0.41-0.44", async () =>
+            {
+                // The live 10-candidate calibration put two test-failure outputs at 0.41-0.44, below
+                // the spare floor. Jev therefore spares nothing; the deterministic diagnostic rule
+                // is what keeps the assertion text.
+                List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
+                List<ContextCompactionCandidate> candidates =
+                    ApiAgentRuntime.CollectCompactionCandidates(messages, out List<int> indices);
+                AssertTrue(candidates.Count >= 4, "enough candidates to plant two failures");
+
+                int firstFailure = indices[1];
+                int secondFailure = indices[2];
+                int settled = indices[3];
+                string failureBody = new string('x', 64 * 1024 - 80) + "\nFAILED: Assert.Equal expected 4 actual 5\nFailed: 1\n";
+                messages[firstFailure].Content = failureBody;
+                messages[secondFailure].Content = failureBody;
+                string settledBefore = messages[settled].Content!;
+
+                ApiAgentRuntime runtime = BuildRuntime((input, token) => Task.FromResult(ContextCompactionVerdict.SpareNone()));
+                await runtime.EnsureConversationBoundsAsync(1, messages, "launch prompt", CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(failureBody, messages[firstFailure].Content, "the first 0.41-0.44 failure is kept by the diagnostic rule");
+                AssertEqual(failureBody, messages[secondFailure].Content, "the second 0.41-0.44 failure is kept by the diagnostic rule");
+                AssertTrue(IsCompacted(messages[settled]), "a settled listing still truncates");
+                AssertTrue(messages[settled].Content!.Length < settledBefore.Length, "the truncated listing is smaller");
+                AssertTrue(messages[settled].Content!.Contains(settledBefore.Substring(0, ApiAgentRuntime.TruncatedHeadChars)),
+                    "the truncated listing keeps its bounded head");
             });
 
             await RunTest("A conversation still over the ceiling with nothing left to compact stops the run", async () =>

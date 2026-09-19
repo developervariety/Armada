@@ -54,7 +54,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Dictionary<string, TypedAnswer> map = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal);
             foreach ((int slot, double noul) in answers)
-                map["still_load_bearing_" + slot] = new TypedAnswer { Type = "noul", Noul = noul };
+                map["keep_result_" + slot] = new TypedAnswer { Type = "noul", Noul = noul };
             return new TypedDecisionResult { Available = true, Answers = map, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
@@ -150,7 +150,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
-            await RunTest("TheRequestAsksOneQuestionPerCandidate", async () =>
+            await RunTest("TheRequestAsksTwoQuestionsPerCandidate", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(LoadBearing((1, 0.10)));
@@ -158,9 +158,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await adapter.DecideAsync(BuildInput(), ContextCompactionVerdict.SpareNone(), CancellationToken.None).ConfigureAwait(false);
 
-                // Three candidates, three questions. A fixed set would let the provider answer a slot with no
-                // candidate behind it, and the verdict would then name a position the caller cannot resolve.
-                AssertEqual(3, client.LastRequest!.Questions.Count, "the request asks about the candidates it sent, and no more");
+                // Three candidates, two Nouls each. A fixed set would let the provider answer a slot with no
+                // candidate behind it, and the verdict would then name a position the caller could not resolve.
+                AssertEqual(6, client.LastRequest!.Questions.Count, "the request asks keep_call and keep_result for each candidate, and no more");
             }).ConfigureAwait(false);
 
             await RunTest("AMissingAnswer_SparesNothingForThatCandidate", async () =>
@@ -184,7 +184,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // A confidence is not the probability the statement is true. Read as one it would spare a
                 // settled result, and a conversation that never shrinks loses the run.
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(
-                    FakeTypedDecisionClient.NoulConfidenceOnly("still_load_bearing_1", 0.99));
+                    FakeTypedDecisionClient.NoulConfidenceOnly("keep_result_1", 0.99));
                 TypedContextCompactionAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
 
                 ContextCompactionVerdict result = await adapter
@@ -206,6 +206,86 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("publish the count you measured", state, "the goal reaches the model, or it cannot judge relevance");
                 AssertContains("11 matches across 7 files", state, "the head of each candidate reaches the model");
                 AssertContains("output_bytes", state, "and the size the pass would reclaim");
+            }).ConfigureAwait(false);
+
+            await RunTest("TheStateCarriesFittedHistoryAndDistinctiveLines", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(LoadBearing((1, 0.10)));
+                TypedContextCompactionAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                ContextCompactionDecisionInput input = new ContextCompactionDecisionInput
+                {
+                    Goal = BuildInput().Goal,
+                    HistoryExcerpt = "user: replace the helpers\ntool: FAILED: Assert.Equal expected 4 actual 5",
+                    Candidates = new List<ContextCompactionCandidate>
+                    {
+                        new ContextCompactionCandidate("bash", "run the tests", "Starting test execution\n", 80000, 12,
+                            "FAILED: Assert.Equal expected 4 actual 5")
+                    }
+                };
+                await adapter.DecideAsync(input, ContextCompactionVerdict.SpareNone(), CancellationToken.None).ConfigureAwait(false);
+
+                string state = FakeTypedDecisionClient.StateText(client.LastRequest);
+                AssertContains("replace the helpers", state, "fitted history reaches the model");
+                AssertContains("FAILED: Assert.Equal", state, "the distinctive assertion line reaches the model even when it is not in the head");
+            }).ConfigureAwait(false);
+
+            await RunTest("KeepCallAlone_DoesNotSpareTheResult", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Dictionary<string, TypedAnswer> map = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                {
+                    ["keep_call_1"] = new TypedAnswer { Type = "noul", Noul = 0.99 },
+                    ["keep_result_1"] = new TypedAnswer { Type = "noul", Noul = 0.10 },
+                    ["keep_call_2"] = new TypedAnswer { Type = "noul", Noul = 0.20 },
+                    ["keep_result_2"] = new TypedAnswer { Type = "noul", Noul = 0.96 },
+                    ["keep_call_3"] = new TypedAnswer { Type = "noul", Noul = 0.99 },
+                    ["keep_result_3"] = new TypedAnswer { Type = "noul", Noul = 0.10 }
+                };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(
+                    new TypedDecisionResult { Available = true, Answers = map, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 });
+                TypedContextCompactionAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                ContextCompactionVerdict result = await adapter
+                    .DecideAsync(BuildInput(), ContextCompactionVerdict.SpareNone(), CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                AssertEqual(1, result.SparedPositions.Count, "only keep_result at or above the floor spares");
+                AssertEqual(1, result.SparedPositions[0], "the high keep_call on the other slots does not spare them");
+            }).ConfigureAwait(false);
+
+            await RunTest("TenCandidates_AskTwentyQuestions_AndAWeakTestFailureDoesNotSpare", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                List<ContextCompactionCandidate> candidates = new List<ContextCompactionCandidate>();
+                Dictionary<string, TypedAnswer> map = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal);
+                for (int slot = 1; slot <= 10; slot++)
+                {
+                    bool failure = slot == 3 || slot == 7;
+                    candidates.Add(new ContextCompactionCandidate(
+                        "bash",
+                        failure ? "run the tests" : "list files",
+                        failure ? "Starting test execution, please wait...\n" : "ok\n",
+                        65536,
+                        40 - slot,
+                        failure ? "FAILED: Assert.Equal expected 4 actual 5" : String.Empty));
+                    // The live calibration put those two test-failure outputs at 0.41-0.44, below the
+                    // spare floor and below the 0.55 gate. The adapter must not spare them; the
+                    // deterministic diagnostic rule is what keeps the assertion text.
+                    map["keep_result_" + slot] = new TypedAnswer { Type = "noul", Noul = failure ? 0.42 : 0.12 };
+                }
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(
+                    new TypedDecisionResult { Available = true, Answers = map, InputTokens = 20, OutputTokens = 10, LatencyMs = 12 });
+                TypedContextCompactionAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate, 0.55));
+
+                ContextCompactionVerdict result = await adapter.DecideAsync(
+                    new ContextCompactionDecisionInput { Goal = "fix the failing assertion", Candidates = candidates },
+                    ContextCompactionVerdict.SpareNone(),
+                    CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(20, client.LastRequest!.Questions.Count, "ten candidates, two questions each");
+                AssertFalse(result.HasSpared, "0.42 is below the 0.55 gate, so Jev spares nothing");
             }).ConfigureAwait(false);
 
             await RunTest("TheCallerToken_ReachesTheClient", async () =>

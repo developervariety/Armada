@@ -9,6 +9,7 @@ namespace Armada.Runtimes.Tools
     using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Runs one shell command in the mission workspace, so an API-endpoint captain can use git, build and run
@@ -63,7 +64,9 @@ namespace Armada.Runtimes.Tools
         public string Description => "Runs one shell command with bash in the mission workspace and returns its exit code "
             + "and combined output. Use it for git (status, log, diff), builds and tests. The working directory must be "
             + "inside the workspace. Standard input is closed, so interactive commands fail rather than wait. Output "
-            + "above the limit keeps its beginning and its end, where a test summary usually is. The command is killed, "
+            + "above the limit keeps its beginning and its end, where a test summary usually is. Progress-only chunks of "
+            + "a still-larger log may then be dropped; diagnostics, test totals and structured documents stay, and the "
+            + "full output is archived in .armada-tool-output/ in the workspace. The command is killed, "
             + "with everything it started, when its timeout expires.";
 
         /// <summary>The JSON Schema object describing the tool's input parameters.</summary>
@@ -157,15 +160,37 @@ namespace Armada.Runtimes.Tools
 
                 int? exitCode = timedOut ? null : process.ExitCode;
                 string error = timedOut ? "timed_out" : (exitCode == 0 ? String.Empty : "nonzero_exit");
+                string rendered = output.Render();
+                ToolOutputPruneResult prune = ToolOutputRetention.Prune(request.Command, rendered);
+                string kept = prune.Output;
+                string? archive = null;
+                long omitted = output.OmittedBytes;
+                if (prune.Pruned)
+                {
+                    archive = TryArchive(workingDirectory, toolCallId, rendered);
+                    if (archive == null)
+                    {
+                        // A prune whose archive cannot be written leaves the original: the captain can
+                        // still read every line, and a hole it cannot recover is worse than a large log.
+                        kept = rendered;
+                        prune = ToolOutputPruneResult.Unchanged(rendered, "archive_failed");
+                    }
+                    else
+                    {
+                        omitted += Encoding.UTF8.GetByteCount(rendered) - Encoding.UTF8.GetByteCount(kept);
+                    }
+                }
 
                 RunCommandResult result = new RunCommandResult
                 {
                     ExitCode = exitCode,
                     TimedOut = timedOut,
                     DurationMs = clock.ElapsedMilliseconds,
-                    Truncated = output.Truncated,
-                    OmittedBytes = output.OmittedBytes,
-                    Output = output.Render(),
+                    Truncated = output.Truncated || prune.Pruned,
+                    Pruned = prune.Pruned,
+                    OmittedBytes = omitted,
+                    OutputArchive = archive,
+                    Output = kept,
                     Error = String.IsNullOrEmpty(error) ? null : error
                 };
 
@@ -249,6 +274,33 @@ namespace Armada.Runtimes.Tools
             }
         }
 
+        private static string? TryArchive(string workspace, string toolCallId, string fullOutput)
+        {
+            try
+            {
+                string folder = Path.Combine(workspace, ".armada-tool-output");
+                Directory.CreateDirectory(folder);
+                string safe = SanitizeFileName(toolCallId);
+                File.WriteAllText(Path.Combine(folder, safe + ".txt"), fullOutput);
+                return ".armada-tool-output/" + safe + ".txt";
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static string SanitizeFileName(string toolCallId)
+        {
+            StringBuilder safe = new StringBuilder();
+            foreach (char ch in toolCallId ?? String.Empty)
+            {
+                if (Char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-') safe.Append(ch);
+                if (safe.Length >= 64) break;
+            }
+            return safe.Length == 0 ? "output" : safe.ToString();
+        }
+
         private static ToolResult Failure(string toolCallId, string error, string message)
         {
             return new ToolResult
@@ -292,8 +344,15 @@ namespace Armada.Runtimes.Tools
             [JsonPropertyName("truncated")]
             public bool Truncated { get; set; }
 
+            [JsonPropertyName("pruned")]
+            public bool Pruned { get; set; }
+
             [JsonPropertyName("omitted_bytes")]
             public long OmittedBytes { get; set; }
+
+            [JsonPropertyName("output_archive")]
+            [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+            public string? OutputArchive { get; set; }
 
             [JsonPropertyName("output")]
             public string Output { get; set; } = String.Empty;

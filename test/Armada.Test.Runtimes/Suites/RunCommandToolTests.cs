@@ -199,6 +199,28 @@ namespace Armada.Test.Runtimes.Suites
                 finally { Directory.Delete(workspace, true); }
             });
 
+            await RunTest("Progress-only output past the token floor is pruned and archived", async () =>
+            {
+                string workspace = NewWorkspace();
+                try
+                {
+                    // Well above 10k estimated tokens of download lines, with the assertion last.
+                    RunResult result = await RunAsync(workspace, new
+                    {
+                        command = "for i in $(seq 0 2499); do echo \"Downloading package $i\"; done; echo \"FAILED: Assert.Equal expected 4 actual 5\"; echo \"Failed: 1\""
+                    }).ConfigureAwait(false);
+                    AssertTrue(result.Pruned, "progress past the floor is pruned");
+                    AssertFalse(String.IsNullOrEmpty(result.OutputArchive), "the full output is archived");
+                    AssertTrue(File.Exists(Path.Combine(workspace, result.OutputArchive!.Replace('/', Path.DirectorySeparatorChar))),
+                        "the archive is in the workspace");
+                    AssertContains("FAILED: Assert.Equal", result.Output, "the assertion stays in the returned output");
+                    AssertContains("progress omitted", result.Output, "the cut is marked");
+                    string archived = File.ReadAllText(Path.Combine(workspace, result.OutputArchive.Replace('/', Path.DirectorySeparatorChar)));
+                    AssertContains("Downloading package 2000", archived, "the archive holds the dropped progress");
+                }
+                finally { Directory.Delete(workspace, true); }
+            });
+
             await RunTest("A missing command is refused with a reason", async () =>
             {
                 string workspace = NewWorkspace();
@@ -291,8 +313,14 @@ namespace Armada.Test.Runtimes.Suites
             [System.Text.Json.Serialization.JsonPropertyName("truncated")]
             public bool Truncated { get; set; }
 
+            [System.Text.Json.Serialization.JsonPropertyName("pruned")]
+            public bool Pruned { get; set; }
+
             [System.Text.Json.Serialization.JsonPropertyName("omitted_bytes")]
             public long OmittedBytes { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("output_archive")]
+            public string? OutputArchive { get; set; }
 
             [System.Text.Json.Serialization.JsonPropertyName("output")]
             public string Output { get; set; } = String.Empty;

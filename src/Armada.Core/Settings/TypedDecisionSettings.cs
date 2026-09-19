@@ -348,11 +348,13 @@ namespace Armada.Core.Settings
                 ["memory_review"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
                 ["lint_finding"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
                 ["prior_art"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                // 0.55, not the 0.90 default, on measured readings: across ten real candidates the live
-                // model put settled outputs at 0.09-0.15 and load-bearing ones at 0.60-0.67, so it never
-                // reaches 0.90 and a 0.90 gate would spare nothing at all. A gate that executes nothing
-                // is worse than one that fails, because its mode still reads as enforced.
-                ["context_compaction"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.55 }
+                // Ships Off: captains on Claude Code do not reach compaction, and the API-endpoint
+                // deterministic prune and truncate-head run without a classifier. Enable on a host
+                // that has a TypeSafe key and API-endpoint captains. Threshold 0.55 is measured:
+                // across ten real candidates the live model put settled outputs at 0.09-0.15 and
+                // load-bearing ones at 0.60-0.67, so it never reaches 0.90 and a 0.90 gate would
+                // spare nothing at all.
+                ["context_compaction"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.55 }
             };
         }
     }

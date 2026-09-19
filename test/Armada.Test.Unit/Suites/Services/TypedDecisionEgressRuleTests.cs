@@ -214,7 +214,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 // After the marked candidate is removed, question slot 1 is the caller's position 1.
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("still_load_bearing_1", 0.95));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("keep_result_1", 0.95));
                 TypedDecisionSettings settings = Settings(new[] { Marker }).TypedDecisions;
                 settings.Decisions["context_compaction"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.55 };
                 TypedContextCompactionAdapter adapter = new TypedContextCompactionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
@@ -231,7 +231,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(1, client.CallCount);
-                AssertEqual(2, client.LastRequest!.Questions.Count, "only the two unmarked candidates are asked about");
+                AssertEqual(4, client.LastRequest!.Questions.Count, "only the two unmarked candidates are asked about, two questions each");
                 AssertFalse(FakeTypedDecisionClient.StateText(client.LastRequest).Contains("<records>"), "the marked output never reaches the request");
                 AssertEqual(1, verdict.SparedPositions.Count);
                 AssertEqual(1, verdict.SparedPositions[0], "the spared slot maps back to the caller's position");
@@ -240,7 +240,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Compaction_WithEveryCandidateMarked_AsksNothing", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("still_load_bearing_1", 0.95));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("keep_result_1", 0.95));
                 TypedDecisionSettings settings = Settings(new[] { Marker }).TypedDecisions;
                 settings.Decisions["context_compaction"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.55 };
                 TypedContextCompactionAdapter adapter = new TypedContextCompactionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());

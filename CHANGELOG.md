@@ -8,6 +8,28 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Inbound prune of large `run_command` output on the API-endpoint runtime, from the jev-pruner
+  design. Past about 10,000 estimated tokens, progress-only chunks (download, compile, cache, test
+  progress dots) may drop; diagnostics, test totals, JSON/XML/YAML, diffs, source dumps and binary
+  blobs stay. The full output is archived at `.armada-tool-output/` in the workspace and cited on
+  the result. A failed archive leaves the original output. This is a shape rule, not a typed
+  decision: the typed-decision skeleton can only retain more than its rule, so it cannot be the
+  thing that drops a chunk the rule would have kept. A 2026-09-19 census of 1,129 real Claude Code
+  sessions found zero `compact_boundary` events (the 21 compact hits were `/tmp` probes), so no
+  Bash `tool.call` hook ships.
+
+### Changed
+
+- API-endpoint context compaction no longer wipes an unspared tool result to a one-line note. It
+  keeps a 300-character head plus that note, never removes a message, and keeps diagnostic and
+  test-total lines even when `context_compaction` is Off or scores them below the spare floor (the
+  live 10-candidate calibration put two test-failure outputs at 0.41-0.44). The decision now sends
+  a fitted conversation excerpt and two Nouls per candidate (`keep_call`, `keep_result`); only
+  `keep_result` spares the full output. Candidates also carry distinctive protected lines from the
+  body, because a test runner prints its failures last and a head-only excerpt would hide them.
+  **The decision ships `Off`.** The deterministic prune and truncate-head still run. Enable
+  `context_compaction` on a host that has a TypeSafe key and API-endpoint captains.
+
 - Content markers for typed-decision egress: `typedDecisions.egressExcludedMarkers`, with a per-decision and
   per-custom-definition override. A state whose UNREDACTED text names a marker sends nothing and records
   `egress_excluded_content`. One rule, asked by every path that sends state - the adapter skeleton, custom

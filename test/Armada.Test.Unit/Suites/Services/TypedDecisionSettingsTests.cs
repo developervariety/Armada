@@ -12,7 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Defaults_ShipEveryDecisionInGate", () =>
+            await RunTest("Defaults_ShipEveryDecisionInGate_ExceptDocumentedOff", () =>
             {
                 TypedDecisionSettings settings = new TypedDecisionSettings();
                 AssertEqual(TypedDecisionModeEnum.Gate, settings.Mode);
@@ -46,16 +46,25 @@ namespace Armada.Test.Unit.Suites.Services
                     // 0.60-0.67. Nothing reaches 0.90, so 0.90 would spare nothing.
                     ["context_compaction"] = 0.55
                 };
+                HashSet<string> offByDefault = new HashSet<string>(StringComparer.Ordinal) { "context_compaction" };
 
                 foreach (KeyValuePair<string, TypedDecisionRuleSettings> entry in settings.Decisions)
                 {
-                    AssertEqual(TypedDecisionModeEnum.Gate, entry.Value.Mode, entry.Key + " ships in Gate");
+                    if (offByDefault.Contains(entry.Key))
+                    {
+                        AssertEqual(TypedDecisionModeEnum.Off, entry.Value.Mode, entry.Key + " ships Off");
+                        AssertEqual(TypedDecisionModeEnum.Off, settings.For(entry.Key).Mode, entry.Key + " is effective Off until a host enables it");
+                    }
+                    else
+                    {
+                        AssertEqual(TypedDecisionModeEnum.Gate, entry.Value.Mode, entry.Key + " ships in Gate");
+                        AssertEqual(TypedDecisionModeEnum.Gate, settings.For(entry.Key).Mode, entry.Key + " is effective in Gate");
+                    }
                     if (belowNorm.TryGetValue(entry.Key, out double documented))
                         AssertEqual(documented, entry.Value.GateThreshold, entry.Key + " keeps its documented below-norm threshold");
                     else
                         AssertTrue(entry.Value.GateThreshold >= 0.80, entry.Key + " has a gate threshold at or above the norm, or a documented exception");
                     AssertTrue(entry.Value.GateThreshold > 0.0, entry.Key + " is never left at an unset zero");
-                    AssertEqual(TypedDecisionModeEnum.Gate, settings.For(entry.Key).Mode, entry.Key + " is effective in Gate");
                 }
 
                 foreach (string name in belowNorm.Keys)

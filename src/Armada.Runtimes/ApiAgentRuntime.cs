@@ -118,6 +118,13 @@ namespace Armada.Runtimes
         /// its content and not on its size alone. Bounded because the whole point is to send less.</summary>
         internal const int CandidateHeadChars = 400;
 
+        /// <summary>Characters of an unspared tool result kept after compaction, plus a one-line note.
+        /// The pairing stays; only the body shrinks.</summary>
+        internal const int TruncatedHeadChars = 300;
+
+        /// <summary>Character budget for the fitted conversation excerpt sent with a compaction decision.</summary>
+        internal const int HistoryExcerptChars = 8000;
+
         private static readonly ConcurrentDictionary<int, CancellationTokenSource> _Running = new ConcurrentDictionary<int, CancellationTokenSource>();
 
         private readonly ModelEndpoint _Endpoint;
@@ -733,7 +740,8 @@ namespace Armada.Runtimes
                     DescribeRequestFor(messages, index),
                     content.Length <= CandidateHeadChars ? content : content.Substring(0, CandidateHeadChars),
                     Encoding.UTF8.GetByteCount(content),
-                    messages.Count - index));
+                    messages.Count - index,
+                    ToolOutputRetention.DistinctiveExcerpt(content)));
                 messageIndices.Add(index);
             }
 
@@ -780,10 +788,15 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Compact the conversation, leaving the named message indices whole.
+        /// Compact the conversation, leaving the named message indices whole. A null
+        /// <paramref name="sparedIndices"/> is the ceiling override: every eligible result is
+        /// truncated, including diagnostic lines. An empty collection is the ordinary pass: Jev
+        /// spared none, and diagnostic or test-total lines still stay because that keep is a
+        /// deterministic shape rule, not a model reading.
         /// </summary>
         /// <param name="messages">Conversation so far; mutated in place when it is compacted.</param>
-        /// <param name="sparedIndices">Message indices to leave whole this pass, or null to spare none.</param>
+        /// <param name="sparedIndices">Message indices to leave whole this pass, or null to spare none
+        /// and also skip the diagnostic keep.</param>
         /// <returns>Number of tool results whose content was replaced, or zero when nothing was compacted.</returns>
         internal static int CompactConversation(List<ChatMessage> messages, IReadOnlyCollection<int>? sparedIndices)
         {
@@ -792,22 +805,70 @@ namespace Armada.Runtimes
 
             int compacted = 0;
             int lastProtected = messages.Count - RecentMessagesKeptWhole;
+            bool force = sparedIndices == null;
             for (int index = 0; index < lastProtected; index++)
             {
-                if (sparedIndices != null && sparedIndices.Contains(index)) continue;
-                ChatMessage message = messages[index];
-
+                if (!force && sparedIndices!.Contains(index)) continue;
                 if (!IsCompactionCandidate(messages, index)) continue;
 
-                int droppedBytes = Encoding.UTF8.GetByteCount(message.Content!);
+                ChatMessage message = messages[index];
+                string content = message.Content ?? String.Empty;
+                if (!force && ToolOutputRetention.IsProtected(content)) continue;
 
+                int droppedBytes = Encoding.UTF8.GetByteCount(content);
+                string head = content.Length <= TruncatedHeadChars ? content : content.Substring(0, TruncatedHeadChars);
                 message.Content = CompactedToolResultMarker + " " + (message.ToolName ?? "tool")
                     + " returned " + droppedBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    + " bytes earlier in this run. Re-run the tool if you still need its output.";
+                    + " bytes earlier in this run. Head kept:\n" + head;
                 compacted++;
             }
 
             return compacted;
+        }
+
+        /// <summary>
+        /// A fitted excerpt of the conversation so the compaction decision sees the remaining work,
+        /// not only isolated candidate heads. The system prompt, the launch prompt and the most
+        /// recent turns are preferred; protected lines from older tool results fill any leftover
+        /// budget. Bounded because the point is to send less.
+        /// </summary>
+        /// <param name="messages">Conversation so far.</param>
+        /// <returns>A bounded excerpt, possibly empty.</returns>
+        internal static string FitConversationHistory(List<ChatMessage> messages)
+        {
+            if (messages == null || messages.Count == 0) return String.Empty;
+
+            StringBuilder excerpt = new StringBuilder();
+            HashSet<int> included = new HashSet<int>();
+
+            void Append(int index, int cap)
+            {
+                if (index < 0 || index >= messages.Count) return;
+                if (!included.Add(index)) return;
+                if (excerpt.Length >= HistoryExcerptChars) return;
+                ChatMessage message = messages[index];
+                string role = message.Role ?? "unknown";
+                string body = message.Content ?? String.Empty;
+                string distinctive = ToolOutputRetention.DistinctiveExcerpt(body);
+                string shown = !String.IsNullOrEmpty(distinctive) ? distinctive : (body.Length <= cap ? body : body.Substring(0, cap));
+                excerpt.Append(role).Append(": ").Append(shown).Append('\n');
+            }
+
+            Append(0, 400);
+            if (messages.Count > 1) Append(1, 400);
+            int recentFrom = Math.Max(2, messages.Count - 6);
+            for (int index = recentFrom; index < messages.Count; index++) Append(index, 300);
+            for (int index = 2; index < recentFrom && excerpt.Length < HistoryExcerptChars; index++)
+            {
+                ChatMessage message = messages[index];
+                if (!String.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)) continue;
+                if (String.IsNullOrEmpty(ToolOutputRetention.DistinctiveExcerpt(message.Content))) continue;
+                Append(index, 240);
+            }
+
+            if (excerpt.Length > HistoryExcerptChars)
+                return excerpt.ToString(0, HistoryExcerptChars);
+            return excerpt.ToString();
         }
 
         private static int MeasureConversationBytes(List<ChatMessage> messages)
@@ -873,7 +934,13 @@ namespace Armada.Runtimes
                 if (candidates.Count == 0) return spared;
 
                 ContextCompactionVerdict verdict = await decide(
-                    new ContextCompactionDecisionInput { Mission = CompactionMission, Goal = goal ?? String.Empty, Candidates = candidates },
+                    new ContextCompactionDecisionInput
+                    {
+                        Mission = CompactionMission,
+                        Goal = goal ?? String.Empty,
+                        Candidates = candidates,
+                        HistoryExcerpt = FitConversationHistory(messages)
+                    },
                     token).ConfigureAwait(false);
 
                 foreach (int position in verdict.SparedPositions)

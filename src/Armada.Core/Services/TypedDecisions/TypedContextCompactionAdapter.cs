@@ -23,13 +23,15 @@ namespace Armada.Core.Services
         /// <param name="resultHead">A bounded head of the tool's output.</param>
         /// <param name="resultBytes">The full size of the tool's output, in bytes.</param>
         /// <param name="turnsAgo">How many messages back in the conversation this result sits.</param>
-        public ContextCompactionCandidate(string toolName, string requestSummary, string resultHead, int resultBytes, int turnsAgo)
+        /// <param name="distinctiveLine">Protected lines from the body (assertion text, test totals), or empty.</param>
+        public ContextCompactionCandidate(string toolName, string requestSummary, string resultHead, int resultBytes, int turnsAgo, string distinctiveLine = "")
         {
             ToolName = toolName ?? String.Empty;
             RequestSummary = requestSummary ?? String.Empty;
             ResultHead = resultHead ?? String.Empty;
             ResultBytes = resultBytes < 0 ? 0 : resultBytes;
             TurnsAgo = turnsAgo < 0 ? 0 : turnsAgo;
+            DistinctiveLine = distinctiveLine ?? String.Empty;
         }
 
         /// <summary>The tool whose result this is.</summary>
@@ -46,14 +48,21 @@ namespace Armada.Core.Services
 
         /// <summary>How many messages back in the conversation this result sits.</summary>
         public int TurnsAgo { get; }
+
+        /// <summary>
+        /// Protected lines from the body, where assertion text and test totals live. The bounded
+        /// head is the start of the output; a test runner prints its failures last, so a head-only
+        /// candidate would hide the lines the remaining work still depends on.
+        /// </summary>
+        public string DistinctiveLine { get; }
     }
 
     /// <summary>
     /// The <c>context_compaction</c> verdict: which candidates keep their full output this pass. The
     /// rule verdict spares NOTHING (<see cref="SpareNone"/>), which is the deterministic compaction
-    /// Armada already performs — it replaces the content of every older tool result. So a gated verdict
-    /// can only ever RETAIN more than the rule, never less, and a wrong reading costs context bytes
-    /// rather than losing a captain's work.
+    /// Armada already performs — it truncates every older tool result to a bounded head. So a gated
+    /// verdict can only ever RETAIN more than the rule, never less, and a wrong reading costs context
+    /// bytes rather than losing a captain's work.
     /// </summary>
     public readonly struct ContextCompactionVerdict
     {
@@ -107,13 +116,22 @@ namespace Armada.Core.Services
 
         /// <summary>The candidates the deterministic pass would compact, oldest first.</summary>
         public IReadOnlyList<ContextCompactionCandidate> Candidates { get; init; } = new List<ContextCompactionCandidate>();
+
+        /// <summary>
+        /// A fitted excerpt of the conversation so far, so the model judges each candidate against
+        /// the remaining work rather than against an isolated 400-character head. Empty when the
+        /// caller has none.
+        /// </summary>
+        public string HistoryExcerpt { get; init; } = String.Empty;
     }
 
     /// <summary>
-    /// The <c>context_compaction</c> reading. Per candidate the model answers one Noul: whether that
-    /// earlier output is still load-bearing for the remaining work. The single gate confidence is the
-    /// STRONGEST such reading, so one clearly load-bearing result is enough to consult the gate; the
-    /// per-candidate floor then decides which candidates are actually spared.
+    /// The <c>context_compaction</c> reading. Per candidate the model answers two Nouls: whether the
+    /// call itself still matters, and whether the full result is still load-bearing. The single gate
+    /// confidence is the STRONGEST keep-result reading, so one clearly load-bearing result is enough
+    /// to consult the gate; the per-candidate floor then decides which candidates are actually spared.
+    /// keep_call is asked so the model sees the pair; Armada never removes a message, so it does not
+    /// change the verdict.
     /// </summary>
     public sealed class ContextCompactionReading : TypedModelReading
     {
@@ -142,20 +160,23 @@ namespace Armada.Core.Services
     }
 
     /// <summary>
-    /// The <c>context_compaction</c> adapter. Armada's deterministic compaction replaces the content of
+    /// The <c>context_compaction</c> adapter. Armada's deterministic compaction truncates the content of
     /// EVERY older tool result once a conversation passes its threshold, oldest first, without reading
-    /// any of them: the bytes are where the bytes are. That is correct and stays the fallback, but it
-    /// discards a measurement the captain still needs as readily as a settled directory listing.
+    /// any of them: the bytes are where the bytes are. Diagnostic and test-total lines stay by a
+    /// separate shape rule. That is correct and stays the fallback, but it discards a measurement the
+    /// captain still needs as readily as a settled directory listing.
     ///
     /// This adapter reads the candidates the deterministic pass is about to replace and spares the ones
-    /// whose full output is still load-bearing for the stated goal. The direction is fixed by the rule:
-    /// the rule spares nothing, so the gated verdict can only RETAIN more, never less. A wrong reading
-    /// therefore costs context bytes, and the caller's own ceiling still holds — a caller that is still
-    /// over its limit after sparing compacts the spared candidates in deterministic order.
+    /// whose full output is still load-bearing for the stated goal. The state carries a fitted excerpt
+    /// of the conversation, not only isolated heads, so the model can see what the remaining work is.
+    /// The direction is fixed by the rule: the rule spares nothing, so the gated verdict can only
+    /// RETAIN more, never less. A wrong reading therefore costs context bytes, and the caller's own
+    /// ceiling still holds — a caller that is still over its limit after sparing truncates the spared
+    /// candidates in deterministic order.
     ///
     /// The questions are MEANING judgments about one output's remaining usefulness, never a size or
-    /// shape test; size and recency are already decided deterministically by the caller. The adapter
-    /// never throws into the caller.
+    /// shape test; size, recency, and diagnostic-line keep are already decided deterministically by
+    /// the caller. The adapter never throws into the caller.
     /// </summary>
     public sealed class TypedContextCompactionAdapter : TypedDecisionAdapterBase<ContextCompactionDecisionInput, ContextCompactionVerdict, ContextCompactionReading>
     {
@@ -224,7 +245,13 @@ namespace Armada.Core.Services
             }
 
             ContextCompactionVerdict verdict = await DecideAsync(
-                new ContextCompactionDecisionInput { Mission = input?.Mission, Goal = input?.Goal ?? String.Empty, Candidates = allowed },
+                new ContextCompactionDecisionInput
+                {
+                    Mission = input?.Mission,
+                    Goal = input?.Goal ?? String.Empty,
+                    Candidates = allowed,
+                    HistoryExcerpt = input?.HistoryExcerpt ?? String.Empty
+                },
                 ContextCompactionVerdict.SpareNone(),
                 token).ConfigureAwait(false);
 
@@ -262,22 +289,28 @@ namespace Armada.Core.Services
             {
                 if (candidate == null) continue;
                 if (count >= _MaxCandidates) break;
-                candidates.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+                Dictionary<string, object?> row = new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
                     ["tool"] = candidate.ToolName,
                     ["asked_for"] = candidate.RequestSummary,
                     ["output_head"] = candidate.ResultHead,
                     ["output_bytes"] = candidate.ResultBytes,
                     ["turns_ago"] = candidate.TurnsAgo
-                });
+                };
+                if (!String.IsNullOrEmpty(candidate.DistinctiveLine))
+                    row["distinctive_line"] = candidate.DistinctiveLine;
+                candidates.Add(row);
                 count++;
             }
 
-            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            Dictionary<string, object?> state = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["goal"] = input.Goal,
                 ["earlier_tool_results"] = candidates
             };
+            if (!String.IsNullOrEmpty(input.HistoryExcerpt))
+                state["history"] = input.HistoryExcerpt;
+            return state;
         }
 
         /// <inheritdoc />
@@ -287,7 +320,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// One question per candidate actually supplied, so the request never asks about a result that is
+        /// Two questions per candidate actually supplied, so the request never asks about a result that is
         /// not there. Asking a fixed set instead let a provider answer a slot with no candidate behind it,
         /// and the verdict then named a position the caller could not resolve. An empty candidate list asks
         /// nothing at all, which the skeleton reads as "do not consult": the rule stands with no call.
@@ -317,13 +350,18 @@ namespace Armada.Core.Services
             for (int i = 1; i <= slots; i++)
             {
                 string slot = i.ToString(CultureInfo.InvariantCulture);
-                questions["still_load_bearing_" + slot] = new NoulQuestion(
-                    "Earlier tool result number " + slot + " (see earlier_tool_results in the state, oldest first). "
-                    + "The captain is still working towards the stated goal, and this "
-                    + "result's full output is about to be replaced by a one-line note saying the tool can be re-run. Judge whether "
-                    + "the remaining work still depends on the CONTENT of this output: a measurement, count, error text, file content, "
-                    + "or decision the captain must carry forward is load-bearing, while an output whose conclusion is already settled, "
-                    + "superseded by a later result, or recoverable by re-running the tool is not.",
+                questions["keep_call_" + slot] = new NoulQuestion(
+                    "Tool call number " + slot + " (see earlier_tool_results in the state, oldest first, and history for the surrounding turns). "
+                    + "Knowing this call was made, with its input, still matters for what the captain does next towards the stated goal.",
+                    TrueMeaning: "The remaining work still depends on knowing this call was made and what was asked.",
+                    FalseMeaning: "The call is settled, superseded, or recoverable from later turns.");
+                questions["keep_result_" + slot] = new NoulQuestion(
+                    "The full output of tool result number " + slot + " (see earlier_tool_results in the state, oldest first). "
+                    + "The captain is still working towards the stated goal, and this result's full output is about to be replaced "
+                    + "by a bounded head and a one-line note saying the tool can be re-run. Judge whether the remaining work still "
+                    + "depends on the CONTENT of this output. Assertion text, failing test names, stack traces, measured counts, "
+                    + "error text, file content, or a decision the captain must carry forward is load-bearing. An output whose "
+                    + "conclusion is already settled, superseded by a later result, or recoverable by re-running the tool is not.",
                     TrueMeaning: "The remaining work still depends on this output's content; replacing it would lose something the captain needs.",
                     FalseMeaning: "The output is settled, superseded, or cheap to obtain again; replacing it loses nothing.");
             }
@@ -343,11 +381,12 @@ namespace Armada.Core.Services
 
             for (int i = 1; i <= _MaxCandidates; i++)
             {
-                string name = "still_load_bearing_" + i.ToString(CultureInfo.InvariantCulture);
+                string name = "keep_result_" + i.ToString(CultureInfo.InvariantCulture);
                 if (!result.Answers.ContainsKey(name)) continue;
 
                 // An unreadable answer falls back to 0.0: not load-bearing, so the rule's compaction
-                // stands for that candidate. The fallback is always the rule, per candidate as well.
+                // stands for that candidate. keep_call is asked so the model sees the pair; Armada
+                // never removes a message, so it does not spare. The fallback is always the rule.
                 double loadBearing = TypedAnswerReader.ReadNoul(result, name, 0.0);
                 if (loadBearing >= _SpareFloor)
                 {
