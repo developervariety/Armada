@@ -638,6 +638,13 @@ All notable changes to Armada are documented in this file.
 
 ### Removed
 
+- The context-compaction harness plugins and their `armada_context_compaction` MCP tool. Claude Code captains no
+  longer launch with `--plugin-dir` and `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`, OpenCode captains no longer get the
+  plugin in `OPENCODE_CONFIG_CONTENT`, and launches no longer set `ARMADA_MISSION_ID` and `ARMADA_MCP_URL`. The
+  plugins addressed a condition captains do not reach: over 14 days, 618 Claude Code captain sessions (1M-token
+  window) compacted zero times, and on a benchmark the plugin never improved an outcome and once made Claude Code
+  stop a session as thrashing. The `context_compaction` decision stays in the catalogue for the API-endpoint
+  runtime; every harness keeps its own compaction.
 - The `routing_hint` typed decision and route `shapes` tags are retired in
   favour of `capacity_escalation`. Settings files that still contain them load
   and the values are ignored.

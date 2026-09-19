@@ -13,9 +13,4 @@
     <ProjectReference Include="..\Armada.Core\Armada.Core.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Harness plugins ship beside the binaries; HarnessPlugins finds them at run time. -->
-    <None Include="Plugins\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Plugins" />
-  </ItemGroup>
-
 </Project>

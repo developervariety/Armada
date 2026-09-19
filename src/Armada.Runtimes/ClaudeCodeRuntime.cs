@@ -154,17 +154,6 @@ namespace Armada.Runtimes
             args.Add("project,local");
             args.Add("--strict-mcp-config");
 
-            // The context-compaction plugin: when the harness compacts, it keeps the earlier tool results
-            // the captain still depends on verbatim instead of summarising the whole history. It is passed
-            // explicitly because the setting sources above exclude user-level plugins by design, and it
-            // takes effect only with the function-hooks switch ApplyEnvironment sets beside it.
-            string? compactionPlugin = DeliversHarnessPlugins ? HarnessPlugins.ClaudeCodeContextCompaction : null;
-            if (compactionPlugin != null)
-            {
-                args.Add("--plugin-dir");
-                args.Add(compactionPlugin);
-            }
-
             if (!String.IsNullOrEmpty(model))
             {
                 // A provider-prefixed model id resolves to the provider-facing id: the prefix is
@@ -549,11 +538,6 @@ namespace Armada.Runtimes
         protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain, string? model = null)
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
-
-            // Claude Code runs a plugin's function hooks only behind this switch. Without it the
-            // compaction plugin loads and validates and never executes, which no surface reports.
-            if (DeliversHarnessPlugins && HarnessPlugins.ClaudeCodeContextCompaction != null)
-                startInfo.Environment[HarnessPlugins.ClaudeCodeFunctionHooksVariable] = "1";
 
             ApplyProviderModelRouting(startInfo, captain, captain?.Model ?? model, _ModelProviders);
 

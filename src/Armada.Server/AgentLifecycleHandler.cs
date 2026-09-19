@@ -930,16 +930,6 @@ namespace Armada.Server
             }
             if (plan.IsEmpty) return null;
 
-            // A harness plugin asks the admiral which earlier tool results are still load-bearing when its
-            // harness compacts. It calls as this captain, with the credential the launch already carries, so
-            // it only needs to know where to call and which mission it is. Set only when that credential is
-            // present: without it the endpoint refuses the plugin, which then compacts as the harness always has.
-            if (credential.HasToken)
-            {
-                plan.EnvironmentOverrides[ContextCompactionLaunch.MissionIdVariable] = mission.Id;
-                plan.EnvironmentOverrides[ContextCompactionLaunch.McpUrlVariable] = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings.McpPort);
-            }
-
             Directory.CreateDirectory(scopedDirectory);
             string scopedRoot = Path.GetFullPath(scopedDirectory) + Path.DirectorySeparatorChar;
             foreach (IsolationConfigFile file in plan.FilesToWrite)

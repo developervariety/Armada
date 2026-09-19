@@ -46,13 +46,6 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Registered name of the prior-art premise helper.</summary>
         public const string CheckPriorArtToolName = "armada_check_prior_art";
 
-        /// <summary>Registered name of the context-compaction tool the harness plugins call.</summary>
-        public const string ContextCompactionToolName = "armada_context_compaction";
-
-        /// <summary>Characters of a candidate's output head the tool accepts; a longer head is cut here,
-        /// whatever the caller sent, so the plugin never decides how much of a captain's output leaves.</summary>
-        internal const int ContextCompactionHeadChars = 400;
-
         /// <summary>Registered name of the captain-facing change-quality review tool.</summary>
         public const string ChangeQualityToolName = "armada_change_quality";
 
@@ -248,44 +241,6 @@ namespace Armada.Server.Mcp.Tools
                     buildStateAndQuestions: null,
                     buildStateAndQuestionsAsync: (root, mission, token) =>
                         BuildPriorArtAsync(root, mission, priorArtRetriever, database, logging, token)).ConfigureAwait(false));
-
-            // The harness plugins (Claude Code and OpenCode captains) call this when their harness is about
-            // to compact. It goes through the SAME adapter the API-endpoint runtime uses, so the question
-            // set, the gate threshold, the spare floor and the vessel egress exclusion live in one place and
-            // no plugin defines its own questions.
-            TypedContextCompactionAdapter compactionAdapter = new TypedContextCompactionAdapter(
-                effectiveClient, recorder, settings.TypedDecisions, logging ?? new LoggingModule());
-            register(
-                ContextCompactionToolName,
-                "Called by the harness when it is about to compact your context, not by you. Given the goal and the earlier tool results the harness would replace, it returns which of them are still load-bearing so they stay verbatim; every other result is replaced by a one-line note saying the tool can be re-run. It never removes a message and never acts on your behalf. Returns unavailable when the context-compaction decision is Off, in which case the harness compacts exactly as it always has. Requires 'missionId'.",
-                new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        missionId = new { type = "string", description = "The calling mission id. Required: it scopes the call and decides whether this vessel's content may leave the host." },
-                        goal = new { type = "string", description = "What the captain is working towards: its own brief, bounded." },
-                        candidates = new
-                        {
-                            type = "array",
-                            description = "The earlier tool results the harness would replace, oldest first.",
-                            items = new
-                            {
-                                type = "object",
-                                properties = new
-                                {
-                                    tool = new { type = "string" },
-                                    askedFor = new { type = "string" },
-                                    outputHead = new { type = "string" },
-                                    outputBytes = new { type = "integer" },
-                                    turnsAgo = new { type = "integer" }
-                                }
-                            }
-                        }
-                    },
-                    required = new[] { "missionId", "candidates" }
-                },
-                async (args) => await HandleContextCompactionAsync(args, database, compactionAdapter, settings, logging).ConfigureAwait(false));
 
             register(
                 ChangeQualityToolName,
@@ -914,95 +869,6 @@ namespace Armada.Server.Mcp.Tools
                 UnavailableReason = reason,
                 Answers = new Dictionary<string, TypedAnswer>()
             };
-        }
-
-        /// <summary>
-        /// Answer a harness plugin's compaction question. A plugin reads Available=false as "compact exactly as
-        /// the harness always has", so every path that is not a real answer - no mission, the tool disabled,
-        /// the decision Off - returns unavailable. An answer that spares nothing is still an answer: the plugin
-        /// then replaces every candidate, which is the same deterministic rule the API-endpoint runtime applies.
-        /// </summary>
-        internal static async Task<object> HandleContextCompactionAsync(
-            JsonElement? args,
-            DatabaseDriver database,
-            TypedContextCompactionAdapter adapter,
-            ArmadaSettings settings,
-            LoggingModule? logging)
-        {
-            try
-            {
-                if (!args.HasValue || args.Value.ValueKind != JsonValueKind.Object)
-                    return Unavailable("invalid", "The call carried no arguments object.");
-                JsonElement root = args.Value;
-
-                string? missionId = ReadOptionalString(root, "missionId");
-                if (String.IsNullOrWhiteSpace(missionId))
-                    return Unavailable("mission_required", "A missionId is required, so the call is scoped and the vessel's egress rule can be applied.");
-
-                Mission? mission = null;
-                try
-                {
-                    mission = await database.Missions.ReadAsync(missionId!, CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    logging?.Warn("[McpTypedDecisionTools] context_compaction mission lookup failed for " + missionId + ": " + ex.Message);
-                }
-                if (mission == null)
-                    return Unavailable("mission_required", "The missionId did not resolve to a mission.");
-
-                if (!settings.TypedDecisions.CaptainTool.Enabled)
-                    return Unavailable("disabled", "The typed-decision tools are not enabled.");
-                if (settings.TypedDecisions.For("context_compaction").Mode == TypedDecisionModeEnum.Off)
-                    return Unavailable("disabled", "The context-compaction decision is Off.");
-
-                List<ContextCompactionCandidate> candidates = new List<ContextCompactionCandidate>();
-                if (root.TryGetProperty("candidates", out JsonElement listed) && listed.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (JsonElement entry in listed.EnumerateArray())
-                    {
-                        if (entry.ValueKind != JsonValueKind.Object) continue;
-                        string head = ReadOptionalString(entry, "outputHead") ?? String.Empty;
-                        if (head.Length > ContextCompactionHeadChars) head = head.Substring(0, ContextCompactionHeadChars);
-                        string askedFor = ReadOptionalString(entry, "askedFor") ?? String.Empty;
-                        if (askedFor.Length > ContextCompactionHeadChars) askedFor = askedFor.Substring(0, ContextCompactionHeadChars);
-                        candidates.Add(new ContextCompactionCandidate(
-                            ReadOptionalString(entry, "tool") ?? "tool",
-                            askedFor,
-                            head,
-                            ReadOptionalInt(entry, "outputBytes"),
-                            ReadOptionalInt(entry, "turnsAgo")));
-                    }
-                }
-
-                string goal = ReadOptionalString(root, "goal") ?? String.Empty;
-                ContextCompactionVerdict verdict = await adapter.DecideAllowedAsync(
-                    new ContextCompactionDecisionInput { Mission = mission, Goal = goal, Candidates = candidates },
-                    CancellationToken.None).ConfigureAwait(false);
-
-                return new
-                {
-                    Available = true,
-                    SparedPositions = verdict.SparedPositions,
-                    Outcome = verdict.OutcomeLabel,
-                    CandidatesConsidered = Math.Min(candidates.Count, TypedContextCompactionAdapter.MaxCandidates)
-                };
-            }
-            catch (Exception ex)
-            {
-                // Never throw into a captain's harness. Unavailable sends the plugin back to the harness's own
-                // compaction, which is always safe.
-                logging?.Warn("[McpTypedDecisionTools] context_compaction failed: " + ex.Message);
-                return Unavailable("exception", "The context-compaction call failed.");
-            }
-        }
-
-        private static int ReadOptionalInt(JsonElement root, string name)
-        {
-            if (!root.TryGetProperty(name, out JsonElement value)) return 0;
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int parsed)) return parsed;
-            if (value.ValueKind == JsonValueKind.String && Int32.TryParse(value.GetString(), out int fromText)) return fromText;
-            return 0;
         }
 
         private static object Unavailable(string reason, string message)

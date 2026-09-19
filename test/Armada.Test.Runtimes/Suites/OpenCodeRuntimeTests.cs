@@ -90,22 +90,6 @@ namespace Armada.Test.Runtimes.Suites
         /// </summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("WithPlugin_AddsThePluginOnce_AndKeepsTheOnesAlreadyListed", () =>
-            {
-                string plugin = "file:///opt/armada/Plugins/opencode/armada-context-compaction.js";
-                string fresh = OpenCodeRuntime.WithPlugin(null, plugin);
-                AssertContains(plugin, fresh, "a launch with no configuration gets the plugin");
-
-                string existing = "{\"model\":\"x\",\"plugin\":[\"file:///other.js\"]}";
-                string merged = OpenCodeRuntime.WithPlugin(existing, plugin);
-                AssertContains("file:///other.js", merged, "a plugin the configuration already lists is kept");
-                AssertContains(plugin, merged, "and ours is added");
-                AssertContains("\"model\":\"x\"", merged, "the rest of the configuration is untouched");
-
-                string twice = OpenCodeRuntime.WithPlugin(merged, plugin);
-                AssertEqual(merged.Split(plugin).Length, twice.Split(plugin).Length, "adding it again does not list it twice");
-            });
-
             await RunTest("StartAsync_AppliesAskMcpConfigWithoutDroppingProviderConfig", async () =>
             {
                 if (OperatingSystem.IsWindows()) { Console.WriteLine("SKIP: OpenCode environment capture uses a POSIX test executable."); return; }

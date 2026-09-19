@@ -143,12 +143,6 @@ namespace Armada.Test.Unit.Suites.Services
                         "the launch variable carries the mission credential so the dock configuration resolves");
                     AssertFalse(plan.EnvironmentOverrides.ContainsValue(McpLaunchCredential.Token),
                         "the admiral launch credential value never appears in a mission captain's environment");
-                    // A harness plugin asks the admiral as this captain, so it must know where to call and which
-                    // mission it is; without these it cannot ask and compacts as the harness always has.
-                    AssertEqual(mission.Id, plan.EnvironmentOverrides[ContextCompactionLaunch.MissionIdVariable],
-                        "the launch tells a harness plugin which mission it serves");
-                    AssertTrue(plan.EnvironmentOverrides.TryGetValue(ContextCompactionLaunch.McpUrlVariable, out string? mcpUrl)
-                        && !string.IsNullOrWhiteSpace(mcpUrl), "and where the admiral's MCP endpoint is");
                     // The value present is a scoped session token, not the launch credential.
                     AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
                     string carried = plan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable];

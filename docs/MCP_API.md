@@ -411,7 +411,7 @@ What a caller may use:
 | --- | --- |
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_context_compaction`, `armada_fetch_context`, `armada_mission_code_search`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_fetch_context`, `armada_mission_code_search`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -680,24 +680,6 @@ and dormant (returns unavailable) until the `change_quality` decision is enabled
 The deterministic backing (the Slop core-rule check and the complexity metric)
 is authoritative at the orchestrator gate; this tool is the captain's advisory
 read.
-
-### armada_context_compaction
-
-Called by a captain's harness plugin, as the captain, when its harness is about
-to compact; not called by the captain itself (decision `context_compaction`).
-Args: `missionId` (required), `goal` (the captain's brief, bounded) and
-`candidates`, the earlier tool results the harness would replace, oldest first,
-each with `tool`, `askedFor`, `outputHead`, `outputBytes` and `turnsAgo`. The
-admiral cuts each `askedFor` and `outputHead` to 400 characters whatever the
-caller sent. Returns `available`, `sparedPositions` (zero-based positions of the
-candidates to keep verbatim) and `outcome`. It writes no record.
-
-`available: false` means "compact exactly as the harness always has": no
-mission id, a mission id that does not resolve, the captain tools disabled, or
-the `context_compaction` decision Off. Off is therefore a full kill switch for
-both plugins. A mission on a vessel in `egressExcludedVesselIds` still gets an
-answer, with nothing spared and nothing sent: the plugin then applies the
-deterministic rule, which needs no egress.
 
 ### armada_corpus_prelabel
 

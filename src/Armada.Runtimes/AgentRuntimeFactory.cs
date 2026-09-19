@@ -99,12 +99,7 @@ namespace Armada.Runtimes
         /// <exception cref="InvalidOperationException">The runtime has no built-in CLI adapter.</exception>
         public BaseAgentRuntime CreateLaunchPlanAdapter(AgentRuntimeEnum runtimeType)
         {
-            if (CreateAdapter(runtimeType) is BaseAgentRuntime adapter)
-            {
-                // A plan runs on a remote runner, which has none of this host's plugin files.
-                adapter.DeliversHarnessPlugins = false;
-                return adapter;
-            }
+            if (CreateAdapter(runtimeType) is BaseAgentRuntime adapter) return adapter;
             throw new InvalidOperationException("Runtime " + runtimeType + " has no CLI launch plan.");
         }
 

@@ -83,9 +83,8 @@ captain tools and `context_compaction`.
   own list; an empty own list opts out, which suits a decision whose state is
   only brief or objective text (a brief names paths but does not carry their
   content). `context_compaction` applies the markers per candidate instead:
-  a marked earlier output is never sent and never spared, the rest are still
-  asked about, and a harness plugin keeps the marked output in the dock's
-  archive, so the captain can read it back.
+  a marked earlier output is never sent and never spared, and the rest are
+  still asked about.
 - **A rejected request is retried once at half size.** Redacted state
   averages about 3.6 characters per provider token but reaches 1.9 on dense
   text, so a state inside the character budget can still exceed the
@@ -469,38 +468,13 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   compacted; that is a conservative miss which costs the captain a re-run, not a
   lost result.
 
-  It runs on three surfaces, all through this one adapter:
-
-  - **API-endpoint runtime**, in-process, as above.
-  - **Claude Code captains**, through a plugin shipped under
-    `Plugins/claude-code/armada-context-compaction` and passed with
-    `--plugin-dir`, with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` set beside it:
-    without that switch Claude Code loads, registers and validates the plugin
-    and never runs its hooks. The plugin does NOT replace Claude Code's
-    compaction, which already summarises the older part and keeps the recent
-    part verbatim by message id; replacing it with a hand-built history was
-    measured to make the model restart its task, once in a 443-turn loop. It
-    steers it instead, with one `next` call (a second call silently skips the
-    compaction or throws): it quotes the results this decision spares verbatim,
-    and it saves every earlier output under `.armada-compaction/` in the dock,
-    a directory whose own `.gitignore` ignores everything, and has the summary
-    cite each file, so a captain reads an output back instead of re-running the
-    call. Measured against the harness alone on the same task: the same 49
-    reads and correct answer, 30-47 file citations per summary against none,
-    at a larger summary call (+20% to +60% cost on that task).
-  - **OpenCode captains**, through a plugin module passed in the per-launch
-    configuration only when the MCP endpoint is. It edits each request's
-    message array, counts recency in tool parts (OpenCode keeps many tool calls
-    in one message), asks once per new candidate, and re-applies earlier
-    decisions without another call. Measured: no restart; with nothing spared,
-    the model re-read only the one file it needed.
-
-  Every plugin failure path hands the compaction back to the harness unchanged.
-  A plugin holds no provider key: it calls `armada_context_compaction` as the
-  captain, with the MCP credential the launch carries. The launch sets
-  `ARMADA_MISSION_ID` and `ARMADA_MCP_URL` for it; the admiral resolves the vessel itself.
-  Codex, Cursor, Gemini and Mux have no seam that can remove a tool result, so
-  they keep their own compaction.
+  It runs on the API-endpoint runtime only, the one runtime whose conversation
+  Armada holds in process. Harness captains (Claude Code, OpenCode, Codex and
+  the rest) keep their harness's own compaction. Claude Code captains run with a
+  1M-token window and do not reach it on real missions; Codex compaction was not
+  linked to worse mission outcomes; and adding the spared outputs to a harness
+  summary was measured to leave the context too full after compaction, so
+  Claude Code stopped the session as thrashing.
 
 Two decision points read the papercut grouping:
 
