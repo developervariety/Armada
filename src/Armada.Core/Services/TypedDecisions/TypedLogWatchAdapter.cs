@@ -261,7 +261,7 @@ namespace Armada.Core.Services
                         [ClassUnclear] = "The log cannot be read against the brief either way."
                     }),
                 [QuestionCorrectableNow] = new NoulQuestion(
-                    "If the work has gone off course, could it still be corrected? " + _DomainSentence,
+                    "A correction to the next stage's brief, or an operator note now, would still change the outcome. " + _DomainSentence,
                     TrueMeaning: "A correction to the next stage's brief, or an operator note now, would change the outcome.",
                     FalseMeaning: "The drift is already past the point a note would help.")
             };

@@ -13,7 +13,7 @@ namespace Armada.Core.Services
     /// allow. Items are packed in order into requests of at most <see cref="MaxQuestionsPerRequest"/>
     /// questions whose combined state stays within the per-request state budget, so batching never
     /// sends more state in one request than a single decision may. A packed request carries the items
-    /// as a numbered list and asks each item's questions under an item-scoped key; the answers are
+    /// as a JSON <c>items</c> array and names each question at its 0-based path; the answers are
     /// split back so every item receives its own result.
     ///
     /// Only independent items may be batched: a decision whose later item depends on an earlier item's
@@ -27,13 +27,13 @@ namespace Armada.Core.Services
         #region Public-Members
 
         /// <summary>
-        /// The provider's question limit for one request.
+        /// Armada's question-count safeguard for one request.
         /// </summary>
         public const int MaxQuestionsPerRequest = 100;
 
         /// <summary>
         /// The character budget for one request: state plus question text. Sized from measured traffic
-        /// against the provider's 32,000-token request limit: redacted state runs about three bytes per
+        /// against the provider's state-plus-longest-question limit: redacted state runs about three bytes per
         /// token and question prose about four, so 80,000 characters stays near 25,000 tokens with room
         /// to spare. The state budget alone cannot keep a batch under the limit, because a batch's
         /// questions grow with its item count and a large question set costs thousands of tokens.
@@ -44,7 +44,7 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
-        // Characters allowed per item for the list wrapper ({"item":n,"state":...},) around its state.
+        // Characters allowed per item for the JSON array wrapper around its state.
         private const int _WrapperCharsPerItem = 32;
 
         #endregion
@@ -222,19 +222,16 @@ namespace Armada.Core.Services
                 };
             }
 
-            List<Dictionary<string, object?>> listed = new List<Dictionary<string, object?>>(size);
+            // Pack the item states as a JSON array and point each question at `items[i]` by
+            // 0-based index. A wrapper object plus "ignore the other items" forces a count and a
+            // hop; naming the path lets code own the tally, the same shape as one Noul per real item.
+            List<object> listed = new List<object>(size);
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
             for (int offset = 0; offset < size; offset++)
             {
-                int number = offset + 1;
-                listed.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    ["item"] = number,
-                    ["state"] = items[start + offset].State.State
-                });
+                listed.Add(items[start + offset].State.State);
 
-                string scope = "About item " + number.ToString(CultureInfo.InvariantCulture)
-                    + " in the state's items list only, ignoring the other items: ";
+                string scope = "This question's state is `items[" + offset.ToString(CultureInfo.InvariantCulture) + "]` only. ";
                 foreach (KeyValuePair<string, TypedQuestion> entry in items[start + offset].Questions)
                     questions[KeyPrefix(offset) + entry.Key] = entry.Value with { Instructions = scope + entry.Value.Instructions };
             }

@@ -227,6 +227,22 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(client.LastToken == cts.Token, "adapter must forward the caller token");
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
             }).ConfigureAwait(false);
+
+            await RunTest("AsksOnlyAboutListedCandidates_NoEmptySlots", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(AddsValueResult((1, 0.15, "trivial_change"), (2, 0.90, "none")));
+                TypedStageNecessityAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                StageNecessityVerdict rule = StageNecessityVerdict.Rule(BuildInput().Stages);
+                await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(4, client.LastRequest!.Questions.Count, "two non-Judge candidates ask adds_value and skip_reason each");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("stage_2_adds_value"), "the last listed candidate is asked");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("stage_3_adds_value"), "no slot beyond the listed candidates is asked");
+                AssertTrue(client.LastRequest.Questions["stage_1_adds_value"].Instructions.Contains("`candidate_stages[0]`", StringComparison.Ordinal),
+                    "the first question names the 0-based JSON path");
+            }).ConfigureAwait(false);
         }
     }
 }

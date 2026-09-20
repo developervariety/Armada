@@ -203,6 +203,37 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, router.EvidenceCount, "an unconfirmed duplicate degrades to an evidence note");
             });
 
+            await RunTest("FollowUpRouting_PerCandidateSameAs_LinksHighestNoul", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionResult answers = new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["home"] = new TypedAnswer { Type = "choice", Choice = FollowUpRoutingAdapter.HomeDuplicate, Confidence = 0.95 },
+                        ["same_as_0"] = new TypedAnswer { Type = "noul", Noul = 0.12 },
+                        ["same_as_1"] = new TypedAnswer { Type = "noul", Noul = 0.94 }
+                    }
+                };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(answers);
+                RecordingFollowUpRouter router = new RecordingFollowUpRouter
+                {
+                    Candidates = new List<FollowUpDuplicateCandidate>
+                    {
+                        new FollowUpDuplicateCandidate { ObjectiveId = "obj_unrelated", Title = "Rewrite the dashboard theme" },
+                        new FollowUpDuplicateCandidate { ObjectiveId = "obj_match", Title = "Something with no shared words" }
+                    }
+                };
+                FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                FollowUpRoutingResult result = await adapter.RouteAsync(SeededFollowUp(), null, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(1, router.LinkedCount, "the highest per-objective Noul is the duplicate");
+                AssertTrue(result.Routes.Any(route => route.Home == FollowUpRoutingAdapter.HomeDuplicate && route.TargetObjectiveId == "obj_match"),
+                    "code picks open_objectives[1], not a word-overlap title");
+            });
+
             await RunTest("FollowUpRouting_DuplicateWithoutCandidate_DegradesToEvidence", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

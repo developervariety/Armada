@@ -165,7 +165,7 @@ namespace Armada.Core.Services
                 outcomeConfidence = TypedAnswerReader.ResolveChoiceConfidence(outcomeAnswer, outcome);
             }
 
-            double quotedNotOwn = TypedAnswerReader.ReadNoul(result, "quoted_not_own");
+            double quotedNotOwn = QuotedNotOwnFrom(result);
 
             // The single proposed action decides the gate confidence: a promote is driven by the
             // refused_policy choice confidence, a demote by how sure the model is the phrase was quoted.
@@ -244,6 +244,22 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(RefusalDecisionInput input) => input.Mission;
+
+        #endregion
+
+        #region Private-Methods
+
+        private static double QuotedNotOwnFrom(TypedDecisionResult result)
+        {
+            bool hasSplit = result.Answers != null
+                && (result.Answers.ContainsKey("quotes_refusal_phrase") || result.Answers.ContainsKey("captain_declining"));
+            if (!hasSplit)
+                return TypedAnswerReader.ReadNoul(result, "quoted_not_own");
+
+            double quotes = TypedAnswerReader.ReadNoul(result, "quotes_refusal_phrase");
+            double declining = TypedAnswerReader.ReadNoul(result, "captain_declining");
+            return Math.Min(quotes, 1.0 - declining);
+        }
 
         #endregion
     }

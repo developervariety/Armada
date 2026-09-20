@@ -42,6 +42,26 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Caller without a mission retains participant attribution", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = ChoiceResult("provider", 0.93);
+                    Harness harness = Harness.Create(testDb, client, enabled: true, participantKey: "operator-session-test");
+                    await harness.CallAsync("armada_typed_decision", new
+                    {
+                        state = "test state",
+                        questions = new { cause = new { type = "choice", instructions = "Cause", criteria = new { provider = "provider", environmental = "environment" } } }
+                    }).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
+                    AssertEqual(1, events.Count);
+                    AssertNull(events[0].CaptainId, "An operator session is not a captain id");
+                    AssertContains("\"participant_key\":\"operator-session-test\"", events[0].Payload ?? "");
+                    AssertContains("\"tool_name\":\"armada_typed_decision\"", events[0].Payload ?? "");
+                }
+            });
+
             await RunTest("The captain tools are registered and mission-scoped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -49,12 +69,12 @@ namespace Armada.Test.Unit.Suites.Services
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     Harness harness = Harness.Create(testDb, client, enabled: false);
 
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_score_items", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision" })
                         AssertTrue(harness.Handlers.ContainsKey(name), "Tool should be registered: " + name);
 
                     // A non-admin mission caller may list and call each tool, like the memory tools.
                     AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_score_items", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel", "armada_run_custom_decision" })
                         AssertTrue(McpToolAccessPolicy.IsAllowed(captain, name), "Mission caller may use: " + name);
                 }
             });
@@ -65,11 +85,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
                     {
-                        ["dry_weak"] = new TypedAnswer { Type = "noul", Noul = 0.95, Confidence = 0.95 },
-                        ["readability_weak"] = new TypedAnswer { Type = "noul", Noul = 0.91, Confidence = 0.91 },
-                        ["cognitive_complexity_weak"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 },
-                        ["modularity_weak"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 },
-                        ["maintainability_weak"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 }
+                        ["dry_duplicates"] = new TypedAnswer { Type = "noul", Noul = 0.95, Confidence = 0.95 },
+                        ["readability_unclear_names"] = new TypedAnswer { Type = "noul", Noul = 0.91, Confidence = 0.91 }
                     };
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     client.NextResult = new TypedDecisionResult { Available = true, Answers = answers };
@@ -78,8 +95,72 @@ namespace Armada.Test.Unit.Suites.Services
                     string response = await harness.CallAsync("armada_change_quality", new { diff = "diff --git a/x b/x\n@@ -1 +1,2 @@\n a\n+b\n" }).ConfigureAwait(false);
 
                     AssertContains("\"available\":true", Compact(response));
-                    foreach (string q in new[] { "dry_weak", "cognitive_complexity_weak", "modularity_weak", "readability_weak", "maintainability_weak" })
+                    foreach (string q in new[] { "dry_duplicates", "complexity_nested", "modularity_unrelated", "readability_unclear_names", "maintainability_coupling" })
                         AssertTrue(client.LastQuestionIds.Contains(q), "asked dimension question: " + q);
+                }
+            });
+
+            await RunTest("armada_score_items asks one Noul per real item and returns the expected count", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["items[0]__matches"] = new TypedAnswer { Type = "noul", Noul = 0.96 },
+                        ["items[1]__matches"] = new TypedAnswer { Type = "noul", Noul = 0.04 },
+                        ["items[2]__matches"] = new TypedAnswer { Type = "noul", Noul = 0.87 },
+                        ["best"] = new TypedAnswer
+                        {
+                            Type = "choice",
+                            Choice = "truncates",
+                            Confidence = 0.91,
+                            Probabilities = new Dictionary<string, double>(StringComparer.Ordinal)
+                            {
+                                ["truncates"] = 0.91,
+                                ["filters"] = 0.04,
+                                ["none"] = 0.03,
+                                ["unclear"] = 0.02
+                            }
+                        }
+                    };
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = new TypedDecisionResult { Available = true, Model = "jev-1.13.0", Answers = answers };
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
+
+                    string response = await harness.CallAsync("armada_score_items", new
+                    {
+                        claim = "This snippet truncates a payload byte instead of filtering printable characters.",
+                        pick = "Which listed snippet is the clearest truncation?",
+                        items = new object[]
+                        {
+                            new { id = "truncates", text = "byte b = (byte)A_0.Message.Data[i];" },
+                            new { id = "filters", text = "(b >= 32 && b <= 127)" },
+                            "var remaining = (byte)message.Length;"
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertContains("\"available\":true", Compact(response));
+                    AssertContains("\"expectedCount\":1.87", Compact(response));
+                    AssertTrue(client.LastQuestionIds.Contains("items[0]__matches"), "asked per-item noul 0");
+                    AssertTrue(client.LastQuestionIds.Contains("items[1]__matches"), "asked per-item noul 1");
+                    AssertTrue(client.LastQuestionIds.Contains("items[2]__matches"), "asked per-item noul 2");
+                    AssertTrue(client.LastQuestionIds.Contains("best"), "asked the optional pick Choice");
+                    AssertEqual(4, client.LastQuestionIds.Count, "no empty-slot questions");
+                    AssertTrue(client.LastQuestions!["items[0]__matches"].Instructions.Contains("`items[0]`"), "names the JSON path");
+                    AssertContains("\"choice\":\"truncates\"", Compact(response));
+                }
+            });
+
+            await RunTest("armada_score_items with no items is invalid and does not call the provider", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
+                    string response = await harness.CallAsync("armada_score_items", new { claim = "unused", items = Array.Empty<string>() }).ConfigureAwait(false);
+                    AssertContains("\"available\":false", Compact(response));
+                    AssertContains("invalid", Compact(response));
+                    AssertEqual(0, client.CallCount, "empty list never reaches the provider");
                 }
             });
 
@@ -232,7 +313,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("\"available\":true", Compact(response));
 
                     // The helper builds the four memory-triage questions itself; the client sees them.
-                    AssertTrue(client.LastQuestionIds.Contains("type_ok"), "type_ok question shaped");
+                    AssertTrue(client.LastQuestionIds.Contains("type_fits"), "type_fits question shaped");
+                    AssertTrue(client.LastQuestionIds.Contains("durable_record"), "durable_record question shaped");
                     AssertTrue(client.LastQuestionIds.Contains("duplicate_of"), "duplicate_of question shaped");
                     AssertTrue(client.LastQuestionIds.Contains("will_go_stale"), "will_go_stale question shaped");
                     AssertTrue(client.LastQuestionIds.Contains("belongs_in_ai_memory"), "belongs_in_ai_memory question shaped");
@@ -388,14 +470,19 @@ namespace Armada.Test.Unit.Suites.Services
                         Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal) { ["finding"] = new TypedAnswer { Type = "noul", Noul = 0.97 } }
                     };
                     Harness harness = Harness.Create(testDb, client, enabled: true,
-                        configure: s => s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Shadow));
+                        configure: s => s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Shadow),
+                        participantKey: "operator-session-test");
 
                     string response = await harness.CallAsync("armada_run_custom_decision", new { name = "house_rule", context = new { diff = "a" } }).ConfigureAwait(false);
 
                     AssertContains("\"available\":false", Compact(response), "Shadow quiets the custom runner");
                     AssertContains("shadow", response, "and says why");
                     AssertEqual(1, client.CallCount, "Shadow still consults the provider");
-                    AssertEqual(1, (await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false)).Count, "one shadow event");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one shadow event");
+                    AssertNull(events[0].CaptainId, "A session key must not become a captain id");
+                    AssertContains("\"participant_key\":\"operator-session-test\"", events[0].Payload ?? "");
+                    AssertContains("\"tool_name\":\"armada_run_custom_decision\"", events[0].Payload ?? "");
                 }
             });
 
@@ -605,7 +692,8 @@ namespace Armada.Test.Unit.Suites.Services
                 bool enablePremiseCheck = false,
                 bool enableMemoryRecord = false,
                 bool enableCorpusPrelabel = false,
-                Action<ArmadaSettings>? configure = null)
+                Action<ArmadaSettings>? configure = null,
+                string? participantKey = null)
             {
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.TypedDecisions.CaptainTool.Enabled = enabled;
@@ -622,7 +710,8 @@ namespace Armada.Test.Unit.Suites.Services
                     client,
                     recorder,
                     settings,
-                    new LoggingModule());
+                    new LoggingModule(),
+                    () => participantKey);
                 return harness;
             }
 

@@ -75,11 +75,11 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// The D15 reading. The model answers a <c>flake_likelihood</c> Score over the ordered levels
-    /// [deterministic, likely real, likely load, known flaky family] and an <c>outside_diff</c> Noul.
-    /// The single gated action — recommend a re-run — is proposable only at the two flake levels
-    /// ("likely load", "known flaky family"), so the reading reports the Score answer's confidence at
-    /// those levels and zero otherwise, leaving the rule standing when the failure reads as
-    /// deterministic or a likely-real defect.
+    /// [deterministic, likely real, likely load, known flaky family], an <c>outside_diff</c> Noul,
+    /// and a <c>passes_in_isolation</c> Noul. The single gated action — recommend a re-run — is
+    /// proposable at the two flake Score levels ("likely load", "known flaky family") or when
+    /// isolation is the finding, so a wrong-value assertion can still trigger a re-run when the
+    /// test would pass alone.
     /// </summary>
     public sealed class FlakeScoreReading : TypedModelReading
     {
@@ -135,6 +135,8 @@ namespace Armada.Core.Services
             "known flaky family"
         };
 
+        private const string _PassesInIsolation = "passes_in_isolation";
+
         #endregion
 
         #region Constructors-and-Factories
@@ -182,14 +184,18 @@ namespace Armada.Core.Services
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 ["flake_likelihood"] = new ScoreQuestion(
-                    "How likely is this failure a flake rather than a real defect? A load flake fails under a concurrent "
+                    "This failure is a flake rather than a real defect. A load flake fails under a concurrent "
                     + "suite and passes alone, often advertised as a WRONG VALUE rather than a timeout; a known flaky family "
                     + "is a class documented as load-sensitive. This is authorized engineering on owned systems.",
                     _LikelihoodLevels),
                 ["outside_diff"] = new NoulQuestion(
                     "The failing tests live in files the change did not touch.",
                     TrueMeaning: "The failing tests are outside the change's own files.",
-                    FalseMeaning: "The failing tests are in files the change touched.")
+                    FalseMeaning: "The failing tests are in files the change touched."),
+                [_PassesInIsolation] = new NoulQuestion(
+                    "This same failing test would pass if it ran alone, not as part of a concurrent suite. A wrong asserted value can still be a load flake when the class is load-sensitive. A hang, timeout, or resource exhaustion that only appears under the suite is the same finding.",
+                    TrueMeaning: "the test would pass in isolation",
+                    FalseMeaning: "the failure would still appear when the test runs alone")
             };
         }
 
@@ -205,12 +211,21 @@ namespace Armada.Core.Services
             }
 
             double outsideDiff = TypedAnswerReader.ReadNoul(result, "outside_diff");
-            bool rerunEligible = index >= _LikelyLoadLevel;
+            double isolation = TypedAnswerReader.ReadNoul(result, _PassesInIsolation);
+            bool scoreRerunEligible = index >= _LikelyLoadLevel;
+            bool isolationRerunEligible = isolation > 0.5;
+            bool rerunEligible = scoreRerunEligible || isolationRerunEligible;
 
-            // The re-run is proposed only at a flake level; a deterministic or likely-real failure
-            // proposes nothing and the rule (the red) stands.
-            double actionConfidence = rerunEligible ? confidence : 0.0;
-            string label = index < 0.0 ? "unscored" : LevelLabel(index);
+            // The re-run is proposed at a flake Score level or when isolation is the finding.
+            // A deterministic or likely-real Score still proposes a re-run when isolation is high:
+            // load-sensitive families often fail with a wrong value, not a timeout.
+            double actionConfidence = scoreRerunEligible ? confidence : 0.0;
+            if (isolation > actionConfidence) actionConfidence = isolation;
+            string label;
+            if (isolationRerunEligible && isolation >= (scoreRerunEligible ? confidence : 0.0) && !scoreRerunEligible)
+                label = "passes in isolation";
+            else
+                label = index < 0.0 ? "unscored" : LevelLabel(index);
 
             return new FlakeScoreReading(actionConfidence, label)
             {
@@ -225,13 +240,14 @@ namespace Armada.Core.Services
         {
             // The rule is "the red stands". The model may only ESCALATE to recommending an isolated
             // re-run whose real result is the truth; it never returns a pass, so it never marks a red
-            // green. A re-run is recommended only at a flake level (guaranteed at threshold by the gate).
+            // green. A re-run is recommended at a flake Score level or when isolation is the finding
+            // (guaranteed at threshold by the gate).
             if (!model.RerunEligible) return ruleVerdict;
 
             return ruleVerdict.RecommendRerun(
-                "typed_decision:flake_score: the failure reads as " + LevelLabel(model.LikelihoodIndex)
+                "typed_decision:flake_score: the failure reads as " + model.Label
                 + "; recommend an isolated class-filtered re-run whose result is the truth",
-                LevelLabel(model.LikelihoodIndex));
+                model.Label);
         }
 
         /// <inheritdoc />

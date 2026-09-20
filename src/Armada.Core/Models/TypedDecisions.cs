@@ -72,7 +72,8 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// When unavailable, the reason: <c>disabled</c>, <c>timeout</c>, <c>http_429</c>,
-        /// <c>http_529</c>, <c>http_401</c>, <c>http_422</c>, <c>parse</c>, <c>exception</c>, or a
+        /// <c>http_529</c>, <c>http_401</c>, <c>http_422</c>, <c>parse</c>,
+        /// <c>response_validation</c>, <c>exception</c>, or a
         /// generic <c>http_&lt;code&gt;</c>.
         /// </summary>
         public string? UnavailableReason { get; init; }

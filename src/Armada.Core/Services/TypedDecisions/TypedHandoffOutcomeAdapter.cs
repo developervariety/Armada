@@ -3,7 +3,6 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Linq;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -139,7 +138,8 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// The D20 reading. The model answers one <c>outcome</c> Choice, one <c>next_stage_useful</c> Noul,
-    /// and one <c>gap</c> Noul per acceptance criterion (the criterion is NOT met). The single gate
+    /// and one <c>gap</c> Noul per acceptance criterion (the criterion is met; code treats a low
+    /// reading as unmet). The single gate
     /// confidence is the outcome choice's own confidence when the outcome is an ACTIONABLE one
     /// (partial, or a blocked or off-premise halt) and zero otherwise, so an <c>achieved</c> or
     /// <c>unclear</c> outcome always leaves the rule standing.
@@ -232,9 +232,9 @@ namespace Armada.Core.Services
         // criteria are treated as met (never added to the unmet Mail), the conservative reading.
         private const int _MaxCriteria = 8;
 
-        // The floor at or above which a gap Noul marks a criterion unmet for the partial Mail. The Mail
-        // is advisory content, so this is a plain majority bar, not the decision gate threshold (which
-        // gates whether the Mail is sent at all, on the outcome choice confidence).
+        // The gap Noul is now "the criterion is met". A reading at or below (1 - this floor) marks it
+        // unmet for the partial Mail. The Mail is advisory content, so this is a plain majority bar,
+        // not the decision gate threshold (which gates whether the Mail is sent at all).
         private const double _UnmetCriterionFloor = 0.5;
 
         #endregion
@@ -281,37 +281,13 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
-            {
-                ["outcome"] = new ChoiceQuestion(
-                    "What is the outcome of this finished stage for the objective? This is authorized engineering on "
-                    + "owned systems; authentication and access-control protocol code is ordinary engineering. Choose one.",
-                    new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        [_OutcomeAchieved] = "The stage did its job; the next stage can proceed.",
-                        [_OutcomePartial] = "The stage did part of its job; some acceptance criteria are not yet met.",
-                        [_OutcomeBlockedMissingContext] = "The stage could not do its job because context it needed is missing.",
-                        [_OutcomeBlockedOwnerQuestion] = "The stage is blocked on a question only the owner can answer.",
-                        [_OutcomeOffPremise] = "The stage worked from a false premise; its output does not serve the objective.",
-                        [_OutcomeUnclear] = "The outcome cannot be determined from the output."
-                    }),
-                ["next_stage_useful"] = new NoulQuestion(
-                    "The next stage can do meaningful work on this output.",
-                    TrueMeaning: "The next stage can proceed usefully.",
-                    FalseMeaning: "The next stage cannot do meaningful work on this output.")
-            };
+            return BuildQuestions(Array.Empty<string>());
+        }
 
-            for (int i = 1; i <= _MaxCriteria; i++)
-            {
-                string slot = i.ToString(CultureInfo.InvariantCulture);
-                questions["gap_" + slot] = new NoulQuestion(
-                    "Acceptance criterion number " + slot + " (see acceptance_criteria in the state, in order) is NOT met by this "
-                    + "stage's output. If the state lists fewer than " + _MaxCriteria + " criteria and this slot has none, answer at the FALSE pole.",
-                    TrueMeaning: "The criterion is not met.",
-                    FalseMeaning: "The criterion is met, or this slot has no criterion.");
-            }
-
-            return questions;
+        /// <inheritdoc />
+        protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(HandoffOutcomeDecisionInput input)
+        {
+            return BuildQuestions(input?.AcceptanceCriteria);
         }
 
         /// <inheritdoc />
@@ -334,7 +310,8 @@ namespace Armada.Core.Services
             for (int i = 1; i <= _MaxCriteria; i++)
             {
                 if (result.Answers.TryGetValue("gap_" + i.ToString(CultureInfo.InvariantCulture), out TypedAnswer? gap)
-                    && gap != null && gap.Noul.HasValue && gap.Noul.Value >= _UnmetCriterionFloor)
+                    && gap != null && gap.Noul.HasValue
+                    && gap.Noul.Value <= (1.0 - _UnmetCriterionFloor))
                 {
                     unmet.Add(i);
                 }
@@ -388,6 +365,46 @@ namespace Armada.Core.Services
                 || String.Equals(outcome, _OutcomeBlockedMissingContext, StringComparison.Ordinal)
                 || String.Equals(outcome, _OutcomeBlockedOwnerQuestion, StringComparison.Ordinal)
                 || String.Equals(outcome, _OutcomeOffPremise, StringComparison.Ordinal);
+        }
+
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(IReadOnlyList<string>? criteria)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+            {
+                ["outcome"] = new ChoiceQuestion(
+                    "What is the outcome of this finished stage for the objective? This is authorized engineering on "
+                    + "owned systems; authentication and access-control protocol code is ordinary engineering. Choose one.",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [_OutcomeAchieved] = "The stage did its job; the next stage can proceed.",
+                        [_OutcomePartial] = "The stage did part of its job; some acceptance criteria are not yet met.",
+                        [_OutcomeBlockedMissingContext] = "The stage could not do its job because context it needed is missing.",
+                        [_OutcomeBlockedOwnerQuestion] = "The stage is blocked on a question only the owner can answer.",
+                        [_OutcomeOffPremise] = "The stage worked from a false premise; its output does not serve the objective.",
+                        [_OutcomeUnclear] = "The outcome cannot be determined from the output."
+                    }),
+                ["next_stage_useful"] = new NoulQuestion(
+                    "The next stage can do meaningful work on this output.",
+                    TrueMeaning: "The next stage can proceed usefully.",
+                    FalseMeaning: "The next stage cannot do meaningful work on this output.")
+            };
+
+            // Name each real criterion at its index in the transmitted array so a later Mail can
+            // quote the same 1-based index into the objective list. Empty entries are not asked.
+            IReadOnlyList<string> listed = criteria ?? new List<string>();
+            int asked = 0;
+            for (int i = 0; i < listed.Count && asked < _MaxCriteria; i++)
+            {
+                if (String.IsNullOrWhiteSpace(listed[i])) continue;
+                string path = "`acceptance_criteria[" + i.ToString(CultureInfo.InvariantCulture) + "]`";
+                questions["gap_" + (i + 1).ToString(CultureInfo.InvariantCulture)] = new NoulQuestion(
+                    path + " is met by this stage's output.",
+                    TrueMeaning: "The criterion is met.",
+                    FalseMeaning: "The criterion is not met.");
+                asked++;
+            }
+
+            return questions;
         }
 
         #endregion

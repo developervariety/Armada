@@ -281,11 +281,11 @@ namespace Armada.Core.Services
                         ["unclear"] = "The cause cannot be determined from the state."
                     }),
                 ["repeat_likely"] = new NoulQuestion(
-                    "How likely is a rescue to fail the same way, given the failure reason and any parent failing tests?",
+                    "A rescue on the same host would repeat this exact failure.",
                     TrueMeaning: "A rescue on the same host would repeat this exact failure.",
                     FalseMeaning: "A fresh captain would plausibly get past this failure."),
                 ["foreign_test"] = new NoulQuestion(
-                    "Does the failure name a test outside this mission's own scope (a stale assertion owned by other work)?",
+                    "The failure names a test outside this mission's own scope (a stale assertion owned by other work).",
                     TrueMeaning: "The failing test belongs to other work and this mission cannot fix it.",
                     FalseMeaning: "The failing test is within this mission's scope.")
             };

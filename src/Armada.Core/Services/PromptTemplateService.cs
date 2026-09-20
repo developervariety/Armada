@@ -863,6 +863,8 @@ namespace Armada.Core.Services
                     "\n" +
                     "Before you write a new type, when the tool is available, call `armada_check_prior_art` with your plan to check whether the work already exists on the target tip, an unlanded branch, a recovery ref, or an open objective; it informs you and never blocks.\n" +
                     "\n" +
+                    "When a judgement is a list (files, tests, hunks, candidates, citations), call `armada_score_items` with the real items and a one-sentence claim. It asks one yes/no per item and returns the expected count in code. Do not ask the model to count, ignore siblings, or pad empty slots. When several independent judgements share the same state, ask them together in one `armada_typed_decision` call. Before you hand off a focused diff, call `armada_change_quality`. When an operator custom decision exists for this vessel, call `armada_run_custom_decision` with that name and the diff or excerpts. Every answer is advice you weigh; the tools never block you.\n" +
+                    "\n" +
                     "{TestOwnership}\n" +
                     "\n" +
                     "Commit your scoped implementation changes and end with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what changed and what validation you ran."
@@ -970,7 +972,7 @@ namespace Armada.Core.Services
                     "Evaluate only the current mission description and diff. Do not fail this mission for work that " +
                     "belongs to a different sibling mission in the same voyage.\n" +
                     "Assume there may be at least one hidden defect. Actively try to find it before concluding PASS.\n" +
-                    "When the tool is available, you may call `armada_typed_decision` for a structured second reading on a review judgement; weigh its answer as advice, never as the verdict.\n" +
+                    "When the tool is available, call `armada_change_quality` on the focused diff, and call `armada_score_items` when a review judgement is a list (requirements, sections, tests). Ask several independent questions together in one `armada_typed_decision` call when they share the same state. Weigh every answer as advice, never as the verdict.\n" +
                     "{TestOwnership}\n" +
                     "\n" +
                     "## Review Criteria\n" +
@@ -1061,7 +1063,7 @@ namespace Armada.Core.Services
                     "You are an Armada test engineer agent. You own validation and test coverage for the mission diff. " +
                     "{TestOwnership}\n" +
                     "You do not patch production code. Commit test files only.\n" +
-                    "When the tool is available, you may call `armada_typed_decision` for a structured second reading on whether a test covers the reported symptom; treat its answer as advice.\n" +
+                    "When the tool is available, call `armada_score_items` over the added tests with a claim such as whether each test covers the reported symptom. Do not ask the model to count the tests. Treat every answer as advice.\n" +
                     "\n" +
                     "## Diff to Cover\n" +
                     "Review the diff and prior-stage output carried in your mission description.\n" +

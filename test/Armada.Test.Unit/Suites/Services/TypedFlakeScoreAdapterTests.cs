@@ -46,13 +46,14 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
-        // flake_likelihood score index + its confidence, outside_diff noul.
-        private static TypedDecisionResult FlakeResult(double likelihoodIndex, double confidence, double outsideDiff)
+        // flake_likelihood score index + its confidence, outside_diff noul, optional isolation noul.
+        private static TypedDecisionResult FlakeResult(double likelihoodIndex, double confidence, double outsideDiff, double isolation = 0.0)
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
                 ["flake_likelihood"] = new TypedAnswer { Type = "score", Score = likelihoodIndex, Confidence = confidence },
-                ["outside_diff"] = new TypedAnswer { Type = "noul", Noul = outsideDiff, Confidence = outsideDiff }
+                ["outside_diff"] = new TypedAnswer { Type = "noul", Noul = outsideDiff, Confidence = outsideDiff },
+                ["passes_in_isolation"] = new TypedAnswer { Type = "noul", Noul = isolation }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
@@ -158,6 +159,20 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(result.RerunRecommended, "a known flaky family at threshold recommends an isolated re-run");
                 AssertEqual("known flaky family", result.Outcome);
+            }).ConfigureAwait(false);
+
+            await RunTest("LikelyReal_HighIsolation_RecommendsRerun", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                // A wrong-value assertion the Score reads as "likely real" still proposes a re-run when
+                // isolation is the finding: load-sensitive families fail with a wrong value under the suite.
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FlakeResult(1.0, 0.92, 0.2, isolation: 0.96));
+                TypedFlakeScoreAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                FlakeScoreVerdict result = await adapter.DecideAsync(BuildInput(), FlakeScoreVerdict.NoRerun(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertTrue(result.RerunRecommended, "a high isolation noul recommends an isolated re-run even when the Score is likely-real");
+                AssertEqual("passes in isolation", result.Outcome);
             }).ConfigureAwait(false);
 
             await RunTest("NeverThrows_ClientThrows_ReturnsRule_RecordsUnavailable", async () =>

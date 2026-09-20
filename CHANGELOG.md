@@ -6,6 +6,14 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Validate TypeSafe responses against the requested questions before an adapter or
+  list tally receives them. Incomplete answers, invalid types or values, and missing
+  Choice/Score confidence or probabilities return `response_validation`.
+- Retain the participant key and tool name on typed-decision tool events without a mission.
+  Custom tool calls now keep session identity separate from the mission's captain id.
+
 ### Added
 
 - Inbound prune of large `run_command` output on the API-endpoint runtime, from the jev-pruner
@@ -17,6 +25,12 @@ All notable changes to Armada are documented in this file.
   thing that drops a chunk the rule would have kept. A 2026-09-19 census of 1,129 real Claude Code
   sessions found zero `compact_boundary` events (the 21 compact hits were `/tmp` probes), so no
   Bash `tool.call` hook ships.
+- `armada_score_items`: a captain-facing list helper. The captain supplies real items and a
+  claim; the tool asks one Noul per item named at `items[i]` and returns each noul plus the
+  expected count (the sum). Optional `pick` adds a Choice for the single best item, with
+  `none` and `unclear`. It never counts, pads empty slots, or acts on a record. Worker, Judge,
+  and Test Engineer prompts tell captains to use it for list judgements and to fan-out several
+  questions in one `armada_typed_decision` call.
 - Dispatch preflight question 14: the target tip is green, or the brief names the failures it
   inherits. Numbered last so questions 1-13 stay stable. It is a recorded operator answer, not a
   live suite run at preview time; an unanswered or no answer blocks the same way questions 1-12
@@ -64,6 +78,32 @@ All notable changes to Armada are documented in this file.
   and occupant pids are in the failure reason.
 
 ### Changed
+
+- Typed-decision list questions follow the per-item shape: one question per listed
+  item, named at its JSON path (`added_tests[0]`, `items[1]`, …), with the tally in
+  code. Empty slots and a voyage-level Noul that restates the per-item Choices are
+  not sent — `jev-1.13` does not count, and a Noul is not interchangeable with a
+  Choice on the same claim. The batcher packs independent items as an `items`
+  array and prefixes each question with `This question's state is \`items[i]\` only.`
+  `revision_kind` computes the all-non-behavioural reading from the per-item kind
+  Choices. Compound judgments are split and combined in code: `test_covers`
+  asks fail-before and pass-after as two Nouls; `refusal` asks whether a phrase is
+  quoted and whether the captain is declining as two Nouls; `change_substance`
+  asks safety-step, auth-guard, and wire-byte as three Nouls. Handoff gap Nouls
+  ask whether a criterion is met (positive), and code treats a low reading as
+  unmet.   `owner_digest` sends named `chain_size` and `wait_age` buckets instead
+  of raw counts and hours. `prior_art` names `candidates[i]` and drops the
+  1-based index and candidate count from state. `followup_routing` asks one
+  Noul per open objective instead of "same as one of the listed". `leak_hunk`
+  asks one Noul per leak class. `change_quality` asks atomic Nouls per
+  dimension (nesting vs long method vs convoluted flow) and combines them in
+  code. `memory_review` splits type-ok into type-fits and durable-record, and
+  asks one `repeats_i` Noul per existing record. Counts that remain in state
+  (`memory_candidate`, `change_substance`) are named buckets. Choice questions
+  that might not cover every input gain an `unclear` or `other` option.
+- `flake_score` asks a `passes_in_isolation` Noul as well as the likelihood Score. A
+  load-sensitive family that fails with a wrong value can still recommend an isolated
+  re-run when isolation is the finding, even if the Score reads "likely real".
 
 - API-endpoint conversation compaction is a shape rule, not a typed decision.
   Older tool results keep a 300-character head plus a one-line note. Diagnostic

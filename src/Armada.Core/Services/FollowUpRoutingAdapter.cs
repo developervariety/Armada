@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
@@ -132,10 +133,11 @@ namespace Armada.Core.Services
 
             // Items are classified together in as few requests as the limits allow; each item is still
             // routed and recorded on its own, in order.
+            IReadOnlyDictionary<string, TypedQuestion> questions = BuildQuestions(candidates.Count);
             List<TypedDecisionBatchItem> batch = items
                 .Select(item => new TypedDecisionBatchItem(
                     DecisionStateRedactor.RedactState(BuildState(followUp, objectiveTitle, item, candidates), _Settings.MaxStateChars),
-                    BuildQuestions()))
+                    questions))
                 .ToList();
             List<TypedDecisionResult> decisions = await TypedDecisionBatcher.DecideAllAsync(
                 _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
@@ -185,7 +187,7 @@ namespace Armada.Core.Services
             }
 
             string home = InterpretHome(result, out double homeConfidence);
-            double sameAs = InterpretSameAs(result);
+            double sameAs = InterpretSameAs(result, candidates.Count);
             bool apply = cfg.Mode == TypedDecisionModeEnum.Gate && homeConfidence >= cfg.GateThreshold;
 
             if (!apply)
@@ -196,7 +198,7 @@ namespace Armada.Core.Services
                 return new FollowUpItemOutcome { Available = true, Applied = false };
             }
 
-            FollowUpRoute route = await ApplyHomeAsync(followUp, objectiveTitle, item, home, sameAs, candidates, cfg, token).ConfigureAwait(false);
+            FollowUpRoute route = await ApplyHomeAsync(followUp, objectiveTitle, item, home, sameAs, candidates, result, cfg, token).ConfigureAwait(false);
 
             await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
                 BuildContext(followUp, "unrouted", route.Home, homeConfidence, result, redacted), token)).ConfigureAwait(false);
@@ -211,6 +213,7 @@ namespace Armada.Core.Services
             string home,
             double sameAs,
             IReadOnlyList<FollowUpDuplicateCandidate> candidates,
+            TypedDecisionResult result,
             ResolvedTypedDecision cfg,
             CancellationToken token)
         {
@@ -233,7 +236,7 @@ namespace Armada.Core.Services
             // note rather than inventing work.
             if (String.Equals(home, HomeDuplicate, StringComparison.Ordinal))
             {
-                FollowUpDuplicateCandidate? best = SelectBestCandidate(item, candidates);
+                FollowUpDuplicateCandidate? best = SelectBestCandidate(item, candidates, result);
                 if (best != null && sameAs >= cfg.GateThreshold)
                 {
                     await _Router.LinkDuplicateAsync(request, best.ObjectiveId, token).ConfigureAwait(false);
@@ -305,9 +308,28 @@ namespace Armada.Core.Services
             return line.Trim();
         }
 
-        private static FollowUpDuplicateCandidate? SelectBestCandidate(string item, IReadOnlyList<FollowUpDuplicateCandidate> candidates)
+        private static FollowUpDuplicateCandidate? SelectBestCandidate(
+            string item,
+            IReadOnlyList<FollowUpDuplicateCandidate> candidates,
+            TypedDecisionResult result)
         {
             if (candidates == null || candidates.Count == 0) return null;
+
+            IReadOnlyDictionary<string, TypedAnswer> answers = result?.Answers ?? new Dictionary<string, TypedAnswer>();
+            int bestIndex = -1;
+            double bestNoul = -1.0;
+            int count = candidates.Count > MaxDuplicateCandidates ? MaxDuplicateCandidates : candidates.Count;
+            for (int i = 0; i < count; i++)
+            {
+                if (!answers.TryGetValue(SameAsQuestionId(i), out TypedAnswer? answer) || answer == null || !answer.Noul.HasValue)
+                    continue;
+                if (answer.Noul.Value > bestNoul)
+                {
+                    bestNoul = answer.Noul.Value;
+                    bestIndex = i;
+                }
+            }
+            if (bestIndex >= 0) return candidates[bestIndex];
 
             HashSet<string> itemWords = Words(item);
             FollowUpDuplicateCandidate? best = null;
@@ -348,24 +370,31 @@ namespace Armada.Core.Services
             };
         }
 
-        private static IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(int candidateCount)
         {
-            return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 [_HomeQuestionId] = new ChoiceQuestion(
-                    "Where should this Judge follow-up item go so it is not lost?",
+                    "Where should this Judge follow-up item in `follow_up` go so it is not lost?",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         [HomeBlocking] = "it blocks progress and needs a follow-up voyage the operator must decide",
                         [HomeTriaged] = "it is real work to do later: a Triaged objective with auto-dispatch off",
                         [HomeEvidence] = "it is a note, not new work: an evidence line",
-                        [HomeDuplicate] = "it duplicates an existing open objective and should link to it"
-                    }),
-                [_SameAsQuestionId] = new NoulQuestion(
-                    "Does this follow-up item describe the same work as one of the listed open objectives on the vessel?",
-                    "the same as an existing open objective",
-                    "not the same as any listed objective")
+                        [HomeDuplicate] = "it duplicates an existing open objective and should link to it",
+                        ["unclear"] = "none of the homes fit"
+                    })
             };
+            int count = candidateCount < 0 ? 0 : (candidateCount > MaxDuplicateCandidates ? MaxDuplicateCandidates : candidateCount);
+            for (int i = 0; i < count; i++)
+            {
+                string path = "`open_objectives[" + i.ToString(CultureInfo.InvariantCulture) + "]`";
+                questions[SameAsQuestionId(i)] = new NoulQuestion(
+                    path + " describes the same work as this follow-up item.",
+                    "the same work as this follow-up item",
+                    "different work from this follow-up item");
+            }
+            return questions;
         }
 
         private static string InterpretHome(TypedDecisionResult result, out double confidence)
@@ -377,14 +406,31 @@ namespace Armada.Core.Services
             return String.IsNullOrWhiteSpace(answer.Choice) ? HomeEvidence : answer.Choice!.Trim();
         }
 
-        private static double InterpretSameAs(TypedDecisionResult result)
+        private static double InterpretSameAs(TypedDecisionResult result, int candidateCount)
         {
             IReadOnlyDictionary<string, TypedAnswer> answers = result.Answers ?? new Dictionary<string, TypedAnswer>();
+            double max = 0.0;
+            bool anySplit = false;
+            int count = candidateCount < 0 ? 0 : (candidateCount > MaxDuplicateCandidates ? MaxDuplicateCandidates : candidateCount);
+            for (int i = 0; i < count; i++)
+            {
+                string key = SameAsQuestionId(i);
+                if (!answers.TryGetValue(key, out TypedAnswer? split) || split == null || !split.Noul.HasValue) continue;
+                anySplit = true;
+                if (split.Noul.Value > max) max = split.Noul.Value;
+            }
+            if (anySplit) return max;
+
             if (!answers.TryGetValue(_SameAsQuestionId, out TypedAnswer? answer) || answer == null) return 0.0;
             // A noul answer carries its probability in Noul and no confidence; a confidence is never a
             // stand-in for the probability that the statement is true.
             if (answer.Noul.HasValue) return answer.Noul.Value;
             return 0.0;
+        }
+
+        private static string SameAsQuestionId(int index)
+        {
+            return "same_as_" + index.ToString(CultureInfo.InvariantCulture);
         }
 
         private Task SafeRecordAsync(Func<Task> record)

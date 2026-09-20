@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -233,9 +234,9 @@ namespace Armada.Test.Unit.Suites.Services
                     string state = FakeTypedDecisionClient.StateText(request);
                     bool securityText = state.Contains("Authenticate", StringComparison.OrdinalIgnoreCase)
                         || state.Contains("AccessControl", StringComparison.OrdinalIgnoreCase);
-                    string instructions = request.Questions.TryGetValue(_LeaksQuestion, out TypedQuestion? question) && question != null
-                        ? question.Instructions
-                        : String.Empty;
+                    string instructions = String.Join(" ", request.Questions.Values
+                        .Where(question => question != null && !String.IsNullOrWhiteSpace(question.Instructions))
+                        .Select(question => question.Instructions));
                     bool domainStated = instructions.Contains("ordinary engineering", StringComparison.OrdinalIgnoreCase)
                         && instructions.Contains("access-control", StringComparison.OrdinalIgnoreCase)
                         && instructions.Contains("authoriz", StringComparison.OrdinalIgnoreCase);

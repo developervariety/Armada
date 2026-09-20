@@ -165,8 +165,8 @@ namespace Armada.Core.Services
             {
                 ["title"] = group.SampleTitle,
                 ["detail"] = group.SampleDetail,
-                ["count"] = group.Count,
-                ["distinct_captains"] = group.DistinctCaptainCount,
+                ["report_size"] = CountBucket(group.Count),
+                ["reporter_size"] = CountBucket(group.DistinctCaptainCount),
                 ["vessel"] = group.VesselId,
                 ["category"] = group.Category.ToString()
             };
@@ -177,7 +177,7 @@ namespace Armada.Core.Services
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 [_DurableQuestionId] = new NoulQuestion(
-                    "Is this a durable lesson that would recur in a different session and a different tool, rather than current work state or a one-off?",
+                    "This papercut group is a durable lesson that would recur in a different session and a different tool, rather than current work state or a one-off. Judge from `title` and `detail`. The named `report_size` and `reporter_size` buckets are how many reports and captains share this group.",
                     "a durable cross-session lesson",
                     "a one-off or current work state"),
                 [_ScopeQuestionId] = new ChoiceQuestion(
@@ -259,6 +259,15 @@ namespace Armada.Core.Services
                 Result = result,
                 RedactedState = redactedState
             };
+        }
+
+        private static string CountBucket(int count)
+        {
+            if (count <= 0) return "none";
+            if (count == 1) return "one";
+            if (count <= 3) return "a_few";
+            if (count <= 10) return "several";
+            return "many";
         }
 
         #endregion

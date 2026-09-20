@@ -374,7 +374,9 @@ namespace Armada.Test.Unit.Suites.Services
                     plan = "Add one type and one method.",
                     diff = "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-one\n+two\n",
                     context = new { diff = "one line" },
-                    record = new { input_type = "mission_failure", failure_reason = "a run failed" }
+                    record = new { input_type = "mission_failure", failure_reason = "a run failed" },
+                    claim = "This listed item matches the claim.",
+                    items = new[] { "first real item", "second real item" }
                 },
                 _JsonOptions);
 
@@ -422,6 +424,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static readonly HashSet<string> _ToolsWithoutAShippedDecision = new HashSet<string>(StringComparer.Ordinal)
         {
             "armada_typed_decision",
+            "armada_score_items",
             "armada_run_custom_decision"
         };
 

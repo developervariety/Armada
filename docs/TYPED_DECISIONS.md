@@ -100,7 +100,7 @@ captain tools.
 - **A rejected request is retried once at half size.** Redacted state
   averages about 3.6 characters per provider token but reaches 1.9 on dense
   text, so a state inside the character budget can still exceed the
-  provider's 32,000-token request limit. Lowering the budget for everyone to
+  provider's 32k-token state-plus-longest-question limit (64k for the whole request). Lowering the budget for everyone to
   fit the densest state would truncate about a third of real states to
   rescue a fraction of one percent, so a request the provider rejects
   (`http_400`) is retried once with the state re-redacted to half its size,
@@ -214,11 +214,23 @@ shortens the longest strings (keeping head, tail, and `[ARMADA:` marker lines)
 until it fits. Decisions that ask about several independent items —
 `criteria_lint`, `inbox_triage`, `memory_candidate`, `followup_routing`,
 `memory_review`, and `owner_digest` — share requests: items are packed in order
-into requests of at most 100 questions whose combined state stays within
+into a JSON `items` array and each question names its 0-based path (`items[0]`,
+`items[1]`, …), so the model answers one item at a time and code splits the
+answers. A request holds at most 100 questions whose combined state stays within
 `maxStateChars` and whose state plus question text stays within 80,000
 characters, and each item is still gated and recorded on its own event
 (with an even share of the request's tokens). `papercut_merge` still asks per
 pair, because each comparison depends on the merges before it.
+
+A list decision asks one question per listed item and names that item by its
+JSON path. Empty slots are not sent; code owns the tally. Compound judgments
+are split into one literal question each and combined in code (`test_covers`
+splits fail-before from pass-after; `refusal` splits a quoted phrase from the
+captain declining; `change_substance` splits safety-step, auth-guard, and wire-byte
+risk). Noul instructions state the condition in the positive, and a negated
+reading (an unmet criterion) is inverted in code. Counts and durations go to
+the model as named buckets (`owner_digest` `chain_size` / `wait_age`), not as
+raw numbers to compare.
 
 A synthetic evaluation set checks the decisions that gate the recovery, review,
 and Linter seams (`failure_cause`, `refusal`, `runtime_failure`,
@@ -241,9 +253,11 @@ One decision point runs behind the deterministic dock-boundary scanner:
   three of its gates: the merge-queue integration scan, the pre-land mission
   scan, and the landing handler's gate. The scanner runs
   first and unconditionally and decides the block on its own; this pass then reads
-  the added hunks of the same diff and asks one Noul (`leaks_private_context`)
-  plus an advisory Choice (`leak_kind`: `operator_note`, `customer_detail`,
-  `orchestration_id`, `host_or_path`, `none`). At or above the threshold it
+  the added hunks of the same diff and asks one Noul per leak class
+  (`kind_operator_note`, `kind_customer_detail`, `kind_orchestration_id`,
+  `kind_host_or_path`) plus an advisory Choice (`leak_kind`: `operator_note`,
+  `customer_detail`, `orchestration_id`, `host_or_path`, `none`). Code takes the
+  greatest class Noul as the leak probability. At or above the threshold it
   attaches a `leak_hunk_flag` advisory flag naming the file and the suspected
   class. The flag never blocks: it never sets a scan result to failed, never
   transitions a merge entry or a mission to failure, and no answer at any
@@ -279,7 +293,10 @@ work in a log is ordinary engineering and never a drift.
 
 The typed-decision system is also offered to captains directly, as MCP tools next to
 the memory tools. `armada_typed_decision` is the general form: the captain supplies its
-own state and questions. The rest are pre-shaped, and each follows its own decision:
+own state and questions. `armada_score_items` is the list form: the captain supplies
+real items and a claim, the tool asks one Noul per item named at `items[i]`, and code
+returns each noul plus the expected count (the sum). Do not ask Jev to count, ignore
+siblings, or pad empty slots. The rest are pre-shaped, and each follows its own decision:
 `armada_check_premise` (`premise_check`) checks a captain's own reading of the task
 before it starts; `armada_memory_triage` (`memory_record`) triages a memory candidate
 before the Recorder writes it; `armada_check_prior_art` (`prior_art`) checks whether the
@@ -319,6 +336,18 @@ its samples are a general corpus rather than one decision's training set.
 The tools are enabled by default (`typedDecisions.captainTool.enabled` is `true`); setting
 it `false` makes every call return `unavailable`. See `docs/MCP_API.md` for the tool
 arguments.
+The client validates each response against the questions sent. Missing answers, wrong
+answer types, unknown Choice labels, invalid numeric ranges, or missing Choice/Score
+confidence and probabilities return `unavailable` with reason `response_validation`.
+No partial answers reach an adapter or a list tally. Noul confidence remains optional.
+Rounded probabilities need not sum to exactly one. This check adds no provider call.
+
+Tool events name the calling tool in `tool_name` and retain the supplied session identity
+as `participant_key`, including calls
+without a mission. This field is attribution only. It does not grant access and does
+not fill `CaptainId`; that field comes from the mission for tool calls. Custom tool
+calls use the same distinction, including their shadow and unavailable events.
+
 Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
 call; unavailable returns the rule; Shadow or below threshold returns the rule
@@ -436,16 +465,16 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
 - `revision_kind` (D21) sits after `ParseJudgeVerdict` on a NEEDS_REVISION's
   revision items, before autonomous recovery classifies the failure. The model
   answers a `kind` Choice {behaviour, test, comment_only, doc_only, boundary} per
-  item and a voyage-level `all_non_behavioural` Noul. When every item is
-  non-behavioural at or above threshold and no item is a behaviour or test change,
-  the seam marks the failure `revision_comment_only`, so autonomous recovery
-  **holds the rescue** (a comment-only NEEDS_REVISION is an operator landing, not
-  a rescue chain), and opens an incident tagged for operator landing. A single
-  behavioural or test item leaves the rule standing and the rescue proceeds. The
-  model never lands; the finished work stays on its branch for the operator.
+  listed item. Code combines those answers: when every listed item is
+  non-behavioural at or above threshold, the seam marks the failure
+  `revision_comment_only`, so autonomous recovery **holds the rescue** (a
+  comment-only NEEDS_REVISION is an operator landing, not a rescue chain), and
+  opens an incident tagged for operator landing. A single behavioural or test
+  item leaves the rule standing and the rescue proceeds. The model never lands;
+  the finished work stays on its branch for the operator.
 - `test_covers` (D22) sits on the TestEngineer handoff, over the added test
   methods and the objective's symptom sentence. The model answers `covers_symptom`,
-  `asserts_source_text`, and `would_fail_before_fix` Nouls per added test; a
+  `asserts_source_text`, `fails_without_change`, and `passes_with_change` Nouls per added test; a
   doubted test becomes a Judge **instruction** prepended to the next brief ("verify
   test X fails without the change"). It **never fails the stage** by itself. With
   the decision `Off` the handoff is deterministic.
@@ -487,9 +516,11 @@ One decision point reviews what the Recorder stage wrote:
 
 - **`memory_review`** (ships `Gate`, threshold `0.90`) runs when a
   Recorder-stage mission finishes its work. It reads the native memory records
-  that mission wrote (at most 10) and asks the four memory-review questions for each:
-  `type_ok`, `duplicate_of` (a choice among at most five existing records of the
-  same vessel and type or topic), `will_go_stale`, and `belongs_in_ai_memory`.
+  that mission wrote (at most 10) and asks the memory-review questions for each:
+  `type_fits` and `durable_record` (combined in code as type-ok), `duplicate_of`
+  (a choice among at most five existing records of the same vessel and type or
+  topic) plus one `repeats_i` Noul per `existing_records[i]`, `will_go_stale`,
+  and `belongs_in_ai_memory`.
   In `Gate` at or above the threshold it may only **lower** salience (to `0.2`
   for a duplicate, `0.3` for a stale or wrongly typed record), **link** a
   duplicate to the record it repeats with a `duplicate-of:<memory id>` tag, and
@@ -579,10 +610,12 @@ Two platform-side decisions ship `Gate`:
 - **`flake_score`** runs in `DefinitionOfDoneGate` after
   `DefinitionOfDoneFailureClassifier` classifies a failed unit-test command. It
   asks a `flake_likelihood` Score `[deterministic, likely real, likely load,
-  known flaky family]` and an `outside_diff` Noul over state carrying the failing
+  known flaky family]`, an `outside_diff` Noul, and a `passes_in_isolation` Noul
+  over state carrying the failing
   test names, the assertion lines, the touched files, whether the same tests
   failed on another branch in the last 24 hours, and the classifier's class. In
-  `Gate`, a `likely load` or `known flaky family` reading at or above threshold
+  `Gate`, a `likely load` or `known flaky family` reading at or above threshold,
+  or a high `passes_in_isolation` Noul at or above threshold,
   triggers an isolated, class-filtered re-run of only the failing classes; the
   re-run's real result is the truth (a pass clears the red, a failure leaves it
   red). The model never marks a red check green — only a genuine passing isolated
@@ -613,7 +646,7 @@ Two operator surfaces read the attention triage:
 
 - **`inbox_triage`** (ships `Gate`) runs in the `inbox` and
   `armada_coordination_read` MCP tools. It scores each inbox item and board note
-  for how urgently a human is needed. In `Gate` above the threshold each item
+  for whether a human needs to act now. In `Gate` above the threshold each item
   gains an `attention` label (`informational`, `today`, `this_hour`,
   `blocking_live_voyage`), each board note also a `noteKind` (`handoff`,
   `status`, `question`, `stop_sign`, `hold_notice`), and the response is
@@ -625,8 +658,8 @@ Two operator surfaces read the attention triage:
   item of a Judge's Suggested Follow-ups section. In `Gate` above the threshold a
   `triaged_objective` home creates a Triaged objective with auto-dispatch OFF, an
   `evidence_note` home appends an evidence note, and a `duplicate_of_existing`
-  home LINKS to an existing open objective (a `same_as` noul against the vessel's
-  top open objectives) instead of creating one. A blocking item is only flagged
+  home LINKS to an existing open objective (one `same_as_i` noul per
+  `open_objectives[i]`; code takes the greatest) instead of creating one. A blocking item is only flagged
   for the operator; the model NEVER creates a voyage, dispatches, or lands.
 
 One decision point asks "does this already exist?" with evidence, at three seams
@@ -716,12 +749,12 @@ wording override and asserts only the wording changed.
 ### `refusal`
 
 `refusal` is defined this way. Its embedded default carries the `outcome` Choice with its five
-options and their meanings, the `quoted_not_own` Noul with its poles, and the `stateFields`
+options and their meanings, the `quotes_refusal_phrase` and `captain_declining` Nouls with their poles, and the `stateFields`
 `mission_title`, `agent_output_tail`, and `marker_present`; its threshold and mode are the
 `refusal` row (`Gate`, `0.90`). The adapter holds the behavioural half: the deterministic rule
 (the structured `[ARMADA:RESULT] REFUSED` marker and the provider safeguard block are
 authoritative), `Interpret` (the action confidence is the `refused_policy` choice confidence on
-a promote, or `quoted_not_own` on a demote), `Combine` (promote a prose policy refusal the rule
+a promote, or the quoted-not-own combination on a demote), `Combine` (promote a prose policy refusal the rule
 missed, demote a quoted phrase only at very high confidence, never overturn a hard-block), and
 the blocked-on-premise papercut side effect. An operator rewords the `outcome` options or moves
 the `refusal` threshold from settings without a deploy, and cannot change which outcomes are a

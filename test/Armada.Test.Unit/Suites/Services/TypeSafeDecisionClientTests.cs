@@ -116,7 +116,18 @@ namespace Armada.Test.Unit.Suites.Services
                 List<string> observed = new List<string>();
                 client.ModelObserved = observed.Add;
 
-                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+                TypedDecisionRequest request = new TypedDecisionRequest
+                {
+                    DecisionPoint = "test",
+                    State = "state",
+                    Questions = new Dictionary<string, TypedQuestion>
+                    {
+                        ["cause"] = new ChoiceQuestion("Cause", new Dictionary<string, string> { ["unclear"] = "unclear", ["work_defect"] = "defect", ["environmental"] = "environment" }),
+                        ["repeat_likely"] = new NoulQuestion("Will it recur"),
+                        ["sev"] = new ScoreQuestion("Severity", new List<string> { "Low", "Medium", "High" })
+                    }
+                };
+                TypedDecisionResult result = await client.DecideAsync(request, CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(result.Available, "a score answer with a legend object must parse, not return unavailable: " + result.UnavailableReason);
                 AssertEqual(1, observed.Count, "the reported model version is passed to the observer");
@@ -129,6 +140,56 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0.75, result.Answers["sev"].Probabilities!["2"]);
                 AssertEqual(0.53, result.Answers["repeat_likely"].Noul);
                 AssertNull(result.Answers["repeat_likely"].Confidence);
+            });
+
+            Dictionary<string, string> invalidResponses = new Dictionary<string, string>
+            {
+                ["missing_answers"] = "{}",
+                ["empty_answers"] = "{\"answers\":{}}",
+                ["partial_answers"] = "{\"answers\":{\"cause\":{\"type\":\"choice\",\"choice\":\"provider\",\"confidence\":0.9}}}",
+                ["null_answer"] = "{\"answers\":{\"cause\":null,\"repeat_likely\":{\"type\":\"noul\",\"noul\":0.5}}}"
+            };
+            string validAnswers = "{\"cause\":{\"type\":\"choice\",\"choice\":\"provider\",\"confidence\":0.91,\"probabilities\":{\"provider\":0.8,\"environmental\":0.2}},\"repeat_likely\":{\"type\":\"noul\",\"noul\":0.7}}";
+            invalidResponses["missing_type"] = "{\"answers\":" + validAnswers.Replace("\"type\":\"noul\",", "") + "}";
+            invalidResponses["wrong_type"] = "{\"answers\":" + validAnswers.Replace("\"type\":\"noul\"", "\"type\":\"score\"") + "}";
+            invalidResponses["missing_noul"] = "{\"answers\":" + validAnswers.Replace(",\"noul\":0.7", "") + "}";
+            invalidResponses["noul_out_of_range"] = "{\"answers\":" + validAnswers.Replace("\"noul\":0.7", "\"noul\":1.1") + "}";
+            invalidResponses["unknown_choice"] = "{\"answers\":" + validAnswers.Replace("\"choice\":\"provider\"", "\"choice\":\"unknown\"") + "}";
+            invalidResponses["missing_confidence"] = "{\"answers\":" + validAnswers.Replace("\"confidence\":0.91,", "") + "}";
+            invalidResponses["confidence_out_of_range"] = "{\"answers\":" + validAnswers.Replace("\"confidence\":0.91", "\"confidence\":-0.1") + "}";
+            invalidResponses["probability_out_of_range"] = "{\"answers\":" + validAnswers.Replace("\"provider\":0.8", "\"provider\":1.8") + "}";
+            invalidResponses["missing_probabilities"] = "{\"answers\":" + validAnswers.Replace(",\"probabilities\":{\"provider\":0.8,\"environmental\":0.2}", "") + "}";
+            invalidResponses["unknown_probability_label"] = "{\"answers\":" + validAnswers.Replace("\"environmental\":0.2", "\"unknown\":0.2") + "}";
+            foreach (KeyValuePair<string, string> invalid in invalidResponses)
+            {
+                await RunTest("DecideAsync_InvalidResponse_" + invalid.Key, async () =>
+                {
+                    using (HttpClient http = new HttpClient(new RecordingHttpMessageHandler(HttpStatusCode.OK, invalid.Value)))
+                    {
+                        TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+                        TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+                        AssertFalse(result.Available, "Invalid answers must not reach a decision gate");
+                        AssertEqual("response_validation", result.UnavailableReason);
+                        AssertEqual(0, result.Answers.Count, "Do not expose a partial result");
+                    }
+                });
+            }
+
+            await RunTest("DecideAsync_ScoreOutsideRubric_ReturnsUnavailable", async () =>
+            {
+                using (HttpClient http = new HttpClient(new RecordingHttpMessageHandler(HttpStatusCode.OK,
+                    "{\"answers\":{\"rating\":{\"type\":\"score\",\"score\":2.1,\"confidence\":0.9,\"probabilities\":{\"0\":0,\"1\":0,\"2\":1}}}}")))
+                {
+                    TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+                    TypedDecisionResult result = await client.DecideAsync(new TypedDecisionRequest
+                    {
+                        DecisionPoint = "test",
+                        State = "state",
+                        Questions = new Dictionary<string, TypedQuestion> { ["rating"] = new ScoreQuestion("Rating", new List<string> { "Low", "Medium", "High" }) }
+                    }, CancellationToken.None).ConfigureAwait(false);
+                    AssertFalse(result.Available, "Score cannot exceed the rubric");
+                    AssertEqual("response_validation", result.UnavailableReason);
+                }
             });
 
             await RunTest("DecideAsync_ObjectState_SendsStateAsJsonObject", async () =>
@@ -282,7 +343,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("DecideAsync_ScoreQuestion_SendsOrderedLevels", async () =>
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.OK,
-                    "{\"answers\":{\"substantiated\":{\"type\":\"score\",\"score\":2.0,\"confidence\":0.7}},\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}");
+                    "{\"answers\":{\"substantiated\":{\"type\":\"score\",\"score\":2.0,\"confidence\":0.7,\"probabilities\":{\"0\":0,\"1\":0,\"2\":1}}},\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}");
                 HttpClient http = new HttpClient(handler);
                 Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>
                 {

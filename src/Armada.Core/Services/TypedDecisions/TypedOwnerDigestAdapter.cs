@@ -188,8 +188,8 @@ namespace Armada.Core.Services
             {
                 ["question_text"] = input.QuestionText,
                 ["blocked_row"] = input.BlockedRow,
-                ["chain_count"] = input.ChainCount,
-                ["age_hours"] = Math.Round(input.AgeHours, 1),
+                ["chain_size"] = ChainSizeBucket(input.ChainCount),
+                ["wait_age"] = WaitAgeBucket(input.AgeHours),
                 ["proposed_default"] = input.ProposedDefault
             };
         }
@@ -200,12 +200,12 @@ namespace Armada.Core.Services
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 ["cost_of_waiting"] = new ScoreQuestion(
-                    "How costly is it that this owner decision is still waiting? Judge from the row it blocks, "
-                    + "how many rows chain behind it, and its age. This is authorized engineering on owned "
+                    "This owner decision is costly to leave waiting. Judge from `blocked_row`, the named `chain_size` bucket, "
+                    + "and the named `wait_age` bucket. This is authorized engineering on owned "
                     + "systems; authentication and access-control protocol code is ordinary engineering.",
                     _CostLevels),
                 ["default_safe"] = new NoulQuestion(
-                    "A stated default (see proposed_default in the state) could proceed without the owner: it is the "
+                    "`proposed_default` could proceed without the owner: it is the "
                     + "conservative choice and no harm follows from taking it while the owner is away.",
                     TrueMeaning: "The stated default could proceed without the owner.",
                     FalseMeaning: "The question genuinely needs the owner before anything proceeds.")
@@ -291,6 +291,27 @@ namespace Armada.Core.Services
             if (level < 0) level = 0;
             if (level >= _CostLevels.Count) level = _CostLevels.Count - 1;
             return _CostLevels[level];
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static string ChainSizeBucket(int count)
+        {
+            if (count <= 0) return "none";
+            if (count == 1) return "one";
+            if (count <= 3) return "a_few";
+            if (count <= 10) return "several";
+            return "many";
+        }
+
+        private static string WaitAgeBucket(double hours)
+        {
+            if (hours < 12.0) return "hours";
+            if (hours < 36.0) return "about_a_day";
+            if (hours < 168.0) return "days";
+            return "more_than_a_week";
         }
 
         #endregion

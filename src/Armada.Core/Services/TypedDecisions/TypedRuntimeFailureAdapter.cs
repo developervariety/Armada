@@ -185,7 +185,7 @@ namespace Armada.Core.Services
                         ["unclear"] = "The cause cannot be determined from the output."
                     }),
                 ["fleet_wide"] = new NoulQuestion(
-                    "Would this fault affect every captain sharing the same provider key, not just this one?",
+                    "This fault affects every captain sharing the same provider key, not only this run.",
                     TrueMeaning: "An account-level fault that fails every captain on the key.",
                     FalseMeaning: "A fault local to this captain or run.")
             };

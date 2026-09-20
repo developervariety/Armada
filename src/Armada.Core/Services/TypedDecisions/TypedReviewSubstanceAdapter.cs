@@ -198,10 +198,9 @@ namespace Armada.Core.Services
     {
         #region Private-Members
 
-        // Both mission modes require exactly four review sections (JudgeReviewSections), so the
-        // adapter asks four substance Nouls keyed section_1..section_4; the state carries the ordered
-        // section names the model maps them to. A section the model leaves unanswered contributes zero,
-        // which can never satisfy the accept condition.
+        // Both mission modes require exactly four review sections (JudgeReviewSections). The adapter
+        // asks one substance Noul per listed section, named at its JSON path. A listed section the
+        // model leaves unanswered contributes zero, which can never satisfy the accept condition.
         private const int _SectionQuestionCount = 4;
 
         // The substantiated Score bands. Levels are, in order: asserted only (0), partly evidenced (1),
@@ -252,7 +251,7 @@ namespace Armada.Core.Services
             return new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["narrative"] = input.Narrative,
-                ["required_sections"] = new List<string>(input.RequiredSections),
+                ["required_sections"] = ListedSections(input),
                 ["diff_stat"] = input.DiffStat,
                 ["check_summary"] = input.CheckSummary
             };
@@ -261,23 +260,13 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
-            for (int i = 1; i <= _SectionQuestionCount; i++)
-            {
-                questions["section_" + i.ToString(CultureInfo.InvariantCulture)] = new NoulQuestion(
-                    "The " + Ordinal(i) + " required review section (see required_sections in the state, in order) is SUBSTANTIATED by the "
-                    + "narrative — the review says something specific and true about it — and is not merely named as a heading. "
-                    + "If the state lists fewer than " + _SectionQuestionCount + " sections and this position has none, answer at the false pole.",
-                    TrueMeaning: "The section's substance is present in the narrative.",
-                    FalseMeaning: "The section is named only, or absent, with no substance behind it.");
-            }
+            return BuildSectionQuestions(_SectionQuestionCount);
+        }
 
-            questions["substantiated"] = new ScoreQuestion(
-                "Overall, how well does the narrative substantiate the PASS across all required sections? "
-                + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
-                _ScoreLevels);
-
-            return questions;
+        /// <inheritdoc />
+        protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(ReviewSubstanceDecisionInput input)
+        {
+            return BuildSectionQuestions(ListedSections(input).Count);
         }
 
         /// <inheritdoc />
@@ -399,17 +388,51 @@ namespace Armada.Core.Services
             for (int i = 1; i <= _SectionQuestionCount; i++)
             {
                 string key = "section_" + i.ToString(CultureInfo.InvariantCulture);
+                if (result.Answers == null || !result.Answers.ContainsKey(key)) continue;
+
                 double value = 0.0;
                 if (result.Answers.TryGetValue(key, out TypedAnswer? answer) && answer != null && answer.Noul.HasValue)
                     value = answer.Noul.Value;
 
-                // A missing or unanswered section contributes zero, which can never satisfy the accept
-                // condition — the conservative reading.
+                // An unanswered asked section contributes zero, which can never satisfy the accept
+                // condition — the conservative reading. Unasked slots are skipped.
                 if (value < min) min = value;
                 any = true;
             }
 
             return any && min != double.MaxValue ? min : 0.0;
+        }
+
+        private static List<string> ListedSections(ReviewSubstanceDecisionInput input)
+        {
+            List<string> listed = new List<string>();
+            foreach (string section in input?.RequiredSections ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(section)) continue;
+                listed.Add(section);
+                if (listed.Count >= _SectionQuestionCount) break;
+            }
+            return listed;
+        }
+
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildSectionQuestions(int count)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+            for (int i = 1; i <= count; i++)
+            {
+                string path = "`required_sections[" + (i - 1).ToString(CultureInfo.InvariantCulture) + "]`";
+                questions["section_" + i.ToString(CultureInfo.InvariantCulture)] = new NoulQuestion(
+                    path + " is SUBSTANTIATED by the narrative — the review says something specific and true about that section — and is not merely named as a heading.",
+                    TrueMeaning: "The section's substance is present in the narrative.",
+                    FalseMeaning: "The section is named only, with no substance behind it.");
+            }
+
+            questions["substantiated"] = new ScoreQuestion(
+                "The narrative substantiates the PASS. Place it on the scale below. "
+                + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
+                _ScoreLevels);
+
+            return questions;
         }
 
         private static string ScoreLabel(double score)
@@ -419,18 +442,6 @@ namespace Armada.Core.Services
             if (index < 0) index = 0;
             if (index >= _ScoreLevels.Count) index = _ScoreLevels.Count - 1;
             return _ScoreLevels[index];
-        }
-
-        private static string Ordinal(int position)
-        {
-            return position switch
-            {
-                1 => "first",
-                2 => "second",
-                3 => "third",
-                4 => "fourth",
-                _ => position.ToString(CultureInfo.InvariantCulture) + "th"
-            };
         }
 
         #endregion

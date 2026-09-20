@@ -274,7 +274,7 @@ namespace Armada.Core.Services
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 [_QuestionId] = new NoulQuestion(
-                    "Do these two reported frictions describe the same underlying issue, such that one operator triage would address both?",
+                    "`group_a` and `group_b` describe the same underlying issue, such that one operator triage would address both.",
                     "the same underlying issue",
                     "two different issues")
             };

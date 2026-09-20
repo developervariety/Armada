@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.TestHelpers
 {
     using System;
+    using System.Collections;
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
@@ -103,7 +104,7 @@ namespace Armada.Test.Unit.TestHelpers
         {
             if (request.State is not Dictionary<string, object?> state
                 || !state.TryGetValue("items", out object? listed)
-                || listed is not List<Dictionary<string, object?>> itemStates
+                || listed is not IList itemStates
                 || itemStates.Count < 2)
             {
                 return null;
@@ -120,7 +121,7 @@ namespace Armada.Test.Unit.TestHelpers
                 items.Add(new TypedDecisionRequest
                 {
                     DecisionPoint = request.DecisionPoint,
-                    State = itemStates[index]["state"] ?? String.Empty,
+                    State = itemStates[index] ?? String.Empty,
                     Questions = questions
                 });
             }

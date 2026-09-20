@@ -182,7 +182,6 @@ namespace Armada.Core.Services
                 if (count >= _MaxFindings) break;
                 findings.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
-                    ["index"] = count + 1,
                     ["text"] = finding
                 });
                 count++;
@@ -291,8 +290,8 @@ namespace Armada.Core.Services
             for (int i = 1; i <= count; i++)
             {
                 string slot = i.ToString(CultureInfo.InvariantCulture);
-                string prefix = "Linter finding " + slot + " in the state's findings list (authorized engineering on owned systems; "
-                    + "authentication and access-control protocol code is ordinary engineering). ";
+                string prefix = "This question is about `findings[" + (i - 1).ToString(CultureInfo.InvariantCulture) + "]` "
+                    + "(authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering). ";
                 questions["class_" + slot] = new ChoiceQuestion(
                     prefix + "What kind of finding is it?",
                     new Dictionary<string, string>(StringComparer.Ordinal)
@@ -303,7 +302,9 @@ namespace Armada.Core.Services
                         [_ClassStylePreference] = "A style preference: taste, not a defect.",
                         [_ClassFalsePositive] = "A false positive: not actually an issue."
                     });
-                questions["severity_" + slot] = new ScoreQuestion(prefix + "How severe is it?", _SeverityLevels);
+                questions["severity_" + slot] = new ScoreQuestion(
+                    prefix + "Rate this finding's severity on the scale below.",
+                    _SeverityLevels);
             }
             return questions;
         }

@@ -207,7 +207,7 @@ namespace Armada.Core.Services
             return new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["vessel"] = input.VesselPublicName,
-                ["changed_path_count"] = input.ChangedPaths.Count,
+                ["changed_path_size"] = CountBucket(input.ChangedPaths.Count),
                 ["hunks"] = hunks
             };
         }
@@ -221,7 +221,8 @@ namespace Armada.Core.Services
                 ["test_only"] = "The added hunks change only tests or fixtures.",
                 ["docs_only"] = "The added hunks change only documentation or narrative prose.",
                 ["build_config"] = "The added hunks change only build, project, or configuration files.",
-                ["generated"] = "The added hunks change only generated or vendored output."
+                ["generated"] = "The added hunks change only generated or vendored output.",
+                ["unclear"] = "The added hunks do not clearly match one class."
             };
 
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
@@ -230,11 +231,18 @@ namespace Armada.Core.Services
                     "Read the added hunks (not the file extensions) and choose what the change set actually is. "
                     + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
                     substanceCriteria),
-                ["risky"] = new NoulQuestion(
-                    "The added hunks change a SAFETY step (a device disable, a session exit, a fail-closed guard), a security or "
-                    + "authorization guard, or a wire byte of a diagnostic frame.",
-                    TrueMeaning: "The change touches a safety step, a guard, or a wire byte.",
-                    FalseMeaning: "The change touches none of those.")
+                ["risky_safety_step"] = new NoulQuestion(
+                    "The added hunks change a terminating SAFETY step (a device disable, a session exit, or a fail-closed return).",
+                    TrueMeaning: "The change touches a safety step.",
+                    FalseMeaning: "The change does not touch a safety step."),
+                ["risky_auth_guard"] = new NoulQuestion(
+                    "The added hunks change a security or authorization guard.",
+                    TrueMeaning: "The change touches an authorization guard.",
+                    FalseMeaning: "The change does not touch an authorization guard."),
+                ["risky_wire_byte"] = new NoulQuestion(
+                    "The added hunks change a wire byte of a diagnostic frame.",
+                    TrueMeaning: "The change touches a wire byte.",
+                    FalseMeaning: "The change does not touch a wire byte.")
             };
         }
 
@@ -251,7 +259,7 @@ namespace Armada.Core.Services
                 substanceConfidence = TypedAnswerReader.ResolveChoiceConfidence(substanceAnswer, substanceChoice);
             }
 
-            double riskyNoul = TypedAnswerReader.ReadNoul(result, "risky");
+            double riskyNoul = RiskyNoulFrom(result);
 
             // The raise action is proposable only when the model chose "behaviour"; the docs-only / empty
             // precondition on the RULE reading is enforced in Combine, so the model never lowers a
@@ -308,6 +316,22 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        private static double RiskyNoulFrom(TypedDecisionResult result)
+        {
+            bool hasSplit = result.Answers != null
+                && (result.Answers.ContainsKey("risky_safety_step")
+                    || result.Answers.ContainsKey("risky_auth_guard")
+                    || result.Answers.ContainsKey("risky_wire_byte"));
+            if (!hasSplit)
+                return TypedAnswerReader.ReadNoul(result, "risky");
+
+            return Math.Max(
+                TypedAnswerReader.ReadNoul(result, "risky_safety_step"),
+                Math.Max(
+                    TypedAnswerReader.ReadNoul(result, "risky_auth_guard"),
+                    TypedAnswerReader.ReadNoul(result, "risky_wire_byte")));
+        }
+
         private static List<Dictionary<string, object?>> ExtractAddedHunks(string? unifiedDiff)
         {
             List<Dictionary<string, object?>> hunks = new List<Dictionary<string, object?>>();
@@ -360,6 +384,15 @@ namespace Armada.Core.Services
                 ["file"] = file,
                 ["added"] = builder.ToString()
             });
+        }
+
+        private static string CountBucket(int count)
+        {
+            if (count <= 0) return "none";
+            if (count == 1) return "one";
+            if (count <= 3) return "a_few";
+            if (count <= 10) return "several";
+            return "many";
         }
 
         #endregion

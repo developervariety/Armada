@@ -75,6 +75,8 @@ namespace Armada.Core.Services
 
         private const string _Header = "[RecorderMemoryReviewAdapter] ";
         private const string _TypeOkQuestionId = "type_ok";
+        private const string _TypeFitsQuestionId = "type_fits";
+        private const string _DurableRecordQuestionId = "durable_record";
         private const string _DuplicateQuestionId = "duplicate_of";
         private const string _StaleQuestionId = "will_go_stale";
         private const string _AiMemoryQuestionId = "belongs_in_ai_memory";
@@ -223,7 +225,7 @@ namespace Armada.Core.Services
             }
 
             double threshold = cfg.GateThreshold;
-            double typeOk = TypedAnswerReader.ReadNoul(result, _TypeOkQuestionId, 1.0);
+            double typeOk = TypeOkFrom(result);
             double stale = TypedAnswerReader.ReadNoul(result, _StaleQuestionId, 0.0);
             double aiMemory = TypedAnswerReader.ReadNoul(result, _AiMemoryQuestionId, 0.0);
             Memory? duplicateOf = DuplicateOf(result, candidates, out double duplicateConfidence);
@@ -325,7 +327,6 @@ namespace Armada.Core.Services
             {
                 existing.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
-                    ["option"] = OptionName(i),
                     ["type"] = candidates[i].Type.ToString(),
                     ["topic"] = candidates[i].Topic,
                     ["summary"] = candidates[i].Summary,
@@ -350,13 +351,16 @@ namespace Armada.Core.Services
                 [_NoDuplicate] = "the record does not repeat any existing record"
             };
             for (int i = 0; i < candidateCount; i++)
-                duplicateOptions[OptionName(i)] = "the record repeats the existing record labelled " + OptionName(i);
+                duplicateOptions[OptionName(i)] = "the record repeats `existing_records[" + i.ToString(CultureInfo.InvariantCulture) + "]`";
 
-            return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
-                [_TypeOkQuestionId] = new NoulQuestion(
-                    "The stated memory type (working, episodic, semantic, or procedural) fits this record, and it is not working memory that should not be stored.",
+                [_TypeFitsQuestionId] = new NoulQuestion(
+                    "The stated memory type (working, episodic, semantic, or procedural) fits this record.",
                     "the type fits", "the type is wrong"),
+                [_DurableRecordQuestionId] = new NoulQuestion(
+                    "This record is durable memory (episodic, semantic, or procedural), not working memory that should not be stored.",
+                    "the record is durable", "the record is working memory that should not be stored"),
                 [_DuplicateQuestionId] = new ChoiceQuestion(
                     "Which existing record, if any, does this record duplicate?",
                     duplicateOptions),
@@ -367,6 +371,32 @@ namespace Armada.Core.Services
                     "The record is a fleet rule that belongs in shared external memory, not a vessel fact for native memory.",
                     "belongs in shared memory", "is a native vessel fact")
             };
+            for (int i = 0; i < candidateCount; i++)
+            {
+                string path = "`existing_records[" + i.ToString(CultureInfo.InvariantCulture) + "]`";
+                questions[RepeatsQuestionId(i)] = new NoulQuestion(
+                    path + " is the same lesson as this record.",
+                    "the same lesson as this record",
+                    "a different lesson");
+            }
+            return questions;
+        }
+
+        private static string RepeatsQuestionId(int index)
+        {
+            return "repeats_" + index.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static double TypeOkFrom(TypedDecisionResult result)
+        {
+            bool hasSplit = result.Answers != null
+                && (result.Answers.ContainsKey(_TypeFitsQuestionId) || result.Answers.ContainsKey(_DurableRecordQuestionId));
+            if (!hasSplit)
+                return TypedAnswerReader.ReadNoul(result, _TypeOkQuestionId, 1.0);
+
+            double fits = TypedAnswerReader.ReadNoul(result, _TypeFitsQuestionId, 1.0);
+            double durable = TypedAnswerReader.ReadNoul(result, _DurableRecordQuestionId, 1.0);
+            return Math.Min(fits, durable);
         }
 
         private static string OptionName(int index)
@@ -378,17 +408,34 @@ namespace Armada.Core.Services
         {
             confidence = 0.0;
             if (result.Answers == null) return null;
-            if (!result.Answers.TryGetValue(_DuplicateQuestionId, out TypedAnswer? answer) || answer == null) return null;
-            if (String.IsNullOrWhiteSpace(answer.Choice)) return null;
-            for (int i = 0; i < candidates.Count; i++)
+            if (result.Answers.TryGetValue(_DuplicateQuestionId, out TypedAnswer? answer)
+                && answer != null
+                && !String.IsNullOrWhiteSpace(answer.Choice))
             {
-                if (String.Equals(answer.Choice!.Trim(), OptionName(i), StringComparison.Ordinal))
+                for (int i = 0; i < candidates.Count; i++)
                 {
-                    confidence = answer.Confidence ?? 0.0;
-                    return candidates[i];
+                    if (String.Equals(answer.Choice!.Trim(), OptionName(i), StringComparison.Ordinal))
+                    {
+                        confidence = answer.Confidence ?? 0.0;
+                        return candidates[i];
+                    }
                 }
             }
-            return null;
+
+            int bestIndex = -1;
+            double bestNoul = 0.0;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                double noul = TypedAnswerReader.ReadNoul(result, RepeatsQuestionId(i), 0.0);
+                if (noul > bestNoul)
+                {
+                    bestNoul = noul;
+                    bestIndex = i;
+                }
+            }
+            if (bestIndex < 0) return null;
+            confidence = bestNoul;
+            return candidates[bestIndex];
         }
 
         private static string Verdict(bool duplicate, bool stale, bool wrongType, bool aiMemory)

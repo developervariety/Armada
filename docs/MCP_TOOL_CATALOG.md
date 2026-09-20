@@ -1,6 +1,6 @@
 # Complete MCP Tool Catalog
 
-The built-in catalog contains 195 names, counted as the registration names in
+The built-in catalog contains 196 names, counted as the registration names in
 `src/Armada.Server/Mcp/Tools`. Some names are compatibility aliases.
 Some tool families register only when their service is enabled.
 
@@ -614,6 +614,16 @@ Two boundaries decide what belongs here:
 The MCP surface carries no per-request identity, so the memory tools act as an
 administrator of the default tenant: they reach every record of that tenant and
 no record of another tenant. The feature needs no setting.
+
+### 8.23a Captain typed decisions
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision` |
+
+These are caller-scoped. They redact before egress and edit no Armada record.
+`armada_score_items` asks one Noul per listed item and returns the expected
+count in code. See `docs/MCP_API.md` and `docs/TYPED_DECISIONS.md`.
 
 ### 8.24 The Recorder And Linter Stages
 

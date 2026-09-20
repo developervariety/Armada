@@ -91,7 +91,8 @@ namespace Armada.Core.Services
         {
             ["lighter"] = "Routine, well-specified, mechanical work: a rename, a small edit, a documented step with no open design question.",
             ["default"] = "Ordinary work that fits the persona's default model.",
-            ["stronger"] = "Work harder than the default model is expected to handle: a subtle fix, a cross-repository design, or a hard diagnosis."
+            ["stronger"] = "Work harder than the default model is expected to handle: a subtle fix, a cross-repository design, or a hard diagnosis.",
+            ["unclear"] = "The work's capacity cannot be judged from the title and description head."
         };
 
         private readonly TypedDecisionSettings _Settings;
@@ -161,7 +162,7 @@ namespace Armada.Core.Services
             {
                 [QuestionId] = new ChoiceQuestion(
                     "Which model capacity does this work need? Choose lighter for routine work, default when the persona's default model fits, "
-                    + "and stronger only when the work is harder than the default model is expected to handle.",
+                    + "stronger only when the work is harder than the default model is expected to handle, and unclear when the title and description head are not enough.",
                     _Criteria)
             };
         }

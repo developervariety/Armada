@@ -73,9 +73,11 @@ namespace Armada.Test.Unit.Suites.Services
                 TypedDecisionRequest sent = client.Requests[0];
                 AssertEqual(6, sent.Questions.Count);
                 AssertTrue(sent.Questions.ContainsKey("item2__q1"), "questions are keyed by item");
-                AssertTrue(sent.Questions["item2__q1"].Instructions.StartsWith("About item 2 ", StringComparison.Ordinal),
-                    "each question is scoped to its item");
+                AssertTrue(sent.Questions["item2__q1"].Instructions.StartsWith("This question's state is `items[1]` only.", StringComparison.Ordinal),
+                    "each question names its 0-based items path");
                 AssertTrue(sent.Questions["item2__q1"] is NoulQuestion, "the question keeps its type");
+
+                AssertPackedItems(sent.State, 3);
 
                 AssertEqual(3, results.Count);
                 for (int i = 0; i < 3; i++)
@@ -147,6 +149,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, results.Count);
                 AssertEqual("exception", results[1].UnavailableReason);
             });
+        }
+
+        private void AssertPackedItems(object state, int expectedCount)
+        {
+            Dictionary<string, object?> packed = state as Dictionary<string, object?>
+                ?? throw new InvalidOperationException("batched state is an object with an items array");
+            AssertTrue(packed.ContainsKey("items"), "batched state is { items: [...] }");
+            System.Collections.IList list = packed["items"] as System.Collections.IList
+                ?? throw new InvalidOperationException("items is a list of item states");
+            AssertEqual(expectedCount, list.Count, "one array entry per batched item, no wrapper object");
         }
 
         private static string Words(int length)

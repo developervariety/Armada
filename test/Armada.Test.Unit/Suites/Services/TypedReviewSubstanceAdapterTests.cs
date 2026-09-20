@@ -292,6 +292,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(client.LastToken == cts.Token, "adapter must forward the caller token");
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
             }).ConfigureAwait(false);
+
+            await RunTest("AsksOnlyAboutListedSections_NoEmptySlots", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(SubstanceResult(AllStrong(), 2.0, 0.99));
+                TypedReviewSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                await adapter.DecideAsync(BuildInput(), MissingSectionsRule(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(5, client.LastRequest!.Questions.Count, "four listed sections plus the substantiated Score");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("section_4"), "the last listed section is asked");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("section_5"), "no slot beyond the listed sections is asked");
+                AssertTrue(client.LastRequest.Questions["section_1"].Instructions.Contains("`required_sections[0]`", StringComparison.Ordinal),
+                    "the first section question names the 0-based JSON path");
+            }).ConfigureAwait(false);
         }
     }
 }

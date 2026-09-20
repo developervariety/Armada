@@ -189,6 +189,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(client.LastToken == cts.Token, "adapter must forward the caller token");
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
             }).ConfigureAwait(false);
+
+            await RunTest("AsksOnlyAboutListedTests_NoEmptySlots", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(TestResult((1, 0.9, 0.05, 0.9), (2, 0.9, 0.05, 0.9)));
+                TypedTestCoversAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                await adapter.DecideAsync(BuildInput(), TestCoversVerdict.NoInstructions(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(8, client.LastRequest!.Questions.Count, "two listed tests ask four Nouls each, no empty slots");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("covers_symptom_2"), "the last listed test is asked");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("covers_symptom_3"), "no slot beyond the listed tests is asked");
+                AssertTrue(client.LastRequest.Questions["covers_symptom_1"].Instructions.Contains("`added_tests[0]`", StringComparison.Ordinal),
+                    "the first question names the 0-based JSON path");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("fails_without_change_1"), "fail-before is a separate Noul");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("passes_with_change_1"), "pass-after is a separate Noul");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("would_fail_before_fix_1"), "the compound fail-and-pass Noul is not sent");
+            }).ConfigureAwait(false);
         }
     }
 }

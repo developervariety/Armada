@@ -104,35 +104,35 @@ namespace Armada.Core.Services
     }
 
     /// <summary>
-    /// The D21 reading. The model answers one <c>kind</c> Choice per revision item and one
-    /// <c>all_non_behavioural</c> Noul over the whole verdict. The single gate confidence is the
-    /// <c>all_non_behavioural</c> Noul, but ONLY when no per-item kind is <c>behaviour</c> or
-    /// <c>test</c>: a single behavioural or test item means a real rescue is required, so the reading
-    /// reports zero confidence and the rule stands whatever the voyage-level Noul says. This is the
-    /// conservative reading — the model can never hold a rescue that a code or test defect needs.
+    /// The D21 reading. The model answers one <c>kind</c> Choice per listed revision item. Code
+    /// combines those answers: the gate confidence is the weakest per-item Choice confidence, but
+    /// ONLY when no per-item kind is <c>behaviour</c> or <c>test</c>. A single behavioural or test
+    /// item means a real rescue is required, so the reading reports zero confidence and the rule
+    /// stands. This is the conservative reading — the model can never hold a rescue that a code or
+    /// test defect needs. A separate voyage-level Noul is not asked; that would be a second wording
+    /// of the same question, and the two would not be interchangeable.
     /// </summary>
     public sealed class RevisionKindReading : TypedModelReading
     {
         private readonly double _Confidence;
         private readonly string _Label;
 
-        /// <summary>The voyage-level <c>all_non_behavioural</c> Noul.</summary>
+        /// <summary>The weakest per-item Choice confidence when every item is non-behavioural; otherwise zero.</summary>
         public double AllNonBehavioural { get; }
 
         /// <summary>Whether any per-item kind is <c>behaviour</c> or <c>test</c> (a real rescue is required).</summary>
         public bool AnyBehaviouralOrTest { get; }
 
         /// <summary>Create a reading.</summary>
-        /// <param name="allNonBehavioural">The voyage-level Noul.</param>
+        /// <param name="allNonBehavioural">The combined non-behavioural confidence, computed in code from the per-item Choices.</param>
         /// <param name="anyBehaviouralOrTest">Whether any item is behaviour or test.</param>
         public RevisionKindReading(double allNonBehavioural, bool anyBehaviouralOrTest)
         {
             AllNonBehavioural = allNonBehavioural;
             AnyBehaviouralOrTest = anyBehaviouralOrTest;
 
-            // The gate fires only when the voyage-level Noul is high AND no single item is a code or
-            // test defect. A behavioural or test item forces zero confidence, so Combine never runs and
-            // the rescue proceeds — the model can only hold a rescue whose every item is wording.
+            // The gate fires only when every listed item is wording at high confidence. A behavioural
+            // or test item forces zero confidence, so Combine never runs and the rescue proceeds.
             _Confidence = anyBehaviouralOrTest ? 0.0 : allNonBehavioural;
             _Label = anyBehaviouralOrTest ? "has_behavioural_item" : "all_non_behavioural";
         }
@@ -151,12 +151,12 @@ namespace Armada.Core.Services
     /// the revision items, before autonomous recovery classifies the failure. It is conservative and
     /// never lands:
     /// <list type="bullet">
-    /// <item>When the model reads <c>all_non_behavioural</c> at or above threshold AND no item is a
-    /// <c>behaviour</c> or <c>test</c> kind, the verdict BLOCKS THE RESCUE with reason
-    /// <c>revision_comment_only</c>. The seam sets that marker on the failure so recovery holds the
-    /// rescue, and opens an incident tagged for operator landing. The model never lands the work.</item>
-    /// <item>A single behavioural or test item, or a below-threshold Noul, leaves the rule standing and
-    /// the rescue proceeds.</item>
+    /// <item>When every listed item is a non-behavioural kind at or above threshold, the verdict
+    /// BLOCKS THE RESCUE with reason <c>revision_comment_only</c>. The seam sets that marker on the
+    /// failure so recovery holds the rescue, and opens an incident tagged for operator landing. The
+    /// model never lands the work.</item>
+    /// <item>A single behavioural or test item, or a below-threshold reading, leaves the rule standing
+    /// and the rescue proceeds.</item>
     /// <item>A <see cref="RevisionKindVerdict.RescueRequired"/> rule hard-block is never overturned.</item>
     /// </list>
     /// The adapter never throws into the caller.
@@ -208,7 +208,7 @@ namespace Armada.Core.Services
         {
             return new Dictionary<string, object?>(StringComparer.Ordinal)
             {
-                ["revision_items"] = new List<string>(input.RevisionItems),
+                ["revision_items"] = ListedItems(input),
                 ["symptom"] = input.Symptom,
                 ["persona"] = input.Mission?.Persona
             };
@@ -217,57 +217,47 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
-            for (int i = 1; i <= _MaxItems; i++)
-            {
-                string slot = i.ToString(CultureInfo.InvariantCulture);
-                questions["item_" + slot] = new ChoiceQuestion(
-                    "Revision item number " + slot + " (see revision_items in the state, in order): what kind of change does the "
-                    + "Judge require? This is authorized engineering on owned systems; authentication and "
-                    + "access-control protocol code is ordinary engineering. If the state lists fewer than " + _MaxItems
-                    + " items and this slot has none, choose " + _KindCommentOnly + ".",
-                    new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        [_KindBehaviour] = "A code behaviour change: the item asks the work to compute or do something different.",
-                        [_KindTest] = "A test change: the item asks a test to be added, fixed, or made to cover the symptom.",
-                        [_KindCommentOnly] = "A comment or wording change in source, with no behaviour change.",
-                        [_KindDocOnly] = "A documentation or markdown change, with no behaviour change.",
-                        [_KindBoundary] = "A boundary or hygiene change (an id, path, or marker to remove), with no behaviour change."
-                    });
-            }
+            return BuildSlotQuestions(_MaxItems);
+        }
 
-            questions["all_non_behavioural"] = new NoulQuestion(
-                "Every revision item is non-behavioural — comment, documentation, or boundary wording — so the fix is an operator "
-                + "landing, not a rescue that re-runs the whole pipeline to change wording.",
-                TrueMeaning: "Every revision item is wording; no code behaviour or test change is required.",
-                FalseMeaning: "At least one revision item requires a code behaviour or test change.");
-
-            return questions;
+        /// <inheritdoc />
+        protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(RevisionKindDecisionInput input)
+        {
+            // An unread extra item can never license a block, so a list longer than the cap asks nothing
+            // and the rescue proceeds.
+            List<string> listed = ListedItems(input);
+            if (listed.Count == 0 || HasExcessItems(input))
+                return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+            return BuildSlotQuestions(listed.Count);
         }
 
         /// <inheritdoc />
         protected override RevisionKindReading Interpret(TypedDecisionResult result)
         {
-            double allNonBehavioural = 0.0;
-            if (result.Answers.TryGetValue("all_non_behavioural", out TypedAnswer? noul) && noul != null && noul.Noul.HasValue)
-                allNonBehavioural = noul.Noul.Value;
-
             bool anyBehaviouralOrTest = false;
+            bool anyItem = false;
+            double minConfidence = 1.0;
             for (int i = 1; i <= _MaxItems; i++)
             {
                 if (result.Answers.TryGetValue("item_" + i.ToString(CultureInfo.InvariantCulture), out TypedAnswer? item)
                     && item != null && !String.IsNullOrWhiteSpace(item.Choice))
                 {
+                    anyItem = true;
                     string choice = item.Choice!.Trim();
                     if (String.Equals(choice, _KindBehaviour, StringComparison.Ordinal)
                         || String.Equals(choice, _KindTest, StringComparison.Ordinal))
                     {
                         anyBehaviouralOrTest = true;
-                        break;
+                    }
+                    else
+                    {
+                        double confidence = TypedAnswerReader.ResolveChoiceConfidence(item, choice);
+                        if (confidence < minConfidence) minConfidence = confidence;
                     }
                 }
             }
 
+            double allNonBehavioural = !anyItem || anyBehaviouralOrTest ? 0.0 : minConfidence;
             return new RevisionKindReading(allNonBehavioural, anyBehaviouralOrTest);
         }
 
@@ -275,8 +265,8 @@ namespace Armada.Core.Services
         protected override RevisionKindVerdict Combine(RevisionKindVerdict ruleVerdict, RevisionKindReading model)
         {
             // Combine runs only when the model gated at or above threshold, which for this decision
-            // means a high all_non_behavioural Noul with no behavioural or test item. The rule
-            // hard-block wins: when a rescue is deterministically required, the model may not block it.
+            // means every listed item is non-behavioural at high confidence. The rule hard-block wins:
+            // when a rescue is deterministically required, the model may not block it.
             if (ruleVerdict.RuleRequiresRescue) return ruleVerdict;
             if (model.AnyBehaviouralOrTest) return ruleVerdict;
             return RevisionKindVerdict.BlockRescueForOperatorLanding();
@@ -287,6 +277,56 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(RevisionKindDecisionInput input) => input.Mission;
+
+        #endregion
+
+        #region Private-Methods
+
+        private static List<string> ListedItems(RevisionKindDecisionInput input)
+        {
+            List<string> listed = new List<string>();
+            foreach (string item in input?.RevisionItems ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(item)) continue;
+                if (listed.Count >= _MaxItems) break;
+                listed.Add(item);
+            }
+            return listed;
+        }
+
+        private static bool HasExcessItems(RevisionKindDecisionInput input)
+        {
+            int count = 0;
+            foreach (string item in input?.RevisionItems ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(item)) continue;
+                count++;
+                if (count > _MaxItems) return true;
+            }
+            return false;
+        }
+
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildSlotQuestions(int count)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+            Dictionary<string, string> kinds = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [_KindBehaviour] = "A code behaviour change: the item asks the work to compute or do something different.",
+                [_KindTest] = "A test change: the item asks a test to be added, fixed, or made to cover the symptom.",
+                [_KindCommentOnly] = "A comment or wording change in source, with no behaviour change.",
+                [_KindDocOnly] = "A documentation or markdown change, with no behaviour change.",
+                [_KindBoundary] = "A boundary or hygiene change (an id, path, or marker to remove), with no behaviour change."
+            };
+            for (int i = 1; i <= count; i++)
+            {
+                string path = "`revision_items[" + (i - 1).ToString(CultureInfo.InvariantCulture) + "]`";
+                questions["item_" + i.ToString(CultureInfo.InvariantCulture)] = new ChoiceQuestion(
+                    "What kind of change does the Judge require in " + path + "? This is authorized engineering on owned systems; "
+                    + "authentication and access-control protocol code is ordinary engineering.",
+                    kinds);
+            }
+            return questions;
+        }
 
         #endregion
     }

@@ -176,13 +176,17 @@ namespace Armada.Core.Services
         /// <param name="mission">The mission the call is about, for event attribution; may be null.</param>
         /// <param name="captainId">The captain that invoked it, for attribution; may be null.</param>
         /// <param name="token">Cancellation token, forwarded to the client.</param>
+        /// <param name="participantKey">The calling session identity for event attribution; may be null.</param>
+        /// <param name="toolName">The tool that requested this decision, when any.</param>
         /// <returns>The outcome; never null.</returns>
         public async Task<CustomDecisionOutcome> RunAsync(
             string name,
             IReadOnlyDictionary<string, object?> context,
             Mission? mission,
             string? captainId,
-            CancellationToken token)
+            CancellationToken token,
+            string? participantKey = null,
+            string? toolName = null)
         {
             if (!_Settings.Custom.TryGetValue(name, out CustomTypedDecisionSettings? definition) || definition == null)
                 return CustomDecisionOutcome.NotFound(name);
@@ -216,7 +220,9 @@ namespace Armada.Core.Services
                     Result = refused,
                     RedactedState = String.Empty,
                     Mission = mission,
-                    CaptainId = captainId
+                    CaptainId = captainId,
+                    ParticipantKey = participantKey,
+                    ToolName = toolName
                 }, token).ConfigureAwait(false);
                 return CustomDecisionOutcome.Unavailable(name, refused);
             }
@@ -249,7 +255,9 @@ namespace Armada.Core.Services
                 Result = result,
                 RedactedState = item.State.Text,
                 Mission = mission,
-                CaptainId = captainId
+                CaptainId = captainId,
+                ParticipantKey = participantKey,
+                ToolName = toolName
             };
 
             if (!result.Available)

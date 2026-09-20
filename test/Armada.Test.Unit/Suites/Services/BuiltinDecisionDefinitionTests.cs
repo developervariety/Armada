@@ -17,8 +17,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// operator override can reword a question and an existing option but can never change the structure —
     /// the question id set, each question's kind, the finding direction, and the state fields — so a
     /// settings edit can never flip a decision into an approving direction. Second, the migrated
-    /// <c>refusal</c> adapter sends the exact questions and state it sent before, so its behaviour and its
-    /// evaluation cases are unchanged.
+    /// <c>refusal</c> adapter sends the definition's questions and state fields.
     /// </summary>
     public class BuiltinDecisionDefinitionTests : TestSuite
     {
@@ -48,14 +47,16 @@ namespace Armada.Test.Unit.Suites.Services
 
         private void AssertDefaultStructure(BuiltinDecisionDefinition def, string context)
         {
-            AssertEqual(2, def.Questions.Count, context + ": two questions");
+            AssertEqual(3, def.Questions.Count, context + ": three questions");
             CustomTypedQuestionSettings outcome = QuestionById(def, "outcome");
             AssertEqual("choice", outcome.Type, context + ": outcome is a choice");
             AssertEqual(5, outcome.Options.Count, context + ": five options");
             foreach (string option in _OutcomeOptions)
                 AssertTrue(outcome.Options.ContainsKey(option), context + ": option '" + option + "' present");
-            CustomTypedQuestionSettings quoted = QuestionById(def, "quoted_not_own");
-            AssertEqual("noul", quoted.Type, context + ": quoted_not_own is a noul");
+            CustomTypedQuestionSettings quotes = QuestionById(def, "quotes_refusal_phrase");
+            AssertEqual("noul", quotes.Type, context + ": quotes_refusal_phrase is a noul");
+            CustomTypedQuestionSettings declining = QuestionById(def, "captain_declining");
+            AssertEqual("noul", declining.Type, context + ": captain_declining is a noul");
             AssertEqual(3, def.StateFields.Count, context + ": three state fields");
             AssertEqual("mission_title", def.StateFields[0]);
             AssertEqual("agent_output_tail", def.StateFields[1]);
@@ -146,7 +147,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 TypedDecisionBatchItem? item = adapter.DescribeRequest(input);
                 AssertTrue(item != null, "the request is built");
-                AssertEqual(2, item!.Questions.Count, "two questions");
+                AssertEqual(3, item!.Questions.Count, "three questions");
 
                 ChoiceQuestion outcome = (ChoiceQuestion)item.Questions["outcome"];
                 AssertEqual(_OutcomeInstructions, outcome.Instructions, "outcome instructions verbatim");
@@ -154,9 +155,12 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (string option in _OutcomeOptions)
                     AssertTrue(outcome.Criteria.ContainsKey(option), "option '" + option + "' sent");
 
-                NoulQuestion quoted = (NoulQuestion)item.Questions["quoted_not_own"];
-                AssertEqual("The refusal phrase is quoted material, not the captain declining.", quoted.TrueMeaning);
-                AssertEqual("The refusal phrase is the captain's own words.", quoted.FalseMeaning);
+                NoulQuestion quotes = (NoulQuestion)item.Questions["quotes_refusal_phrase"];
+                AssertEqual("The closing statement quotes a refusal phrase.", quotes.TrueMeaning);
+                AssertEqual("The closing statement does not quote a refusal phrase.", quotes.FalseMeaning);
+                NoulQuestion declining = (NoulQuestion)item.Questions["captain_declining"];
+                AssertEqual("The captain is declining the work.", declining.TrueMeaning);
+                AssertEqual("The captain is not declining the work.", declining.FalseMeaning);
 
                 string state = item.State.Text;
                 AssertTrue(state.Contains("mission_title", StringComparison.Ordinal), "state carries mission_title");

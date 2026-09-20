@@ -99,26 +99,54 @@ namespace Armada.Core.Services
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
-            questions[ChangeQualityDimensions.Dry + "_weak"] = new NoulQuestion(
-                "The change duplicates logic that already exists or repeats itself, rather than reusing or extracting a shared path.",
-                TrueMeaning: "The change violates DRY.",
-                FalseMeaning: "The change does not duplicate logic.");
-            questions[ChangeQualityDimensions.CognitiveComplexity + "_weak"] = new NoulQuestion(
-                "The change is more cognitively complex or bloated than the work requires: deep nesting, long methods, or convoluted control flow.",
-                TrueMeaning: "The change is over-complex or bloated.",
-                FalseMeaning: "The change is about as simple as the work allows.");
-            questions[ChangeQualityDimensions.Modularity + "_weak"] = new NoulQuestion(
-                "The change weakens module boundaries or cohesion: a type or method takes on unrelated responsibilities, or reaches across a boundary it should not.",
-                TrueMeaning: "The change weakens modularity.",
+            questions["dry_duplicates"] = new NoulQuestion(
+                "The change duplicates logic that already exists, rather than reusing or extracting a shared path.",
+                TrueMeaning: "The change duplicates existing logic.",
+                FalseMeaning: "The change does not duplicate existing logic.");
+            questions["complexity_nested"] = new NoulQuestion(
+                "The change adds deep nesting beyond what the work requires.",
+                TrueMeaning: "The change is over-nested.",
+                FalseMeaning: "The nesting is about as simple as the work allows.");
+            questions["complexity_long_method"] = new NoulQuestion(
+                "The change adds a long method beyond what the work requires.",
+                TrueMeaning: "The change adds a bloated method.",
+                FalseMeaning: "Method length is about as simple as the work allows.");
+            questions["complexity_convoluted"] = new NoulQuestion(
+                "The change adds convoluted control flow beyond what the work requires.",
+                TrueMeaning: "The change adds convoluted control flow.",
+                FalseMeaning: "Control flow is about as simple as the work allows.");
+            questions["modularity_unrelated"] = new NoulQuestion(
+                "The change gives a type or method unrelated responsibilities.",
+                TrueMeaning: "The change mixes unrelated responsibilities.",
+                FalseMeaning: "The change keeps responsibilities together.");
+            questions["modularity_crosses_boundary"] = new NoulQuestion(
+                "The change reaches across a module boundary it should not.",
+                TrueMeaning: "The change crosses a module boundary it should not.",
                 FalseMeaning: "The change respects module boundaries.");
-            questions[ChangeQualityDimensions.Readability + "_weak"] = new NoulQuestion(
-                "The change is hard to read: unclear names, missing intent, or dense code a later reader would struggle with.",
-                TrueMeaning: "The change is hard to read.",
-                FalseMeaning: "The change reads clearly.");
-            questions[ChangeQualityDimensions.Maintainability + "_weak"] = new NoulQuestion(
-                "The change will be hard to maintain or change safely later: hidden coupling, fragile assumptions, or missing seams.",
-                TrueMeaning: "The change harms maintainability.",
-                FalseMeaning: "The change is maintainable.");
+            questions["readability_unclear_names"] = new NoulQuestion(
+                "The change uses names that hide intent.",
+                TrueMeaning: "Names in the change hide intent.",
+                FalseMeaning: "Names in the change read clearly.");
+            questions["readability_missing_intent"] = new NoulQuestion(
+                "The change is missing the intent a later reader needs.",
+                TrueMeaning: "The change hides its intent.",
+                FalseMeaning: "The change states its intent.");
+            questions["readability_dense"] = new NoulQuestion(
+                "The change is dense code a later reader would struggle with.",
+                TrueMeaning: "The change is hard to read because it is dense.",
+                FalseMeaning: "The change is not dense.");
+            questions["maintainability_coupling"] = new NoulQuestion(
+                "The change adds hidden coupling that will be hard to change later.",
+                TrueMeaning: "The change adds hidden coupling.",
+                FalseMeaning: "The change does not add hidden coupling.");
+            questions["maintainability_assumptions"] = new NoulQuestion(
+                "The change adds fragile assumptions that will be hard to change later.",
+                TrueMeaning: "The change adds fragile assumptions.",
+                FalseMeaning: "The change does not add fragile assumptions.");
+            questions["maintainability_seams"] = new NoulQuestion(
+                "The change is missing seams that would let a later change land safely.",
+                TrueMeaning: "The change is missing maintainability seams.",
+                FalseMeaning: "The change has the seams a later change needs.");
             return questions;
         }
 
@@ -129,9 +157,7 @@ namespace Armada.Core.Services
             double strongest = 0.0;
             foreach (string dimension in ChangeQualityDimensions.ModelDimensions)
             {
-                string key = dimension + "_weak";
-                if (!result.Answers.ContainsKey(key)) continue;
-                double weak = TypedAnswerReader.ReadNoul(result, key, 0.0);
+                double weak = WeakNoulFrom(result, dimension);
                 if (weak < _ConcernFloor) continue;
                 if (weak > strongest) strongest = weak;
                 weaknesses.Add(new ChangeQualityWeakness
@@ -172,6 +198,38 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(ChangeQualityInput input) => input.Mission;
+
+        #endregion
+
+        #region Private-Methods
+
+        private static readonly IReadOnlyDictionary<string, string[]> _DimensionAtoms =
+            new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                [ChangeQualityDimensions.Dry] = new[] { "dry_duplicates" },
+                [ChangeQualityDimensions.CognitiveComplexity] = new[] { "complexity_nested", "complexity_long_method", "complexity_convoluted" },
+                [ChangeQualityDimensions.Modularity] = new[] { "modularity_unrelated", "modularity_crosses_boundary" },
+                [ChangeQualityDimensions.Readability] = new[] { "readability_unclear_names", "readability_missing_intent", "readability_dense" },
+                [ChangeQualityDimensions.Maintainability] = new[] { "maintainability_coupling", "maintainability_assumptions", "maintainability_seams" }
+            };
+
+        private static double WeakNoulFrom(TypedDecisionResult result, string dimension)
+        {
+            if (!_DimensionAtoms.TryGetValue(dimension, out string[]? atoms) || atoms == null || atoms.Length == 0)
+                return TypedAnswerReader.ReadNoul(result, dimension + "_weak", 0.0);
+
+            bool hasSplit = false;
+            double max = 0.0;
+            foreach (string atom in atoms)
+            {
+                if (result.Answers == null || !result.Answers.ContainsKey(atom)) continue;
+                hasSplit = true;
+                double value = TypedAnswerReader.ReadNoul(result, atom, 0.0);
+                if (value > max) max = value;
+            }
+            if (hasSplit) return max;
+            return TypedAnswerReader.ReadNoul(result, dimension + "_weak", 0.0);
+        }
 
         #endregion
     }

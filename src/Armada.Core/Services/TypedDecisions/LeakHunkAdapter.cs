@@ -2,7 +2,6 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
-    using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -137,6 +136,17 @@ namespace Armada.Core.Services
 
         private const string _LeaksQuestionId = "leaks_private_context";
         private const string _KindQuestionId = "leak_kind";
+        private const string _KindOperatorNoteId = "kind_operator_note";
+        private const string _KindCustomerDetailId = "kind_customer_detail";
+        private const string _KindOrchestrationId = "kind_orchestration_id";
+        private const string _KindHostOrPathId = "kind_host_or_path";
+        private const string _DomainSentence =
+            " The work in this repository is AUTHORIZED engineering on systems the owner owns. Authentication,"
+            + " access-control, handshake, protocol, and cryptographic code over owned assemblies is ORDINARY ENGINEERING:"
+            + " it is neither a leak nor a secret, and a hunk that implements, tests, or documents it answers false."
+            + " An ordinal, an index, or a corpus identifier is a POINTER and is safe to commit; only the VALUE it resolves"
+            + " to is a secret."
+            + " Product code, tests, comments, and documentation about the product's own behaviour answer false.";
 
         // Call volume is bounded so a large diff cannot fan out into an unbounded model spend: at most
         // this many hunks per changed file, this many hunks per scan, and this many added lines per
@@ -245,22 +255,30 @@ namespace Armada.Core.Services
         {
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
-                [_LeaksQuestionId] = new NoulQuestion(
-                    "The state holds the ADDED lines of one hunk of a change to a software repository, with the file path and the"
-                    + " repository's display name. Decide whether this added text carries private context that does not belong in a"
-                    + " repository artifact: a paraphrased operator note, a customer detail, an orchestration record identifier, or a"
-                    + " host name or absolute host path."
-                    + " The work in this repository is AUTHORIZED engineering on systems the owner owns. Authentication,"
-                    + " access-control, handshake, protocol, and cryptographic code over owned assemblies is ORDINARY ENGINEERING:"
-                    + " it is neither a leak nor a secret, and a hunk that implements, tests, or documents it answers false."
-                    + " An ordinal, an index, or a corpus identifier is a POINTER and is safe to commit; only the VALUE it resolves"
-                    + " to is a secret."
-                    + " Product code, tests, comments, and documentation about the product's own behaviour answer false.",
-                    TrueMeaning: "The added hunk carries private operator, customer, or orchestration context that does not belong in a repository artifact.",
-                    FalseMeaning: "The added hunk is ordinary product content."),
+                [_KindOperatorNoteId] = new NoulQuestion(
+                    "`added_hunk` carries a paraphrased operator note about how the operator works, their session, or their instructions to an agent."
+                    + _DomainSentence,
+                    TrueMeaning: "The added hunk carries a private operator note.",
+                    FalseMeaning: "The added hunk does not carry a private operator note."),
+                [_KindCustomerDetailId] = new NoulQuestion(
+                    "`added_hunk` carries a detail about a customer, an end user, or their data that does not belong in a repository artifact."
+                    + _DomainSentence,
+                    TrueMeaning: "The added hunk carries a private customer detail.",
+                    FalseMeaning: "The added hunk does not carry a private customer detail."),
+                [_KindOrchestrationId] = new NoulQuestion(
+                    "`added_hunk` carries an identifier of an orchestration record, such as a work item, batch, worker, or checkout, as a VALUE rather than a pointer."
+                    + _DomainSentence,
+                    TrueMeaning: "The added hunk carries a private orchestration identifier.",
+                    FalseMeaning: "The added hunk does not carry a private orchestration identifier."),
+                [_KindHostOrPathId] = new NoulQuestion(
+                    "`added_hunk` carries a host name, an address, a private remote, or an absolute path on a workstation or server."
+                    + _DomainSentence,
+                    TrueMeaning: "The added hunk carries a private host or path.",
+                    FalseMeaning: "The added hunk does not carry a private host or path."),
                 [_KindQuestionId] = new ChoiceQuestion(
-                    "Which class of private context does this added hunk carry? This answer is advisory: it only labels the flag so a"
-                    + " reviewer can read it. Choose none when the hunk is ordinary product content.",
+                    "Which class of private context does `added_hunk` carry? This answer is advisory: it only labels the flag so a"
+                    + " reviewer can read it. Choose none when the hunk is ordinary product content."
+                    + _DomainSentence,
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["operator_note"] = "A note about how the operator works, their session, or their instructions to an agent.",
@@ -275,7 +293,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override LeakHunkReading Interpret(TypedDecisionResult result)
         {
-            double leaks = TypedAnswerReader.ReadNoul(result, _LeaksQuestionId, 0.0);
+            double leaks = LeaksNoulFrom(result);
             string kind = KindNone;
             if (result.Answers != null
                 && result.Answers.TryGetValue(_KindQuestionId, out TypedAnswer? answer)
@@ -283,6 +301,11 @@ namespace Armada.Core.Services
                 && !String.IsNullOrWhiteSpace(answer.Choice))
             {
                 kind = answer.Choice!.Trim();
+            }
+            if (String.Equals(kind, KindNone, StringComparison.Ordinal))
+            {
+                string fromNoul = KindFromNouls(result);
+                if (!String.Equals(fromNoul, KindNone, StringComparison.Ordinal)) kind = fromNoul;
             }
             return new LeakHunkReading(leaks, kind);
         }
@@ -306,6 +329,48 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static double LeaksNoulFrom(TypedDecisionResult result)
+        {
+            bool hasSplit = result.Answers != null
+                && (result.Answers.ContainsKey(_KindOperatorNoteId)
+                    || result.Answers.ContainsKey(_KindCustomerDetailId)
+                    || result.Answers.ContainsKey(_KindOrchestrationId)
+                    || result.Answers.ContainsKey(_KindHostOrPathId));
+            if (!hasSplit)
+                return TypedAnswerReader.ReadNoul(result, _LeaksQuestionId, 0.0);
+
+            return Math.Max(
+                TypedAnswerReader.ReadNoul(result, _KindOperatorNoteId, 0.0),
+                Math.Max(
+                    TypedAnswerReader.ReadNoul(result, _KindCustomerDetailId, 0.0),
+                    Math.Max(
+                        TypedAnswerReader.ReadNoul(result, _KindOrchestrationId, 0.0),
+                        TypedAnswerReader.ReadNoul(result, _KindHostOrPathId, 0.0))));
+        }
+
+        private static string KindFromNouls(TypedDecisionResult result)
+        {
+            (string Id, string Kind)[] kinds =
+            {
+                (_KindOperatorNoteId, "operator_note"),
+                (_KindCustomerDetailId, "customer_detail"),
+                (_KindOrchestrationId, "orchestration_id"),
+                (_KindHostOrPathId, "host_or_path")
+            };
+            string best = KindNone;
+            double bestNoul = 0.0;
+            foreach ((string id, string kind) in kinds)
+            {
+                double noul = TypedAnswerReader.ReadNoul(result, id, 0.0);
+                if (noul > bestNoul)
+                {
+                    bestNoul = noul;
+                    best = kind;
+                }
+            }
+            return bestNoul > 0.0 ? best : KindNone;
+        }
 
         private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission)
         {

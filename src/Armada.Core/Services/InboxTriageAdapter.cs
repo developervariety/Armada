@@ -200,7 +200,7 @@ namespace Armada.Core.Services
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 [_AttentionQuestionId] = new ScoreQuestion(
-                    "How urgently does a human need to act on this item right now?",
+                    "A human needs to act on this item now. Place the urgency on the scale below.",
                     _AttentionLevels)
             };
             if (extraQuestion != null) questions[_NoteKindQuestionId] = extraQuestion;
@@ -282,7 +282,8 @@ namespace Armada.Core.Services
                     ["status"] = "a progress or outcome report, informational",
                     ["question"] = "a question waiting on an answer",
                     ["stop_sign"] = "an overlap or claim warning that another session should stop",
-                    ["hold_notice"] = "a dispatch-hold or pause notice"
+                    ["hold_notice"] = "a dispatch-hold or pause notice",
+                    ["other"] = "none of the kinds fit"
                 });
         }
 

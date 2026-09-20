@@ -197,28 +197,14 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
-            for (int i = 1; i <= _MaxTests; i++)
-            {
-                string slot = i.ToString(CultureInfo.InvariantCulture);
-                string prefix = "Added test number " + slot + " (see added_tests in the state, in order). If the state lists fewer than "
-                    + _MaxTests + " tests and this slot has none, answer at the pole that is NOT a concern (covers_symptom and "
-                    + "would_fail_before_fix true; asserts_source_text false). ";
-                questions["covers_symptom_" + slot] = new NoulQuestion(
-                    prefix + "This test exercises the reported symptom (see symptom in the state), not an unrelated behaviour.",
-                    TrueMeaning: "The test covers the reported symptom.",
-                    FalseMeaning: "The test does not cover the reported symptom.");
-                questions["asserts_source_text_" + slot] = new NoulQuestion(
-                    prefix + "This test only asserts that some SOURCE TEXT matches a copy (it reads a rule's text), rather than asserting a BEHAVIOUR.",
-                    TrueMeaning: "The test asserts source text, so it proves only that one copy matches.",
-                    FalseMeaning: "The test asserts a behaviour, not source text.");
-                questions["would_fail_before_fix_" + slot] = new NoulQuestion(
-                    prefix + "This test would FAIL against the code BEFORE the change and PASS after it, so its example value distinguishes the fix from the defect.",
-                    TrueMeaning: "The test would fail before the fix and pass after it.",
-                    FalseMeaning: "The test would pass even before the fix, so it proves nothing about the change.");
-            }
+            return BuildSlotQuestions(_MaxTests);
+        }
 
-            return questions;
+        /// <inheritdoc />
+        protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(TestCoversDecisionInput input)
+        {
+            // One question set per listed test, named at its JSON path. Empty slots force a count.
+            return BuildSlotQuestions(CountTests(input));
         }
 
         /// <inheritdoc />
@@ -232,14 +218,16 @@ namespace Armada.Core.Services
                 string slot = i.ToString(CultureInfo.InvariantCulture);
                 if (!result.Answers.ContainsKey("covers_symptom_" + slot)
                     && !result.Answers.ContainsKey("would_fail_before_fix_" + slot)
-                    && !result.Answers.ContainsKey("asserts_source_text_" + slot))
+                    && !result.Answers.ContainsKey("asserts_source_text_" + slot)
+                    && !result.Answers.ContainsKey("fails_without_change_" + slot)
+                    && !result.Answers.ContainsKey("passes_with_change_" + slot))
                 {
                     continue;
                 }
 
                 double coversSymptom = TypedAnswerReader.ReadNoul(result, "covers_symptom_" + slot, 1.0);
                 double assertsSourceText = TypedAnswerReader.ReadNoul(result, "asserts_source_text_" + slot, 0.0);
-                double wouldFailBefore = TypedAnswerReader.ReadNoul(result, "would_fail_before_fix_" + slot, 1.0);
+                double wouldFailBefore = CombineWouldFailBefore(result, slot);
 
                 // A concern is the strongest of: the test does not cover the symptom (1 - covers), it
                 // only asserts source text, or it would not fail before the fix (1 - would_fail). Each is
@@ -277,6 +265,58 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static int CountTests(TestCoversDecisionInput input)
+        {
+            int count = 0;
+            foreach (TestCoversMethod method in input?.AddedTests ?? new List<TestCoversMethod>())
+            {
+                if (method == null) continue;
+                count++;
+                if (count >= _MaxTests) break;
+            }
+            return count;
+        }
+
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildSlotQuestions(int count)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+            for (int i = 1; i <= count; i++)
+            {
+                string slot = i.ToString(CultureInfo.InvariantCulture);
+                string path = "`added_tests[" + (i - 1).ToString(CultureInfo.InvariantCulture) + "]`";
+                questions["covers_symptom_" + slot] = new NoulQuestion(
+                    path + " exercises the reported symptom (see `symptom`), not an unrelated behaviour.",
+                    TrueMeaning: "The test covers the reported symptom.",
+                    FalseMeaning: "The test does not cover the reported symptom.");
+                questions["asserts_source_text_" + slot] = new NoulQuestion(
+                    path + " only asserts that some SOURCE TEXT matches a copy (it reads a rule's text), rather than asserting a BEHAVIOUR.",
+                    TrueMeaning: "The test asserts source text, so it proves only that one copy matches.",
+                    FalseMeaning: "The test asserts a behaviour, not source text.");
+                questions["fails_without_change_" + slot] = new NoulQuestion(
+                    path + " would FAIL against the code BEFORE the change.",
+                    TrueMeaning: "The test would fail before the change.",
+                    FalseMeaning: "The test would pass even before the change.");
+                questions["passes_with_change_" + slot] = new NoulQuestion(
+                    path + " would PASS against the code AFTER the change.",
+                    TrueMeaning: "The test would pass after the change.",
+                    FalseMeaning: "The test would still fail after the change.");
+            }
+
+            return questions;
+        }
+
+        private static double CombineWouldFailBefore(TypedDecisionResult result, string slot)
+        {
+            bool hasSplit = result.Answers.ContainsKey("fails_without_change_" + slot)
+                || result.Answers.ContainsKey("passes_with_change_" + slot);
+            if (!hasSplit)
+                return TypedAnswerReader.ReadNoul(result, "would_fail_before_fix_" + slot, 1.0);
+
+            double failsWithout = TypedAnswerReader.ReadNoul(result, "fails_without_change_" + slot, 1.0);
+            double passesWith = TypedAnswerReader.ReadNoul(result, "passes_with_change_" + slot, 1.0);
+            return Math.Min(failsWithout, passesWith);
+        }
 
         private static string BuildInstruction(int index, double coversSymptom, double assertsSourceText, double wouldFailBefore)
         {

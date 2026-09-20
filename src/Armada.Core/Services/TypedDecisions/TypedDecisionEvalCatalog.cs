@@ -144,7 +144,8 @@ namespace Armada.Core.Services
                 Expect("outcome", new TypedDecisionExpectation { Choice = "refused_policy" }),
                 Expect(
                     "outcome", new TypedDecisionExpectation { Choice = "completed" },
-                    "quoted_not_own", new TypedDecisionExpectation { NoulAtLeast = 0.6 })));
+                    "quotes_refusal_phrase", new TypedDecisionExpectation { NoulAtLeast = 0.6 },
+                    "captain_declining", new TypedDecisionExpectation { NoulAtMost = 0.4 })));
         }
 
         private static void AddRuntimeFailure(List<TypedDecisionEvalCase> cases, TypedRuntimeFailureAdapter adapter)
@@ -264,7 +265,7 @@ namespace Armada.Core.Services
 
         private static void AddChangeQuality(List<TypedDecisionEvalCase> cases, TypedChangeQualityAdapter adapter)
         {
-            // Reference: blatant duplication vs a clean extraction -> dry_weak high then low.
+            // Reference: blatant duplication vs a clean extraction -> dry_duplicates high then low.
             ChangeQualityInput duplicated = new ChangeQualityInput
             {
                 UnifiedDiff = "diff --git a/src/Orders.cs b/src/Orders.cs\n--- a/src/Orders.cs\n+++ b/src/Orders.cs\n@@ -1,1 +1,12 @@\n"
@@ -286,14 +287,14 @@ namespace Armada.Core.Services
                 adapter.DescribeRequest(extracted),
                 new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
                 {
-                    ["dry_weak"] = new TypedDecisionExpectation { NoulAtLeast = 0.6 }
+                    ["dry_duplicates"] = new TypedDecisionExpectation { NoulAtLeast = 0.6 }
                 },
                 new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
                 {
-                    ["dry_weak"] = new TypedDecisionExpectation { NoulAtMost = 0.4 }
+                    ["dry_duplicates"] = new TypedDecisionExpectation { NoulAtMost = 0.4 }
                 }));
 
-            // Reference: deep nesting vs a flat rewrite -> cognitive_complexity_weak high then low.
+            // Reference: deep nesting vs a flat rewrite -> complexity_nested high then low.
             ChangeQualityInput nested = new ChangeQualityInput
             {
                 UnifiedDiff = "diff --git a/src/Classify.cs b/src/Classify.cs\n--- a/src/Classify.cs\n+++ b/src/Classify.cs\n@@ -1,1 +1,16 @@\n"
@@ -313,11 +314,11 @@ namespace Armada.Core.Services
                 adapter.DescribeRequest(flat),
                 new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
                 {
-                    ["cognitive_complexity_weak"] = new TypedDecisionExpectation { NoulAtLeast = 0.6 }
+                    ["complexity_nested"] = new TypedDecisionExpectation { NoulAtLeast = 0.6 }
                 },
                 new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
                 {
-                    ["cognitive_complexity_weak"] = new TypedDecisionExpectation { NoulAtMost = 0.4 }
+                    ["complexity_nested"] = new TypedDecisionExpectation { NoulAtMost = 0.4 }
                 }));
 
             // Consistency: the same clear change, reformatted, reads the same on readability.
@@ -337,7 +338,7 @@ namespace Armada.Core.Services
                 "A one-line method and its block form are equally readable.",
                 adapter.DescribeRequest(clearA),
                 adapter.DescribeRequest(clearB),
-                "readability_weak"));
+                "readability_unclear_names"));
         }
 
 
@@ -449,6 +450,22 @@ namespace Armada.Core.Services
             TypedDecisionExpectation second)
         {
             return new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal) { [firstId] = first, [secondId] = second };
+        }
+
+        private static Dictionary<string, TypedDecisionExpectation> Expect(
+            string firstId,
+            TypedDecisionExpectation first,
+            string secondId,
+            TypedDecisionExpectation second,
+            string thirdId,
+            TypedDecisionExpectation third)
+        {
+            return new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
+            {
+                [firstId] = first,
+                [secondId] = second,
+                [thirdId] = third
+            };
         }
 
         #endregion

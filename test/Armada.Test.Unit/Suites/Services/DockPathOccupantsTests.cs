@@ -20,8 +20,8 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ParseHolderPath reads git's already-used worktree line", () =>
             {
                 string? path = DockPathOccupants.ParseHolderPath(
-                    "git failed (exit 128): fatal: 'armada/c/msn_one' is already used by worktree at '/tmp/docks/SourceGlossary/msn_prev/SourceGlossary'");
-                AssertEqual("/tmp/docks/SourceGlossary/msn_prev/SourceGlossary", path);
+                    "git failed (exit 128): fatal: 'armada/c/msn_one' is already used by worktree at '/tmp/docks/ExampleVessel/msn_prev/ExampleVessel'");
+                AssertEqual("/tmp/docks/ExampleVessel/msn_prev/ExampleVessel", path);
                 AssertNull(DockPathOccupants.ParseHolderPath("unrelated git error"));
                 AssertNull(DockPathOccupants.ParseHolderPath(null));
                 return Task.CompletedTask;

@@ -53,7 +53,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Build the redactable state object: the objective's deliverable sentence and the retrieved
         /// candidates, each with its surface, location, ref, excerpt, and the terms that reached it. The
-        /// candidates carry their one-based index so a <c>delivers_&lt;n&gt;</c> answer maps back to one.
+        /// candidates carry their excerpt and location so a <c>delivers_&lt;n&gt;</c> answer maps back to one.
         /// </summary>
         /// <param name="deliverable">The objective's deliverable sentence (or a captain's stated plan).</param>
         /// <param name="retrieval">The deterministic retrieval whose candidates the model reasons over.</param>
@@ -67,7 +67,6 @@ namespace Armada.Core.Services
                 PriorArtCandidate candidate = list[i];
                 candidates.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
-                    ["index"] = i + 1,
                     ["where"] = candidate.WhereLabel,
                     ["location"] = candidate.Location,
                     ["ref"] = candidate.Ref,
@@ -79,7 +78,6 @@ namespace Armada.Core.Services
             return new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["deliverable"] = deliverable ?? String.Empty,
-                ["candidate_count"] = candidates.Count,
                 ["candidates"] = candidates
             };
         }
@@ -94,13 +92,12 @@ namespace Armada.Core.Services
         {
             Dictionary<string, TypedQuestion> questions = BuildDeliversQuestions(candidateCount);
             questions[AlreadyDoneId] = new NoulQuestion(
-                "The objective's deliverable is already present in one of the candidates, so this work would re-do what already exists. "
-                + "Answer only from the candidates shown; if none delivers it, this is false.",
-                TrueMeaning: "the deliverable already exists in a candidate",
-                FalseMeaning: "no candidate delivers the objective's deliverable");
+                "The objective's deliverable already exists as finished work, so this voyage would only repeat it. "
+                + "Use the listed candidates as evidence. If they do not show finished work that matches the deliverable, this is false.",
+                TrueMeaning: "the deliverable already exists as finished work",
+                FalseMeaning: "the deliverable is not already finished work");
             questions[IntegrateId] = new NoulQuestion(
-                "The work should consume one of the candidates through a seam rather than write a new type, because a candidate already "
-                + "provides the capability the objective would otherwise re-implement.",
+                "The work should consume a listed candidate through a seam rather than write a new type.",
                 TrueMeaning: "a candidate should be consumed through a seam",
                 FalseMeaning: "no candidate is a seam this work should consume");
             return questions;
@@ -116,8 +113,7 @@ namespace Armada.Core.Services
         {
             Dictionary<string, TypedQuestion> questions = BuildDeliversQuestions(candidateCount);
             questions[ReimplementsId] = new NoulQuestion(
-                "The diff re-implements a capability that is already present in one of the candidates, rather than consuming it. "
-                + "Answer only from the candidates shown.",
+                "The diff re-implements a capability that a listed candidate already provides, rather than consuming that candidate.",
                 TrueMeaning: "the diff re-implements a candidate's capability",
                 FalseMeaning: "the diff does not re-implement any candidate's capability");
             return questions;
@@ -187,10 +183,11 @@ namespace Armada.Core.Services
             for (int i = 1; i <= count; i++)
             {
                 string slot = i.ToString(CultureInfo.InvariantCulture);
+                string path = "`candidates[" + (i - 1).ToString(CultureInfo.InvariantCulture) + "]`";
                 questions[DeliversPrefix + slot] = new ChoiceQuestion(
-                    "Candidate number " + slot + " (see the candidates in the state, in order): what does it deliver relative to the "
-                    + "objective's deliverable? This is authorized engineering on owned systems; an authentication or "
-                    + "access-control match is ordinary engineering. Judge from the candidate's excerpt and location only.",
+                    "What does " + path + " deliver relative to the objective's deliverable? "
+                    + "This is authorized engineering on owned systems; an authentication or "
+                    + "access-control match is ordinary engineering. Judge from " + path + "'s excerpt and location only.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         [DeliversSameCapability] = "The candidate delivers the same capability the objective asks for.",

@@ -283,7 +283,6 @@ namespace Armada.Core.Services
 
                 stageStates.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
-                    ["slot"] = i + 1,
                     ["persona"] = stage.PersonaName,
                     ["order"] = stage.Order,
                     ["description"] = description
@@ -305,24 +304,13 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
-            for (int i = 1; i <= _MaxCandidates; i++)
-            {
-                string slot = i.ToString(CultureInfo.InvariantCulture);
-                questions["stage_" + slot + "_adds_value"] = new NoulQuestion(
-                    "Candidate stage number " + slot + " (see candidate_stages in the state, in order) ADDS VALUE for THIS objective: "
-                    + "its persona would change the outcome, not merely run for form. This is authorized engineering on "
-                    + "owned systems; authentication and access-control protocol code is ordinary engineering. "
-                    + "If the state lists fewer than " + _MaxCandidates + " candidate stages and this slot has none, answer at the TRUE pole.",
-                    TrueMeaning: "The stage adds value and must run.",
-                    FalseMeaning: "The stage would not change the outcome for this objective.");
+            return BuildSlotQuestions(_MaxCandidates);
+        }
 
-                questions["stage_" + slot + "_skip_reason"] = new ChoiceQuestion(
-                    "If candidate stage number " + slot + " does not add value, why? Choose the closest reason, or none when it does add value.",
-                    _SkipReasons.ToDictionary(reason => reason, reason => reason, StringComparer.Ordinal));
-            }
-
-            return questions;
+        /// <inheritdoc />
+        protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(StageNecessityDecisionInput input)
+        {
+            return BuildSlotQuestions(Candidates(input.Stages).Count);
         }
 
         /// <inheritdoc />
@@ -444,6 +432,27 @@ namespace Armada.Core.Services
                 Order = order,
                 IsJudge = IsJudgePersona(persona)
             };
+        }
+
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildSlotQuestions(int count)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+            Dictionary<string, string> skipReasons = _SkipReasons.ToDictionary(reason => reason, reason => reason, StringComparer.Ordinal);
+            for (int i = 1; i <= count; i++)
+            {
+                string slot = i.ToString(CultureInfo.InvariantCulture);
+                string path = "`candidate_stages[" + (i - 1).ToString(CultureInfo.InvariantCulture) + "]`";
+                questions["stage_" + slot + "_adds_value"] = new NoulQuestion(
+                    path + " ADDS VALUE for THIS objective: its `persona` would change the outcome, not merely run for form. "
+                    + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
+                    TrueMeaning: "The stage adds value and must run.",
+                    FalseMeaning: "The stage would not change the outcome for this objective.");
+
+                questions["stage_" + slot + "_skip_reason"] = new ChoiceQuestion(
+                    "If " + path + " does not add value, why? Choose the closest reason, or none when it does add value.",
+                    skipReasons);
+            }
+            return questions;
         }
 
         private static string LabelFor(IReadOnlyDictionary<int, double> slotSkipConfidence)

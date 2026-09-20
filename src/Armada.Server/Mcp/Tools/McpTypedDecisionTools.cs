@@ -2,6 +2,8 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -15,7 +17,8 @@ namespace Armada.Server.Mcp.Tools
 
     /// <summary>
     /// Registers the captain-facing typed-decision tools: the general <c>armada_typed_decision</c>
-    /// tool, the pre-shaped helpers <c>armada_check_premise</c>, <c>armada_memory_triage</c>,
+    /// tool, the list helper <c>armada_score_items</c>, the pre-shaped helpers
+    /// <c>armada_check_premise</c>, <c>armada_memory_triage</c>,
     /// <c>armada_check_prior_art</c>, <c>armada_change_quality</c> and
     /// <c>armada_corpus_prelabel</c>, and
     /// <c>armada_run_custom_decision</c>, which runs a decision an operator defined. Every tool here
@@ -36,6 +39,9 @@ namespace Armada.Server.Mcp.Tools
 
         /// <summary>Registered name of the general typed-decision tool.</summary>
         public const string TypedDecisionToolName = "armada_typed_decision";
+
+        /// <summary>Registered name of the per-item list helper.</summary>
+        public const string ScoreItemsToolName = "armada_score_items";
 
         /// <summary>Registered name of the premise-check helper.</summary>
         public const string CheckPremiseToolName = "armada_check_premise";
@@ -95,6 +101,9 @@ namespace Armada.Server.Mcp.Tools
             "input_type", "title", "summary", "root_cause", "failure_reason", "payload", "platform_said", "disposition", "failed_questions"
         };
 
+        /// <summary>Greatest number of list items one <c>armada_score_items</c> call covers.</summary>
+        private const int _ScoreItemsMax = 32;
+
         #endregion
 
         #region Public-Methods
@@ -148,7 +157,7 @@ namespace Armada.Server.Mcp.Tools
                     required = new[] { "state", "questions" }
                 },
                 async (args) => await HandleAsync(
-                    args,
+                    args, TypedDecisionToolName,
                     "captain_tool",
                     hasDecisionGate: false,
                     database,
@@ -158,6 +167,40 @@ namespace Armada.Server.Mcp.Tools
                     logging,
                     participantKey,
                     buildStateAndQuestions: null).ConfigureAwait(false));
+
+            register(
+                ScoreItemsToolName,
+                "Ask one yes/no question per listed item and let code tally. Pass 'items' (strings, or objects with id and text) and 'claim' (the statement that is true or false of each item). The tool names each item by its JSON path, asks a Noul per item, and returns each noul plus the expected count (the sum). Optionally pass 'pick' to also choose the single best item, with none and unclear as options. Do not ask the model to count, ignore siblings, or pad empty slots. Treat every answer as advice you weigh; the tool never acts on your behalf. Pass your mission id in 'missionId'.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        items = new
+                        {
+                            type = "array",
+                            description = "The real items to judge, in order. Each entry is a string, or an object with optional 'id' and 'text' (or 'content'/'excerpt'). Empty slots are dropped. At most 32 items."
+                        },
+                        claim = new { type = "string", description = "The statement that is true or false of each item. Phrased as a meaning judgment, not a token or shape test." },
+                        trueMeaning = new { type = "string", description = "Optional meaning of the high pole. Defaults to 'the claim holds for this item'." },
+                        falseMeaning = new { type = "string", description = "Optional meaning of the low pole. Defaults to 'the claim does not hold for this item'." },
+                        pick = new { type = "string", description = "Optional Choice instructions: which listed item is the best match. Adds a 'best' answer with none and unclear options." },
+                        missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
+                    },
+                    required = new[] { "items", "claim" }
+                },
+                async (args) => await HandleAsync(
+                    args, ScoreItemsToolName,
+                    "captain_tool",
+                    hasDecisionGate: false,
+                    database,
+                    effectiveClient,
+                    recorder,
+                    settings,
+                    logging,
+                    participantKey,
+                    buildStateAndQuestions: BuildScoreItems,
+                    formatResult: FormatScoreItems).ConfigureAwait(false));
 
             register(
                 CheckPremiseToolName,
@@ -178,7 +221,7 @@ namespace Armada.Server.Mcp.Tools
                     required = new[] { "restatement" }
                 },
                 async (args) => await HandleAsync(
-                    args,
+                    args, CheckPremiseToolName,
                     "premise_check",
                     hasDecisionGate: true,
                     database,
@@ -204,7 +247,7 @@ namespace Armada.Server.Mcp.Tools
                     required = new[] { "candidate" }
                 },
                 async (args) => await HandleAsync(
-                    args,
+                    args, MemoryTriageToolName,
                     "memory_record",
                     hasDecisionGate: true,
                     database,
@@ -229,7 +272,7 @@ namespace Armada.Server.Mcp.Tools
                     required = new[] { "plan" }
                 },
                 async (args) => await HandleAsync(
-                    args,
+                    args, CheckPriorArtToolName,
                     "prior_art",
                     hasDecisionGate: true,
                     database,
@@ -256,7 +299,7 @@ namespace Armada.Server.Mcp.Tools
                     required = new[] { "diff" }
                 },
                 async (args) => await HandleAsync(
-                    args,
+                    args, ChangeQualityToolName,
                     "change_quality",
                     hasDecisionGate: true,
                     database,
@@ -281,7 +324,7 @@ namespace Armada.Server.Mcp.Tools
                     required = new[] { "record" }
                 },
                 async (args) => await HandleAsync(
-                    args,
+                    args, CorpusPrelabelToolName,
                     "corpus_prelabel",
                     hasDecisionGate: true,
                     database,
@@ -362,21 +405,21 @@ namespace Armada.Server.Mcp.Tools
 
                 if (!settings.TypedDecisions.CaptainTool.Enabled)
                 {
-                    await RecordAsync(recorder, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
                     return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
                 }
 
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, recorder, settings.TypedDecisions, logging ?? new LoggingModule());
-                CustomDecisionOutcome outcome = await adapter.RunAsync(name!, context, mission, participantKeyProvider(), CancellationToken.None).ConfigureAwait(false);
+                CustomDecisionOutcome outcome = await adapter.RunAsync(name!, context, mission, mission?.CaptainId, CancellationToken.None, participantKeyProvider(), RunCustomToolName).ConfigureAwait(false);
 
                 if (outcome.Status == "not_found")
                 {
-                    await RecordAsync(recorder, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("not_found"), "not_found").ConfigureAwait(false);
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("not_found"), "not_found").ConfigureAwait(false);
                     return Unavailable("invalid", "No custom decision named '" + name + "'. Create it in the dashboard first.");
                 }
                 if (outcome.Status == "inactive")
                 {
-                    await RecordAsync(recorder, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
                     return Unavailable("disabled", "The custom decision '" + name + "' is Off. Decide it yourself.");
                 }
                 if (outcome.Result == null || !outcome.Result.Available)
@@ -410,6 +453,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static async Task<object> HandleAsync(
             JsonElement? args,
+            string toolName,
             string decisionPoint,
             bool hasDecisionGate,
             DatabaseDriver database,
@@ -419,7 +463,8 @@ namespace Armada.Server.Mcp.Tools
             LoggingModule? logging,
             Func<string?> participantKeyProvider,
             Func<JsonElement, ParsedDecision?>? buildStateAndQuestions,
-            Func<JsonElement, Mission?, CancellationToken, Task<ParsedDecision?>>? buildStateAndQuestionsAsync = null)
+            Func<JsonElement, Mission?, CancellationToken, Task<ParsedDecision?>>? buildStateAndQuestionsAsync = null,
+            Func<TypedDecisionResult, ParsedDecision, object>? formatResult = null)
         {
             try
             {
@@ -479,7 +524,7 @@ namespace Armada.Server.Mcp.Tools
                 // refusal is counted rather than silent.
                 if (mission != null && !settings.TypedDecisions.AllowsEgress(mission.VesselId))
                 {
-                    await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("egress_excluded_vessel"), "egress_excluded_vessel").ConfigureAwait(false);
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("egress_excluded_vessel"), "egress_excluded_vessel").ConfigureAwait(false);
                     return Unavailable("egress_excluded_vessel", "This vessel's content may not leave the host. Decide it yourself.");
                 }
 
@@ -487,14 +532,14 @@ namespace Armada.Server.Mcp.Tools
                 // state because the redactor replaces absolute workspace paths, markers and all; the same rule every path asks.
                 if (TypedDecisionSettings.FirstMarkerIn(settings.TypedDecisions.MarkersFor(decisionPoint), TypedDecisionEgress.RawText(parsed.State)) != null)
                 {
-                    await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(TypedDecisionEgress.ExcludedContentReason), TypedDecisionEgress.ExcludedContentReason).ConfigureAwait(false);
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(TypedDecisionEgress.ExcludedContentReason), TypedDecisionEgress.ExcludedContentReason).ConfigureAwait(false);
                     return Unavailable(TypedDecisionEgress.ExcludedContentReason, "This state carries content that may not leave the host. Decide it yourself.");
                 }
 
                 // 1. The tool is disabled: no egress, one event, unavailable.
                 if (!toolSettings.Enabled)
                 {
-                    await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
                     return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
                 }
 
@@ -508,7 +553,7 @@ namespace Armada.Server.Mcp.Tools
                     ResolvedTypedDecision resolved = settings.TypedDecisions.For(decisionPoint);
                     if (resolved.Mode == TypedDecisionModeEnum.Off)
                     {
-                        await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
+                        await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
                         return Unavailable("disabled", "This helper is dormant. Decide it yourself.");
                     }
                     shadow = resolved.Mode == TypedDecisionModeEnum.Shadow;
@@ -525,14 +570,14 @@ namespace Armada.Server.Mcp.Tools
                 TypedDecisionResult result = await client.DecideAsync(request, CancellationToken.None).ConfigureAwait(false);
 
                 string outcome = !result.Available ? "unavailable" : shadow ? "shadow" : "delivered";
-                await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, result, outcome).ConfigureAwait(false);
+                await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, result, outcome).ConfigureAwait(false);
 
                 if (!result.Available)
                     return Unavailable(result.UnavailableReason ?? "unavailable", "The typed-decision system did not answer. Decide it yourself.");
                 if (shadow)
                     return Unavailable("shadow", "This helper is in Shadow: its answer is recorded for review, not returned. Decide it yourself.");
 
-                return BuildAnswer(result);
+                return formatResult != null ? formatResult(result, parsed) : BuildAnswer(result);
             }
             catch (Exception ex)
             {
@@ -545,6 +590,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static Task RecordAsync(
             TypedDecisionRecorder recorder,
+            string toolName,
             string decisionPoint,
             string redactedState,
             Mission? mission,
@@ -576,7 +622,9 @@ namespace Armada.Server.Mcp.Tools
                 Result = result,
                 RedactedState = redactedState,
                 Mission = mission,
-                CaptainId = mission?.CaptainId
+                CaptainId = mission?.CaptainId,
+                ParticipantKey = participantKey,
+                ToolName = toolName
             };
 
             return recorder.RecordCaptainAsync(context, outcome, CancellationToken.None);
@@ -590,6 +638,163 @@ namespace Armada.Server.Mcp.Tools
             object state = ExtractState(stateElement);
             Dictionary<string, TypedQuestion> questions = ParseQuestions(questionsElement);
             return new ParsedDecision(state, questions);
+        }
+
+        private static ParsedDecision? BuildScoreItems(JsonElement root)
+        {
+            string claim = ReadOptionalString(root, "claim") ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(claim)) return null;
+            if (!root.TryGetProperty("items", out JsonElement itemsElement) || itemsElement.ValueKind != JsonValueKind.Array)
+                return null;
+
+            List<ScoreItem> items = new List<ScoreItem>();
+            int sourceIndex = 0;
+            foreach (JsonElement entry in itemsElement.EnumerateArray())
+            {
+                if (items.Count >= _ScoreItemsMax) break;
+                string? id = null;
+                string? text = null;
+                if (entry.ValueKind == JsonValueKind.String)
+                {
+                    text = entry.GetString();
+                }
+                else if (entry.ValueKind == JsonValueKind.Object)
+                {
+                    id = ReadOptionalString(entry, "id") ?? ReadOptionalString(entry, "name");
+                    text = ReadOptionalString(entry, "text")
+                        ?? ReadOptionalString(entry, "content")
+                        ?? ReadOptionalString(entry, "excerpt");
+                    if (String.IsNullOrWhiteSpace(text)) text = entry.GetRawText();
+                }
+                else if (entry.ValueKind != JsonValueKind.Null && entry.ValueKind != JsonValueKind.Undefined)
+                {
+                    text = entry.GetRawText();
+                }
+
+                sourceIndex++;
+                if (String.IsNullOrWhiteSpace(text)) continue;
+                int index = items.Count;
+                string pathIndex = index.ToString(CultureInfo.InvariantCulture);
+                items.Add(new ScoreItem
+                {
+                    Index = index,
+                    Id = String.IsNullOrWhiteSpace(id) ? "item" + pathIndex : id.Trim(),
+                    Text = text.Trim(),
+                    QuestionId = "items[" + pathIndex + "]__matches"
+                });
+            }
+
+            if (items.Count == 0) return null;
+
+            List<object> packed = new List<object>(items.Count);
+            foreach (ScoreItem item in items)
+            {
+                packed.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["id"] = item.Id,
+                    ["text"] = item.Text
+                });
+            }
+
+            Dictionary<string, object?> state = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["claim"] = claim.Trim(),
+                ["items"] = packed
+            };
+
+            string trueMeaning = ReadOptionalString(root, "trueMeaning") ?? "the claim holds for this item";
+            string falseMeaning = ReadOptionalString(root, "falseMeaning") ?? "the claim does not hold for this item";
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+            foreach (ScoreItem item in items)
+            {
+                string path = "`items[" + item.Index.ToString(CultureInfo.InvariantCulture) + "]`";
+                questions[item.QuestionId] = new NoulQuestion(
+                    "This question's state is " + path + " only. " + claim.Trim(),
+                    trueMeaning,
+                    falseMeaning);
+            }
+
+            string? pick = ReadOptionalString(root, "pick");
+            if (!String.IsNullOrWhiteSpace(pick))
+            {
+                Dictionary<string, string> options = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (ScoreItem item in items)
+                    options[item.Id] = "This item is the best match: " + item.Id;
+                options["none"] = "None of the listed items match.";
+                options["unclear"] = "The best match cannot be determined from the listed items.";
+                questions["best"] = new ChoiceQuestion(pick.Trim(), options);
+            }
+
+            return new ParsedDecision(state, questions) { ScoreItems = items };
+        }
+
+        private static object FormatScoreItems(TypedDecisionResult result, ParsedDecision parsed)
+        {
+            Dictionary<string, object?> answers = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, TypedAnswer> entry in result.Answers)
+            {
+                TypedAnswer answer = entry.Value;
+                if (answer == null) continue;
+                answers[entry.Key] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["type"] = answer.Type,
+                    ["choice"] = answer.Choice,
+                    ["score"] = answer.Score,
+                    ["noul"] = answer.Noul,
+                    ["probabilities"] = answer.Probabilities,
+                    ["confidence"] = answer.Confidence
+                };
+            }
+
+            List<object> rows = new List<object>();
+            double expected = 0.0;
+            IReadOnlyList<ScoreItem> items = parsed.ScoreItems ?? new List<ScoreItem>();
+            foreach (ScoreItem item in items)
+            {
+                double noul = 0.0;
+                if (result.Answers != null
+                    && result.Answers.TryGetValue(item.QuestionId, out TypedAnswer? answer)
+                    && answer != null
+                    && answer.Noul.HasValue)
+                    noul = answer.Noul.Value;
+                expected += noul;
+                rows.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["index"] = item.Index,
+                    ["id"] = item.Id,
+                    ["text"] = item.Text,
+                    ["questionId"] = item.QuestionId,
+                    ["noul"] = noul
+                });
+            }
+
+            List<object> ranked = rows
+                .Cast<Dictionary<string, object?>>()
+                .OrderByDescending(row => (double)(row["noul"] ?? 0.0))
+                .Cast<object>()
+                .ToList();
+
+            object? best = null;
+            if (result.Answers != null && result.Answers.TryGetValue("best", out TypedAnswer? bestAnswer) && bestAnswer != null)
+            {
+                best = new
+                {
+                    choice = bestAnswer.Choice,
+                    confidence = bestAnswer.Confidence,
+                    probabilities = bestAnswer.Probabilities
+                };
+            }
+
+            return new
+            {
+                Available = true,
+                Answers = answers,
+                Items = rows,
+                Ranked = ranked,
+                ExpectedCount = expected,
+                Best = best,
+                Model = result.Model
+            };
         }
 
         private static ParsedDecision? BuildPremiseCheck(JsonElement root)
@@ -687,12 +892,12 @@ namespace Armada.Server.Mcp.Tools
 
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
-                ["type_ok"] = new NoulQuestion(
-                    "The stated memory type (working, episodic, semantic, or procedural) fits this candidate, and it is not working memory that should not be stored.",
+                ["type_fits"] = new NoulQuestion(
+                    "The stated memory type (working, episodic, semantic, or procedural) fits this candidate.",
                     "the type fits", "the type is wrong"),
-                ["duplicate_of"] = new NoulQuestion(
-                    "The candidate duplicates a record already returned for this subject.",
-                    "duplicates an existing record", "is not a duplicate"),
+                ["durable_record"] = new NoulQuestion(
+                    "This candidate is durable memory (episodic, semantic, or procedural), not working memory that should not be stored.",
+                    "the record is durable", "the record is working memory that should not be stored"),
                 ["will_go_stale"] = new NoulQuestion(
                     "The candidate contains an id, path, count, or date that stops being true, so it will go stale.",
                     "will go stale", "states a durable rule"),
@@ -700,6 +905,27 @@ namespace Armada.Server.Mcp.Tools
                     "The candidate is a fleet rule that belongs in shared external memory, not a vessel fact for native memory.",
                     "belongs in shared memory", "is a native vessel fact")
             };
+
+            Dictionary<string, string> duplicateOptions = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["none"] = "the candidate does not repeat any existing record"
+            };
+            int existingCount = 0;
+            if (root.TryGetProperty("existingRecords", out JsonElement existing) && existing.ValueKind == JsonValueKind.Array)
+                existingCount = existing.GetArrayLength();
+            for (int i = 0; i < existingCount; i++)
+            {
+                string path = "`existing_records[" + i.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]`";
+                duplicateOptions["existing_" + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)] =
+                    "the candidate repeats " + path;
+                questions["repeats_" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)] = new NoulQuestion(
+                    path + " is the same lesson as this candidate.",
+                    "the same lesson as this candidate",
+                    "a different lesson");
+            }
+            questions["duplicate_of"] = new ChoiceQuestion(
+                "Which existing record, if any, does this candidate duplicate?",
+                duplicateOptions);
 
             return new ParsedDecision(state, questions);
         }
@@ -716,21 +942,42 @@ namespace Armada.Server.Mcp.Tools
 
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
-                [ChangeQualityDimensions.Dry + "_weak"] = new NoulQuestion(
-                    "The change duplicates logic that already exists or repeats itself, rather than reusing or extracting a shared path.",
+                ["dry_duplicates"] = new NoulQuestion(
+                    "The change duplicates logic that already exists, rather than reusing or extracting a shared path.",
                     "violates DRY", "does not duplicate logic"),
-                [ChangeQualityDimensions.CognitiveComplexity + "_weak"] = new NoulQuestion(
-                    "The change is more cognitively complex or bloated than the work requires: deep nesting, long methods, or convoluted control flow.",
-                    "is over-complex or bloated", "is about as simple as the work allows"),
-                [ChangeQualityDimensions.Modularity + "_weak"] = new NoulQuestion(
-                    "The change weakens module boundaries or cohesion: a type or method takes on unrelated responsibilities, or reaches across a boundary it should not.",
-                    "weakens modularity", "respects module boundaries"),
-                [ChangeQualityDimensions.Readability + "_weak"] = new NoulQuestion(
-                    "The change is hard to read: unclear names, missing intent, or dense code a later reader would struggle with.",
-                    "is hard to read", "reads clearly"),
-                [ChangeQualityDimensions.Maintainability + "_weak"] = new NoulQuestion(
-                    "The change will be hard to maintain or change safely later: hidden coupling, fragile assumptions, or missing seams.",
-                    "harms maintainability", "is maintainable")
+                ["complexity_nested"] = new NoulQuestion(
+                    "The change adds deep nesting beyond what the work requires.",
+                    "is over-nested", "nesting is about as simple as the work allows"),
+                ["complexity_long_method"] = new NoulQuestion(
+                    "The change adds a long method beyond what the work requires.",
+                    "adds a bloated method", "method length is about as simple as the work allows"),
+                ["complexity_convoluted"] = new NoulQuestion(
+                    "The change adds convoluted control flow beyond what the work requires.",
+                    "adds convoluted control flow", "control flow is about as simple as the work allows"),
+                ["modularity_unrelated"] = new NoulQuestion(
+                    "The change gives a type or method unrelated responsibilities.",
+                    "mixes unrelated responsibilities", "keeps responsibilities together"),
+                ["modularity_crosses_boundary"] = new NoulQuestion(
+                    "The change reaches across a module boundary it should not.",
+                    "crosses a module boundary it should not", "respects module boundaries"),
+                ["readability_unclear_names"] = new NoulQuestion(
+                    "The change uses names that hide intent.",
+                    "names hide intent", "names read clearly"),
+                ["readability_missing_intent"] = new NoulQuestion(
+                    "The change is missing the intent a later reader needs.",
+                    "hides its intent", "states its intent"),
+                ["readability_dense"] = new NoulQuestion(
+                    "The change is dense code a later reader would struggle with.",
+                    "is hard to read because it is dense", "is not dense"),
+                ["maintainability_coupling"] = new NoulQuestion(
+                    "The change adds hidden coupling that will be hard to change later.",
+                    "adds hidden coupling", "does not add hidden coupling"),
+                ["maintainability_assumptions"] = new NoulQuestion(
+                    "The change adds fragile assumptions that will be hard to change later.",
+                    "adds fragile assumptions", "does not add fragile assumptions"),
+                ["maintainability_seams"] = new NoulQuestion(
+                    "The change is missing seams that would let a later change land safely.",
+                    "missing maintainability seams", "has the seams a later change needs")
             };
 
             return new ParsedDecision(state, questions);
@@ -921,6 +1168,19 @@ namespace Armada.Server.Mcp.Tools
             public object State { get; }
 
             public Dictionary<string, TypedQuestion> Questions { get; }
+
+            public IReadOnlyList<ScoreItem>? ScoreItems { get; init; }
+        }
+
+        private sealed class ScoreItem
+        {
+            public int Index { get; init; }
+
+            public string Id { get; init; } = String.Empty;
+
+            public string Text { get; init; } = String.Empty;
+
+            public string QuestionId { get; init; } = String.Empty;
         }
 
         #endregion

@@ -173,8 +173,8 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Partial_AboveThreshold_MailsUnmetCriteria_DoesNotHalt", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                // partial at 0.90 with criterion 2 unmet (gap noul 0.80 >= 0.5 floor); criterion 1 met.
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("partial", 0.90, 0.80, (1, 0.10), (2, 0.80)));
+                // partial at 0.90 with criterion 2 unmet (met noul 0.20 <= 0.5); criterion 1 met.
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("partial", 0.90, 0.80, (1, 0.90), (2, 0.20)));
                 TypedHandoffOutcomeAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
 
                 HandoffOutcomeVerdict result = await adapter.DecideAsync(BuildInput(), HandoffOutcomeVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
@@ -240,6 +240,23 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(client.LastToken == cts.Token, "adapter must forward the caller token");
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
+            }).ConfigureAwait(false);
+
+            await RunTest("AsksOnlyAboutListedCriteria_NoEmptySlots", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("partial", 0.90, 0.80, (1, 0.80), (2, 0.80)));
+                TypedHandoffOutcomeAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                await adapter.DecideAsync(BuildInput(), HandoffOutcomeVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(4, client.LastRequest!.Questions.Count, "outcome, next_stage_useful, and one gap Noul per listed criterion");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("gap_2"), "the last listed criterion is asked");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("gap_3"), "no slot beyond the listed criteria is asked");
+                AssertTrue(client.LastRequest.Questions["gap_1"].Instructions.Contains("`acceptance_criteria[0]`", StringComparison.Ordinal),
+                    "the first gap question names the 0-based JSON path");
+                AssertTrue(client.LastRequest.Questions["gap_1"].Instructions.Contains(" is met ", StringComparison.Ordinal),
+                    "the gap Noul asks the positive condition");
             }).ConfigureAwait(false);
         }
     }

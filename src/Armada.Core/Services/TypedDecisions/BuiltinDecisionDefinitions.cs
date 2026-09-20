@@ -110,11 +110,19 @@ namespace Armada.Core.Services
                     },
                     new CustomTypedQuestionSettings
                     {
-                        Id = "quoted_not_own",
+                        Id = "quotes_refusal_phrase",
                         Type = "noul",
-                        Instructions = "If a refusal phrase appears, is it quoted material (documentation, a brief excerpt, another party's words) rather than the captain's own refusal?",
-                        TrueMeaning = "The refusal phrase is quoted material, not the captain declining.",
-                        FalseMeaning = "The refusal phrase is the captain's own words."
+                        Instructions = "The captain's closing statement quotes a refusal phrase from documentation, a brief excerpt, or another party's words.",
+                        TrueMeaning = "The closing statement quotes a refusal phrase.",
+                        FalseMeaning = "The closing statement does not quote a refusal phrase."
+                    },
+                    new CustomTypedQuestionSettings
+                    {
+                        Id = "captain_declining",
+                        Type = "noul",
+                        Instructions = "The captain itself is declining the work in this closing statement.",
+                        TrueMeaning = "The captain is declining the work.",
+                        FalseMeaning = "The captain is not declining the work."
                     }
                 }
             };

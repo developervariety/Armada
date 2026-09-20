@@ -133,7 +133,7 @@ namespace Armada.Core.Services
                     return Unavailable("parse", stopwatch.ElapsedMilliseconds);
                 }
 
-                TypedDecisionResult built = BuildResult(parsed, stopwatch.ElapsedMilliseconds);
+                TypedDecisionResult built = BuildResult(parsed, request, stopwatch.ElapsedMilliseconds);
                 NotifyModelObserved(built.Model);
                 return built;
             }
@@ -319,8 +319,21 @@ namespace Armada.Core.Services
             }
         }
 
-        private static TypedDecisionResult BuildResult(WireResponse parsed, long latencyMs)
+        private static TypedDecisionResult BuildResult(WireResponse parsed, TypedDecisionRequest request, long latencyMs)
         {
+            if (!ValidAnswers(parsed.Answers, request.Questions))
+            {
+                return new TypedDecisionResult
+                {
+                    Available = false,
+                    UnavailableReason = "response_validation",
+                    Model = parsed.Model,
+                    InputTokens = parsed.Usage?.InputTokens ?? 0,
+                    OutputTokens = parsed.Usage?.OutputTokens ?? 0,
+                    LatencyMs = latencyMs
+                };
+            }
+
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal);
             if (parsed.Answers != null)
             {
@@ -330,7 +343,7 @@ namespace Armada.Core.Services
                     if (wire == null) continue;
                     answers[entry.Key] = new TypedAnswer
                     {
-                        Type = String.IsNullOrWhiteSpace(wire.Type) ? "noul" : wire.Type,
+                        Type = wire.Type!,
                         Choice = wire.Choice,
                         Score = wire.Score,
                         Noul = wire.Noul,
@@ -350,6 +363,57 @@ namespace Armada.Core.Services
                 OutputTokens = parsed.Usage?.OutputTokens ?? 0,
                 LatencyMs = latencyMs
             };
+        }
+
+        // Validate once at the provider boundary. Partial answers must not become zero-valued
+        // evidence when callers combine atoms or sum a list. Confidence is not a probability.
+        private static bool ValidAnswers(Dictionary<string, WireAnswer>? answers, IReadOnlyDictionary<string, TypedQuestion> questions)
+        {
+            if (answers == null || answers.Count != questions.Count) return false;
+            foreach (KeyValuePair<string, TypedQuestion> question in questions)
+            {
+                if (!answers.TryGetValue(question.Key, out WireAnswer? answer) || answer == null) return false;
+                if (answer.Confidence.HasValue && !InRange(answer.Confidence, 1.0)) return false;
+                switch (question.Value)
+                {
+                    case NoulQuestion:
+                        if (answer.Type != "noul" || !InRange(answer.Noul, 1.0)
+                            || answer.Choice != null || answer.Score.HasValue) return false;
+                        break;
+                    case ChoiceQuestion choice:
+                        if (answer.Type != "choice" || answer.Choice == null || !choice.Criteria.ContainsKey(answer.Choice)
+                            || answer.Noul.HasValue || answer.Score.HasValue || !InRange(answer.Confidence, 1.0)
+                            || !ValidProbabilities(answer.Probabilities, choice.Criteria.Keys)) return false;
+                        break;
+                    case ScoreQuestion score:
+                        if (answer.Type != "score" || !InRange(answer.Score, score.Levels.Count - 1)
+                            || answer.Choice != null || answer.Noul.HasValue || !InRange(answer.Confidence, 1.0)
+                            || !ValidProbabilities(answer.Probabilities, Enumerable.Range(0, score.Levels.Count)
+                                .Select(index => index.ToString(System.Globalization.CultureInfo.InvariantCulture)))) return false;
+                        break;
+                    default:
+                        return false;
+                }
+            }
+            return true;
+        }
+
+        private static bool ValidProbabilities(Dictionary<string, double>? probabilities, IEnumerable<string> labels)
+        {
+            if (probabilities == null) return false;
+            HashSet<string> expected = new HashSet<string>(labels, StringComparer.Ordinal);
+            if (probabilities.Count != expected.Count) return false;
+            foreach (KeyValuePair<string, double> probability in probabilities)
+            {
+                if (!expected.Contains(probability.Key) || !InRange(probability.Value, 1.0)) return false;
+            }
+            // Provider probabilities are rounded. Do not require their sum to equal exactly one.
+            return true;
+        }
+
+        private static bool InRange(double? value, double maximum)
+        {
+            return value.HasValue && Double.IsFinite(value.Value) && value.Value >= 0.0 && value.Value <= maximum;
         }
 
         private static TypedDecisionResult Unavailable(string reason, long latencyMs, string? detail = null)

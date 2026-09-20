@@ -52,6 +52,7 @@ namespace Armada.Server.Mcp
             // approves nothing either. Creating or editing a custom decision stays a settings write,
             // which a mission caller cannot make.
             "armada_typed_decision",
+            "armada_score_items",
             "armada_check_premise",
             "armada_memory_triage",
             "armada_check_prior_art",

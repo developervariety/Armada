@@ -44,15 +44,12 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
-        private static TypedDecisionResult RevisionResult(double allNonBehavioural, params (int idx, string kind)[] items)
+        private static TypedDecisionResult RevisionResult(double confidence, params (int idx, string kind)[] items)
         {
-            Dictionary<string, TypedAnswer> map = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
-            {
-                ["all_non_behavioural"] = new TypedAnswer { Type = "noul", Noul = allNonBehavioural, Confidence = allNonBehavioural }
-            };
+            Dictionary<string, TypedAnswer> map = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal);
             foreach ((int idx, string kind) in items)
             {
-                map["item_" + idx] = new TypedAnswer { Type = "choice", Choice = kind, Confidence = 0.9 };
+                map["item_" + idx] = new TypedAnswer { Type = "choice", Choice = kind, Confidence = confidence };
             }
             return new TypedDecisionResult { Available = true, Answers = map, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
@@ -125,8 +122,8 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Gate_ABehaviouralItem_ReturnsProceed_RecordsShadow_NeverBlocks", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                // A high voyage-level Noul but one behavioural item: the reading forces zero confidence,
-                // so the gate does not fire and the rescue proceeds. A code defect is never held.
+                // A high-confidence wording Choice on one item and a behavioural Choice on another:
+                // the reading forces zero confidence, so the gate does not fire and the rescue proceeds.
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(RevisionResult(0.99, (1, "behaviour"), (2, "doc_only")));
                 TypedRevisionKindAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
 
@@ -212,6 +209,22 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(client.LastToken == cts.Token, "adapter must forward the caller token");
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
+            }).ConfigureAwait(false);
+
+            await RunTest("AsksOnlyAboutListedItems_NoSummaryNoul_NoEmptySlots", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(RevisionResult(0.97, (1, "comment_only"), (2, "doc_only")));
+                TypedRevisionKindAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                await adapter.DecideAsync(BuildInput(), RevisionKindVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(2, client.LastRequest!.Questions.Count, "two listed items, one Choice each");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("item_2"), "the last listed item is asked");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("item_3"), "no slot beyond the listed items is asked");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("all_non_behavioural"), "the AND of the item kinds is computed in code");
+                AssertTrue(client.LastRequest.Questions["item_1"].Instructions.Contains("`revision_items[0]`", StringComparison.Ordinal),
+                    "the first question names the 0-based JSON path");
             }).ConfigureAwait(false);
         }
     }

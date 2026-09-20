@@ -447,6 +447,8 @@ namespace Armada.Core.Services
                 ["unavailable_detail"] = result?.UnavailableDetail
             };
 
+            if (!String.IsNullOrWhiteSpace(context.ParticipantKey)) payload["participant_key"] = context.ParticipantKey;
+            if (!String.IsNullOrWhiteSpace(context.ToolName)) payload["tool_name"] = context.ToolName;
             return JsonSerializer.Serialize(payload);
         }
 
@@ -507,6 +509,15 @@ namespace Armada.Core.Services
         /// The captain that made the call, when known. Set on captain-tool events for attribution.
         /// </summary>
         public string? CaptainId { get; init; }
+
+        /// <summary>
+        /// The calling session's participant key, when supplied. This is attribution only,
+        /// not a captain id or an authorization credential.
+        /// </summary>
+        public string? ParticipantKey { get; init; }
+
+        /// <summary>The tool that requested this decision, when called through a tool.</summary>
+        public string? ToolName { get; init; }
     }
 
     /// <summary>
