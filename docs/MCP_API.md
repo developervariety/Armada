@@ -293,7 +293,11 @@ in the objective's `preparation.preflight.questions` array through
 `update_objective`. The battery has fourteen questions. Questions 1-13 keep
 their numbers; question 14 is last (the target tip is green, or the brief names
 the inherited failures) and is a recorded operator answer, not a live suite run
-at preview time. Each entry carries a question `number`, an `answer` of
+at preview time. This is deliberate: a preview must remain read-only and fast,
+and the operator can admit a target with explicitly named inherited failures.
+A new suite run would neither replace that judgment nor prove which failures
+the mission owns. The answer should cite the checked target commit and the
+baseline result or named failures. Each entry carries a question `number`, an `answer` of
 `Yes`, `No`, or `Unanswered`, an operator `note`, an `answeredUtc`, and an
 `answeredBy`. Dispatch is refused while any question is unanswered, a question
 that must be yes is answered no (including 14), or the open-owner-question

@@ -8,6 +8,9 @@ All notable changes to Armada are documented in this file.
 
 ### Documentation
 
+- Explain the recorded preflight baseline decision and the unimplemented design
+  for an optional per-persona capability floor.
+
 - The getting-started guide points runtime account setup to Settings > Routing >
   Subscription accounts, including the Cursor API-key path.
 

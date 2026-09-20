@@ -182,6 +182,26 @@ event `routing.persona_model_list_dead` names the list. A list that did
 supply the captain is `persona_models_applied_<group>:<captainId>`. Dead
 lists never refuse dispatch.
 
+#### Proposed per-persona capability floor (not implemented)
+
+A future persona field could set a minimum tier of Economy, Standard, or
+Premium. If unset, the current Specialist rule remains: a Specialist requires
+Premium. An explicit value would replace that persona's Specialist-derived
+floor. Persona locks and other eligibility constraints still apply first;
+model lists only order the admitted captains. Capacity decisions cannot change
+the floor. Invalid tier values must be rejected on save.
+
+The effective-routing view would show both the configured floor and the
+inherited default. Before a floor change is saved, a preview would show which
+captains enter or leave eligibility and which list entries become live or dead.
+Existing configurations would keep their current routing until an operator
+sets the new field. Tests would cover unset migration behavior, each explicit
+tier, persona locks, and the inability of model lists or capacity decisions to
+bypass the floor. Removing the field would restore the legacy behavior.
+
+This is a design only. It changes eligibility and must not ship without a
+separate owner decision. No runtime field or routing change is included here.
+
 The chosen list is `default` unless the `capacity_escalation` decision
 chooses another list. A mission with a concrete `preferredModel` skips the
 model lists; the pin wins. The tier floor stays a layer 1 constraint: a model
