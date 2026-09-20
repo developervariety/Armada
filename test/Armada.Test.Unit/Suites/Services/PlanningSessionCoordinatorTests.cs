@@ -636,7 +636,7 @@ namespace Armada.Test.Unit.Suites.Services
                         }).ConfigureAwait(false);
 
                     session.Status = PlanningSessionStatusEnum.Responding;
-                    session.ProcessId = 999999;
+                    session.ProcessId = Int32.MaxValue;
                     await testDb.Driver.PlanningSessions.UpdateAsync(session).ConfigureAwait(false);
 
                     captain.State = CaptainStateEnum.Idle;

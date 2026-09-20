@@ -564,6 +564,8 @@ namespace Armada.Test.Unit.Suites.Services
                     LastUpdateUtc = DateTime.UtcNow.AddHours(-2)
                 }).ConfigureAwait(false);
 
+                // Use odd identifiers beyond the supported OS process range. Small fixed IDs can
+                // name real test processes on a long-running host.
                 // Two Assigned missions with dead processes: terminal/stalled with no forward path.
                 Mission assignedDead1 = await testDb.Driver.Missions.CreateAsync(new Mission
                 {
@@ -574,7 +576,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Persona = "Worker",
                     Title = "Assigned worker with dead process",
                     Status = MissionStatusEnum.Assigned,
-                    ProcessId = 999999,
+                    ProcessId = Int32.MaxValue,
                     LastUpdateUtc = DateTime.UtcNow
                 }).ConfigureAwait(false);
 
@@ -587,7 +589,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Persona = "Judge",
                     Title = "Assigned judge with dead process",
                     Status = MissionStatusEnum.Assigned,
-                    ProcessId = 999998,
+                    ProcessId = Int32.MaxValue - 2,
                     LastUpdateUtc = DateTime.UtcNow
                 }).ConfigureAwait(false);
 
@@ -780,7 +782,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Persona = "Worker",
                     Title = "Assigned worker with dead process",
                     Status = MissionStatusEnum.Assigned,
-                    ProcessId = 999997,
+                    ProcessId = Int32.MaxValue - 4,
                     LastUpdateUtc = DateTime.UtcNow
                 }).ConfigureAwait(false);
 
@@ -842,7 +844,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Persona = "Worker",
                     Title = "Assigned worker with dead process",
                     Status = MissionStatusEnum.Assigned,
-                    ProcessId = 999996,
+                    ProcessId = Int32.MaxValue - 6,
                     LastUpdateUtc = DateTime.UtcNow
                 }).ConfigureAwait(false);
 

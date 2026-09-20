@@ -16,6 +16,9 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Use out-of-range process IDs for dead-process test fixtures and serialize the
+  key-client suite that starts an in-process server.
+
 - Restore the operator evaluation tool and model-version observation when the
   provider client switches between a stored key and the unavailable fallback.
 
