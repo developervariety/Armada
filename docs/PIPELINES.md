@@ -96,3 +96,18 @@ can use coordination and evidence tools consistently. Give each captain its
 mission, dock, repository context, selected playbooks, and runtime tools. The
 operator still owns dispatch, monitoring, landing, recovery, and closure unless
 the mission explicitly delegates one of those actions.
+
+## Judge acceptance evidence
+
+When a brief lists acceptance criteria, the Judge includes an exact
+`## Acceptance Criteria` section. Each line copies one criterion's text, then
+states `MET` with a `path:line` citation or `command: ` followed by the command
+in backticks, or states `NOT MET`. Each criterion needs its own line and evidence.
+Duplicate or unrelated claims do not cover a missing criterion. Any `NOT MET`
+refuses PASS. The gate checks the citation format; the Judge checks its truth.
+
+Description, metadata, and total-budget trimming retain the complete criteria
+block before trimming surrounding context. If the contract itself exceeds a
+budget, the contract remains intact and budget telemetry reports the excess.
+For `[DOD:DOC-ONLY]` missions with only non-code changes, the Judge reviews the
+document diff without running the full test suite.

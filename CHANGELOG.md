@@ -6,7 +6,16 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Documentation
+
+- The getting-started guide points runtime account setup to Settings > Routing >
+  Subscription accounts, including the Cursor API-key path.
+
 ### Fixed
+
+- Judge acceptance walks match each criterion once and require file:line or command evidence.
+  Missing, duplicate, and unrelated claims cannot satisfy the review gate. Metadata and total
+  brief-budget trimming preserve the complete acceptance block before trimming context.
 
 - Validate TypeSafe responses against the requested questions before an adapter or
   list tally receives them. Incomplete answers, invalid types or values, and missing

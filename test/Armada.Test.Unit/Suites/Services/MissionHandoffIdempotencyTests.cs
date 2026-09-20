@@ -228,6 +228,33 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("Truncation preserves every criterion when its heading survives in the head", async () =>
+            {
+                string criteria = "## Acceptance Criteria\n- " + new string('a', 90) + "\n- " + new string('b', 90) + "\n- Final required behavior\n";
+                string full = criteria + "## Scope\n" + new string('x', 5000) + "\n## Prior Stage Output\nLatest diff.\n";
+                for (int budget = 600; budget <= 1600; budget += 100)
+                {
+                    string bounded = MissionService.TruncateMissionDescription(full, budget);
+                    AssertEqual(3, JudgeAcceptanceWalk.ExtractCriteria(bounded).Count);
+                    AssertContains("Final required behavior", bounded);
+                    AssertTrue(bounded.Length <= budget);
+                }
+                await Task.CompletedTask;
+            });
+
+            await RunTest("Metadata and total-budget trimming preserve criteria in the middle", async () =>
+            {
+                string criteria = "\n## Acceptance Criteria\n- Required behavior one\n- Required behavior two\n## Scope\n";
+                string full = "## Mission\n" + new string('x', 14000) + criteria + new string('y', 14000) + "\nLatest output.\n";
+                string bounded = MissionService.BoundMetadataDescription(full);
+                AssertEqual(2, JudgeAcceptanceWalk.ExtractCriteria(bounded).Count);
+                PromptModuleLedger ledger = new PromptModuleLedger();
+                string content = ledger.Track("mission.metadata", full);
+                string shrunk = MissionService.EnforceTotalBriefBudget(content, ledger, 3000, full);
+                AssertEqual(2, JudgeAcceptanceWalk.ExtractCriteria(shrunk).Count);
+                await Task.CompletedTask;
+            });
+
             await RunTest("TruncateMissionDescription marker names the branch holding the full change", async () =>
             {
                 string oversized = new string('x', 500);

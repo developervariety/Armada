@@ -166,6 +166,10 @@ Built-in pipelines let work move through the right level of review:
 - `Recorded`: Worker, then Recorder -- do the work, then record what is worth remembering.
 - Specialist-tested pipelines add a domain reviewer before tests; the reference-porting pipeline also runs the Linter before the Judge.
 
+The Judge must cite evidence for each acceptance criterion in the brief; duplicate
+claims and missing criteria refuse PASS. Brief trimming preserves the criteria.
+See [Judge acceptance evidence](docs/PIPELINES.md#judge-acceptance-evidence).
+
 A Linter stage runs before the Judge in the pipelines that produce vessel code, so overengineering and style are caught before review. `FullPipeline` stays without a Linter as the minimal review shape.
 
 Personas are stored records, not hardcoded prompt strings. Custom personas and prompt templates can be added through REST or MCP and then referenced by custom pipeline stages.

@@ -82,6 +82,38 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("ValidatePass refuses duplicate and unrelated criterion claims", () =>
+            {
+                string duplicate = PassReview.Replace("CHANGELOG names the behaviour: MET (CHANGELOG.md:12)", "Gate stays green: MET (JudgeAcceptanceWalk.cs:40)");
+                AssertNotNull(JudgeAcceptanceWalk.ValidatePass(duplicate, BriefTwo));
+                string unrelated = PassReview.Replace("CHANGELOG names the behaviour", "Unrequested cleanup is complete");
+                AssertNotNull(JudgeAcceptanceWalk.ValidatePass(unrelated, BriefTwo));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ValidatePass requires evidence for each MET claim", () =>
+            {
+                string unsupported = PassReview.Replace("MET (CHANGELOG.md:12)", "MET because it looks fine");
+                AssertNotNull(JudgeAcceptanceWalk.ValidatePass(unsupported, BriefTwo));
+                string command = PassReview.Replace("MET (CHANGELOG.md:12)", "MET (command: `git diff -- CHANGELOG.md`; output includes the new behavior)");
+                AssertNull(JudgeAcceptanceWalk.ValidatePass(command, BriefTwo));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ValidatePass refuses a similarly named section", () =>
+            {
+                AssertNotNull(JudgeAcceptanceWalk.ValidatePass(PassReview.Replace("## Acceptance Criteria", "## Acceptance Criteria Notes"), BriefTwo));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ValidatePass accepts MET in criterion text and extensionless file evidence", () =>
+            {
+                AssertNull(JudgeAcceptanceWalk.ValidatePass(
+                    "## Acceptance Criteria\n- Requirements are met: MET (Dockerfile:12)\n",
+                    "## Acceptance Criteria\n- Requirements are met\n"));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await Task.CompletedTask;
         }
     }

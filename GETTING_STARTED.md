@@ -79,6 +79,17 @@ Repo-relative deployment script paths:
 - macOS: `scripts/macos/install-launchd-agent.sh`, `scripts/macos/update-launchd-agent.sh`, `scripts/macos/healthcheck-server.sh`
 - Windows: `scripts/windows/install-windows-task.bat`, `scripts/windows/update-windows-task.bat`, `scripts/windows/healthcheck-server.bat`
 
+## Runtime account login
+
+After the server starts, open **Settings > Routing > Subscription accounts** in
+its dashboard. Add an account for each runtime and complete the login shown on
+its card. Check the login status before assigning the account to captains. The setup scripts install the runtime tools; account login takes
+place in the dashboard.
+
+For Cursor captains, save the API key on the account card. The browser login is
+an optional probe and is not used to launch captains. API-key usage is shown as
+Unknown because Cursor does not provide a usage reading for this login.
+
 ## Coordination Board (Chatroom)
 
 When several operator sessions dispatch work at the same time, each one needs to

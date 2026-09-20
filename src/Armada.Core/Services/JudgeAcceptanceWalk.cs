@@ -51,7 +51,8 @@ namespace Armada.Core.Services
             return sb.ToString();
         }
 
-public static string? ValidatePass(string? agentOutput, string? brief)
+        /// <summary>Require a distinct, evidenced MET entry for each criterion in the brief.</summary>
+        public static string? ValidatePass(string? agentOutput, string? brief)
         {
             List<string> expected = ExtractCriteria(brief);
             if (expected.Count == 0) return null;
@@ -59,28 +60,47 @@ public static string? ValidatePass(string? agentOutput, string? brief)
             string? block = ExtractSection(agentOutput, SectionName);
             if (String.IsNullOrWhiteSpace(block))
                 return "Judge PASS verdict missing required review sections: " + SectionName;
+            if (_NotMet.IsMatch(block))
+                return "Judge PASS names a NOT MET acceptance criterion";
 
-            int marked = 0;
-            bool notMet = false;
+            HashSet<int> covered = new HashSet<int>();
             foreach (string raw in block.Replace("\r\n", "\n").Split('\n'))
             {
                 string line = raw.Trim();
-                if (line.Length == 0) continue;
-                if (_NotMet.IsMatch(line))
+                MatchCollection marks = _Met.Matches(line);
+                foreach (Match mark in marks)
                 {
-                    notMet = true;
-                    marked++;
-                    continue;
+                    string claim = NormalizeClaim(line.Substring(0, mark.Index));
+                    string evidence = line.Substring(mark.Index + mark.Length);
+                    for (int index = 0; index < expected.Count; index++)
+                    {
+                        if (covered.Contains(index) || !String.Equals(claim, NormalizeClaim(expected[index]), StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (!HasEvidence(evidence))
+                            return "Judge PASS acceptance criterion lacks file:line or command evidence";
+                        covered.Add(index);
+                        break;
+                    }
                 }
-                if (_Met.IsMatch(line))
-                    marked++;
             }
 
-            if (notMet)
-                return "Judge PASS names a NOT MET acceptance criterion";
-            if (marked < expected.Count)
-                return "Judge PASS does not list every acceptance criterion from the brief";
-            return null;
+            return covered.Count == expected.Count
+                ? null
+                : "Judge PASS does not list every acceptance criterion from the brief";
+        }
+
+        private static string NormalizeClaim(string value)
+        {
+            string claim = Regex.Replace(value.Trim(), @"^(?:[-*]|\d+[.)])\s+", String.Empty);
+            claim = claim.Replace("**", String.Empty).Trim().TrimEnd(':', '-', ' ', '.', '—');
+            return Regex.Replace(claim, @"\s+", " ");
+        }
+
+        private static bool HasEvidence(string text)
+        {
+            // Check the evidence shape only. The Judge remains responsible for verifying its content.
+            return Regex.IsMatch(text, @"[\w./\-]+:[1-9]\d*\b", RegexOptions.CultureInvariant)
+                || Regex.IsMatch(text, @"\bcommand\s*:\s*`[^`\r\n]+`", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
 
         /// <summary>The markdown section body for a heading, or null when absent.</summary>
@@ -122,7 +142,10 @@ public static string? ValidatePass(string? agentOutput, string? brief)
             {
                 int at = text.IndexOf(needle, from, StringComparison.OrdinalIgnoreCase);
                 if (at < 0) return -1;
-                if (at == 0 || text[at - 1] == '\n') return at;
+                int end = text.IndexOf('\n', at);
+                if (end < 0) end = text.Length;
+                if ((at == 0 || text[at - 1] == '\n')
+                    && String.Equals(text.Substring(at, end - at).TrimEnd(), needle, StringComparison.OrdinalIgnoreCase)) return at;
                 from = at + 1;
             }
             return -1;

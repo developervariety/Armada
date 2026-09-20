@@ -6912,18 +6912,7 @@ namespace Armada.Core.Services
                 ? " the full change is on the branch"
                 : " the full change is on branch " + branchName;
             string marker = "\n\n...(mission brief truncated to fit the budget; the middle of the prior-stage diff is elided;" + branchNote + ")\n";
-            string criteriaBlock = JudgeAcceptanceWalk.FormatPinnedBlock(description) ?? String.Empty;
-            int reserved = criteriaBlock.Length == 0 ? 0 : criteriaBlock.Length + 2;
-            int headChars = Math.Max(0, (maxChars - marker.Length - reserved) / 3);
-            string bounded = BuildBoundedDescription(description, Math.Max(marker.Length + 1, maxChars - reserved), headChars, marker);
-            if (criteriaBlock.Length == 0) return bounded;
-            if (bounded.IndexOf("## " + JudgeAcceptanceWalk.SectionName, StringComparison.OrdinalIgnoreCase) >= 0)
-                return bounded.Length <= maxChars ? bounded : bounded.Substring(0, maxChars);
-            int insertAt = bounded.IndexOf(marker, StringComparison.Ordinal);
-            string withCriteria = insertAt >= 0
-                ? bounded.Substring(0, insertAt) + "\n" + criteriaBlock + bounded.Substring(insertAt)
-                : criteriaBlock + bounded;
-            return withCriteria.Length <= maxChars ? withCriteria : withCriteria.Substring(0, maxChars);
+            return BoundDescriptionWithCriteria(description, maxChars, Math.Max(0, (maxChars - marker.Length) / 3), marker);
         }
 
         /// <summary>
@@ -6943,7 +6932,7 @@ namespace Armada.Core.Services
             if (description.Length <= _MaxMetadataDescriptionChars) return description;
 
             const string marker = "\n\n...(middle of the mission description elided to fit the captain brief; the full description is in the mission record)\n";
-            return BuildBoundedDescription(description, _MaxMetadataDescriptionChars, _MaxMetadataDescriptionHeadChars, marker);
+            return BoundDescriptionWithCriteria(description, _MaxMetadataDescriptionChars, _MaxMetadataDescriptionHeadChars, marker);
         }
 
         /// <summary>
@@ -6957,6 +6946,22 @@ namespace Armada.Core.Services
         /// <param name="headChars">Characters kept from the head before eliding.</param>
         /// <param name="marker">Visible elision marker placed between head and tail.</param>
         /// <returns>The bounded description.</returns>
+        private static string BoundDescriptionWithCriteria(string description, int maxChars, int headChars, string marker)
+        {
+            if (description.Length <= maxChars) return description;
+            string? criteria = JudgeAcceptanceWalk.FormatPinnedBlock(description);
+            if (criteria == null) return BuildBoundedDescription(description, maxChars, headChars, marker);
+
+            // Keep the complete contract before any elided context. A budget smaller than the contract
+            // cannot be met safely; retain the contract and let the brief budget report the excess.
+            const string contextHeading = "\n## Mission Context\n";
+            int contextBudget = maxChars - criteria.Length - marker.Length - contextHeading.Length;
+            if (contextBudget <= 0) return criteria + marker;
+            string bounded = BuildBoundedDescription(description, maxChars - criteria.Length - contextHeading.Length,
+                Math.Min(headChars, contextBudget / 3), marker);
+            return criteria + contextHeading + bounded;
+        }
+
         private static string BuildBoundedDescription(string description, int maxChars, int headChars, string marker)
         {
             int tailBudget = Math.Max(0, maxChars - marker.Length - headChars);
@@ -7096,7 +7101,7 @@ namespace Armada.Core.Services
                     int targetChars = Math.Max(_MinElidedModuleChars, currentChars - overBytes - 64);
 
                     string marker = "\n\n...(content elided to fit the captain brief budget; see the mission record)\n";
-                    string bounded = BuildBoundedDescription(moduleText, targetChars, _ElidedModuleHeadChars, marker);
+                    string bounded = BoundDescriptionWithCriteria(moduleText, targetChars, _ElidedModuleHeadChars, marker);
                     if (bounded.Length >= moduleText.Length) continue;
 
                     // Replace in the assembled content and in the ledger so both stay in lockstep.
@@ -7137,7 +7142,7 @@ namespace Armada.Core.Services
                 if (targetChars >= current.Length) break;
 
                 const string marker = "\n\n...(middle of the mission description elided to fit the captain brief budget; the full description is in the mission record)\n";
-                string shrunk = BuildBoundedDescription(current, targetChars, Math.Min(_MaxMetadataDescriptionHeadChars, targetChars / 3), marker);
+                string shrunk = BoundDescriptionWithCriteria(current, targetChars, Math.Min(_MaxMetadataDescriptionHeadChars, targetChars / 3), marker);
                 if (shrunk.Length >= current.Length) break;
 
                 string newMetadata = metadata.Replace(current, shrunk, StringComparison.Ordinal);

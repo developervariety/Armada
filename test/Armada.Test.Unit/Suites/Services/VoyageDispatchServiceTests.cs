@@ -176,6 +176,9 @@ namespace Armada.Test.Unit.Suites.Services
                         .EnumerateByTypeAsync("objective.preflight_overridden", 50).ConfigureAwait(false);
                     AssertTrue(events.Any(evt => evt.EntityId == objective.Id),
                         "the override must be recorded as objective.preflight_overridden");
+                    AssertTrue(events.Any(evt => evt.EntityId == objective.Id
+                        && evt.Message != null && evt.Message.Contains(", 14.")),
+                        "the recorded override must name blocking question 14");
                 }
             });
 

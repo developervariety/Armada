@@ -1015,7 +1015,7 @@ namespace Armada.Core.Services
                     "- `## Correctness`\n" +
                     "- `## Tests`\n" +
                     "- `## Failure Modes`\n" +
-                    "- `## Acceptance Criteria` (required when the brief lists criteria: one line per criterion, marked MET with file:line or command evidence, or NOT MET)\n" +
+                    "- `## Acceptance Criteria` (required when the brief lists criteria: one line per criterion copying its exact text, then MET with file:line or command: `...` evidence, or NOT MET)\n" +
                     "- `## Suggested Follow-ups`\n" +
                     "- `## Verdict`\n" +
                     "\n" +
