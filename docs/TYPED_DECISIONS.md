@@ -239,7 +239,9 @@ decision's own adapter, so it tests the exact state and questions production
 sends. A reference case pairs two variants that differ in one relevant fact and
 states the answer for each; a consistency case changes a fact that must not
 matter and requires the answers to agree. Operators run it with
-`armada_typed_decision_eval`; it also runs in the background whenever the
+`armada_typed_decision_eval`. The tool remains registered when no provider key
+is available; its cases then report unavailable. The switchable client forwards
+model observations after a key is added or replaced. Evaluation also runs in the background whenever the
 provider reports a model version that has not been evaluated
 (`typedDecisions.evalOnModelChange`, default `true`). Each run records one
 `typed_decision.eval` event with the model and each case's outcome. A failing

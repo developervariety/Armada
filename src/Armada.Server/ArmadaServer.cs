@@ -308,7 +308,7 @@ namespace Armada.Server
 
             // The synthetic evaluation set runs against the live client only: on operator request, and
             // in the background whenever the provider reports a model version not yet evaluated.
-            if (_TypedDecisionClient is TypeSafeDecisionClient typeSafeClient)
+            if (_TypedDecisionClient is SwitchableTypedDecisionClient typeSafeClient)
             {
                 _TypedDecisionEval = new TypedDecisionEvalService(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Database, _Logging);

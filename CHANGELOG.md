@@ -16,6 +16,9 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Restore the operator evaluation tool and model-version observation when the
+  provider client switches between a stored key and the unavailable fallback.
+
 - Judge acceptance walks match each criterion once and require file:line or command evidence.
   Missing, duplicate, and unrelated claims cannot satisfy the review gate. Metadata and total
   brief-budget trimming preserve the complete acceptance block before trimming context.

@@ -43,6 +43,13 @@ namespace Armada.Core.Services
 
         #region Public-Members
 
+        /// <summary>Observe provider model versions across key changes without replacing the client.</summary>
+        public Action<string>? ModelObserved
+        {
+            get => _Live.ModelObserved;
+            set => _Live.ModelObserved = value;
+        }
+
         /// <summary>The client a call made now would use: the provider client with a key, the null client without.</summary>
         public ITypedDecisionClient Current => _Keys.HasKey(_Settings, out string? _) ? _Live : _Null;
 

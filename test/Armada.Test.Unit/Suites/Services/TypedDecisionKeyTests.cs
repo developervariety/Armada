@@ -54,9 +54,101 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        private sealed class ModelHandler : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"model\":\"test-model-version\",\"answers\":{\"ready\":{\"type\":\"noul\",\"noul\":0.9,\"confidence\":0.9}}}")
+                });
+            }
+        }
+
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("A running server registers the evaluation tool with a switchable client", async () =>
+            {
+                string data = TempDataDirectory();
+                int FreePort()
+                {
+                    System.Net.Sockets.TcpListener listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+                    listener.Start();
+                    int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                    listener.Stop();
+                    return port;
+                }
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    DataDirectory = data,
+                    DatabasePath = Path.Combine(data, "armada.db"),
+                    Database = new DatabaseSettings { Type = DatabaseTypeEnum.Sqlite, Filename = Path.Combine(data, "armada.db") },
+                    LogDirectory = Path.Combine(data, "logs"),
+                    DocksDirectory = Path.Combine(data, "docks"),
+                    ReposDirectory = Path.Combine(data, "repos"),
+                    AdmiralPort = FreePort(), McpPort = FreePort(),
+                    ApiKey = "test-key-" + Guid.NewGuid().ToString("N"),
+                    HeartbeatIntervalSeconds = 300
+                };
+                settings.Rest.Hostname = "127.0.0.1";
+                settings.AutonomousObjectiveScheduler.Enabled = false;
+                settings.TypedDecisions.Mode = TypedDecisionModeEnum.Off;
+                settings.SettingsFilePath = Path.Combine(data, "settings.json");
+                settings.InitializeDirectories();
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                Armada.Server.ArmadaServer server = new Armada.Server.ArmadaServer(logging, settings, quiet: true);
+                try
+                {
+                    await server.StartAsync();
+                    using HttpClient http = new HttpClient();
+                    using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "http://127.0.0.1:" + settings.McpPort + "/mcp");
+                    request.Headers.Add("Accept", "application/json, text/event-stream");
+                    request.Headers.Add("X-Api-Key", settings.ApiKey);
+                    request.Content = new StringContent("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}", System.Text.Encoding.UTF8, "application/json");
+                    using HttpResponseMessage response = await http.SendAsync(request);
+                    string body = await response.Content.ReadAsStringAsync();
+                    AssertTrue(response.IsSuccessStatusCode, "tool listing must succeed");
+                    AssertContains("armada_typed_decision_eval", body, "manual evaluation stays available with the switchable client, even without provider calls");
+                }
+                finally
+                {
+                    server.Stop();
+                    try { Directory.Delete(data, true); } catch (IOException) { }
+                }
+            });
+
+            await RunTest("Model observations survive removing and restoring the provider key", async () =>
+            {
+                string data = TempDataDirectory();
+                try
+                {
+                    TypedDecisionKeyStore keys = new TypedDecisionKeyStore(data, _ => null);
+                    TypedDecisionSettings settings = Wire(keys);
+                    using HttpClient http = new HttpClient(new ModelHandler());
+                    SwitchableTypedDecisionClient client = new SwitchableTypedDecisionClient(settings, keys, new LoggingModule(), http);
+                    List<string> observed = new List<string>();
+                    client.ModelObserved = observed.Add;
+                    TypedDecisionRequest request = new TypedDecisionRequest
+                    {
+                        DecisionPoint = "captain_tool", State = "example state",
+                        Questions = new Dictionary<string, TypedQuestion> { ["ready"] = new NoulQuestion("Is it ready?", "ready", "not ready") }
+                    };
+                    AssertFalse((await client.DecideAsync(request, CancellationToken.None)).Available);
+                    AssertEqual(0, observed.Count);
+                    await keys.WriteKeyAsync(_FileKey);
+                    AssertTrue((await client.DecideAsync(request, CancellationToken.None)).Available);
+                    AssertEqual("test-model-version", observed.Single());
+                    keys.DeleteKeyFile();
+                    AssertFalse((await client.DecideAsync(request, CancellationToken.None)).Available);
+                    await keys.WriteKeyAsync(_FileKey);
+                    AssertTrue((await client.DecideAsync(request, CancellationToken.None)).Available);
+                    AssertEqual(2, observed.Count);
+                }
+                finally { Directory.Delete(data, true); }
+            });
+
             await RunTest("Without a key the effective mode is Off and the null client is used even with stored Gate", () =>
             {
                 string data = TempDataDirectory();
