@@ -315,6 +315,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission? reread = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
                     AssertEqual(resolvedStartCommit, reread!.StartFromRef, "the verified start commit survives a round trip through the database");
+                    List<ArmadaEvent> startEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.start_ref_resolved", 50).ConfigureAwait(false);
+                    AssertEqual(1, startEvents.Count, "only the root stage records its start ref");
+                    AssertEqual(worker.Id, startEvents[0].MissionId);
+                    AssertContains(resolvedStartCommit, startEvents[0].Message ?? String.Empty);
                     int voyageCountBeforeRefusal = (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count;
 
                     // An unresolvable ref is refused by name before any voyage row exists.

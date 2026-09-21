@@ -39,6 +39,34 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run the suite.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Objective start ref is inherited through standard and alias dispatch", async () =>
+            {
+                foreach (bool aliases in new[] { false, true })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                        Objective objective = await CreateObjectiveAsync(testDb, "Continue accepted work", ObjectiveKindEnum.Feature).ConfigureAwait(false);
+                        objective.StartFromRef = "recover/accepted";
+                        await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                        harness.Git.RevisionCommitShaResult = new string('a', 40);
+                        VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                        {
+                            Title = "Continue", VesselId = harness.Vessel.Id, CodeContextMode = "off",
+                            ObjectiveId = objective.Id, ObjectiveAuthContext = McpTestCaller.Operator,
+                            Missions = new List<MissionDescription>
+                            {
+                                new MissionDescription("Root", "Continue accepted work") { Alias = aliases ? "root" : null }
+                            }
+                        }).ConfigureAwait(false);
+                        AssertTrue(result.Succeeded, JsonSerializer.Serialize(result.Value));
+                        List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
+                        AssertEqual(new string('a', 40), created.Single().StartFromRef, "objective ref reaches root in both transports");
+                        AssertContains(new string('a', 40), JsonSerializer.Serialize(result.Value));
+                    }
+                }
+            });
+
             await RunTest("FromObjectiveKind: Research is read-only, every other Kind is the Implementation default", () =>
             {
                 AssertEqual("Research", MissionModes.FromObjectiveKind(ObjectiveKindEnum.Research),
@@ -637,6 +665,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             public LoggingModule Logging { get; private set; } = null!;
             public ArmadaSettings Settings { get; private set; } = null!;
+            public StubGitService Git { get; private set; } = null!;
             public AdmiralService Admiral { get; private set; } = null!;
             public ObjectiveService Objectives { get; private set; } = null!;
             public Vessel Vessel { get; private set; } = null!;
@@ -661,7 +690,7 @@ namespace Armada.Test.Unit.Suites.Services
                 captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
                 IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                 IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
-                AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+                AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService, git: git);
 
                 Vessel vessel = new Vessel("mode-vessel", "https://github.com/test/repo.git")
                 {
@@ -678,6 +707,7 @@ namespace Armada.Test.Unit.Suites.Services
                 harness.Logging = logging;
                 harness.Settings = settings;
                 harness.Admiral = admiral;
+                harness.Git = git;
                 harness.Objectives = new ObjectiveService(testDb.Driver, logging);
                 harness.Vessel = vessel;
                 return harness;

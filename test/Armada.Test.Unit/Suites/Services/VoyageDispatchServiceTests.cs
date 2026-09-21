@@ -609,6 +609,33 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("McpDispatch_ExposesAndEchoesMissionStartRef", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("start-ref-schema", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    string schema = String.Empty;
+                    McpVoyageTools.Register((name, _, input, action) =>
+                    {
+                        if (name != "armada_dispatch") return;
+                        schema = JsonSerializer.Serialize(input);
+                        handler = McpTestCaller.Wrap(action);
+                    }, testDb.Driver, admiral);
+                    AssertContains("startFromRef", schema);
+                    const string start = "abcdef0123456789abcdef0123456789abcdef01";
+                    object response = await handler!(JsonSerializer.SerializeToElement(new
+                    {
+                        title = "Explicit start", vesselId = vessel.Id, codeContextMode = "off",
+                        missions = new[] { new { title = "Continue", description = "Continue accepted work", startFromRef = start } }
+                    })).ConfigureAwait(false);
+                    AssertEqual(start, admiral.CreatedMissions.Single().StartFromRef);
+                    AssertContains(start, JsonSerializer.Serialize(response));
+                    AssertContains(admiral.CreatedMissions.Single().Id, JsonSerializer.Serialize(response));
+                }
+            });
+
             await RunTest("McpDispatch_StandardRequest_StillCreatesVoyageThroughSharedService", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2207,6 +2234,7 @@ namespace Armada.Test.Unit.Suites.Services
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
                     mission.PreferredModel = md.PreferredModel;
+                    mission.StartFromRef = md.StartFromRef;
                     mission.DependsOnMissionId = md.DependsOnMissionId;
                     mission.PrestagedFiles = md.PrestagedFiles;
                     mission.SelectedPlaybooks = md.SelectedPlaybooks ?? new List<SelectedPlaybook>();
