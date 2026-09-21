@@ -121,12 +121,28 @@ byte count and never the state, and nothing extra leaves the host.
 - **Where it is kept.** JSON lines under
   `<data directory>/typed-decision-samples/<decision>/<date>.jsonl`. A line holds
   the redacted state, its hash, the rule's verdict, the model's verdict and
-  confidence, the gate outcome, and the mission id. A file store, because the set
+  confidence, the gate outcome, and the mission id. New answered calls also keep
+  the returned model version, every answer and distribution, and request provenance.
+  Provenance version 1 contains redacted provider-format question JSON, its hash,
+  the original wire-question hash, and the complete request-body hash. The body
+  and credentials are not retained. The question JSON covers the whole packed
+  request; `batch_size` and zero-based `batch_item_index` identify the local item.
+  An unwrapped request has a null index. Reconstructing a complete batch requires
+  every retained item for that request; a lone item and hash do not restore missing
+  sibling state. Events contain these hashes and the item
+  index, never question text. Legacy or skipped calls have no provenance; a
+  missing definition must not be filled from today's questions. Question
+  redaction can change a retained definition; the separate wire hash makes that
+  distinction explicit. A file store, because the set
   is written once and read in bulk by a trainer, and a retention window is a file
   delete.
 - **`retentionDays`** (default 90) bounds it; files outside the window are deleted
   at startup. **`minimumSamplesPerDecision`** (default 200) decides when a
-  decision is reported as trainable.
+  decision reaches the sample-count minimum. This count alone does not establish
+  independent labels, compatible question/model cohorts, or a held-out test set;
+  all three are needed before training or threshold selection. The report exposes
+  `MinimumSampleCountMet` separately. `Trainable` stays false because a count-only
+  store cannot verify those requirements.
 - **Labels come from reversals.** `armada_typed_decision_reversal` records that a
   gated outcome was wrong and writes the corrected answer beside the call, joined
   by the state hash. That pair — what the rule said, what the model said, what a

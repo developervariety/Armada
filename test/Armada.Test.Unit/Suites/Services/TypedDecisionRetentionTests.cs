@@ -97,6 +97,54 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Retention preserves request provenance and distributions without event question text", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string dataDirectory = NewTempDir("provenance");
+                    try
+                    {
+                        ArmadaSettings settings = RetainingSettings("failure_cause");
+                        TypedDecisionSampleStore store = new TypedDecisionSampleStore(dataDirectory, new LoggingModule());
+                        TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule(), store, () => settings.TypedDecisions);
+                        TypedDecisionEventContext context = new TypedDecisionEventContext
+                        {
+                            DecisionPoint = "failure_cause", RuleVerdict = "Infra", RedactedState = "fixture",
+                            Result = new TypedDecisionResult
+                            {
+                                Available = true, Model = "jev-1.13.0", BatchSize = 2,
+                                Provenance = new TypedDecisionProvenance
+                                {
+                                    QuestionsJson = "{\"q\":{\"instructions\":\"QUESTION-SENTINEL\"}}",
+                                    QuestionsSha256 = "redacted-hash", WireQuestionsSha256 = "wire-hash",
+                                    RequestSha256 = "request-hash", BatchItemIndex = 1
+                                },
+                                Answers = new Dictionary<string, TypedAnswer>
+                                {
+                                    ["cause"] = new TypedAnswer
+                                    {
+                                        Type = "choice", Choice = "provider", Confidence = 0.6,
+                                        Probabilities = new Dictionary<string, double> { ["provider"] = 0.8, ["unclear"] = 0.2 }
+                                    }
+                                }
+                            }
+                        };
+                        ArmadaEvent? evt = await recorder.RecordGatedAsync(context, default).ConfigureAwait(false);
+                        TypedDecisionSample sample = ReadSamples(store, "failure_cause").Single();
+                        AssertEqual("jev-1.13.0", sample.Model);
+                        AssertEqual(2, sample.BatchSize);
+                        AssertEqual(1, sample.Provenance!.BatchItemIndex);
+                        AssertContains("QUESTION-SENTINEL", sample.Provenance.QuestionsJson);
+                        AssertEqual(0.8, sample.Answers!["cause"].Probabilities!["provider"]);
+                        AssertEqual(0.6, sample.Answers["cause"].Confidence);
+                        AssertContains("wire-hash", evt!.Payload!);
+                        AssertContains("request-hash", evt.Payload!);
+                        AssertFalse(evt.Payload!.Contains("QUESTION-SENTINEL", StringComparison.Ordinal));
+                    }
+                    finally { SafeDelete(dataDirectory); }
+                }
+            });
+
             await RunTest("A retained call keeps the redacted state in the store and out of the event", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -235,8 +283,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                         await recorder.RecordGatedAsync(Context("failure_cause", "state 3"), default).ConfigureAwait(false);
                         List<TypedDecisionSampleCount> atMinimum = store.Summarize(3);
-                        AssertTrue(atMinimum[0].Trainable, "three samples reaches the minimum");
-                        AssertTrue(atMinimum[0].NotTrainableReason == null, "a trainable decision has no reason");
+                        AssertTrue(atMinimum[0].MinimumSampleCountMet, "three samples reaches the raw count minimum");
+                        AssertFalse(atMinimum[0].Trainable, "teacher samples alone cannot establish training readiness");
+                        AssertContains("independent labels", atMinimum[0].NotTrainableReason ?? "");
                     }
                     finally { SafeDelete(dataDirectory); }
                 }

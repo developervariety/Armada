@@ -649,7 +649,18 @@ optional `missionId`. Empty slots are dropped. At most 32 items. Returns
 `{ available, answers, items, ranked, expectedCount, best, model }`: each
 item carries its `noul`, `ranked` is highest noul first, and `expectedCount` is
 the sum of the noul values. The tools gate nothing; the captain weighs the
-answers. Same unavailable reasons as `armada_typed_decision`.
+answers. Same unavailable reasons as `armada_typed_decision`. When `pick` is
+set, item IDs must be unique and cannot be `none` or `unclear`; an invalid
+list returns `invalid` before a provider call.
+
+For evidence review, pass a short list of source excerpts or trace steps as
+`items`, each with a stable local ID such as `evidence_0`. Include the claim
+in `claim`, for example, “This excerpt supports the claim that the retry uses
+the same commit.” Use `pick` to select the strongest supporting excerpt.
+Resolve the returned ID against the original list and read that evidence.
+A selected ID is a review pointer, not proof of the claim. `none` and `unclear`
+remain valid outcomes. Retrieval must keep the evidence needed to decide;
+Jev cannot select an excerpt that the caller omitted.
 
 ### armada_check_premise
 

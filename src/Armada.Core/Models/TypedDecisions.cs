@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
 
     /// <summary>
     /// A single typed-decision request sent to the typed-decision client (TypeSafe Jev). The
@@ -69,6 +70,10 @@ namespace Armada.Core.Models
         /// Whether the model produced a usable answer. False means the caller must use its rule.
         /// </summary>
         public bool Available { get; init; }
+
+        /// <summary>Host-local request provenance; excluded from tool/API result serialization.</summary>
+        [JsonIgnore]
+        public TypedDecisionProvenance? Provenance { get; init; }
 
         /// <summary>
         /// When unavailable, the reason: <c>disabled</c>, <c>timeout</c>, <c>http_429</c>,

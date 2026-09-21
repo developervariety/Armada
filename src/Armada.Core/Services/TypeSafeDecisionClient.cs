@@ -7,8 +7,10 @@ namespace Armada.Core.Services
     using System.Linq;
     using System.Net.Http;
     using System.Net.Http.Headers;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
@@ -110,8 +112,10 @@ namespace Armada.Core.Services
                 string? apiKey = ResolveApiKey();
                 if (!String.IsNullOrWhiteSpace(apiKey))
                     message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                string requestJson = JsonSerializer.Serialize(payload, _JsonOptions);
+                TypedDecisionProvenance? provenance = CaptureProvenance(payload, requestJson);
                 message.Content = new StringContent(
-                    JsonSerializer.Serialize(payload, _JsonOptions),
+                    requestJson,
                     Encoding.UTF8,
                     "application/json");
 
@@ -133,7 +137,7 @@ namespace Armada.Core.Services
                     return Unavailable("parse", stopwatch.ElapsedMilliseconds);
                 }
 
-                TypedDecisionResult built = BuildResult(parsed, request, stopwatch.ElapsedMilliseconds);
+                TypedDecisionResult built = BuildResult(parsed, request, stopwatch.ElapsedMilliseconds, provenance);
                 NotifyModelObserved(built.Model);
                 return built;
             }
@@ -319,7 +323,33 @@ namespace Armada.Core.Services
             }
         }
 
-        private static TypedDecisionResult BuildResult(WireResponse parsed, TypedDecisionRequest request, long latencyMs)
+        private static TypedDecisionProvenance? CaptureProvenance(WireRequest payload, string requestJson)
+        {
+            // Evidence collection is best effort and cannot turn a valid decision into a failure.
+            try
+            {
+                string wireQuestions = JsonSerializer.Serialize(payload.Questions, _JsonOptions);
+                string retainedQuestions = DecisionStateRedactor.RedactState(JsonNode.Parse(wireQuestions), Int32.MaxValue).Text;
+                return new TypedDecisionProvenance
+                {
+                    QuestionsJson = retainedQuestions,
+                    QuestionsSha256 = Hash(retainedQuestions),
+                    WireQuestionsSha256 = Hash(wireQuestions),
+                    RequestSha256 = Hash(requestJson)
+                };
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static string Hash(string text)
+        {
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
+        }
+
+        private static TypedDecisionResult BuildResult(WireResponse parsed, TypedDecisionRequest request, long latencyMs, TypedDecisionProvenance? provenance)
         {
             if (!ValidAnswers(parsed.Answers, request.Questions))
             {
@@ -327,6 +357,7 @@ namespace Armada.Core.Services
                 {
                     Available = false,
                     UnavailableReason = "response_validation",
+                    Provenance = provenance,
                     Model = parsed.Model,
                     InputTokens = parsed.Usage?.InputTokens ?? 0,
                     OutputTokens = parsed.Usage?.OutputTokens ?? 0,
@@ -358,6 +389,7 @@ namespace Armada.Core.Services
                 Available = true,
                 UnavailableReason = null,
                 Answers = answers,
+                Provenance = provenance,
                 Model = parsed.Model,
                 InputTokens = parsed.Usage?.InputTokens ?? 0,
                 OutputTokens = parsed.Usage?.OutputTokens ?? 0,

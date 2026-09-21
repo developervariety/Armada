@@ -10,7 +10,9 @@ upstream integrations and excludes changes already present at that baseline.
 - **Typed decisions:** provider-neutral closed-question classification behind
   deterministic rules; conservative Gate behavior, key-based availability,
   redaction and egress exclusions, custom decisions, evaluation on model changes,
-  host-local retained samples, redactor-version cohorts, and operator reversals.
+  host-local retained samples with redacted question definitions, request hashes,
+  returned model versions and answer distributions; redactor-version cohorts and
+  operator reversals. Sample counts are separate from verified training readiness.
   Captain tools provide premise, prior-art, change-quality, memory, and per-item
   readings. Operator tools report evaluations and route findings for review.
 - **Native captain memory:** scoped episodic, semantic, and procedural records,

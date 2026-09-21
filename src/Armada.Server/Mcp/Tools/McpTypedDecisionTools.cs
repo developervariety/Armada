@@ -719,7 +719,14 @@ namespace Armada.Server.Mcp.Tools
             {
                 Dictionary<string, string> options = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (ScoreItem item in items)
-                    options[item.Id] = "This item is the best match: " + item.Id;
+                {
+                    // A choice must identify exactly one real item. Reserved fallbacks and duplicate
+                    // ids otherwise silently replace an option and make evidence pointers ambiguous.
+                    if (String.Equals(item.Id, "none", StringComparison.Ordinal)
+                        || String.Equals(item.Id, "unclear", StringComparison.Ordinal)
+                        || !options.TryAdd(item.Id, "This item is the best match: " + item.Id))
+                        return null;
+                }
                 options["none"] = "None of the listed items match.";
                 options["unclear"] = "The best match cannot be determined from the listed items.";
                 questions["best"] = new ChoiceQuestion(pick.Trim(), options);

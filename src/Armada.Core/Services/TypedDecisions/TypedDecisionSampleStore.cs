@@ -10,6 +10,7 @@ namespace Armada.Core.Services.TypedDecisions
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Settings;
+    using Armada.Core.Models;
     using SyslogLogging;
 
     /// <summary>
@@ -166,11 +167,11 @@ namespace Armada.Core.Services.TypedDecisions
         }
 
         /// <summary>
-        /// Count what has been retained, per decision. The report names every decision that has
-        /// samples and says whether it has enough labelled examples to train on, so a decision short
-        /// of the minimum is reported as not trainable rather than silently skipped.
+        /// Count retained calls per decision and redactor version. The report names decisions below
+        /// the sample minimum but does not certify labels, question cohorts, or a held-out set.
+        /// Raw teacher sample counts cannot establish training readiness.
         /// </summary>
-        /// <param name="minimumSamples">The minimum samples a decision needs to be trainable.</param>
+        /// <param name="minimumSamples">The configured sample-count minimum, not proof of trainability.</param>
         /// <returns>One entry per decision with samples, ordered by decision point.</returns>
         public List<TypedDecisionSampleCount> Summarize(int minimumSamples)
         {
@@ -204,10 +205,13 @@ namespace Armada.Core.Services.TypedDecisions
                     count.MinimumSamples = minimumSamples;
                     // Only samples redacted under the running rules train together; an older cohort is
                     // reported beside them, never counted towards the minimum.
-                    count.Trainable = count.CurrentSamples >= minimumSamples;
+                    count.MinimumSampleCountMet = count.CurrentSamples >= minimumSamples;
+                    // Retained teacher answers and a raw sample count are not independently reviewed
+                    // labels or a frozen held-out set. This store cannot certify training readiness.
+                    count.Trainable = false;
                     int older = count.Samples - count.CurrentSamples;
-                    count.NotTrainableReason = count.Trainable
-                        ? null
+                    count.NotTrainableReason = count.MinimumSampleCountMet
+                        ? "sample-count minimum met; independent labels, question/model cohorts, and a frozen held-out set have not been verified"
                         : "only " + count.CurrentSamples + " of " + minimumSamples + " samples retained under redactor version "
                           + DecisionStateRedactor.Version
                           + (older > 0 ? " (" + older + " more under older or unknown redaction rules do not count)" : String.Empty);
@@ -307,6 +311,18 @@ namespace Armada.Core.Services.TypedDecisions
         /// <summary>SHA-256 of the redacted state, so a reversal can be joined to its call.</summary>
         public string StateSha256 { get; set; } = String.Empty;
 
+        /// <summary>Redacted request evidence. Null on legacy, skipped, or unavailable calls.</summary>
+        public TypedDecisionProvenance? Provenance { get; set; }
+
+        /// <summary>The concrete model returned by the provider, not the configured alias.</summary>
+        public string? Model { get; set; }
+
+        /// <summary>All typed answers and distributions; model readings are not verified labels.</summary>
+        public IReadOnlyDictionary<string, TypedAnswer>? Answers { get; set; }
+
+        /// <summary>How many items shared the request; one for an unwrapped call.</summary>
+        public int BatchSize { get; set; } = 1;
+
         /// <summary>What the deterministic rule decided.</summary>
         public string? RuleVerdict { get; set; }
 
@@ -351,7 +367,10 @@ namespace Armada.Core.Services.TypedDecisions
         /// <summary>The minimum samples configured for trainability.</summary>
         public int MinimumSamples { get; set; }
 
-        /// <summary>Whether the decision has at least the minimum samples.</summary>
+        /// <summary>Whether the raw current-redactor sample count reaches the configured minimum.</summary>
+        public bool MinimumSampleCountMet { get; set; }
+
+        /// <summary>Whether training readiness is proved; this count-only store cannot prove it.</summary>
         public bool Trainable { get; set; }
 
         /// <summary>Why the decision is not trainable, when it is not.</summary>

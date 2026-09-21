@@ -33,6 +33,20 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, results.Count, "each item still gets its answer");
             });
 
+            await RunTest("Batch provenance preserves shared request and each item's index", async () =>
+            {
+                EchoClient client = new EchoClient();
+                List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(client, "fixture",
+                    new List<TypedDecisionBatchItem> { Item("first", 1), Item("second", 1) }, 8000, default).ConfigureAwait(false);
+                AssertEqual(0, results[0].Provenance!.BatchItemIndex);
+                AssertEqual(1, results[1].Provenance!.BatchItemIndex);
+                AssertEqual(results[0].Provenance.RequestSha256, results[1].Provenance.RequestSha256);
+                AssertEqual(results[0].Provenance.QuestionsJson, results[1].Provenance.QuestionsJson);
+                List<TypedDecisionResult> single = await TypedDecisionBatcher.DecideAllAsync(client, "fixture",
+                    new List<TypedDecisionBatchItem> { Item("single", 1) }, 8000, default).ConfigureAwait(false);
+                AssertNull(single[0].Provenance!.BatchItemIndex);
+            });
+
             await RunTest("QuestionChars_CountsInstructionsAndEveryOption", () =>
             {
                 Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
@@ -209,6 +223,11 @@ namespace Armada.Test.Unit.Suites.Services
                     Available = true,
                     Answers = answers,
                     Model = "jev-test",
+                    Provenance = new TypedDecisionProvenance
+                    {
+                        QuestionsJson = "{}", QuestionsSha256 = "question-hash",
+                        WireQuestionsSha256 = "wire-hash", RequestSha256 = "request-hash"
+                    },
                     InputTokens = InputTokens,
                     OutputTokens = OutputTokens
                 });

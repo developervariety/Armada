@@ -5,6 +5,9 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Net;
     using System.Net.Http;
     using System.Text;
+    using System.Security.Cryptography;
+    using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
@@ -95,6 +98,41 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("choice", body.Questions["cause"].Type);
                 AssertEqual("Pick the cause", body.Questions["cause"].Instructions);
                 AssertEqual("noul", body.Questions["repeat_likely"].Type);
+            });
+
+            await RunTest("Provenance hashes sent questions and retains only redacted definitions", async () =>
+            {
+                string fixtureKey = "sk-" + "fixture-secret";
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.OK,
+                    "{\"model\":\"jev-1.13.0\",\"answers\":{\"q\":{\"type\":\"noul\",\"noul\":0.8}}}");
+                using (HttpClient http = new HttpClient(handler))
+                {
+                    TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+                    TypedDecisionRequest request = new TypedDecisionRequest
+                    {
+                        DecisionPoint = "captain_tool",
+                        State = "fixture",
+                        Questions = new Dictionary<string, TypedQuestion>
+                        {
+                            ["q"] = new NoulQuestion("QUESTION-SENTINEL " + fixtureKey, "supported", "unsupported")
+                        }
+                    };
+                    TypedDecisionResult result = await client.DecideAsync(request, CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(result.Available);
+                    AssertNotNull(result.Provenance);
+                    TypedDecisionProvenance provenance = result.Provenance!;
+                    JsonObject sent = JsonSerializer.Deserialize<JsonObject>(handler.LastRequestBody!)!;
+                    string wireQuestions = sent["questions"]!.ToJsonString();
+                    AssertEqual(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(wireQuestions))).ToLowerInvariant(), provenance.WireQuestionsSha256);
+                    AssertEqual(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(handler.LastRequestBody!))).ToLowerInvariant(), provenance.RequestSha256);
+                    AssertFalse(provenance.QuestionsJson.Contains(fixtureKey, StringComparison.Ordinal));
+                    AssertContains("QUESTION-SENTINEL", provenance.QuestionsJson);
+                    AssertContains("supported", provenance.QuestionsJson);
+                    AssertContains("unsupported", provenance.QuestionsJson);
+                    AssertEqual("jev-1.13.0", result.Model);
+                    AssertFalse(JsonSerializer.Serialize(result).Contains("QUESTION-SENTINEL", StringComparison.Ordinal),
+                        "tool/API serialization must not include host-local question definitions");
+                }
             });
 
             await RunTest("DecideAsync_ScoreAnswerWithLegendObject_ParsesAndReportsModel", async () =>

@@ -151,6 +151,25 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Item selection rejects duplicate and reserved evidence ids before egress", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    foreach (string id in new[] { "evidence_0", "none", "unclear" })
+                    {
+                        FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                        Harness harness = Harness.Create(testDb, client, enabled: true);
+                        string response = await harness.CallAsync("armada_score_items", new
+                        {
+                            claim = "This excerpt supports the claim.", pick = "Which excerpt supports the claim best?",
+                            items = new[] { new { id = "evidence_0", text = "first excerpt" }, new { id, text = "second excerpt" } }
+                        }).ConfigureAwait(false);
+                        AssertContains("invalid", response);
+                        AssertEqual(0, client.CallCount, "ambiguous evidence ids must not reach the provider");
+                    }
+                }
+            });
+
             await RunTest("armada_score_items with no items is invalid and does not call the provider", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

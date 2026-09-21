@@ -266,6 +266,10 @@ namespace Armada.Core.Services
                 Available = true,
                 Answers = answers,
                 Model = shared.Model,
+                Provenance = shared.Provenance == null ? null : shared.Provenance with
+                {
+                    BatchItemIndex = size == 1 ? null : offset
+                },
                 InputTokens = Share(shared.InputTokens, offset, size),
                 OutputTokens = Share(shared.OutputTokens, offset, size),
                 LatencyMs = shared.LatencyMs,
