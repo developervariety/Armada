@@ -1059,6 +1059,21 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNotNull(child, "detached child should start");
                         SpinWait.SpinUntil(() => DockPathOccupants.ListPids(dock.WorktreePath!).Contains(child!.Id), 2000);
 
+                        captain.State = CaptainStateEnum.Working;
+                        captain.CurrentDockId = dock.Id;
+                        await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                        Captain next = await testDb.Driver.Captains.CreateAsync(new Captain("next-stage")).ConfigureAwait(false);
+                        string failure = String.Empty;
+                        try
+                        {
+                            await service.ProvisionAsync(vessel, next, "armada/captain-orphan/msn_one", "msn_next").ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex) { failure = ex.Message; }
+                        AssertContains("dock_worktree_held:", failure);
+                        AssertContains(dock.WorktreePath!, failure);
+                        AssertContains(child!.Id.ToString(), failure);
+                        AssertFalse(child.HasExited, "a live owner's process must not be killed");
+
                         captain.State = CaptainStateEnum.Idle;
                         captain.CurrentDockId = null;
                         captain.CurrentMissionId = null;
