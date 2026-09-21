@@ -2439,8 +2439,10 @@ namespace Armada.Core.Services
 
                 if (await IsHolderPathInLiveUseAsync(vessel.Id, holder, token).ConfigureAwait(false))
                 {
+                    List<int> livePids = DockPathOccupants.ListPids(holder);
                     throw new InvalidOperationException(
                         "dock_worktree_held: branch " + branchName + " is held by a live dock at " + holder
+                        + (livePids.Count > 0 ? " (pids " + String.Join(",", livePids) + ")" : " (no process occupant found)")
                         + ". Git reported: " + ex.Message,
                         ex);
                 }

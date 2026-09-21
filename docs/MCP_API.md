@@ -907,3 +907,14 @@ Legacy Routing order, a verdict per captain naming the layer that decided it
 (eligibility, routes, or usage), model groups, capacity reading, and chosen
 captain for a saved or draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
+
+### Dispatch starting commits
+
+`armada_dispatch` accepts `missions[].startFromRef` (branch, tag, or commit).
+An omitted value inherits the linked objective's `StartFromRef`; an explicit
+mission value takes precedence. This also applies to mission-alias dispatch.
+The root mission pins the resolved commit; dependent stages continue their
+predecessor's branch. The response preserves the voyage fields and adds
+`MissionStartRefs`, with `MissionId` and `StartFromRef` for each mission.
+`mission.start_ref_resolved` records each root's verified commit. A missing
+reference fails with `start_from_ref_missing`; it never falls back to main.

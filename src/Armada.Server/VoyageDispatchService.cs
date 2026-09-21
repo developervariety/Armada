@@ -431,7 +431,8 @@ namespace Armada.Server
             await WarnOnCoordinationClaimConflictsAsync(voyage, dispatchVessel, request.ObjectiveId, token).ConfigureAwait(false);
 
             LogDispatchInfo("dispatch complete voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds);
-            return VoyageDispatchResult.Success(voyage);
+            return VoyageDispatchResult.Success(new VoyageDispatchResponse(voyage,
+                await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false)));
         }
 
         /// <summary>
@@ -1484,6 +1485,7 @@ namespace Armada.Server
                     mission.Mode = Armada.Core.Enums.MissionModes.Parse(md.Mode);
                     mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     mission.DependsOnMissionId = externalDep;
+                    if (String.IsNullOrEmpty(externalDep)) mission.StartFromRef = md.StartFromRef;
 
                     mission = await _Admiral.DispatchMissionQueuedAsync(mission).ConfigureAwait(false);
 
@@ -1543,6 +1545,7 @@ namespace Armada.Server
 
                         if (isFirstChainMission)
                         {
+                            if (String.IsNullOrEmpty(externalDep)) stageMission.StartFromRef = md.StartFromRef;
                             stageMission = await _Admiral.DispatchMissionQueuedAsync(stageMission).ConfigureAwait(false);
                             if (stageMission.Status == MissionStatusEnum.Assigned || stageMission.Status == MissionStatusEnum.InProgress)
                                 anyAssigned = true;

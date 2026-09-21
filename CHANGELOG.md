@@ -16,6 +16,11 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Preserve objective and explicit start refs through alias dispatch; advertise
+  the MCP field, echo persisted mission start commits, and record resolution events.
+- Include detected process IDs when a live dock blocks a branch handoff; verify
+  persistent dock collisions fail visibly after one retry.
+
 - Use out-of-range process IDs for dead-process test fixtures and serialize the
   key-client suite that starts an in-process server.
 

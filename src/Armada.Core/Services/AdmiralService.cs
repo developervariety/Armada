@@ -291,6 +291,7 @@ namespace Armada.Core.Services
                     mission.StartFromRef = NormalizeStartFromRef(md.StartFromRef);
                 mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                 mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                await RecordStartRefAsync(mission, token).ConfigureAwait(false);
                 List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
                     voyage.SelectedPlaybooks,
                     md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
@@ -472,6 +473,7 @@ namespace Armada.Core.Services
 
                         mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                         mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                        await RecordStartRefAsync(mission, token).ConfigureAwait(false);
                         List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
                             voyage.SelectedPlaybooks,
                             md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
@@ -592,8 +594,11 @@ namespace Armada.Core.Services
                     mission.Mode = MissionModes.Parse(md.Mode);
                     if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                         mission.DependsOnMissionId = md.DependsOnMissionId;
+                    else
+                        mission.StartFromRef = NormalizeStartFromRef(md.StartFromRef);
 
                     mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                    await RecordStartRefAsync(mission, token).ConfigureAwait(false);
                     List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
                         voyage.SelectedPlaybooks,
                         md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
@@ -650,6 +655,7 @@ namespace Armada.Core.Services
                                 mission.StartFromRef = NormalizeStartFromRef(md.StartFromRef);
 
                             mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                            await RecordStartRefAsync(mission, token).ConfigureAwait(false);
                             List<SelectedPlaybook> perMissionPlaybooks = PlaybookMerge.MergeWithVesselDefaults(
                                 voyage.SelectedPlaybooks,
                                 md.SelectedPlaybooks ?? new List<SelectedPlaybook>());
@@ -722,6 +728,16 @@ namespace Armada.Core.Services
                 : await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
             if (!String.IsNullOrWhiteSpace(mission.VesselId) && capacityVessel == null)
                 throw new InvalidOperationException("Vessel not found: " + mission.VesselId);
+            if (capacityVessel != null && !String.IsNullOrWhiteSpace(mission.StartFromRef))
+            {
+                MissionDescription start = new MissionDescription(mission.Title, mission.Description ?? String.Empty)
+                {
+                    StartFromRef = mission.StartFromRef,
+                    DependsOnMissionId = mission.DependsOnMissionId
+                };
+                await ValidateStartFromRefsOrThrowAsync(capacityVessel, new List<MissionDescription> { start }, token).ConfigureAwait(false);
+                mission.StartFromRef = String.IsNullOrEmpty(mission.DependsOnMissionId) ? start.StartFromRef : null;
+            }
             await using FleetCapacityReservation? capacityAdmission = capacityVessel == null
                 ? null
                 : await _FleetCapacityAdmission.AcquireAsync(capacityVessel, mission.VoyageId, token).ConfigureAwait(false);
@@ -730,6 +746,7 @@ namespace Armada.Core.Services
             try
             {
                 createdMission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                await RecordStartRefAsync(createdMission, token).ConfigureAwait(false);
                 await PersistMissionPlaybooksAsync(createdMission, createdMission.SelectedPlaybooks, token).ConfigureAwait(false);
                 if (capacityAdmission != null)
                     await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
@@ -788,6 +805,16 @@ namespace Armada.Core.Services
                 : await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
             if (!String.IsNullOrWhiteSpace(mission.VesselId) && capacityVessel == null)
                 throw new InvalidOperationException("Vessel not found: " + mission.VesselId);
+            if (capacityVessel != null && !String.IsNullOrWhiteSpace(mission.StartFromRef))
+            {
+                MissionDescription start = new MissionDescription(mission.Title, mission.Description ?? String.Empty)
+                {
+                    StartFromRef = mission.StartFromRef,
+                    DependsOnMissionId = mission.DependsOnMissionId
+                };
+                await ValidateStartFromRefsOrThrowAsync(capacityVessel, new List<MissionDescription> { start }, token).ConfigureAwait(false);
+                mission.StartFromRef = String.IsNullOrEmpty(mission.DependsOnMissionId) ? start.StartFromRef : null;
+            }
             await using FleetCapacityReservation? capacityAdmission = capacityVessel == null
                 ? null
                 : await _FleetCapacityAdmission.AcquireAsync(capacityVessel, mission.VoyageId, token).ConfigureAwait(false);
@@ -796,6 +823,7 @@ namespace Armada.Core.Services
             try
             {
                 createdMission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                await RecordStartRefAsync(createdMission, token).ConfigureAwait(false);
                 await PersistMissionPlaybooksAsync(createdMission, createdMission.SelectedPlaybooks, token).ConfigureAwait(false);
                 if (capacityAdmission != null)
                     await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
@@ -999,6 +1027,22 @@ namespace Armada.Core.Services
                         nameof(missionDescriptions));
                 }
             }
+        }
+
+        private async Task RecordStartRefAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(mission.StartFromRef)) return;
+            ArmadaEvent resolved = new ArmadaEvent("mission.start_ref_resolved", "Mission starts from verified commit " + mission.StartFromRef)
+            {
+                TenantId = mission.TenantId,
+                UserId = mission.UserId,
+                EntityType = "mission",
+                EntityId = mission.Id,
+                MissionId = mission.Id,
+                VesselId = mission.VesselId,
+                VoyageId = mission.VoyageId
+            };
+            await _Database.Events.CreateAsync(resolved, token).ConfigureAwait(false);
         }
 
         private static string? NormalizeStartFromRef(string? startFromRef)

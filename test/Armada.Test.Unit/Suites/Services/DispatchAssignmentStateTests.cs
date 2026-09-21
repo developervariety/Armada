@@ -342,6 +342,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Held dock failure remains visible and stops after one retry", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+                    HeldDockService heldDock = new HeldDockService(realDock);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, heldDock);
+                    int launches = 0;
+                    captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(12345); };
+                    IMissionService missions = new MissionService(logging, testDb.Driver, settings, heldDock, captains,
+                        resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("held-dock", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("held-dock-captain")).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Continue", "Reproduce a persistent dock collision")
+                    { VesselId = vessel.Id, Status = MissionStatusEnum.Pending }).ConfigureAwait(false);
+                    AssertFalse(await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false));
+                    Mission first = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Pending, first.Status);
+                    AssertContains("/tmp/holding-dock", first.FailureReason ?? String.Empty);
+                    AssertContains("pids 2147483647", first.FailureReason ?? String.Empty);
+                    AssertFalse(await missions.TryAssignAsync(first, vessel).ConfigureAwait(false));
+                    Mission last = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, last.Status);
+                    AssertContains("retry bound", last.FailureReason ?? String.Empty);
+                    AssertNotNull(last.CompletedUtc);
+                    AssertFalse(await missions.TryAssignAsync(last, vessel).ConfigureAwait(false));
+                    AssertEqual(2, heldDock.Calls, "terminal mission must never attempt a third provision");
+                    AssertEqual(0, launches);
+                    AssertEqual(CaptainStateEnum.Idle, (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!.State);
+                }
+            });
+
             await RunTest("Dispatch_DockProvisioningThrows_ShowsFailedThenRecoversOnRetry", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1747,6 +1782,40 @@ namespace Armada.Test.Unit.Suites.Services
             current!.Status = MissionStatusEnum.Cancelled;
             current.CompletedUtc = DateTime.UtcNow;
             await database.Missions.UpdateAsync(current).ConfigureAwait(false);
+        }
+
+        private sealed class HeldDockService : IDockService
+        {
+            private readonly IDockService _Inner;
+            public int Calls { get; private set; }
+
+            public HeldDockService(IDockService inner)
+            {
+                _Inner = inner;
+            }
+
+            public Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default) => Task.FromResult<string?>(null);
+
+            public Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
+            {
+                Calls++;
+                throw new InvalidOperationException("dock_worktree_held: branch held by worktree /tmp/holding-dock (pids 2147483647)");
+            }
+
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.ReclaimAsync(dockId, tenantId, token);
+
+            public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.RepairAsync(dockId, tenantId, token);
+
+            public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.UnstickAsync(dockId, tenantId, token);
+
+            public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.DeleteAsync(dockId, tenantId, token);
+
+            public Task PurgeAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+                => _Inner.PurgeAsync(dockId, tenantId, token);
         }
 
         private sealed class ThrowOnceThenSucceedDockService : IDockService

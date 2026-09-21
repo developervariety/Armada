@@ -41,3 +41,16 @@ profiles, environments, personas, pipelines, and their links.
 | 9 | [Complete MCP Tool Catalog](MCP_TOOL_CATALOG.md) (tracked) | Choosing a tool, or checking what a tool family does and its risk. |
 | 10 | [Safety Rules](ops/10-safety-rules.md) | Before any cancel, delete, purge, restore, rollback, or server stop. |
 | 11 | [Verification Checklist](ops/11-verification-checklist.md) | Before reporting completion of any objective or task. |
+
+## Verify a continuation base
+
+Set `StartFromRef` on the objective, or supply `missions[].startFromRef` at
+dispatch to override it. Check `MissionStartRefs` in the dispatch result and
+`mission.start_ref_resolved` in the event log against the accepted commit.
+Alias dispatch follows the same rule. Downstream stages use the predecessor
+branch and do not have a separate start reference.
+
+A dock collision reports the holding worktree and detected process IDs in
+the mission failure reason. A live owner is protected from reclamation. A
+second `dock_worktree_held` failure ends the mission with `retry bound`; the
+operator can inspect the reason without reading server logs.
