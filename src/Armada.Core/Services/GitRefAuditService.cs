@@ -19,6 +19,9 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
 
         /// <summary>Construct a collector for registered vessel repositories.</summary>
+        /// <param name="database">Event and entity store.</param>
+        /// <param name="settings">Repository locations.</param>
+        /// <param name="logging">Named audit failure reporting.</param>
         public GitRefAuditService(DatabaseDriver database, ArmadaSettings settings, LoggingModule logging)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -27,6 +30,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>Install the hook and collect a bounded batch from each existing repository.</summary>
+        /// <param name="token">Cancellation token.</param>
         public async Task SweepAsync(CancellationToken token = default)
         {
             foreach (Vessel vessel in await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false))
@@ -47,6 +51,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>Install without replacing an operator-owned hook; return the common Git directory.</summary>
+        /// <param name="repository">Registered repository or linked worktree.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The absolute common Git directory.</returns>
         public static async Task<string> InstallAsync(string repository, CancellationToken token = default)
         {
             string common = await GitAsync(repository, token, "rev-parse", "--path-format=absolute", "--git-common-dir").ConfigureAwait(false);
@@ -75,6 +82,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>Write mission attribution outside tracked worktree files.</summary>
+        /// <param name="worktree">Provisioned mission worktree.</param>
+        /// <param name="missionId">Mission identifier, when assigned.</param>
+        /// <param name="captainId">Assigned captain identifier.</param>
+        /// <param name="token">Cancellation token.</param>
         public static async Task SetContextAsync(string worktree, string? missionId, string captainId, CancellationToken token = default)
         {
             string gitDirectory = await GitAsync(worktree, token, "rev-parse", "--absolute-git-dir").ConfigureAwait(false);
@@ -89,12 +100,22 @@ namespace Armada.Core.Services
             foreach (string file in Directory.EnumerateFiles(spool, "*.ready").OrderBy(path => path, StringComparer.Ordinal).Take(200))
             {
                 token.ThrowIfCancellationRequested();
-                if (new FileInfo(file).Length > 16384)
-                    throw new InvalidDataException("ref_audit_record_too_large: " + Path.GetFileName(file));
+                FileInfo info = new FileInfo(file);
+                if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length > 16384)
+                {
+                    _Logging.Warn("[GitRefAuditService] ref_audit_record_rejected: " + info.Name);
+                    File.Move(file, file + ".rejected");
+                    continue;
+                }
                 string[] fields = (await File.ReadAllTextAsync(file, token).ConfigureAwait(false)).Split('\0');
                 if (fields.Length != 10 || fields[0] != "1" || !fields[3].StartsWith("refs/", StringComparison.Ordinal)
+                    || (fields[2].Length != 40 && fields[2].Length != 64) || !fields[2].All(Uri.IsHexDigit)
                     || !DateTime.TryParse(fields[1], CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out DateTime observed))
-                    throw new InvalidDataException("ref_audit_record_invalid: " + Path.GetFileName(file));
+                {
+                    _Logging.Warn("[GitRefAuditService] ref_audit_record_invalid: " + info.Name);
+                    File.Move(file, file + ".rejected");
+                    continue;
+                }
                 string id = "evt_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(common + "\n" + Path.GetFileName(file)))).ToLowerInvariant()[..24];
                 if (await _Database.Events.ReadAsync(id, token).ConfigureAwait(false) == null)
                 {
@@ -149,24 +170,40 @@ namespace Armada.Core.Services
         private const string _Hook = """
 #!/bin/sh
 # Armada ref transaction audit v1
-[ "$1" = committed ] || exit 0
+case "$1" in prepared|committed|aborted) ;; *) exit 0 ;; esac
 set -eu
 common=$(git rev-parse --path-format=absolute --git-common-dir)
-gitdir=$(git rev-parse --absolute-git-dir)
 spool="$common/armada-ref-audit"
 mkdir -p "$spool"
-mission=''
-captain=''
-if [ -f "$gitdir/armada-ref-context" ]; then
-  { IFS= read -r mission || :; IFS= read -r captain || :; } < "$gitdir/armada-ref-context"
-fi
 while read -r old new ref; do
-  case "$old" in ''|*[!0]*) ;; *) continue ;; esac
   case "$new" in ''|*[!0]*) continue ;; esac
   case "$ref" in refs/*) ;; *) continue ;; esac
-  temporary=$(mktemp "$spool/transaction.XXXXXXXXXXXX")
-  printf '%s\0' 1 "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$old" "$ref" "$PWD" "$(id -u)" "$PPID" "$mission" "$captain" > "$temporary"
-  mv "$temporary" "$temporary.ready"
+  key=$(printf '%s' "$ref" | git hash-object --stdin)
+  pointer="$spool/prepared.$PPID.$key"
+  if [ "$1" = prepared ]; then
+    # Git can report an all-zero old value for a deletion without an expected tip.
+    # Resolve it while the ref still exists, before the transaction commits.
+    case "$old" in *[!0]*) ;; *) old=$(git rev-parse --verify "$ref" 2>/dev/null) || continue ;; esac
+    gitdir=$(git rev-parse --absolute-git-dir)
+    mission=''
+    captain=''
+    if [ -f "$gitdir/armada-ref-context" ]; then
+      { IFS= read -r mission || :; IFS= read -r captain || :; } < "$gitdir/armada-ref-context"
+    fi
+    temporary=$(mktemp "$spool/transaction.XXXXXXXXXXXX")
+    printf '%s\0' 1 "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$old" "$ref" "$PWD" "$(id -u)" "$PPID" "$mission" "$captain" > "$temporary"
+    printf '%s\n' "${temporary##*/}" > "$pointer"
+  elif [ -f "$pointer" ]; then
+    IFS= read -r basename < "$pointer"
+    case "$basename" in transaction.*) ;; *) echo 'ref_audit_invalid_pointer' >&2; exit 1 ;; esac
+    case "$basename" in */*) echo 'ref_audit_invalid_pointer' >&2; exit 1 ;; esac
+    if [ "$1" = committed ]; then
+      mv "$spool/$basename" "$spool/$basename.ready"
+    else
+      rm -f "$spool/$basename"
+    fi
+    rm -f "$pointer"
+  fi
 done
 """ + "\n";
     }

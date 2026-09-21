@@ -200,10 +200,27 @@ Cleanup accepts only `armada/`, `armada-landing/`, `refs/armada-preserved/`,
 are refused as `ref_delete_unmanaged`. Existing reachability, age, active-owner
 and expected-SHA checks still apply before cleanup.
 
-This records Armada API deletions. A captain or operator running raw Git is
-outside that API; reflogs do not provide a complete deletion audit because
-Git can remove a deleted ref's log. Preserve a recovery bundle and commit SHA
-before an operator retires a parked ref.
+A `reference-transaction` hook also records committed deletions made through
+raw Git. It writes an atomic record under the common repository's
+`armada-ref-audit` directory. Health maintenance imports up to 200 records per
+repository per cycle into `git.ref_deleted` events, with a stable event ID so a
+restart cannot duplicate an imported record. The payload names the source,
+previous SHA, ref, working directory, OS user ID and Git process ID. Provisioned
+worktrees carry mission and captain context outside tracked files; the collector
+links it only when the stored mission belongs to that vessel and captain.
+Commands without verified mission context retain OS attribution explicitly.
+API deletion and Git transaction events are separate witnesses of the same
+operation; consumers can distinguish the transaction source in the payload.
+
+Installation honors `core.hooksPath` and preserves an existing operator-owned
+`reference-transaction` hook. A conflict or collection failure is logged as
+`ref_audit_unavailable`; it must be resolved before claiming audit coverage.
+Malformed records are retained with a `.rejected` suffix and a named warning.
+The hook needs Git's shell and standard shell utilities. It is observability,
+not an isolation boundary: disabling or removing it bypasses capture, and direct
+filesystem edits are outside Git transactions. Reflogs alone are incomplete
+because Git can remove a deleted ref's log. Preserve a recovery bundle and full
+commit SHA before an operator retires a parked ref.
 
 ---
 

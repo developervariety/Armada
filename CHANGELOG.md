@@ -79,7 +79,8 @@ upstream integrations and excludes changes already present at that baseline.
   processes cannot block reclaim indefinitely. Persistent collisions expose the
   holding path and process IDs and fail after a bounded retry. Managed ref deletion
   records its caller and refuses user and recovery refs. New bare clones enable
-  reflogs; raw Git remains outside the API deletion audit.
+  reflogs. A Git transaction hook records raw ref deletions with durable,
+  restart-safe event import and OS or verified mission attribution.
 - **Model selection:** one capability-tier rule drives eligibility and preview.
   Smart Routing filters and orders eligible captains by account usage and persona
   preferences; dead model-list entries have visible diagnostics and fallback.

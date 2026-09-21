@@ -108,6 +108,11 @@ namespace Armada.Test.Unit.Suites.Services
                         await GitRefAuditService.SetContextAsync(worktree, mission.Id, captain.Id);
                         string sha = (await RunGitAsync(root, "rev-parse", "HEAD")).Trim();
                         await RunGitAsync(worktree, "branch", "recover/example", sha);
+                        bool failedDelete = false;
+                        try { await RunGitAsync(worktree, "update-ref", "-d", "refs/heads/recover/example", new string('f', 40)); }
+                        catch (InvalidOperationException) { failedDelete = true; }
+                        AssertTrue(failedDelete, "A mismatched expected tip must refuse deletion");
+                        AssertEqual(0, Directory.GetFiles(Path.Combine(bare, "armada-ref-audit"), "*.ready").Length);
                         await RunGitAsync(worktree, "branch", "-D", "recover/example");
                         string spool = Path.Combine(bare, "armada-ref-audit");
                         string[] pending = Directory.GetFiles(spool, "*.ready");
@@ -116,7 +121,9 @@ namespace Armada.Test.Unit.Suites.Services
                         LoggingModule logging = new LoggingModule();
                         logging.Settings.EnableConsole = false;
                         GitRefAuditService collector = new GitRefAuditService(testDb.Driver, new Armada.Core.Settings.ArmadaSettings(), logging);
+                        await File.WriteAllTextAsync(Path.Combine(spool, "invalid.ready"), "invalid record");
                         await collector.SweepAsync();
+                        AssertTrue(File.Exists(Path.Combine(spool, "invalid.ready.rejected")), "A bad record is retained without blocking valid records");
                         List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("git.ref_deleted", 20);
                         AssertEqual(1, events.Count);
                         AssertEqual("refs/heads/recover/example", events[0].EntityId);
