@@ -29,23 +29,18 @@ concurrently.
 | `Tested` | Worker, TestEngineer, Linter, Judge |
 | `FullPipeline` | Architect, Worker, TestEngineer, Judge |
 | `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Linter, Judge, Recorder |
-| `DiagnosticProtocolTested` | Worker, DiagnosticProtocolReviewer, TestEngineer, Judge |
-| `TenantSecurityTested` | Worker, TenantSecurityReviewer, TestEngineer, Judge |
-| `ReferencePortingTested` | Worker, PortingReferenceAnalyst, TestEngineer, Linter, Judge |
-| `ReferencePortingReview` | PortingReferenceAnalyst, TestEngineer, Judge (review-only: used when the Worker deliverable is already landed operator-side) |
 | `Recorded` | Worker, Recorder |
 
 The startup seed service creates or reconciles these definitions. Built-in
-pipelines cannot be deleted. Three reviewer pipelines, `MigrationDataTested`,
-`PerformanceMemoryTested` and `FrontendWorkflowTested`, were retired on
-2026-09-17 (deactivated, not deleted) with their specialist reviewer personas;
-no voyage used them.
+pipelines cannot be deleted. Specialist pipelines are deployment configuration,
+seeded through `additionalPipelines` with matching personas and templates.
+See [Operational Assets](OPERATIONAL_ASSETS.md#8-pipelines).
 
 ## Resolution
 
 Dispatch can name a pipeline. If it does not, Armada resolves a vessel default,
 then a fleet default, then `WorkerOnly`. A source repository can need a stronger
-default. For example, use `ReferencePortingTested` when approved reference
+default. Configure a specialist pipeline when approved reference
 material is a normal part of that vessel's work.
 
 Read current fleet and vessel settings before a default change. Do not infer a

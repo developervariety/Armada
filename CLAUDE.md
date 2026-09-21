@@ -14,8 +14,9 @@ across git repositories ("vessels"). It exposes MCP tools for fleet, vessel,
 captain, mission, voyage, dock, signal, and merge-queue management.
 
 **Armada MCP includes operator-control tools.** Supported captains receive a
-launch-configured connection. The endpoint has no per-captain authorization
-boundary. Captains may use only the tools authorized by their mission.
+launch-configured connection with the mission owner's scoped token. The endpoint
+authenticates each request and limits tools and records to that caller. Captains
+may use only the tools authorized by their mission.
 Dispatch, administration, deployment, restore, purge and server control remain
 operator actions unless explicitly assigned. As an operator, prefer `armada_enumerate` with a small `pageSize` (10-25),
 narrow with filters (`vesselId`, `status`, date ranges), and set the include
@@ -188,7 +189,7 @@ you want:
 
 **Sync baseline:** fork `ae0431ad1` against upstream `d92e1dce6`. Each sync starts
 from this line, so a pass only reviews the new upstream delta, never the whole
-history. This is the record that used to live in `docs/upstream-review/`.
+history. This line owns the incremental integration baseline.
 
 **Any commit that merges `upstream/main`, cherry-picks an upstream commit, or
 reverts a previously-absorbed upstream feature MUST also update the

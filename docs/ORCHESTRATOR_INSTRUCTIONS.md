@@ -47,8 +47,10 @@ concrete provider model for ordinary dispatch.
 Use `Implementation` mode when a commit is required. Use `Audit` or
 `Research` for report-only work.
 
-A successful dispatch response means that records exist. Captain assignment
-and dock launch continue in the background. Save the voyage ID and monitor it.
+An accepted dispatch returns a durable job ID; voyage records may not exist
+yet. Read `armada_job_status` until the job succeeds, fails, or is lost, then
+save the voyage ID from a successful result. Captain assignment and dock launch
+continue in the background.
 Do not redispatch only because the first state is `Pending`.
 
 ## Monitor
@@ -61,7 +63,8 @@ Keep an active loop while work runs.
 - Poll incidents and Checks.
 - Heartbeat between monitor-loop iterations. Handle and acknowledge directed
   `UnreadWakes` before you continue.
-- Nudge only live work that needs missing context.
+- Send missing context to a Pending downstream stage. Signals enter its brief
+  at handoff; they do not change a running captain's frozen brief.
 - Do not steer a terminal mission.
 
 Treat captain success text as unverified. Run the check or query that proves
@@ -71,9 +74,8 @@ the result.
 
 Dispatch arms a voyage's Build and UnitTest Checks itself, so those two are
 already attached. Add the profile gates the change needs beyond them. Build and
-unit test remain the minimum for code work; you no longer have to create them,
-but you do have to confirm they are present when a voyage was built some other
-way.
+unit test remain the minimum for code work. Confirm they are present when a
+voyage was created through another path.
 
 `run_check`, `retry_check_run`, and `get_check_run` return a bounded summary -
 status, exit code, parsed test totals, artifacts, and the tail of the output -

@@ -19,7 +19,7 @@ silently present a lower-priority mode as the effective mode.
 
 The existing latest Check summary is redacted with the shared secret filter
 and bounded to 1,000 characters plus a truncation marker. A Failed Check with
-exit code zero is no longer treated as Passed.
+exit code zero remains Failed.
 
 ## Limits
 
@@ -27,8 +27,8 @@ This preview is advisory. Its legacy Check summary reads at most 1,000 scoped
 runs, filters the branch, and reports whether any has Passed. It does not prove
 that every required Check passed for the immutable work commit. It does not
 certify Definition of Done or a completed landing. The actual Judge, Check,
-landing and protected-path gates remain the execution authority. Auto-land,
-DoD and recovery outcome projections remain separate backend work.
+landing and protected-path gates remain the execution authority. Use the separate [auto-land](backend-autoland.md),
+[DoD](backend-dod.md), and [recovery](backend-recovery.md) reports for recorded outcomes.
 
 When the newest scoped run did not pass but an older run did, the preview adds
 a `latest_check_not_passed` warning. It is a warning, so `IsReadyToLand` does
@@ -47,12 +47,7 @@ limit wherever they display or edit the setting.
 
 ## Validation
 
-The new voyage override and Failed-with-zero-exit cases both failed before
-the repair. A further conflicting-legacy-flags case reproduced a preview of
-Manual while the handler selects pull-request execution. It passed after
-correcting preview precedence. The 36 focused workflow, landing, calibration
-and auto-land safety cases passed with no failures or skips. Tests also cover
-explicit None, vessel/global fallback, cleanup and an unreadable linked voyage.
-The combined tree passed 4,115 unit, 967 API and 183 runtime tests with no
-failures or skips. The solution build reported 105 warnings and zero errors.
-No migration or deployment is included.
+Behavioral tests cover voyage overrides, conflicting legacy flags, Failed Checks
+with zero exit code, explicit None, vessel/global fallback, cleanup policy,
+and unreadable linked voyages. Run the current gate described in
+[Testing](../TESTING.md); past suite totals do not prove the current tree.

@@ -28,19 +28,22 @@ profiles, environments, personas, pipelines, and their links.
 
 ## Chapters
 
+These links open the tracked templates. On an installed deployment, read the
+corresponding filled file without `.example` from its configured docs root.
+
 | # | Chapter | Read when |
 | --- | --- | --- |
-| 1 | [Source Of Truth](ops/01-source-of-truth.md) | Deciding what to trust as the state of work, delivery, or a result. |
-| 2 | [Selective Upstream Integration](ops/02-selective-upstream-integration.md) | Working on upstream absorption, or checking whether a reviewed upstream feature is live. |
-| 3 | [Available Features And Active Policy](ops/03-available-features-and-policy.md) | Before depending on a feature such as code indexing, autonomous recovery, or a landing mode. |
-| 4 | [Connection And Discovery](ops/04-connection-and-discovery.md) | Connecting a client to the Admiral, or starting an operator session. |
-| 5 | [Standard Workflow](ops/05-standard-workflow.md) | Dispatching and running any non-trivial work through to a closed record. |
-| 6 | [Recovery And Incident Workflow](ops/06-recovery-and-incidents.md) | A mission or voyage failed, or an incident needs driving to closure. |
-| 7 | [Release And Deployment Workflow](ops/07-release-and-deployment.md) | Shipping a release, verifying or rolling back a deployment, or upgrading the running Admiral. |
-| 8 | [Configuration And Administration](ops/08-configuration-and-administration.md) | Changing settings, routing, migrations, or the typed-decision configuration. |
+| 1 | [Source Of Truth](ops/01-source-of-truth.example.md) | Deciding what to trust as the state of work, delivery, or a result. |
+| 2 | [Selective Upstream Integration](ops/02-selective-upstream-integration.example.md) | Working on upstream absorption, or checking whether a reviewed upstream feature is live. |
+| 3 | [Available Features And Active Policy](ops/03-available-features-and-policy.example.md) | Before depending on a feature such as code indexing, autonomous recovery, or a landing mode. |
+| 4 | [Connection And Discovery](ops/04-connection-and-discovery.example.md) | Connecting a client to the Admiral, or starting an operator session. |
+| 5 | [Standard Workflow](ops/05-standard-workflow.example.md) | Dispatching and running any non-trivial work through to a closed record. |
+| 6 | [Recovery And Incident Workflow](ops/06-recovery-and-incidents.example.md) | A mission or voyage failed, or an incident needs driving to closure. |
+| 7 | [Release And Deployment Workflow](ops/07-release-and-deployment.example.md) | Shipping a release, verifying or rolling back a deployment, or upgrading the running Admiral. |
+| 8 | [Configuration And Administration](ops/08-configuration-and-administration.example.md) | Changing settings, routing, migrations, or the typed-decision configuration. |
 | 9 | [Complete MCP Tool Catalog](MCP_TOOL_CATALOG.md) (tracked) | Choosing a tool, or checking what a tool family does and its risk. |
-| 10 | [Safety Rules](ops/10-safety-rules.md) | Before any cancel, delete, purge, restore, rollback, or server stop. |
-| 11 | [Verification Checklist](ops/11-verification-checklist.md) | Before reporting completion of any objective or task. |
+| 10 | [Safety Rules](ops/10-safety-rules.example.md) | Before any cancel, delete, purge, restore, rollback, or server stop. |
+| 11 | [Verification Checklist](ops/11-verification-checklist.example.md) | Before reporting completion of any objective or task. |
 
 ## Verify a continuation base
 
@@ -57,14 +60,5 @@ operator can inspect the reason without reading server logs.
 
 ## Ref cleanup evidence
 
-New bare clones enable `core.logAllRefUpdates`. Platform deletion records
-`git.ref_deleted`, naming the ref, repository, remote (when used), and caller.
-Cleanup accepts only `armada/`, `armada-landing/`, `refs/armada-preserved/`,
-`refs/armada/docks/`, and `refs/armada/missions/`; user and `recover/` refs
-are refused as `ref_delete_unmanaged`. Existing reachability, age, active-owner
-and expected-SHA checks still apply before cleanup.
-
-This records Armada API deletions. A captain or operator running raw Git is
-outside that API; reflogs do not provide a complete deletion audit because
-Git can remove a deleted ref's log. Preserve a recovery bundle and commit SHA
-before an operator retires a parked ref.
+See [Branch Cleanup Policy](MERGING.md#branch-cleanup-policy) for managed
+namespaces, deletion events, and the limits of raw Git attribution.

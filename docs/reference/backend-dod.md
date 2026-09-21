@@ -1,6 +1,6 @@
 # Definition-of-done history
 
-Mission completion now records every definition-of-done result as a scoped
+Mission completion records every definition-of-done result as a scoped
 event. A read-only mission report shows the current gate configuration and
 the latest recorded result. Neither changes when the gate runs, what it
 decides, or landing readiness.

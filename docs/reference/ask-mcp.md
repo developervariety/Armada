@@ -10,9 +10,8 @@ this overlay.
 A chat turn authenticates to Armada MCP one way: the authenticated caller's own
 session token. The plan carries that token in a `ARMADA_MCP_CHAT_TOKEN`
 environment variable, and each runtime's configuration references it by variable
-name, so the token value never lands in a configuration file. The admiral launch
-credential, which the endpoint maps to operator access, is a mission-launch
-credential and never enters a chat captain's environment. A chat turn with no
+name, so the token value never lands in a configuration file. The admiral's internal
+launch credential never enters a mission or chat captain's environment. A chat turn with no
 authenticated caller leaves the variable unset, so the runtime presents no
 credential and reaches no MCP tool.
 
@@ -39,9 +38,8 @@ credential header (an Authorization bearer for these runtimes). The endpoint
 accepts a session token from the bearer header, re-reads the user and tenant on
 each request, and applies the shared tool access policy, so a non-admin caller
 is offered only caller-scoped tools and is refused an operator tool such as
-`armada_stop_server`. A CLI chat turn no longer carries the operator-scoped
-launch credential, so a non-admin dashboard user who starts a captain chat can
-no longer reach operator-only MCP tools through the captain.
+`armada_stop_server`. A non-admin dashboard user cannot reach operator-only MCP tools through
+the chat captain.
 
 The run's system prompt allows every tool the run receives, workspace and
 Armada MCP alike, and forbids claiming a tool that is not provided. It does not
@@ -70,8 +68,8 @@ The dashboard shows preflight failures and zero-tool results with the returned
 summary. It shows manual connection instructions only for a confirmed
 nonplanned runtime configuration failure. Existing captain-chat caller scope
 remains enforced. A chat captain, CLI or API-endpoint, authenticates as the
-caller and is scoped to the caller; only a mission-launch captain still carries
-the operator-scoped launch credential.
+caller and is scoped to the caller. Mission CLI launches use the mission owner's
+scoped session token, as described in [MCP authentication](../MCP_API.md#authentication-and-scope).
 
 The tools endpoint accepts `context=ask` for this preflight. The default
 context remains the captain tools page and inspects the active captain launch.

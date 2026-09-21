@@ -10,7 +10,7 @@ For a step-by-step operator setup path, see [REMOTE_MGMT.md](REMOTE_MGMT.md).
 
 ## Scope
 
-`v0.9.0` now includes:
+The tunnel supports:
 
 - the Armada-side outbound websocket tunnel client
 - remote tunnel configuration in Armada settings and dashboards

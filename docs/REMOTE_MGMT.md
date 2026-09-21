@@ -8,7 +8,7 @@ This guide describes the current remote-access model for Armada:
 - `Armada.Proxy` provides browser login, deployment selection, tunnel termination, and relay
 - the remote user ultimately uses the same React dashboard served from the proxy at `/dashboard`
 
-The proxy is no longer the primary product UI. It is the remote-access broker for the product UI.
+The proxy is the remote-access broker for the Armada dashboard.
 
 ## What Ships Now
 

@@ -235,7 +235,8 @@ makes a captain eligible, approves, lands, dispatches, or edits a record.
 
 The route `shapes` tags and the `routing_hint` typed decision are retired.
 Settings files that still contain them load without error; Armada ignores
-the values. Routes no longer define an order. After you add
+the values. Routes restrict a persona to named accounts; they do not set the
+order. After you add
 `personaModels`, remove any `personaRoutes` entry that only expressed a
 preference. Keep a route only to restrict a persona to named accounts.
 

@@ -1,10 +1,9 @@
 # Context Index
 
-The admiral generates a **context index** at startup. It is the first, additive
-piece of the progressive-disclosure context system (design:
-`archive/design/context-system.md`). This piece builds the generator and its
-startup wiring only. Retrieval, per-persona brief slimming, and any loader
-change are later work. Nothing here changes how memory loads today.
+The admiral generates a **context index** at startup and uses it for scoped
+retrieval through `armada_fetch_context`. Optional brief slimming uses the same
+retrieval service and defaults to off. With slimming off, briefs instruct
+captains to read the configured memory files.
 
 ## What it produces
 
@@ -25,8 +24,8 @@ Artifacts, written under `<dataDir>/context-index/`:
   root-relative (for example `AI-Memory/shared/land-then-sync.md` or
   `docs/armada-ops.md#build-and-test`), never host-absolute.
 - `context-core.md` — the derived **core bundle**: the concatenation of every
-  `tier: core` chunk under a short header. This is the always-on text the later
-  phases ship inline in every session and brief.
+  `tier: core` chunk under a short header. Brief slimming includes this text
+  inline when enabled.
 
 ## How a chunk is formed
 
@@ -199,8 +198,7 @@ tells the captain to read every file under `shared/`. Retrieval can supply that
 section instead, behind `contextRetrieval.briefSlimmingEnabled`:
 
 - **`briefSlimmingEnabled` (default `false`).** While `false`, brief generation
-  is byte-for-byte unchanged from before this flag existed, and no retrieval
-  runs for the brief. Enabling it is a separate, deliberate step.
+  uses the full memory-reading instruction, and no retrieval runs for the brief. Enabling it is a separate, deliberate step.
 - While `true`, the Shared Memory section is built from a retrieval request
   scoped to the mission's persona and vessel, with a query from the mission's
   title and description. It carries the always-on core rules inline, the

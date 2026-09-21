@@ -1,4 +1,8 @@
-# Previously unregistered executable cases
+# Reviewed test discovery cases
+
+This is a retained review snapshot. Counts describe that review; use current
+runner manifests for current coverage. The named duplicate and fork-difference
+dispositions explain test ownership.
 
 This is the reviewed source inventory for the 20 suites added to the existing
 executables. The review preceded repairs. ADD means retain the case body and

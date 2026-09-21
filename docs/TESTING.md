@@ -62,7 +62,7 @@ The gate is the four runners together: `unit` (sharded), `automated`, `runtimes`
 | Self Deploy Cutover (no git) | 25 s | 25 s |
 | Harbor Transport (no git) | 10 s | 10 s |
 
-A git trace of Branch Cleanup Sweep on the macOS workstation recorded 21 tests, 45 s of wall time and 1884 git processes, but only 10 s inside git (4.6 ms per process on average). About 35 s was process start-up outside git. 259 of the processes were `git maintenance` runs that git starts by itself after commits; the test hosts now turn those off (see [Git in test processes](#git-in-test-processes)).
+A git trace of Branch Cleanup Sweep on the macOS workstation recorded 21 tests, 45 s of wall time and 1884 git processes, but only 10 s inside git (4.6 ms per process on average). About 35 s was process start-up outside git. 259 of the processes were `git maintenance` runs that git starts by itself after commits; the test hosts turn those off (see [Git in test processes](#git-in-test-processes)).
 
 Sharded combined run on the Linux server (16 cores), measured with `server-gate.sh`: build 24 s, then all four suites in **59 s** wall clock — unit 4878 tests in six shards (slowest shard 40 s), automated 1050 in 49 s, runtimes 184 in 24 s, and shared 2504, all at once. The whole run from a workstation, including push and build, took 116 s. The same four suites run serially on the macOS workstation took about 12 minutes.
 
@@ -261,7 +261,7 @@ If no `--type` is provided, Test.Automated uses a temporary SQLite database. Tes
 Armada supports four database backends: SQLite, PostgreSQL, SQL Server, and MySQL. The testing strategy covers databases at two layers:
 
 - **Test.Database** exhaustively tests the database driver layer directly, running CRUD operations for all 9 entity types (fleets, vessels, captains, missions, voyages, docks, signals, artifacts, merge queue entries) against each backend.
-- **Test.Automated** tests the full stack (REST API, MCP tools, WebSocket) and can now target any database backend via the `--type` argument.
+- **Test.Automated** tests the full stack (REST API, MCP tools, WebSocket) and can target any database backend via the `--type` argument.
 
 ### CI Recommendations
 

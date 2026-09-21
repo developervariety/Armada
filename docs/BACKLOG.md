@@ -36,7 +36,7 @@ The React dashboard is the primary user-facing backlog surface.
 6. Start planning when you are ready to choose the vessel, captain, pipeline, and playbooks
 7. Dispatch implementation or draft a release from the same detail view
 
-Backlog detail now keeps the same item linked through:
+Backlog detail keeps the same item linked through:
 
 - refinement transcripts
 - planning sessions

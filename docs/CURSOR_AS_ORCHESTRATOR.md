@@ -14,7 +14,7 @@ Connect Cursor to Armada's MCP server and use natural language to orchestrate pa
 armada mcp install
 ```
 
-This now writes the MCP configuration for all supported tools automatically. For Cursor specifically, it writes `.cursor/mcp.json` in the current project. The endpoint refuses a request without a credential, so the entry reads your API key from `ARMADA_API_KEY`; set that variable in the environment Cursor starts with. If you prefer to edit manually, use:
+This writes the MCP configuration for all supported tools automatically. For Cursor specifically, it writes `.cursor/mcp.json` in the current project. The endpoint refuses a request without a credential, so the entry reads your API key from `ARMADA_API_KEY`; set that variable in the environment Cursor starts with. If you prefer to edit manually, use:
 
 ```json
 {

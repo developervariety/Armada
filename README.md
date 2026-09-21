@@ -67,9 +67,8 @@ sync procedure and its baseline live in [`CLAUDE.md`](CLAUDE.md).
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
-  existing deterministic rules. Six of these decisions
-  ship gated from the first deploy with no shadow period; the rest stay off until
-  their adapter lane lands. It only ever makes a call more conservative, never lands
+  existing deterministic rules. Every configured built-in decision defaults to
+  Gate; without a provider key the effective mode is Off. It only ever makes a call more conservative, never lands
   or dispatches, fails closed to the rule, and never egresses unredacted state.
   Captains get read-only tools, including prior-art retrieval
   that answers "does this already exist?" with evidence before work starts.
@@ -87,7 +86,8 @@ What the fork adds on top of the shared model:
   supervised self-deploy, hardened but disabled pending its safety integration; and
   server-side Harbor remote runners, disabled by default.
 - **Repository context.** A code index, symbol graph, and context packs feed dispatch;
-  a broader context-index and retrieval system is in progress.
+  a context index supplies scoped retrieval, with optional brief slimming disabled
+  by default. See [Context Index](docs/CONTEXT_INDEX.md).
 
 Some upstream additions are unported by decision, not by omission: the cloud
 model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) and upstream's native
@@ -134,7 +134,10 @@ objective must name exactly one vessel to auto-dispatch: set `VesselIds` to the
 vessel whose repository receives the commit. An objective can also carry a
 `StartFromRef`: the first stage's branch is cut from that ref instead of the
 default branch, and a ref that does not resolve refuses the dispatch by name
-(`start_from_ref_missing`) rather than falling back.
+(`start_from_ref_missing`) rather than falling back. Operator dispatch inherits
+that objective ref unless `missions[].startFromRef` overrides it. The dispatch
+result echoes resolved commits in `MissionStartRefs`, and
+`mission.start_ref_resolved` records the root commit.
 
 Use `preview_objective_dispatch` or
 `GET /api/v1/objectives/{id}/dispatch-preview` before dispatch. The read-only

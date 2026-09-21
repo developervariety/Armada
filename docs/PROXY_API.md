@@ -2,7 +2,7 @@
 
 **Version:** 0.9.0
 
-`Armada.Proxy` is now a portal and relay for the real Armada dashboard. It no longer ships a second long-lived remote operations UI with its own feature-by-feature API family.
+`Armada.Proxy` is a portal and relay for the Armada dashboard. The dashboard owns the operations UI.
 
 The shipped proxy responsibilities are:
 
@@ -196,11 +196,11 @@ Blocked requests return `403` with an explicit policy message. The transport doe
 
 ## Tunnel Compatibility Notes
 
-The proxy now prefers generic relay methods:
+The proxy uses generic relay methods:
 
 - `armada.http.request`
 - `armada.ws.open`
 - `armada.ws.message`
 - `armada.ws.close`
 
-It still accepts older feature-specific tunnel methods server-side for compatibility, but those are no longer the intended growth path for remote dashboard support.
+It still accepts older feature-specific tunnel methods server-side for compatibility, but generic relay is the extension path for remote dashboard support.

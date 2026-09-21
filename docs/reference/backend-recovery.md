@@ -39,7 +39,7 @@ Each section fails independently. A read error clears that section and sets its
   scope. Retry events written before that change carry no tenant or user and are
   visible only to an unscoped administrator; they are not backfilled.
 - Events written through the generic server and admiral event helpers, the
-  architect over-cap event and papercut events now carry their owner's scope.
+  architect over-cap event and papercut events carry their owner's scope.
   Such events written before that change carry no tenant or user and are not
   backfilled. This report lists only recovery event types.
 - A mission without a vessel lists no rescues and names the reason.

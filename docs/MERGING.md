@@ -192,6 +192,19 @@ After a mission's work has landed, Armada can automatically clean up the mission
 | `LocalAndRemote` | Delete both local and remote branches |
 | `None` | Leave branches in place |
 
+
+New bare clones enable `core.logAllRefUpdates`. Platform deletion records
+`git.ref_deleted`, naming the ref, repository, remote (when used), and caller.
+Cleanup accepts only `armada/`, `armada-landing/`, `refs/armada-preserved/`,
+`refs/armada/docks/`, and `refs/armada/missions/`; user and `recover/` refs
+are refused as `ref_delete_unmanaged`. Existing reachability, age, active-owner
+and expected-SHA checks still apply before cleanup.
+
+This records Armada API deletions. A captain or operator running raw Git is
+outside that API; reflogs do not provide a complete deletion audit because
+Git can remove a deleted ref's log. Preserve a recovery bundle and commit SHA
+before an operator retires a parked ref.
+
 ---
 
 ## Configuration

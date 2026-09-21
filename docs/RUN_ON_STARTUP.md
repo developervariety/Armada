@@ -13,7 +13,7 @@ This guide covers the scripted startup workflows for the Admiral process. The sc
 
 ## Shared Helpers
 
-The shell implementations now live in `scripts/common/`, with Linux and macOS wrappers in their respective platform folders. Windows entrypoints live in `scripts/windows/`.
+The shell implementations live in `scripts/common/`, with Linux and macOS wrappers in their respective platform folders. Windows entrypoints live in `scripts/windows/`.
 
 Canonical helpers:
 
@@ -48,7 +48,7 @@ scripts\windows\healthcheck-server.bat
 
 ## Windows (Current-User Startup)
 
-The supported Windows path is a current-user startup registration under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The script names still use `*-windows-task.bat` for compatibility, but they no longer depend on Task Scheduler.
+The supported Windows path is a current-user startup registration under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The script names still use `*-windows-task.bat` for compatibility, but registration uses the Run key rather than Task Scheduler.
 
 Scripts:
 

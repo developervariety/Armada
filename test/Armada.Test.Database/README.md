@@ -109,9 +109,8 @@ remain unchanged across restart and upgrade.
 Scenario assertions fail the process before the ordinary runner if they fail.
 They are separate from the 62 ordinary cases (63 on MySQL). Ordinary cases cover
 selected fields and behavior, not every property or every provider capability.
-See [the foundation field matrix](../../docs/upstream-review/foundation.md) and
-[additional entity fields](../../docs/upstream-review/foundation-entities.md)
-for known gaps and the boundary of this evidence.
+Read the runner's current registered cases and fresh provider manifests for
+field coverage. A scenario passing does not certify fields it does not assert.
 
 The six added ordinary cases verify each vessel preview setting through create,
 reopen, update and another reopen. They do not certify landing enforcement.
@@ -124,11 +123,11 @@ names the actual driver and selected migration scenario. Failed initialization
 can produce no manifest; require both a zero process exit and a fresh manifest.
 
 Eight backend field cases cover tier metadata, requested captain, scanner
-preferences and voyage planning provenance. See [backend storage](../../docs/upstream-review/backend-storage.md) for behavior limits.
+preferences and voyage planning provenance. These storage cases do not prove dispatch or landing behavior.
 
 `anchor-migration` checks the populated dock snapshot upgrade, incompatible and
 equivalent columns, partial-failure restart and unchanged applied history on all
-four providers. See [backend anchor evidence](../../docs/upstream-review/backend-anchors.md).
+four providers. See [backend anchor evidence](../../docs/reference/backend-anchors.md).
 
 Admission storage has a dedicated `admission-migration` scenario. It starts with
 a populated pre-admission schema, stops after the first new statement, restarts,

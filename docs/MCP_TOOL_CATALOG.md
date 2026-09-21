@@ -1,8 +1,9 @@
 # Complete MCP Tool Catalog
 
-The built-in catalog contains 196 names, counted as the registration names in
+This catalog groups the tool names registered in
 `src/Armada.Server/Mcp/Tools`. Some names are compatibility aliases.
-Some tool families register only when their service is enabled.
+Availability depends on enabled services and the authenticated caller. Discover
+the running catalog with `tools/list` and follow every `nextCursor`.
 
 Risk labels:
 
@@ -611,9 +612,9 @@ Two boundaries decide what belongs here:
 - The memory tools never write to that repository, to repository files, or to the
   vessel model context.
 
-The MCP surface carries no per-request identity, so the memory tools act as an
-administrator of the default tenant: they reach every record of that tenant and
-no record of another tenant. The feature needs no setting.
+The MCP surface authenticates each request. Memory tools pass that caller to
+the memory service, which applies tenant, user, and record-scope permissions.
+The feature needs no enablement setting.
 
 ### 8.23a Captain typed decisions
 
@@ -624,6 +625,19 @@ no record of another tenant. The feature needs no setting.
 These are caller-scoped. They redact before egress and edit no Armada record.
 `armada_score_items` asks one Noul per listed item and returns the expected
 count in code. See `docs/MCP_API.md` and `docs/TYPED_DECISIONS.md`.
+
+### Context, evaluation, and remote jobs
+
+| Risk | Tools | Contract |
+| --- | --- | --- |
+| Read | `armada_fetch_context` | Mission-scoped context retrieval; see [Context Index](CONTEXT_INDEX.md). |
+| Execute | `armada_typed_decision_eval` | Run synthetic cases through production adapters and the live provider; records evaluation evidence. Global administrator only. |
+| Write | `armada_change_quality_gate` | Read a focused diff and route actionable weaknesses to a Triaged objective. Operator tool; it does not land work. |
+| Read | `armada_harbor_jobs`, `armada_harbor_job` | Read jobs visible under runner-owner authority, while Harbor is enabled. |
+| Interrupt | `armada_harbor_job_stop` | Stop an authorized Harbor job; requires tenant or global administrator authority. |
+
+Use [MCP API](MCP_API.md#authentication-and-scope) for caller permissions and
+[Harbor Protocol](HARBOR_PROTOCOL.md) for runner and job behavior.
 
 ### 8.24 The Recorder And Linter Stages
 

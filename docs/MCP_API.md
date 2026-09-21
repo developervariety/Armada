@@ -146,9 +146,8 @@ Continuation request:
 }
 ```
 
-The built-in catalog currently has 196 tools and fits in the first 500-tool
-page. Pagination remains active so extension catalogs can grow without an
-unbounded response.
+Catalog size depends on the running build, enabled services, and caller role.
+Follow every `nextCursor`; do not infer completeness from a fixed tool count.
 
 Each returned tool contains:
 
@@ -352,6 +351,18 @@ note. The model only adds findings — it never dispatches, lands, or removes a
 deterministic finding — and when the decision is `Off`, unavailable, or below the
 threshold the preview is exactly the deterministic result.
 
+### Dispatch starting commits
+
+
+`armada_dispatch` accepts `missions[].startFromRef` (branch, tag, or commit).
+An omitted value inherits the linked objective's `StartFromRef`; an explicit
+mission value takes precedence. This also applies to mission-alias dispatch.
+The root mission pins the resolved commit; dependent stages continue their
+predecessor's branch. The response preserves the voyage fields and adds
+`MissionStartRefs`, with `MissionId` and `StartFromRef` for each mission.
+`mission.start_ref_resolved` records each root's verified commit. A missing
+reference fails with `start_from_ref_missing`; it never falls back to main.
+
 ## Errors
 
 Armada uses two error levels:
@@ -535,8 +546,8 @@ authorization and refusal contract.
 Durable native memory for captains, separate from the shared external memory
 repository. Records are classified as **Episodic** (what happened), **Semantic**
 (a standalone fact) or **Procedural** (how to do something). Working memory is
-never stored. Every tool acts as an administrator of the default tenant and
-reaches no other tenant.
+never stored. Every tool uses the authenticated caller. The memory service
+applies that caller's tenant, user, and record-scope permissions.
 
 ### search_memory
 
@@ -907,14 +918,3 @@ Legacy Routing order, a verdict per captain naming the layer that decided it
 (eligibility, routes, or usage), model groups, capacity reading, and chosen
 captain for a saved or draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
-
-### Dispatch starting commits
-
-`armada_dispatch` accepts `missions[].startFromRef` (branch, tag, or commit).
-An omitted value inherits the linked objective's `StartFromRef`; an explicit
-mission value takes precedence. This also applies to mission-alias dispatch.
-The root mission pins the resolved commit; dependent stages continue their
-predecessor's branch. The response preserves the voyage fields and adds
-`MissionStartRefs`, with `MissionId` and `StartFromRef` for each mission.
-`mission.start_ref_resolved` records each root's verified commit. A missing
-reference fails with `start_from_ref_missing`; it never falls back to main.

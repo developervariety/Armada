@@ -122,7 +122,7 @@ The feature list above is representative. Armada still advertises legacy feature
 
 ## Generic HTTP Relay
 
-The proxy now forwards dashboard REST traffic through `armada.http.request`.
+The proxy forwards dashboard REST traffic through `armada.http.request`.
 
 Payload shape:
 
@@ -170,7 +170,7 @@ Current limitation:
 
 ## Generic WebSocket Relay
 
-The proxy now forwards the dashboard websocket through these method families:
+The proxy forwards the dashboard websocket through these method families:
 
 - `armada.ws.open`
 - `armada.ws.message`
@@ -222,7 +222,7 @@ Current limitation:
 
 The server still handles older `armada.*` request families for compatibility, including objective/backlog, planning, workflow, delivery, diagnostics, workspace, and reference methods.
 
-Those methods are now considered compatibility surface:
+Those methods are compatibility surface:
 
 - they are not the preferred path for new dashboard support
 - the shared dashboard should reach new REST behavior through generic `/api/v1/*` relay
@@ -260,7 +260,7 @@ Useful health surfaces:
 
 The current tunnel is intentionally in a mixed state:
 
-- generic dashboard relay is now shipped
+- generic dashboard relay is shipped
 - legacy feature-specific methods still exist for compatibility
 - new remote dashboard work should bias to generic transport, not new feature-specific tunnel methods
 
