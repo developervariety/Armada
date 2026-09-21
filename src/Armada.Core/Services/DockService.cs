@@ -332,6 +332,16 @@ namespace Armada.Core.Services
                 await CreateWorktreeReleasingHolderAsync(vessel, repoPath, worktreePath, branchName, vessel.DefaultBranch, detachedWorktree, token).ConfigureAwait(false);
                 await SeedDockMcpConfigAsync(vessel, worktreePath, missionId, token).ConfigureAwait(false);
                 await InstallBoundaryHooksAsync(repoPath, vessel, token).ConfigureAwait(false);
+                try
+                {
+                    await GitRefAuditService.InstallAsync(repoPath, token).ConfigureAwait(false);
+                    await GitRefAuditService.SetContextAsync(worktreePath, missionId, captain.Id, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "ref_audit_unavailable: " + ex.Message);
+                }
                 await WriteBoundaryConfigAsync(vessel, worktreePath, token).ConfigureAwait(false);
 
                 string? headCommit = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);

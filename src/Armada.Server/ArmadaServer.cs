@@ -109,6 +109,7 @@ namespace Armada.Server
         private DiskLifecycleService _DiskLifecycle = null!;
         private ArmadaTelemetryHost? _TelemetryHost = null;
         private BranchCleanupSweepService _BranchCleanupSweep = null!;
+        private GitRefAuditService _GitRefAudit = null!;
         private TerminalVoyageMissionReconciler _TerminalVoyageMissions = null!;
         private OpenCodeServerLauncher _OpenCodeServerLauncher = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
@@ -503,6 +504,7 @@ namespace Armada.Server
             _TelemetryHost = new ArmadaTelemetryHost(_Logging);
             _TelemetryHost.Start(_Settings.Telemetry);
             _BranchCleanupSweep = new BranchCleanupSweepService(_Logging, _Database, _Settings, _Git);
+            _GitRefAudit = new GitRefAuditService(_Database, _Settings, _Logging);
             _TerminalVoyageMissions = new TerminalVoyageMissionReconciler(_Logging, _Database, _Git);
 
             // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
@@ -2272,6 +2274,9 @@ namespace Armada.Server
                     async stepToken => await _CodeIndex!.SweepStalenessAsync(stepToken).ConfigureAwait(false)),
 
                 // Remove landed Armada branches and expired landed preserved refs; the sweep logs its own summary.
+                HealthLoopMaintenanceStep.EveryCycles("Git ref transaction audit", () => 1,
+                    async stepToken => await _GitRefAudit.SweepAsync(stepToken).ConfigureAwait(false)),
+
                 HealthLoopMaintenanceStep.EveryCycles("branch cleanup sweep", () => _Settings.BranchCleanupSweepIntervalCycles,
                     async stepToken => await _BranchCleanupSweep.SweepAsync(stepToken).ConfigureAwait(false)),
 

@@ -84,6 +84,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Raw worktree ref deletion has durable attributed evidence and collection is idempotent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string root = Path.Combine(Path.GetTempPath(), "armada-raw-ref-" + Guid.NewGuid().ToString("N"));
+                    string bare = root + ".git";
+                    string worktree = root + "-dock";
+                    try
+                    {
+                        Directory.CreateDirectory(root);
+                        await RunGitAsync(root, "init", "-b", "main");
+                        await RunGitAsync(root, "config", "user.name", "Armada Tests");
+                        await RunGitAsync(root, "config", "user.email", "armada-tests@example.com");
+                        await RunGitAsync(root, "commit", "--allow-empty", "-m", "Initial");
+                        await CreateService().CloneBareAsync(root, bare);
+                        await RunGitAsync(bare, "worktree", "add", "--detach", worktree, "main");
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Audit Example", "https://example.com/repo.git") { LocalPath = bare });
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("Audit Example"));
+                        Mission mission = new Mission("Audit example") { VesselId = vessel.Id, CaptainId = captain.Id };
+                        mission = await testDb.Driver.Missions.CreateAsync(mission);
+                        await GitRefAuditService.InstallAsync(bare);
+                        await GitRefAuditService.SetContextAsync(worktree, mission.Id, captain.Id);
+                        string sha = (await RunGitAsync(root, "rev-parse", "HEAD")).Trim();
+                        await RunGitAsync(worktree, "branch", "recover/example", sha);
+                        await RunGitAsync(worktree, "branch", "-D", "recover/example");
+                        string spool = Path.Combine(bare, "armada-ref-audit");
+                        string[] pending = Directory.GetFiles(spool, "*.ready");
+                        AssertEqual(1, pending.Length, "Only committed deletion, not creation, must be recorded");
+                        byte[] durable = await File.ReadAllBytesAsync(pending[0]);
+                        LoggingModule logging = new LoggingModule();
+                        logging.Settings.EnableConsole = false;
+                        GitRefAuditService collector = new GitRefAuditService(testDb.Driver, new Armada.Core.Settings.ArmadaSettings(), logging);
+                        await collector.SweepAsync();
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("git.ref_deleted", 20);
+                        AssertEqual(1, events.Count);
+                        AssertEqual("refs/heads/recover/example", events[0].EntityId);
+                        AssertEqual(mission.Id, events[0].MissionId);
+                        AssertEqual(captain.Id, events[0].CaptainId);
+                        AssertContains(sha, events[0].Payload!);
+                        AssertContains("git_reference_transaction", events[0].Payload!);
+                        // Reproduce a restart after DB commit but before removal of the spool file.
+                        await File.WriteAllBytesAsync(pending[0], durable);
+                        await collector.SweepAsync();
+                        AssertEqual(1, (await testDb.Driver.Events.EnumerateByTypeAsync("git.ref_deleted", 20)).Count);
+                        AssertEqual(0, Directory.GetFiles(spool, "*.ready").Length);
+                        // Bare/operator commands have OS attribution, never a fabricated captain.
+                        await RunGitAsync(bare, "branch", "recover/operator", sha);
+                        await RunGitAsync(bare, "branch", "-D", "recover/operator");
+                        await collector.SweepAsync();
+                        events = await testDb.Driver.Events.EnumerateByTypeAsync("git.ref_deleted", 20);
+                        ArmadaEvent operatorEvent = events.Single(item => item.EntityId == "refs/heads/recover/operator");
+                        AssertNull(operatorEvent.MissionId);
+                        AssertContains("no verified mission attribution", operatorEvent.Message);
+                        // An operator-owned hook must remain byte-for-byte intact.
+                        string hook = Path.Combine(bare, "hooks", "reference-transaction");
+                        await File.WriteAllTextAsync(hook, "#!/bin/sh\nexit 0\n");
+                        bool refused = false;
+                        try { await GitRefAuditService.InstallAsync(bare); }
+                        catch (InvalidOperationException ex) { refused = ex.Message.Contains("ref_audit_hook_conflict"); }
+                        AssertTrue(refused);
+                        AssertEqual("#!/bin/sh\nexit 0\n", await File.ReadAllTextAsync(hook));
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(worktree)) Directory.Delete(worktree, true);
+                        if (Directory.Exists(bare)) Directory.Delete(bare, true);
+                        if (Directory.Exists(root)) Directory.Delete(root, true);
+                    }
+                }
+            });
+
             await RunTest("ListBranchesAsync reports metadata and preserves refs", async () =>
             {
                 GitService service = CreateService();
