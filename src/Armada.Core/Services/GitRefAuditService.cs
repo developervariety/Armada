@@ -121,8 +121,10 @@ namespace Armada.Core.Services
                 {
                     Mission? mission = String.IsNullOrEmpty(fields[7]) ? null : await _Database.Missions.ReadAsync(fields[7], token).ConfigureAwait(false);
                     bool attributed = mission != null && mission.VesselId == vessel.Id && mission.CaptainId == fields[8];
-                    ArmadaEvent record = new ArmadaEvent("git.ref_deleted",
-                        "Git transaction deleted " + fields[3] + " by uid " + fields[5] + " pid " + fields[6]
+                    bool referencePresent = file.EndsWith(".present.ready", StringComparison.Ordinal);
+                    ArmadaEvent record = new ArmadaEvent(referencePresent ? "git.ref_removal_observed" : "git.ref_deleted",
+                        (referencePresent ? "Git removal transaction with ref still present: " : "Git transaction deleted ")
+                        + fields[3] + " by uid " + fields[5] + " pid " + fields[6]
                         + (attributed ? " mission " + mission!.Id : " (no verified mission attribution)"));
                     record.Id = id;
                     record.TenantId = vessel.TenantId;
@@ -138,7 +140,7 @@ namespace Armada.Core.Services
                     {
                         source = "git_reference_transaction", old_sha = fields[2], reference = fields[3],
                         working_directory = fields[4], uid = fields[5], git_pid = fields[6],
-                        mission_attributed = attributed
+                        mission_attributed = attributed, reference_present_after_transaction = referencePresent
                     });
                     await _Database.Events.CreateAsync(record, token).ConfigureAwait(false);
                 }
@@ -198,7 +200,13 @@ while read -r old new ref; do
     case "$basename" in transaction.*) ;; *) echo 'ref_audit_invalid_pointer' >&2; exit 1 ;; esac
     case "$basename" in */*) echo 'ref_audit_invalid_pointer' >&2; exit 1 ;; esac
     if [ "$1" = committed ]; then
-      mv "$spool/$basename" "$spool/$basename.ready"
+      # Packing can remove loose storage without deleting the logical ref. Keep
+      # that witness distinct; a concurrent recreation also leaves the ref present.
+      if git rev-parse --verify "$ref" >/dev/null 2>&1; then
+        mv "$spool/$basename" "$spool/$basename.present.ready"
+      else
+        mv "$spool/$basename" "$spool/$basename.ready"
+      fi
     else
       rm -f "$spool/$basename"
     fi

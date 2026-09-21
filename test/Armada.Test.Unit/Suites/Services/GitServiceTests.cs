@@ -144,6 +144,16 @@ namespace Armada.Test.Unit.Suites.Services
                         ArmadaEvent operatorEvent = events.Single(item => item.EntityId == "refs/heads/recover/operator");
                         AssertNull(operatorEvent.MissionId);
                         AssertContains("no verified mission attribution", operatorEvent.Message);
+                        await RunGitAsync(bare, "branch", "recover/packed", sha);
+                        await RunGitAsync(bare, "pack-refs", "--all");
+                        await collector.SweepAsync();
+                        AssertEqual(2, (await testDb.Driver.Events.EnumerateByTypeAsync("git.ref_deleted", 20)).Count,
+                            "Packing refs removes loose storage, not the logical refs");
+                        await RunGitAsync(bare, "branch", "-D", "recover/packed");
+                        await collector.SweepAsync();
+                        events = await testDb.Driver.Events.EnumerateByTypeAsync("git.ref_deleted", 20);
+                        AssertEqual(3, events.Count);
+                        AssertTrue(events.Any(item => item.EntityId == "refs/heads/recover/packed"));
                         // An operator-owned hook must remain byte-for-byte intact.
                         string hook = Path.Combine(bare, "hooks", "reference-transaction");
                         await File.WriteAllTextAsync(hook, "#!/bin/sh\nexit 0\n");

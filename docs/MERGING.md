@@ -211,6 +211,13 @@ links it only when the stored mission belongs to that vessel and captain.
 Commands without verified mission context retain OS attribution explicitly.
 API deletion and Git transaction events are separate witnesses of the same
 operation; consumers can distinguish the transaction source in the payload.
+Git can report an unknown old tip, so the hook captures it during preparation
+and publishes the record only after commit; an aborted transaction is discarded.
+If the logical ref is still present at that point, as when packing removes loose
+storage or a concurrent writer recreates the ref, the event is
+`git.ref_removal_observed` instead of a confirmed deletion. Both retain caller
+and prior-tip evidence. A preparation-time journal failure refuses the Git
+transaction rather than allowing an unrecorded deletion.
 
 Installation honors `core.hooksPath` and preserves an existing operator-owned
 `reference-transaction` hook. A conflict or collection failure is logged as
