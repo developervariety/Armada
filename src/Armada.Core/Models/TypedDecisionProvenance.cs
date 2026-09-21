@@ -9,6 +9,9 @@ namespace Armada.Core.Models
         /// <summary>Version of this evidence format; older samples have no provenance.</summary>
         public int Version { get; init; } = 1;
 
+        /// <summary>Stable reason when question evidence could not be captured; no exception text.</summary>
+        public string? UnavailableReason { get; init; }
+
         /// <summary>Redacted provider-format question definitions for the complete request.</summary>
         public required string QuestionsJson { get; init; }
 

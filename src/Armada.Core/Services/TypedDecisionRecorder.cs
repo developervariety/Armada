@@ -445,6 +445,8 @@ namespace Armada.Core.Services
                 ["latency_ms"] = result?.LatencyMs ?? 0,
                 ["batch_size"] = result?.BatchSize ?? 1,
                 ["state_sha256"] = stateSha256,
+                ["provenance_unavailable_reason"] = result?.Provenance?.UnavailableReason
+                    ?? (result?.Available == true && result.Provenance == null ? "not_recorded" : null),
                 ["questions_sha256"] = result?.Provenance?.QuestionsSha256,
                 ["wire_questions_sha256"] = result?.Provenance?.WireQuestionsSha256,
                 ["request_sha256"] = result?.Provenance?.RequestSha256,

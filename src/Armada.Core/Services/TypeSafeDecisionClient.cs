@@ -113,7 +113,7 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrWhiteSpace(apiKey))
                     message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
                 string requestJson = JsonSerializer.Serialize(payload, _JsonOptions);
-                TypedDecisionProvenance? provenance = CaptureProvenance(payload, requestJson);
+                TypedDecisionProvenance provenance = CaptureProvenance(JsonSerializer.Serialize(payload.Questions, _JsonOptions), requestJson);
                 message.Content = new StringContent(
                     requestJson,
                     Encoding.UTF8,
@@ -323,12 +323,15 @@ namespace Armada.Core.Services
             }
         }
 
-        private static TypedDecisionProvenance? CaptureProvenance(WireRequest payload, string requestJson)
+        /// <summary>Capture redacted question evidence without changing a decision on failure.</summary>
+        /// <param name="wireQuestions">Provider-format question JSON.</param>
+        /// <param name="requestJson">The sent request body, excluding headers.</param>
+        /// <returns>Evidence or a hash-only diagnostic with a stable unavailable reason.</returns>
+        internal static TypedDecisionProvenance CaptureProvenance(string wireQuestions, string requestJson)
         {
             // Evidence collection is best effort and cannot turn a valid decision into a failure.
             try
             {
-                string wireQuestions = JsonSerializer.Serialize(payload.Questions, _JsonOptions);
                 string retainedQuestions = DecisionStateRedactor.RedactState(JsonNode.Parse(wireQuestions), Int32.MaxValue).Text;
                 return new TypedDecisionProvenance
                 {
@@ -340,7 +343,14 @@ namespace Armada.Core.Services
             }
             catch (Exception)
             {
-                return null;
+                return new TypedDecisionProvenance
+                {
+                    UnavailableReason = "capture_failed",
+                    QuestionsJson = String.Empty,
+                    QuestionsSha256 = String.Empty,
+                    WireQuestionsSha256 = Hash(wireQuestions),
+                    RequestSha256 = Hash(requestJson)
+                };
             }
         }
 

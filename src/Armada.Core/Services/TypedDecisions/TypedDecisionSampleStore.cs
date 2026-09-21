@@ -311,7 +311,8 @@ namespace Armada.Core.Services.TypedDecisions
         /// <summary>SHA-256 of the redacted state, so a reversal can be joined to its call.</summary>
         public string StateSha256 { get; set; } = String.Empty;
 
-        /// <summary>Redacted request evidence. Null on legacy, skipped, or unavailable calls.</summary>
+        /// <summary>Redacted request evidence or a capture-failure diagnostic. Null when none was captured;
+        /// response-validation failures can still carry evidence.</summary>
         public TypedDecisionProvenance? Provenance { get; set; }
 
         /// <summary>The concrete model returned by the provider, not the configured alias.</summary>

@@ -133,7 +133,9 @@ byte count and never the state, and nothing extra leaves the host.
   index, never question text. Legacy or skipped calls have no provenance; a
   missing definition must not be filled from today's questions. Question
   redaction can change a retained definition; the separate wire hash makes that
-  distinction explicit. A file store, because the set
+  distinction explicit. A capture failure keeps hash-only request identity and
+  records `capture_failed`; it does not replace an available answer. An answered
+  client result without provenance records `not_recorded` on the event. A file store, because the set
   is written once and read in bulk by a trainer, and a retention window is a file
   delete.
 - **`retentionDays`** (default 90) bounds it; files outside the window are deleted

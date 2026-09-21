@@ -100,6 +100,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("noul", body.Questions["repeat_likely"].Type);
             });
 
+            await RunTest("Provenance failure keeps request identity and reports a stable diagnostic", () =>
+            {
+                TypedDecisionProvenance provenance = TypeSafeDecisionClient.CaptureProvenance("{", "{} ");
+                AssertEqual("capture_failed", provenance.UnavailableReason);
+                AssertEqual(String.Empty, provenance.QuestionsJson);
+                AssertEqual(String.Empty, provenance.QuestionsSha256);
+                AssertEqual(64, provenance.RequestSha256.Length);
+                AssertEqual(64, provenance.WireQuestionsSha256.Length);
+            });
+
             await RunTest("Provenance hashes sent questions and retains only redacted definitions", async () =>
             {
                 string fixtureKey = "sk-" + "fixture-secret";

@@ -140,6 +140,20 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("wire-hash", evt!.Payload!);
                         AssertContains("request-hash", evt.Payload!);
                         AssertFalse(evt.Payload!.Contains("QUESTION-SENTINEL", StringComparison.Ordinal));
+                        TypedDecisionEventContext failedEvidence = new TypedDecisionEventContext
+                        {
+                            DecisionPoint = "failure_cause", RuleVerdict = "Infra", RedactedState = "fixture",
+                            Result = new TypedDecisionResult
+                            {
+                                Available = true, Model = "jev-1.13.0",
+                                Provenance = TypeSafeDecisionClient.CaptureProvenance("{", "{}"),
+                                Answers = context.Result.Answers
+                            }
+                        };
+                        ArmadaEvent? diagnosticEvent = await recorder.RecordGatedAsync(failedEvidence, default).ConfigureAwait(false);
+                        AssertContains("capture_failed", diagnosticEvent!.Payload!);
+                        AssertEqual("capture_failed", ReadSamples(store, "failure_cause")[1].Provenance!.UnavailableReason);
+                        AssertTrue(failedEvidence.Result.Available, "evidence failure must not replace a usable answer");
                     }
                     finally { SafeDelete(dataDirectory); }
                 }
