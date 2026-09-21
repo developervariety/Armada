@@ -795,7 +795,9 @@ namespace Armada.Test.Unit.Suites.Services
             };
             settings.InitializeDirectories();
 
-            GitService git = new GitService(logging);
+            // This fixture's rescue commit is synthetic; model its presence instead of
+            // asking a nonexistent repository to resolve it at the dispatch boundary.
+            StubGitService git = new StubGitService { RevisionCommitShaResult = new string('a', 40) };
             DockService docks = new DockService(logging, testDb.Driver, settings, git);
             CaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
             MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));

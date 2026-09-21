@@ -63,6 +63,8 @@ namespace Armada.Test.Unit.Suites.Services
                         List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
                         AssertEqual(new string('a', 40), created.Single().StartFromRef, "objective ref reaches root in both transports");
                         AssertContains(new string('a', 40), JsonSerializer.Serialize(result.Value));
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.start_ref_resolved", 50).ConfigureAwait(false);
+                        AssertTrue(events.Any(item => item.MissionId == created.Single().Id), "root has durable start-ref evidence");
                     }
                 }
             });
