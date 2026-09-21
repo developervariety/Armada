@@ -260,7 +260,7 @@ namespace Armada.Server
                     _ => throw new NotSupportedException("Unsupported PR platform: " + platform)
                 };
             };
-            _Git = new GitService(_Logging, prServiceFactory);
+            _Git = new GitService(_Logging, prServiceFactory, _Database);
             IDockService dockService = new DockService(_Logging, _Database, _Settings, _Git);
             _Docks = dockService;
             ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
@@ -1955,7 +1955,7 @@ namespace Armada.Server
                 incidentService: _IncidentService,
                 objectiveScheduler: _ObjectiveScheduler,
                 captainQuarantine: _CaptainQuarantine,
-                unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging),
+                unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging, database: _Database), _Logging),
                 terminalVoyageMissions: _TerminalVoyageMissions,
                 diskLifecycle: _DiskLifecycle,
                 longRunningJobs: _LongRunningJobs,

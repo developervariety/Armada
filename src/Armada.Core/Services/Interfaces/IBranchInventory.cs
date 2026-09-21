@@ -103,7 +103,7 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="refName">Fully qualified ref name.</param>
         /// <param name="expectedSha">Commit the ref must still point at.</param>
         /// <param name="token">Cancellation token.</param>
-        Task DeleteRefIfAtAsync(string repoPath, string refName, string expectedSha, CancellationToken token = default);
+        Task DeleteRefIfAtAsync(string repoPath, string refName, string expectedSha, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "");
 
         /// <summary>
         /// Delete a ref on a remote only while it still points at the expected commit.
@@ -114,6 +114,6 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="refName">Fully qualified ref name on the remote.</param>
         /// <param name="expectedSha">Commit the remote ref must still point at.</param>
         /// <param name="token">Cancellation token.</param>
-        Task DeleteRemoteRefIfAtAsync(string repoPath, string remoteName, string refName, string expectedSha, CancellationToken token = default);
+        Task DeleteRemoteRefIfAtAsync(string repoPath, string remoteName, string refName, string expectedSha, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "");
     }
 }

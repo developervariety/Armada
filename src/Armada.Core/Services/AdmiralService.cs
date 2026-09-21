@@ -187,7 +187,7 @@ namespace Armada.Core.Services
             _CaptainQuarantine = captainQuarantine ?? new CaptainQuarantineService(_Database, _Settings, _Logging);
             _ResourcePressureAdmission = resourcePressureAdmission
                 ?? new ResourcePressureAdmission(_Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
-            _Git = git ?? new GitService(_Logging);
+            _Git = git ?? new GitService(_Logging, database: _Database);
             _DispatchHold = dispatchHold;
             _FleetCapacityAdmission = fleetCapacityAdmission
                 ?? new FleetCapacityAdmission(_Database, _Settings, _Logging);

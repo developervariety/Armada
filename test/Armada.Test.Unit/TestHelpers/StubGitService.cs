@@ -121,7 +121,7 @@ namespace Armada.Test.Unit.TestHelpers
         public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
         public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(IsRepositoryResult);
 
-        public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (ShouldThrowOnDeleteBranch) throw new InvalidOperationException("Simulated branch delete failure");
             DeleteBranchCalls.Add(repoPath + ":" + branchName);
@@ -129,7 +129,7 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
-        public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             DeleteBranchCalls.Add("remote:" + branchName);
             OperationCalls.Add("delete-remote-branch:" + branchName);

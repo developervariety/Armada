@@ -5,6 +5,7 @@ namespace Armada.Core.Services
     using System.Linq;
     using SyslogLogging;
     using Armada.Core.Models;
+    using Armada.Core.Database;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -25,6 +26,7 @@ namespace Armada.Core.Services
 
         private string _Header = "[GitService] ";
         private LoggingModule _Logging;
+        private readonly DatabaseDriver? _Database;
         private readonly Func<PullRequestPlatform, string, IPullRequestService>? _PrServiceFactory;
 
         #endregion
@@ -35,11 +37,13 @@ namespace Armada.Core.Services
         /// Instantiate.
         /// </summary>
         /// <param name="logging">Logging module.</param>
+        /// <param name="database">Optional event store for platform ref-deletion evidence.</param>
         /// <param name="prServiceFactory">Optional factory for platform-specific PR services (gh/glab). When null, IsPrMergedAsync always returns false.</param>
-        public GitService(LoggingModule logging, Func<PullRequestPlatform, string, IPullRequestService>? prServiceFactory = null)
+        public GitService(LoggingModule logging, Func<PullRequestPlatform, string, IPullRequestService>? prServiceFactory = null, DatabaseDriver? database = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _PrServiceFactory = prServiceFactory;
+            _Database = database;
         }
 
         #endregion
@@ -60,6 +64,7 @@ namespace Armada.Core.Services
             // Keep fetches on remote-tracking refs so active mission branches checked out
             // in worktrees are not overwritten by background refreshes.
             await EnsureSafeFetchRefspecAsync(localPath).ConfigureAwait(false);
+            await RunGitAsync(localPath, token, "config", "core.logAllRefUpdates", "true").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -184,7 +189,7 @@ namespace Armada.Core.Services
                 {
                     try
                     {
-                        await RunGitAsync(repoPath, "branch", "-D", branchName).ConfigureAwait(false);
+                        await DeleteLocalBranchAsync(repoPath, branchName, token).ConfigureAwait(false);
                     }
                     catch
                     {
@@ -1086,25 +1091,31 @@ namespace Armada.Core.Services
         /// <summary>
         /// Delete a local branch from a repository.
         /// </summary>
-        public async Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        public async Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            RefDeletionPolicy.RequireManaged(branchName);
 
             _Logging.Debug(_Header + "deleting branch " + branchName + " from " + repoPath);
             await RunGitAsync(repoPath, "branch", "-D", branchName).ConfigureAwait(false);
+            await RecordRefDeletionAsync(repoPath, branchName, caller, null, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
-        public async Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        public async Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            RefDeletionPolicy.RequireManaged(branchName);
 
             _Logging.Debug(_Header + "deleting remote branch " + branchName + " from origin");
             try
             {
                 await RunGitAsync(repoPath, "push", "origin", "--delete", branchName).ConfigureAwait(false);
+                await RecordRefDeletionAsync(repoPath, branchName, caller, "origin", token).ConfigureAwait(false);
             }
             catch (Exception ex) when (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message))
             {
@@ -1229,27 +1240,55 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task RecordRefDeletionAsync(string repoPath, string reference, string caller, string? remote, CancellationToken token)
+        {
+            if (_Database == null) return;
+            ArmadaEvent deleted = new ArmadaEvent("git.ref_deleted",
+                "Deleted " + reference + " in " + repoPath + " by " + caller + (remote == null ? String.Empty : " on remote " + remote));
+            string commonDirectory = (await RunGitAsync(repoPath, token, "rev-parse", "--path-format=absolute", "--git-common-dir").ConfigureAwait(false)).Trim();
+            List<Vessel> vessels = await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
+            Vessel? owner = vessels.FirstOrDefault(vessel =>
+                String.Equals(vessel.LocalPath, repoPath, StringComparison.Ordinal)
+                || String.Equals(vessel.LocalPath, commonDirectory, StringComparison.Ordinal)
+                || String.Equals(vessel.WorkingDirectory, repoPath, StringComparison.Ordinal));
+            if (owner != null)
+            {
+                deleted.TenantId = owner.TenantId;
+                deleted.UserId = owner.UserId;
+                deleted.VesselId = owner.Id;
+            }
+            deleted.EntityType = "git_ref";
+            deleted.EntityId = reference;
+            await _Database.Events.CreateAsync(deleted, token).ConfigureAwait(false);
+        }
+
         /// <inheritdoc />
-        public async Task DeleteRefIfAtAsync(string repoPath, string refName, string expectedSha, CancellationToken token = default)
+        public async Task DeleteRefIfAtAsync(string repoPath, string refName, string expectedSha, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrEmpty(refName)) throw new ArgumentNullException(nameof(refName));
             if (String.IsNullOrEmpty(expectedSha)) throw new ArgumentNullException(nameof(expectedSha));
 
+            RefDeletionPolicy.RequireManaged(refName);
+
             _Logging.Debug(_Header + "deleting ref " + refName + " at " + expectedSha + " from " + repoPath);
             await RunGitAsync(repoPath, token, "update-ref", "-d", refName, expectedSha).ConfigureAwait(false);
+            await RecordRefDeletionAsync(repoPath, refName, caller, null, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
-        public async Task DeleteRemoteRefIfAtAsync(string repoPath, string remoteName, string refName, string expectedSha, CancellationToken token = default)
+        public async Task DeleteRemoteRefIfAtAsync(string repoPath, string remoteName, string refName, string expectedSha, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrEmpty(remoteName)) throw new ArgumentNullException(nameof(remoteName));
             if (String.IsNullOrEmpty(refName)) throw new ArgumentNullException(nameof(refName));
             if (String.IsNullOrEmpty(expectedSha)) throw new ArgumentNullException(nameof(expectedSha));
 
+            RefDeletionPolicy.RequireManaged(refName);
+
             _Logging.Debug(_Header + "deleting remote ref " + refName + " at " + expectedSha + " from " + remoteName);
             await RunGitAsync(repoPath, token, "push", "--force-with-lease=" + refName + ":" + expectedSha, remoteName, ":" + refName).ConfigureAwait(false);
+            await RecordRefDeletionAsync(repoPath, refName, caller, remoteName, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

@@ -80,7 +80,7 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="repoPath">Path to the repository.</param>
         /// <param name="branchName">Branch name to delete.</param>
         /// <param name="token">Cancellation token.</param>
-        Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default);
+        Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "");
 
         /// <summary>
         /// Delete a branch from the remote origin.
@@ -89,7 +89,7 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="repoPath">Path to a repository with the remote configured.</param>
         /// <param name="branchName">Remote branch name to delete.</param>
         /// <param name="token">Cancellation token.</param>
-        Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default);
+        Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "");
 
         /// <summary>
         /// Push a specific source ref to a destination ref on origin.

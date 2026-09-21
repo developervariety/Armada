@@ -2,6 +2,9 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Models;
+    using Armada.Test.Unit.TestHelpers;
     using Armada.Test.Common;
     using SyslogLogging;
 
@@ -18,6 +21,69 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Ref deletion refuses recovery and user branches before git runs", async () =>
+            {
+                GitService service = CreateService();
+                foreach (string reference in new[] { "recover/accepted", "refs/heads/recover/accepted", "main", "feature/user", "armada-foreign/x" })
+                {
+                    foreach (int operation in new[] { 0, 1, 2, 3 })
+                    {
+                        string reason = String.Empty;
+                        try
+                        {
+                            if (operation == 0) await service.DeleteLocalBranchAsync("/nonexistent", reference).ConfigureAwait(false);
+                            else if (operation == 1) await service.DeleteRemoteBranchAsync("/nonexistent", reference).ConfigureAwait(false);
+                            else if (operation == 2) await service.DeleteRefIfAtAsync("/nonexistent", reference, new string('a', 40)).ConfigureAwait(false);
+                            else await service.DeleteRemoteRefIfAtAsync("/nonexistent", "origin", reference, new string('a', 40)).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex) { reason = ex.Message; }
+                        AssertContains("ref_delete_unmanaged:", reason);
+                        AssertContains(reference, reason);
+                    }
+                }
+            });
+
+            await RunTest("Managed ref deletions record their caller and clones enable reflogs", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    GitService service = new GitService(logging, database: testDb.Driver);
+                    IGitService branches = service;
+                    IBranchInventory refs = service;
+                    string directory = Path.Combine(Path.GetTempPath(), "armada-ref-audit-" + Guid.NewGuid().ToString("N"));
+                    string bare = directory + ".git";
+                    try
+                    {
+                        Directory.CreateDirectory(directory);
+                        await RunGitAsync(directory, "init", "-b", "main");
+                        await RunGitAsync(directory, "config", "user.name", "Armada Tests");
+                        await RunGitAsync(directory, "config", "user.email", "armada-tests@example.com");
+                        await File.WriteAllTextAsync(Path.Combine(directory, "proof.txt"), "proof");
+                        await RunGitAsync(directory, "add", "proof.txt");
+                        await RunGitAsync(directory, "commit", "-m", "Initial");
+                        await service.CloneBareAsync(directory, bare).ConfigureAwait(false);
+                        AssertEqual("true", (await RunGitAsync(bare, "config", "--get", "core.logAllRefUpdates")).Trim());
+                        await RunGitAsync(bare, "branch", "armada/test/finished", "main");
+                        await branches.DeleteLocalBranchAsync(bare, "armada/test/finished").ConfigureAwait(false);
+                        string sha = (await RunGitAsync(bare, "rev-parse", "main")).Trim();
+                        await RunGitAsync(bare, "update-ref", "refs/armada/missions/test", sha);
+                        await refs.DeleteRefIfAtAsync(bare, "refs/armada/missions/test", sha).ConfigureAwait(false);
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("git.ref_deleted", 20).ConfigureAwait(false);
+                        AssertEqual(2, events.Count);
+                        AssertTrue(events.All(item => (item.Message ?? String.Empty).Contains(nameof(RunTestsAsync))));
+                        AssertTrue(events.Any(item => (item.Message ?? String.Empty).Contains("armada/test/finished")));
+                        AssertTrue(events.Any(item => (item.Message ?? String.Empty).Contains("refs/armada/missions/test")));
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                        if (Directory.Exists(bare)) Directory.Delete(bare, true);
+                    }
+                }
+            });
+
             await RunTest("ListBranchesAsync reports metadata and preserves refs", async () =>
             {
                 GitService service = CreateService();

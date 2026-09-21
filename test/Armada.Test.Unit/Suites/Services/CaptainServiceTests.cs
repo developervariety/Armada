@@ -317,8 +317,8 @@ namespace Armada.Test.Unit.Suites.Services
                 IsRepositoryCalls++;
                 return Task.FromResult(IsRepositoryResult);
             }
-            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }
-            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") { throw new NotImplementedException(); }
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") { throw new NotImplementedException(); }
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }

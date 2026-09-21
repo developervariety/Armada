@@ -2627,14 +2627,14 @@ namespace Test.Shared.Suites.Services
             public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(true);
 
             /// <inheritdoc />
-            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
             {
                 DeletedLocalBranches.Add(branchName);
                 return Task.CompletedTask;
             }
 
             /// <inheritdoc />
-            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
             {
                 DeletedRemoteBranches.Add(branchName);
                 return Task.CompletedTask;

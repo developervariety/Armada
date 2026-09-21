@@ -231,8 +231,8 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) { throw new NotImplementedException(); }
-            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }
-            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }
+            public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") { throw new NotImplementedException(); }
+            public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") { throw new NotImplementedException(); }
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default) { throw new NotImplementedException(); }

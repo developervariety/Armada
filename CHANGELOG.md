@@ -16,6 +16,10 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Ref cleanup refuses user and recovery refs, records successful deletion with
+  the calling method, and enables reflogs on new bare clones. Internal retention
+  anchors remain eligible for their existing proof-based cleanup.
+
 - Preserve objective and explicit start refs through alias dispatch; advertise
   the MCP field, echo persisted mission start commits, and record resolution events.
 - Include detected process IDs when a live dock blocks a branch handoff; verify

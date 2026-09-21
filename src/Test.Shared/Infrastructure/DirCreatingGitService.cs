@@ -47,10 +47,10 @@ namespace Test.Shared.Infrastructure
         public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(true);
 
         /// <summary>Delete a local branch (no-op).</summary>
-        public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+        public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") => Task.CompletedTask;
 
         /// <summary>Delete a remote branch (no-op).</summary>
-        public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default) => Task.CompletedTask;
+        public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") => Task.CompletedTask;
 
         /// <summary>Prune worktrees (no-op).</summary>
         public Task PruneWorktreesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;

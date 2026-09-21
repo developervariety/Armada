@@ -54,3 +54,17 @@ A dock collision reports the holding worktree and detected process IDs in
 the mission failure reason. A live owner is protected from reclamation. A
 second `dock_worktree_held` failure ends the mission with `retry bound`; the
 operator can inspect the reason without reading server logs.
+
+## Ref cleanup evidence
+
+New bare clones enable `core.logAllRefUpdates`. Platform deletion records
+`git.ref_deleted`, naming the ref, repository, remote (when used), and caller.
+Cleanup accepts only `armada/`, `armada-landing/`, `refs/armada-preserved/`,
+`refs/armada/docks/`, and `refs/armada/missions/`; user and `recover/` refs
+are refused as `ref_delete_unmanaged`. Existing reachability, age, active-owner
+and expected-SHA checks still apply before cleanup.
+
+This records Armada API deletions. A captain or operator running raw Git is
+outside that API; reflogs do not provide a complete deletion audit because
+Git can remove a deleted ref's log. Preserve a recovery bundle and commit SHA
+before an operator retires a parked ref.

@@ -84,7 +84,7 @@ namespace Test.Shared.Infrastructure
         public Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default) => Task.CompletedTask;
         public Task<bool> IsRepositoryAsync(string path, CancellationToken token = default) => Task.FromResult(IsRepositoryResult);
 
-        public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (ShouldThrowOnDeleteBranch) throw new InvalidOperationException("Simulated branch delete failure");
             DeleteBranchCalls.Add(repoPath + ":" + branchName);
@@ -92,7 +92,7 @@ namespace Test.Shared.Infrastructure
             return Task.CompletedTask;
         }
 
-        public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default)
+        public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             DeleteBranchCalls.Add("remote:" + branchName);
             OperationCalls.Add("delete-remote-branch:" + branchName);

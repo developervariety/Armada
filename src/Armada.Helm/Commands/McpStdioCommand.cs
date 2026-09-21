@@ -43,7 +43,7 @@ namespace Armada.Helm.Commands
             await database.InitializeAsync().ConfigureAwait(false);
 
             // Initialize services
-            IGitService git = new GitService(logging);
+            IGitService git = new GitService(logging, database: database);
             IDockService dockService = new DockService(logging, database, armadaSettings, git);
             ICaptainService captainService = new CaptainService(logging, database, armadaSettings, git, dockService);
             IPromptTemplateService promptTemplateService = new PromptTemplateService(database, logging, armadaSettings.AdditionalPromptTemplates);
