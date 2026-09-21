@@ -544,28 +544,35 @@ namespace Test.Shared.Suites.E2E
 
             cases.Add(CaseAsync("list_events_combined_filters_type_and_vessel_id", "ListEvents_CombinedFilters_TypeAndVesselId", TestTags.Positive, async () =>
             {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                string fleetId = await CreateFleetAsync(authClient);
-                string vesselId = await CreateVesselAsync(authClient, fleetId);
-
-                Mission mission = await CreateMissionAsync(authClient, "CombinedVessel", vesselId: vesselId);
-                string missionId = mission.Id;
-                await TransitionAsync(authClient, missionId, "Assigned");
-
-                HttpResponseMessage response = await authClient.GetAsync(
-                    "/api/v1/events?type=mission.status_changed&vesselId=" + vesselId);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response);
-
-                AssertTrue(result.Objects.Count >= 1);
-                foreach (ArmadaEvent evt in result.Objects)
+                // Event filtering needs an explicit transition, not a race with captains created by earlier cases.
+                E2EServerFixture fx = await E2EServerFixture.StartIsolatedAsync(_ => { });
+                try
                 {
-                    AssertEqual("mission.status_changed", evt.EventType);
-                    AssertEqual(vesselId, evt.VesselId);
+                    HttpClient authClient = fx.AuthClient;
+
+                    string fleetId = await CreateFleetAsync(authClient);
+                    string vesselId = await CreateVesselAsync(authClient, fleetId);
+
+                    Mission mission = await CreateMissionAsync(authClient, "CombinedVessel", vesselId: vesselId);
+                    string missionId = mission.Id;
+                    HttpResponseMessage transition = await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
+                        JsonHelper.ToJsonContent(new { Status = "Assigned" }));
+                    AssertEqual(HttpStatusCode.OK, transition.StatusCode);
+
+                    HttpResponseMessage response = await authClient.GetAsync(
+                        "/api/v1/events?type=mission.status_changed&vesselId=" + vesselId);
+                    AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                    EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response);
+
+                    AssertTrue(result.Objects.Count >= 1);
+                    foreach (ArmadaEvent evt in result.Objects)
+                    {
+                        AssertEqual("mission.status_changed", evt.EventType);
+                        AssertEqual(vesselId, evt.VesselId);
+                    }
                 }
+                finally { fx.Stop(); }
             }));
 
             cases.Add(CaseAsync("list_events_combined_filters_limit_and_type", "ListEvents_CombinedFilters_LimitAndType", TestTags.Positive, async () =>
