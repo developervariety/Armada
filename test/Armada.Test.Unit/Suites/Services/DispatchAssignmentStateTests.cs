@@ -878,6 +878,61 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_ParallelAssignmentsInSeparateLanes_LaunchNoMoreThanGlobalWorkloadLimit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxConcurrentCaptainWorkloads = 1;
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    int launches = 0;
+                    captains.OnLaunchAgent = (_, _, _) =>
+                    {
+                        Interlocked.Increment(ref launches);
+                        return Task.FromResult(12345);
+                    };
+                    // Each admission evaluation waits for the other pass to arrive, so without one
+                    // reservation held from the count to the durable write both passes read zero
+                    // active workloads under the limit before either records its assignment.
+                    BarrierAdmission admission = new BarrierAdmission(2, TimeSpan.FromSeconds(2));
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
+                        resourcePressureAdmission: admission);
+
+                    Vessel firstVessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("workload-lane-a", "https://github.com/test/workload-lane-a.git") { DefaultBranch = "main" }).ConfigureAwait(false);
+                    Vessel secondVessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("workload-lane-b", "https://github.com/test/workload-lane-b.git") { DefaultBranch = "main" }).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(new Captain("workload-captain-a") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(new Captain("workload-captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                    Mission first = await testDb.Driver.Missions.CreateAsync(new Mission("lane a work", "Runs.")
+                    {
+                        VesselId = firstVessel.Id, Persona = "Worker", Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+                    Mission second = await testDb.Driver.Missions.CreateAsync(new Mission("lane b work", "Runs.")
+                    {
+                        VesselId = secondVessel.Id, Persona = "Worker", Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+
+                    bool[] results = await Task.WhenAll(
+                        Task.Run(() => missions.TryAssignAsync(first, firstVessel)),
+                        Task.Run(() => missions.TryAssignAsync(second, secondVessel))).ConfigureAwait(false);
+
+                    AssertEqual(1, results.Count(r => r), "Exactly one assignment may pass a global workload limit of one.");
+                    AssertEqual(1, Volatile.Read(ref launches), "Exactly one agent may launch under a global workload limit of one.");
+                    Mission firstBack = (await testDb.Driver.Missions.ReadAsync(first.Id).ConfigureAwait(false))!;
+                    Mission secondBack = (await testDb.Driver.Missions.ReadAsync(second.Id).ConfigureAwait(false))!;
+                    Mission deferred = results[0] ? secondBack : firstBack;
+                    AssertEqual(MissionStatusEnum.Pending, deferred.Status, "The deferred mission stays Pending.");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForResourcePressure, deferred.AssignmentState,
+                        "The deferred mission waits on workload admission.");
+                    AssertTrue(deferred.LastAdmissionObservation!.GlobalLimitReached,
+                        "The deferred mission counted the winner's durable assignment.");
+                }
+            });
+
             await RunTest("TryAssign_MissionWithUnknownDependency_ShowsWaitingForDependency", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1537,6 +1592,35 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Calls++;
                 return new ResourcePressureDecision { Admit = false, Reason = String.Empty };
+            }
+
+            public void MarkOom() { }
+
+            public bool IsCapacitySuspended() { return false; }
+        }
+
+        /// <summary>
+        /// Admits every evaluation, but first holds each caller until the expected number of
+        /// callers has arrived or the wait times out.
+        /// </summary>
+        private sealed class BarrierAdmission : IResourcePressureAdmission
+        {
+            private readonly int _Parties;
+            private readonly TimeSpan _Timeout;
+            private readonly ManualResetEventSlim _AllArrived = new ManualResetEventSlim(false);
+            private int _Arrived;
+
+            public BarrierAdmission(int parties, TimeSpan timeout)
+            {
+                _Parties = parties;
+                _Timeout = timeout;
+            }
+
+            public ResourcePressureDecision Evaluate(int activeBuildPressure)
+            {
+                if (Interlocked.Increment(ref _Arrived) >= _Parties) _AllArrived.Set();
+                _AllArrived.Wait(_Timeout);
+                return new ResourcePressureDecision { Admit = true, Reason = "barrier admitted" };
             }
 
             public void MarkOom() { }

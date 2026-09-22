@@ -152,10 +152,16 @@ operator must test the same captain and fallback-tier overrides as dispatch.
 Every work-creation path also passes through one durable fleet-capacity gate.
 The gate counts active work-bearing voyages plus standalone active missions,
 uses the transitive sibling-lane map, and holds a renewable tenant-scoped lease
-through initial graph creation. Capacity refusals use
+through initial graph creation. It reads only the vessel footprint of active
+work in one database query, so its cost does not grow with retained history.
+Capacity refusals use
 `fleet_capacity_reached` or `sibling_lane_capacity_reached`; failed creation is
 cancelled before the lease is released. Mission metadata updates cannot move a
 mission between vessels or voyages, and restarts are admitted like new work.
+Captain launch has its own global limit, `MaxConcurrentCaptainWorkloads`. One
+global workload reservation is held from the active-workload count until the
+mission is durably Assigned, so parallel assignments in different lanes cannot
+both take the last slot. Voyage and sibling-lane limits keep their own leases.
 
 ### Pipelines and Personas
 

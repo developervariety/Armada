@@ -577,6 +577,25 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<List<ActiveWorkFootprint>> EnumerateActiveWorkFootprintsAsync(string? tenantId, CancellationToken token = default)
+        {
+            bool tenantScoped = !String.IsNullOrEmpty(tenantId);
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = ActiveWorkFootprintQuery.CommandText(tenantScoped);
+                    if (tenantScoped) cmd.Parameters.AddWithValue(ActiveWorkFootprintQuery.TenantParameter, tenantId);
+                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        return await ActiveWorkFootprintQuery.ReadAsync(reader, token).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<List<ActiveMissionSummary>> GetActiveVesselSummariesAsync(string vesselId, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));

@@ -146,54 +146,28 @@ namespace Armada.Core.Services
             VesselLaneMap lanes = VesselLaneMap.Build(vessels,
                 message => _Logging?.Warn("[FleetCapacityAdmission] " + message));
 
-            List<Voyage> voyages = String.IsNullOrEmpty(tenantId)
-                ? await _Database.Voyages.EnumerateAsync(token).ConfigureAwait(false)
-                : await _Database.Voyages.EnumerateAsync(tenantId, token).ConfigureAwait(false);
-            HashSet<string> activeVoyageIds = voyages
-                .Where(voyage => voyage.Status == VoyageStatusEnum.Open || voyage.Status == VoyageStatusEnum.InProgress)
-                .Select(voyage => voyage.Id)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            List<Mission> missions = String.IsNullOrEmpty(tenantId)
-                ? await _Database.Missions.EnumerateAsync(token).ConfigureAwait(false)
-                : await _Database.Missions.EnumerateAsync(tenantId, token).ConfigureAwait(false);
+            // Read only the footprint of active work; retained voyage and mission history is
+            // filtered in the database and never enumerated here.
+            List<ActiveWorkFootprint> footprints = await _Database.Missions
+                .EnumerateActiveWorkFootprintsAsync(tenantId, token).ConfigureAwait(false);
             Dictionary<string, HashSet<string>> vesselsByWorkUnit =
                 new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (Mission mission in missions)
+            foreach (ActiveWorkFootprint footprint in footprints)
             {
-                if (String.IsNullOrWhiteSpace(mission.VesselId)) continue;
-                string workUnitId;
-                if (!String.IsNullOrWhiteSpace(mission.VoyageId))
-                {
-                    if (!activeVoyageIds.Contains(mission.VoyageId!)) continue;
-                    workUnitId = mission.VoyageId!;
-                }
-                else
-                {
-                    if (!IsActiveMission(mission.Status)) continue;
-                    workUnitId = "mission:" + mission.Id;
-                }
+                if (String.IsNullOrWhiteSpace(footprint.VesselId)) continue;
+                string workUnitId = !String.IsNullOrWhiteSpace(footprint.VoyageId)
+                    ? footprint.VoyageId!
+                    : "mission:" + footprint.MissionId;
 
                 if (!vesselsByWorkUnit.TryGetValue(workUnitId, out HashSet<string>? touched))
                 {
                     touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     vesselsByWorkUnit[workUnitId] = touched;
                 }
-                touched.Add(mission.VesselId!);
+                touched.Add(footprint.VesselId);
             }
 
             return new CapacitySnapshot(lanes, vesselsByWorkUnit);
-        }
-
-        private static bool IsActiveMission(MissionStatusEnum status)
-        {
-            return status == MissionStatusEnum.Pending
-                || status == MissionStatusEnum.Assigned
-                || status == MissionStatusEnum.InProgress
-                || status == MissionStatusEnum.WorkProduced
-                || status == MissionStatusEnum.PullRequestOpen
-                || status == MissionStatusEnum.Testing
-                || status == MissionStatusEnum.Review;
         }
 
         private sealed class CapacitySnapshot

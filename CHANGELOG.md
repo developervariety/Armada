@@ -137,6 +137,11 @@ upstream integrations and excludes changes already present at that baseline.
   the journal. Admiral stop runs once, waits (bounded) for its background loops
   before disposing the database, and disposes it even when an earlier shutdown
   step fails.
+- **Capacity admission:** one global workload reservation covers the active-workload
+  count through the durable Assigned write, so parallel assignments in different lanes
+  launch no more captains than `MaxConcurrentCaptainWorkloads`. Fleet-capacity
+  admission reads the active-work footprint in one query on every database provider
+  instead of enumerating retained voyage and mission history.
 - **Dashboard and clients:** responsive navigation, scoped controls, complete entity
   forms, structured mission evidence, routing and account controls, endpoint health,
   tool activity, and consistent REST/MCP/WebSocket contracts.

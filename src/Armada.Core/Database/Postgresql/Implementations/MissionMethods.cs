@@ -463,6 +463,26 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<List<ActiveWorkFootprint>> EnumerateActiveWorkFootprintsAsync(string? tenantId, CancellationToken token = default)
+        {
+            bool tenantScoped = !String.IsNullOrEmpty(tenantId);
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = ActiveWorkFootprintQuery.CommandText(tenantScoped);
+                    if (tenantScoped) cmd.Parameters.AddWithValue(ActiveWorkFootprintQuery.TenantParameter, tenantId);
+                    using (NpgsqlDataReader reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        return await ActiveWorkFootprintQuery.ReadAsync(reader, token).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<List<ActiveMissionSummary>> GetActiveVesselSummariesAsync(string vesselId, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));

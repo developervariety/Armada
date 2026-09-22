@@ -185,6 +185,16 @@ namespace Armada.Core.Database.Interfaces
         }
 
         /// <summary>
+        /// Enumerate the vessel footprint of every mission that occupies fleet capacity: every
+        /// mission of an Open or InProgress voyage, and every mission without a voyage whose status
+        /// is active. Only identifier columns are read and retained history is filtered in the
+        /// database, never enumerated.
+        /// </summary>
+        /// <param name="tenantId">Tenant scope, or null or empty for every tenant.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<List<ActiveWorkFootprint>> EnumerateActiveWorkFootprintsAsync(string? tenantId, CancellationToken token = default);
+
+        /// <summary>
         /// Count missions in a voyage grouped by status without hydrating mission rows.
         /// </summary>
         async Task<Dictionary<MissionStatusEnum, int>> CountByVoyageStatusAsync(string voyageId, CancellationToken token = default)

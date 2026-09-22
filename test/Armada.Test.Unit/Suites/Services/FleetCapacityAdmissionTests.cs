@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using Armada.Core;
     using Armada.Core.Database;
+    using Armada.Core.Database.Interfaces;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -264,6 +265,77 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, await CountWorkVoyagesAsync(testDb.Driver).ConfigureAwait(false),
                     "The losing Admiral must create no work rows.");
             }).ConfigureAwait(false);
+
+            await RunTest("Admission counts active work from the footprint query without enumerating history", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                Vessel vessel = await CreateVesselAsync(testDb.Driver, "vsl_footprint").ConfigureAwait(false);
+                Vessel other = await CreateVesselAsync(testDb.Driver, "vsl_footprint_other").ConfigureAwait(false);
+
+                // Retained history: ended voyages with missions in every status, finished standalone
+                // missions, and active-looking work in another tenant. None of it occupies capacity.
+                foreach (VoyageStatusEnum ended in new[] { VoyageStatusEnum.Complete, VoyageStatusEnum.Failed, VoyageStatusEnum.Cancelled })
+                {
+                    Voyage history = await testDb.Driver.Voyages.CreateAsync(new Voyage("history " + ended)
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        Status = ended
+                    }).ConfigureAwait(false);
+                    foreach (MissionStatusEnum status in Enum.GetValues<MissionStatusEnum>())
+                    {
+                        await testDb.Driver.Missions.CreateAsync(new Mission("history " + ended + " " + status, "done")
+                        {
+                            TenantId = Constants.DefaultTenantId, VoyageId = history.Id, VesselId = other.Id, Status = status
+                        }).ConfigureAwait(false);
+                    }
+                }
+                foreach (MissionStatusEnum finished in new[] { MissionStatusEnum.Complete, MissionStatusEnum.Failed, MissionStatusEnum.Cancelled, MissionStatusEnum.LandingFailed })
+                {
+                    await testDb.Driver.Missions.CreateAsync(new Mission("standalone " + finished, "done")
+                    {
+                        TenantId = Constants.DefaultTenantId, VesselId = other.Id, Status = finished
+                    }).ConfigureAwait(false);
+                }
+                await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_footprint_other", Name = "ten_footprint_other" }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("other tenant", "not counted")
+                {
+                    TenantId = "ten_footprint_other", VesselId = other.Id, Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
+                // Active work: an Open voyage whose only mission is already Complete still holds its
+                // slot, and a standalone mission in Review holds its own.
+                Voyage live = await testDb.Driver.Voyages.CreateAsync(new Voyage("live")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    Status = VoyageStatusEnum.Open
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("live finished stage", "stage")
+                {
+                    TenantId = Constants.DefaultTenantId, VoyageId = live.Id, VesselId = other.Id, Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("standalone review", "active")
+                {
+                    TenantId = Constants.DefaultTenantId, VesselId = other.Id, Status = MissionStatusEnum.Review
+                }).ConfigureAwait(false);
+
+                using HistoryGuardDriver guarded = new HistoryGuardDriver(testDb.ConnectionString, logging);
+                try
+                {
+                    await new FleetCapacityAdmission(guarded, Settings(2, 5), logging).AcquireAsync(vessel, null).ConfigureAwait(false);
+                    throw new InvalidOperationException("Expected the fleet to be full with two active work units.");
+                }
+                catch (FleetCapacityAdmissionException ex)
+                {
+                    AssertEqual("fleet_capacity_reached", ex.Code, "refusal code");
+                    AssertEqual(2, ex.ActiveCount, "Exactly the live voyage and the active standalone mission occupy capacity.");
+                }
+
+                await using FleetCapacityReservation admitted = await new FleetCapacityAdmission(guarded, Settings(3, 5), logging)
+                    .AcquireAsync(vessel, null).ConfigureAwait(false);
+                AssertNotNull(admitted, "A third slot admits new work.");
+                AssertEqual(0, guarded.HistoryEnumerations, "Admission must not enumerate full mission or voyage history.");
+            }).ConfigureAwait(false);
         }
 
         private static ArmadaSettings Settings(int fleet, int lane)
@@ -339,6 +411,70 @@ namespace Armada.Test.Unit.Suites.Services
             catch (FleetCapacityAdmissionException)
             {
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// A SQLite driver whose mission and voyage full-history enumerations fail and are counted.
+        /// </summary>
+        internal sealed class HistoryGuardDriver : SqliteDatabaseDriver
+        {
+            private int _HistoryEnumerations;
+
+            public HistoryGuardDriver(string connectionString, LoggingModule logging)
+                : base(connectionString, logging)
+            {
+                Missions = HistoryGuardProxy<IMissionMethods>.Wrap(Missions, this);
+                Voyages = HistoryGuardProxy<IVoyageMethods>.Wrap(Voyages, this);
+            }
+
+            public int HistoryEnumerations => Volatile.Read(ref _HistoryEnumerations);
+
+            internal void RecordHistoryEnumeration()
+            {
+                Interlocked.Increment(ref _HistoryEnumerations);
+            }
+        }
+
+        /// <summary>
+        /// Forwards every call to the provider, but refuses the unfiltered EnumerateAsync overloads
+        /// that return every retained row.
+        /// </summary>
+        internal class HistoryGuardProxy<T> : System.Reflection.DispatchProxy where T : class
+        {
+            private T _Inner = null!;
+            private HistoryGuardDriver _Owner = null!;
+
+            internal static T Wrap(T inner, HistoryGuardDriver owner)
+            {
+                T proxy = Create<T, HistoryGuardProxy<T>>();
+                HistoryGuardProxy<T> guard = (HistoryGuardProxy<T>)(object)proxy;
+                guard._Inner = inner;
+                guard._Owner = owner;
+                return proxy;
+            }
+
+            /// <inheritdoc />
+            protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
+            {
+                if (targetMethod == null) throw new ArgumentNullException(nameof(targetMethod));
+                System.Reflection.ParameterInfo[] parameters = targetMethod.GetParameters();
+                bool fullHistory = targetMethod.Name == "EnumerateAsync"
+                    && parameters.All(parameter => parameter.ParameterType == typeof(string) || parameter.ParameterType == typeof(CancellationToken));
+                if (fullHistory)
+                {
+                    _Owner.RecordHistoryEnumeration();
+                    throw new InvalidOperationException("Full " + typeof(T).Name + " history was enumerated.");
+                }
+
+                try
+                {
+                    return targetMethod.Invoke(_Inner, args);
+                }
+                catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException != null)
+                {
+                    throw ex.InnerException;
+                }
             }
         }
 

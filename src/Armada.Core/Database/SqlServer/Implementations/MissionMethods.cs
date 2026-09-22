@@ -573,6 +573,25 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<List<ActiveWorkFootprint>> EnumerateActiveWorkFootprintsAsync(string? tenantId, CancellationToken token = default)
+        {
+            bool tenantScoped = !String.IsNullOrEmpty(tenantId);
+            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = ActiveWorkFootprintQuery.CommandText(tenantScoped);
+                    if (tenantScoped) cmd.Parameters.AddWithValue(ActiveWorkFootprintQuery.TenantParameter, tenantId);
+                    using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        return await ActiveWorkFootprintQuery.ReadAsync(reader, token).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<List<ActiveMissionSummary>> GetActiveVesselSummariesAsync(string vesselId, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));

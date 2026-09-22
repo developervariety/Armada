@@ -264,6 +264,9 @@ namespace Armada.Core.Services
         // in one pass pick the same captain, both provision full docks, and the second learns at
         // the final claim that the captain is gone -- after the whole provisioning cost is spent.
         private readonly SemaphoreSlim _CaptainSelectionLock = new SemaphoreSlim(1, 1);
+        // Coordination lease that makes the global workload count and the durable Assigned write one step.
+        private const string WorkloadAdmissionLeaseName = "captain-workload-admission";
+        private static readonly TimeSpan _WorkloadAdmissionLeaseTtl = TimeSpan.FromMinutes(2);
         // Last requested-captain outcome recorded per waiting mission; cleared when the mission is assigned.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _RequestedCaptainNotices =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -477,6 +480,7 @@ namespace Armada.Core.Services
             }
 
             Captain? reservedCaptain = null;
+            FleetCapacityReservation? workloadReservation = null;
             try
             {
                 Mission? latestMission = null;
@@ -770,7 +774,11 @@ namespace Armada.Core.Services
                 return false;
 
             // Both admission controls use the global active workload count. A per-vessel count
-            // misses simultaneous compiler and agent pressure from other repositories.
+            // misses simultaneous compiler and agent pressure from other repositories. One global
+            // workload reservation is held from this count until the mission is durably Assigned,
+            // so two passes in different lanes cannot both count the same free slot. Voyage and
+            // sibling-lane limits protect different resources and keep their own reservations.
+            workloadReservation = await AcquireWorkloadReservationAsync(mission.Id, token).ConfigureAwait(false);
             Dictionary<MissionStatusEnum, int> statusCounts =
                 await _Database.Missions.CountByStatusAsync(token).ConfigureAwait(false);
             int globalActive = 0;
@@ -929,8 +937,21 @@ namespace Armada.Core.Services
             // its pre-assignment state for that whole window -- so neither an operator nor the
             // assignment-state tests could observe Provisioning while it was actually happening.
             // A cancellation or other status change since this pass loaded the mission wins; stop before claiming a captain.
+            // The workload reservation must still be owned when this write makes the admitted slot durable.
+            try
+            {
+                await workloadReservation.VerifyOwnershipAsync(token).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _Logging.Warn(_Header + "workload admission for mission " + mission.Id + " expired before assignment was recorded; deferring: " + ex.Message);
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForResourcePressure;
+                return false;
+            }
             if (!await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false))
                 return false;
+            // The Assigned row now holds the workload slot; release the reservation before provisioning.
+            await workloadReservation.DisposeAsync().ConfigureAwait(false);
 
             // Provision dock (worktree) and launch agent
             Dock? dock;
@@ -1161,6 +1182,8 @@ namespace Armada.Core.Services
             }
             finally
             {
+                if (workloadReservation != null)
+                    await workloadReservation.DisposeAsync().ConfigureAwait(false);
                 if (reservedCaptain != null)
                     _CaptainReservations.TryRemove(new KeyValuePair<string, string>(reservedCaptain.Id, mission.Id));
                 _InFlightAssignments.TryRemove(mission.Id, out _);
@@ -5058,6 +5081,25 @@ namespace Armada.Core.Services
         /// writer set meanwhile -- a voyage cancellation turned back into Pending. That change wins instead.
         /// </summary>
         /// <returns>True when written; false when the stored status had changed and nothing was written.</returns>
+        /// <summary>
+        /// Wait for the single global captain-workload reservation. It serializes the read of the
+        /// active workload count with the durable Assigned write across every server process.
+        /// </summary>
+        private async Task<FleetCapacityReservation> AcquireWorkloadReservationAsync(string missionId, CancellationToken token)
+        {
+            string holder = "captain-workload:" + missionId + ":" + Guid.NewGuid().ToString("N");
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                bool acquired = await _Database.CoordinationLeases.TryAcquireAsync(
+                    WorkloadAdmissionLeaseName, holder, _WorkloadAdmissionLeaseTtl, null, token).ConfigureAwait(false);
+                if (acquired)
+                    return new FleetCapacityReservation(_Database.CoordinationLeases, WorkloadAdmissionLeaseName,
+                        holder, _WorkloadAdmissionLeaseTtl, _Logging);
+                await Task.Delay(25, token).ConfigureAwait(false);
+            }
+        }
+
         private async Task<bool> WriteAssignmentAsync(Mission mission, MissionStatusEnum storedStatus, CancellationToken token)
         {
             if (await _Database.Missions.TryUpdateIfStatusAsync(mission, storedStatus, token).ConfigureAwait(false))
