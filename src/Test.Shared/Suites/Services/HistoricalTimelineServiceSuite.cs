@@ -3,11 +3,13 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -431,6 +433,58 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(objective.Id, entry.ObjectiveId);
                 AssertEqual("/backlog/" + objective.Id, entry.Route);
                 AssertEqual(ObjectiveRefinementSessionStatusEnum.Completed.ToString(), entry.Status);
+            }));
+
+            cases.Add(CaseAsync("enumerate_reports_a_source_the_provider_does_not_store", "EnumerateAsync omits and names a source the database provider does not store", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                string tenantId = "ten_history_unsupported";
+                string userId = "usr_history_unsupported";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Voyage voyage = new Voyage
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Voyage beside an unsupported source",
+                    Status = VoyageStatusEnum.Open
+                };
+                await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                List<string> messages = new List<string>();
+                object gate = new object();
+                logging.MessageLogged += entry =>
+                {
+                    lock (gate) messages.Add(entry.Message ?? String.Empty);
+                };
+
+                // The server providers store no planning sessions; their method set refuses every read.
+                PropertyInfo planningSessions = typeof(Armada.Core.Database.DatabaseDriver).GetProperty(nameof(Armada.Core.Database.DatabaseDriver.PlanningSessions))!;
+                object? original = planningSessions.GetValue(testDb.Driver);
+                planningSessions.SetValue(testDb.Driver, new Armada.Core.Database.Postgresql.Implementations.PlanningSessionMethods(null!, null!, null!));
+                EnumerationResult<HistoricalTimelineEntry> result;
+                try
+                {
+                    HistoricalTimelineService service = new HistoricalTimelineService(testDb.Driver, logging);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, true, true, "UnitTest");
+                    result = await service.EnumerateAsync(auth, new HistoricalTimelineQuery { PageNumber = 1, PageSize = 50 }).ConfigureAwait(false);
+                }
+                finally
+                {
+                    planningSessions.SetValue(testDb.Driver, original);
+                }
+
+                HistoricalTimelineResult? timeline = result as HistoricalTimelineResult;
+                AssertNotNull(timeline, "the timeline result carries its unavailable sources");
+                AssertEqual("Planning", String.Join(",", timeline!.UnavailableSources), "the unsupported source is named");
+                AssertTrue(timeline.Objects.Exists(entry => entry.SourceType == "Voyage" && entry.SourceId == voyage.Id), "the supported sources are still listed");
+                List<string> logged;
+                lock (gate) logged = new List<string>(messages);
+                AssertTrue(
+                    logged.Exists(message => message.Contains("Planning entries are not in the timeline", StringComparison.Ordinal)),
+                    "the omitted source is logged: " + String.Join(" | ", logged));
             }));
 
             // Audit addition: null auth is rejected (confirmed against source).

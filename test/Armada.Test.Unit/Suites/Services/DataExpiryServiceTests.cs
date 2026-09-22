@@ -153,6 +153,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("PurgeExpiredDataAsync RemovesRequestHistoryOlderThanItsRetention", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    DateTime now = DateTime.UtcNow;
+
+                    RequestHistoryEntry expired = new RequestHistoryEntry { Route = "/api/v1/expired", CreatedUtc = now.AddDays(-10) };
+                    RequestHistoryEntry insideRetention = new RequestHistoryEntry { Route = "/api/v1/retained", CreatedUtc = now.AddDays(-7).AddHours(1) };
+                    await db.RequestHistory.CreateAsync(expired, new RequestHistoryDetail { RequestHistoryId = expired.Id, RequestBodyText = "expired body" });
+                    await db.RequestHistory.CreateAsync(insideRetention, new RequestHistoryDetail { RequestHistoryId = insideRetention.Id, RequestBodyText = "retained body" });
+
+                    DataExpiryResult disabled = await new DataExpiryService(logging, db, 0, 0, 0).PurgeExpiredDataAsync();
+                    AssertTrue(disabled.Deleted("request_history") == null, "request-history retention 0 keeps request history forever");
+                    AssertNotNull(await db.RequestHistory.ReadAsync(expired.Id), "request history is kept while its retention is off");
+
+                    DataExpiryResult result = await new DataExpiryService(logging, db, 0, 0, 7).PurgeExpiredDataAsync();
+
+                    AssertEqual(1, result.Deleted("request_history"), "one expired request is purged: " + result);
+                    AssertEqual(1, result.Deleted("request_history_detail"), "its detail row is purged with it: " + result);
+                    AssertNull(await db.RequestHistory.ReadAsync(expired.Id), "the expired request is gone");
+                    RequestHistoryRecord? kept = await db.RequestHistory.ReadAsync(insideRetention.Id);
+                    AssertNotNull(kept, "a request inside the retention period is kept");
+                    AssertEqual("retained body", kept!.Detail?.RequestBodyText, "the kept request keeps its detail");
+                    AssertTrue(result.Deleted("events") == null, "data retention 0 leaves operational tables unpurged: " + result);
+                }
+            });
+
             await RunTest("PurgeExpiredDataAsync LogsOneSummaryWithPerTableCountsOnEveryRun", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

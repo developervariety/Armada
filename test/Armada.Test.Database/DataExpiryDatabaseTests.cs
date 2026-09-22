@@ -151,6 +151,40 @@ namespace Armada.Test.Database
             DatabaseAssert.True(await LaneExistsAsync(newLane.LaneKey, retained, token).ConfigureAwait(false), "A lane state transition inside the fact retention is kept");
         }
 
+        internal async Task VerifyRequestHistoryRetentionAsync(CancellationToken token)
+        {
+            DateTime now = DateTime.UtcNow;
+            string route = "/api/v1/retention-probe/" + Guid.NewGuid().ToString("N");
+            RequestHistoryEntry expired = new RequestHistoryEntry { Route = route, CreatedUtc = now.AddDays(-3) };
+            RequestHistoryEntry justInside = new RequestHistoryEntry { Route = route, CreatedUtc = now.AddDays(-2).AddMinutes(1) };
+            RequestHistoryEntry recent = new RequestHistoryEntry { Route = route, CreatedUtc = now };
+            await _Driver.RequestHistory.CreateAsync(expired, new RequestHistoryDetail { RequestHistoryId = expired.Id, RequestBodyText = "expired" }, token).ConfigureAwait(false);
+            await _Driver.RequestHistory.CreateAsync(justInside, new RequestHistoryDetail { RequestHistoryId = justInside.Id, RequestBodyText = "inside" }, token).ConfigureAwait(false);
+            await _Driver.RequestHistory.CreateAsync(recent, null, token).ConfigureAwait(false);
+            try
+            {
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                DataExpiryResult purged = await new DataExpiryService(logging, _Driver, 0, 0, 2).PurgeExpiredDataAsync(token).ConfigureAwait(false);
+
+                DatabaseAssert.True(purged.Deleted("request_history") >= 1, "The summary counts request history deleted: " + purged);
+                DatabaseAssert.True(purged.Deleted("request_history_detail") >= 1, "The summary counts request detail deleted: " + purged);
+                DatabaseAssert.True(purged.Deleted("events") == null, "Data retention 0 leaves operational tables unpurged: " + purged);
+                DatabaseAssert.True(await _Driver.RequestHistory.ReadAsync(expired.Id, null, token).ConfigureAwait(false) == null, "A request older than the request-history retention is purged");
+                RequestHistoryRecord inside = DatabaseAssert.NotNull(await _Driver.RequestHistory.ReadAsync(justInside.Id, null, token).ConfigureAwait(false), "A request just inside the retention period is kept");
+                DatabaseAssert.Equal("inside", inside.Detail?.RequestBodyText, "A kept request keeps its detail");
+                DatabaseAssert.NotNull(await _Driver.RequestHistory.ReadAsync(recent.Id, null, token).ConfigureAwait(false), "A recent request is kept");
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    foreach (string id in new[] { expired.Id, justInside.Id, recent.Id })
+                        await _Driver.RequestHistory.DeleteAsync(id, null, token).ConfigureAwait(false);
+                }
+            }
+        }
+
         private static ProductionFactQuery Around(DateTime createdUtc)
         {
             return new ProductionFactQuery { FromUtc = createdUtc.AddMinutes(-1), ToUtc = createdUtc.AddMinutes(1), Limit = 1000 };

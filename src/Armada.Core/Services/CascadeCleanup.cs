@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using SyslogLogging;
 
     /// <summary>
     /// Centralized cascade cleanup for dependent rows the database schema does not remove on its own.
@@ -20,6 +21,7 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private const int _BatchSize = 500;
+        private const string _Header = "[CascadeCleanup] ";
 
         #endregion
 
@@ -75,8 +77,9 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="captainId">Captain identifier.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="logging">Logging module; each dependent that is not removed is logged here with its reason.</param>
         /// <returns>The number of dependent rows removed.</returns>
-        public static async Task<int> RemoveDependentsForCaptainAsync(DatabaseDriver database, string captainId, CancellationToken token = default)
+        public static async Task<int> RemoveDependentsForCaptainAsync(DatabaseDriver database, string captainId, CancellationToken token = default, LoggingModule? logging = null)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (String.IsNullOrEmpty(captainId)) return 0;
@@ -89,9 +92,10 @@ namespace Armada.Core.Services
             {
                 removed = await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByCaptainAsync(captainId, limit, token), token).ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Skip: an events-deletion failure leaves orphan telemetry, not a blocked delete.
+                // An events-deletion failure leaves orphan telemetry, not a blocked delete.
+                logging?.Warn(_Header + "events of deleted captain " + captainId + " were not removed: " + ex.Message);
             }
 
             List<PlanningSession> sessions = new List<PlanningSession>();
@@ -99,9 +103,15 @@ namespace Armada.Core.Services
             {
                 sessions = await database.PlanningSessions.EnumerateByCaptainAsync(captainId, token).ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (NotSupportedException ex)
             {
-                // Skip: an unreadable planning-session list leaves orphans for a later sweep.
+                // The provider stores no planning sessions, so there are none to remove.
+                logging?.Info(_Header + "planning-session cleanup skipped for deleted captain " + captainId + ": " + ex.Message);
+            }
+            catch (Exception ex)
+            {
+                // An unreadable planning-session list leaves orphans for a later sweep.
+                logging?.Warn(_Header + "planning sessions of deleted captain " + captainId + " were not listed and are left in place: " + ex.Message);
             }
             foreach (PlanningSession session in sessions)
             {
@@ -110,10 +120,11 @@ namespace Armada.Core.Services
                     await database.PlanningSessions.DeleteAsync(session.Id, token).ConfigureAwait(false);
                     removed++;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Best-effort: a session that cannot be removed is skipped so one failure does not
-                    // block the rest of the cascade. The parent delete still proceeds.
+                    // A session that cannot be removed is skipped so one failure does not block the rest
+                    // of the cascade. The parent delete still proceeds.
+                    logging?.Warn(_Header + "planning session " + session.Id + " of deleted captain " + captainId + " was not removed: " + ex.Message);
                 }
             }
 
@@ -122,9 +133,10 @@ namespace Armada.Core.Services
             {
                 refinementSessions = await database.ObjectiveRefinementSessions.EnumerateByCaptainAsync(captainId, token).ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Skip: an unreadable refinement-session list leaves orphans for a later sweep.
+                // An unreadable refinement-session list leaves orphans for a later sweep.
+                logging?.Warn(_Header + "refinement sessions of deleted captain " + captainId + " were not listed and are left in place: " + ex.Message);
             }
             foreach (ObjectiveRefinementSession session in refinementSessions)
             {
@@ -133,9 +145,10 @@ namespace Armada.Core.Services
                     await database.ObjectiveRefinementSessions.DeleteAsync(session.Id, token).ConfigureAwait(false);
                     removed++;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Best-effort, as for planning sessions above.
+                    // Skipped as for planning sessions above.
+                    logging?.Warn(_Header + "refinement session " + session.Id + " of deleted captain " + captainId + " was not removed: " + ex.Message);
                 }
             }
 

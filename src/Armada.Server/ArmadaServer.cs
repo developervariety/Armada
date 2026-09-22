@@ -455,7 +455,7 @@ namespace Armada.Server
             _IncidentLifecycle = new IncidentLifecycleOrchestrator(_Database, _IncidentService, _Settings, _Logging);
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging, _Settings);
-            _HistoricalTimelineService = new HistoricalTimelineService(_Database);
+            _HistoricalTimelineService = new HistoricalTimelineService(_Database, _Logging);
             _ModelEndpointService = new ModelEndpointService(
                 _Database,
                 _Logging,
@@ -507,7 +507,7 @@ namespace Armada.Server
 
             // Initialize log rotation and data expiry
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
-            _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays, _Settings.ProductionFactRetentionDays);
+            _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays, _Settings.ProductionFactRetentionDays, _Settings.RequestHistoryRetentionDays);
             _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
 
             // Telemetry export. ArmadaMetrics already emits the meters; without this host nothing

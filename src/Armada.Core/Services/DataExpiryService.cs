@@ -12,8 +12,9 @@ namespace Armada.Core.Services
     /// Background service that purges expired records through the database driver, so it runs on
     /// every provider. Removes completed voyages and their missions, completed standalone missions,
     /// read signals, events, released docks and finished merge entries older than the data retention
-    /// period, and append-only production metric facts older than their own retention period. Logs
-    /// one summary line with per-table counts on every run.
+    /// period, append-only production metric facts older than their own retention period, and captured
+    /// request history older than the request-history retention period. Logs one summary line with
+    /// per-table counts on every run.
     /// </summary>
     public class DataExpiryService
     {
@@ -24,6 +25,7 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly int _RetentionDays;
         private readonly int _ProductionFactRetentionDays;
+        private readonly int _RequestHistoryRetentionDays;
 
         #endregion
 
@@ -36,14 +38,17 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="retentionDays">Number of days to retain completed data. Set to 0 to disable.</param>
         /// <param name="productionFactRetentionDays">Number of days to retain production metric facts. Set to 0 to keep them forever.</param>
-        public DataExpiryService(LoggingModule logging, DatabaseDriver database, int retentionDays, int productionFactRetentionDays)
+        /// <param name="requestHistoryRetentionDays">Number of days to retain captured request history. Set to 0 to keep it forever.</param>
+        public DataExpiryService(LoggingModule logging, DatabaseDriver database, int retentionDays, int productionFactRetentionDays, int requestHistoryRetentionDays = 0)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             if (retentionDays < 0) throw new ArgumentOutOfRangeException(nameof(retentionDays), "Must be >= 0");
             if (productionFactRetentionDays < 0) throw new ArgumentOutOfRangeException(nameof(productionFactRetentionDays), "Must be >= 0");
             _RetentionDays = retentionDays;
+            if (requestHistoryRetentionDays < 0) throw new ArgumentOutOfRangeException(nameof(requestHistoryRetentionDays), "Must be >= 0");
             _ProductionFactRetentionDays = productionFactRetentionDays;
+            _RequestHistoryRetentionDays = requestHistoryRetentionDays;
         }
 
         #endregion
@@ -57,10 +62,10 @@ namespace Armada.Core.Services
         /// <returns>Rows deleted per table.</returns>
         public async Task<DataExpiryResult> PurgeExpiredDataAsync(CancellationToken token = default)
         {
-            DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, _RetentionDays, _ProductionFactRetentionDays);
-            if (!cutoffs.RecordCutoffUtc.HasValue && !cutoffs.ProductionFactCutoffUtc.HasValue)
+            DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, _RetentionDays, _ProductionFactRetentionDays, _RequestHistoryRetentionDays);
+            if (!cutoffs.AnyEnabled)
             {
-                _Logging.Info(_Header + "data expiry skipped: dataRetentionDays=0 and productionFactRetentionDays=0 disable it");
+                _Logging.Info(_Header + "data expiry skipped: dataRetentionDays=0, productionFactRetentionDays=0 and requestHistoryRetentionDays=0 disable it");
                 return new DataExpiryResult();
             }
 
@@ -68,6 +73,7 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "data expiry summary:"
                 + " dataRetentionDays=" + _RetentionDays + " cutoff=" + Describe(cutoffs.RecordCutoffUtc)
                 + " productionFactRetentionDays=" + _ProductionFactRetentionDays + " factCutoff=" + Describe(cutoffs.ProductionFactCutoffUtc)
+                + " requestHistoryRetentionDays=" + _RequestHistoryRetentionDays + " requestHistoryCutoff=" + Describe(cutoffs.RequestHistoryCutoffUtc)
                 + " deleted=" + result.Total + " " + result);
             return result;
         }

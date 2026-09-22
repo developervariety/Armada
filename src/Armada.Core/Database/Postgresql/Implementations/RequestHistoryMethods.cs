@@ -252,7 +252,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@is_success", entry.IsSuccess);
             cmd.Parameters.AddWithValue("@client_ip", (object?)entry.ClientIp ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@correlation_id", (object?)entry.CorrelationId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", entry.CreatedUtc);
+            // created_utc is TEXT compared against ISO-8601 bounds, so it is stored in that form.
+            cmd.Parameters.AddWithValue("@created_utc", ToIso8601(entry.CreatedUtc));
         }
 
         private static void BindDetail(NpgsqlCommand cmd, RequestHistoryDetail detail)

@@ -126,11 +126,17 @@ namespace Armada.Test.Database
                 "idx_objective_refinement_sessions_tenant_objective_created",
                 "idx_objective_refinement_messages_session_sequence",
                 "ux_memories_tenant_key",
-                "idx_memories_tenant_user"
+                "idx_memories_tenant_user",
+                "idx_request_history_tenant_created",
+                "idx_request_history_user_created",
+                "idx_request_history_route_created"
             })
             {
                 DatabaseAssert.True(await IndexExistsAsync(conn, indexName, token).ConfigureAwait(false), "Missing index " + indexName);
             }
+
+            if (_Settings.Type == DatabaseTypeEnum.Postgresql)
+                DatabaseAssert.True(await IndexExistsAsync(conn, "idx_request_history_created", token).ConfigureAwait(false), "Missing index idx_request_history_created");
         }
 
         private long GetExpectedMinimumSchemaVersion()

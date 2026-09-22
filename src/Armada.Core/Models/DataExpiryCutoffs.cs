@@ -33,22 +33,36 @@ namespace Armada.Core.Models
         public DateTime? ProductionFactCutoffUtc { get; set; }
 
         /// <summary>
+        /// Cutoff for captured HTTP request history and its detail rows. Null when request history is
+        /// kept forever.
+        /// </summary>
+        public DateTime? RequestHistoryCutoffUtc { get; set; }
+
+        /// <summary>
+        /// Whether any cutoff is set, so a run has something to purge.
+        /// </summary>
+        public bool AnyEnabled => RecordCutoffUtc.HasValue || ProductionFactCutoffUtc.HasValue || RequestHistoryCutoffUtc.HasValue;
+
+        /// <summary>
         /// Build the cutoffs for a run at <paramref name="nowUtc"/>.
         /// </summary>
         /// <param name="nowUtc">The run's clock.</param>
         /// <param name="dataRetentionDays">Operational record retention in days; 0 disables it.</param>
         /// <param name="productionFactRetentionDays">Production metric fact retention in days; 0 keeps facts forever.</param>
+        /// <param name="requestHistoryRetentionDays">Request history retention in days; 0 keeps request history forever.</param>
         /// <returns>The cutoffs.</returns>
-        public static DataExpiryCutoffs FromRetention(DateTime nowUtc, int dataRetentionDays, int productionFactRetentionDays)
+        public static DataExpiryCutoffs FromRetention(DateTime nowUtc, int dataRetentionDays, int productionFactRetentionDays, int requestHistoryRetentionDays = 0)
         {
             if (dataRetentionDays < 0) throw new ArgumentOutOfRangeException(nameof(dataRetentionDays), "Must be >= 0");
             if (productionFactRetentionDays < 0) throw new ArgumentOutOfRangeException(nameof(productionFactRetentionDays), "Must be >= 0");
+            if (requestHistoryRetentionDays < 0) throw new ArgumentOutOfRangeException(nameof(requestHistoryRetentionDays), "Must be >= 0");
             DateTime now = nowUtc.Kind == DateTimeKind.Utc ? nowUtc : DateTime.SpecifyKind(nowUtc.ToUniversalTime(), DateTimeKind.Utc);
             return new DataExpiryCutoffs
             {
                 RecordCutoffUtc = dataRetentionDays > 0 ? now.AddDays(-dataRetentionDays) : null,
                 DispatchAttemptCutoffUtc = now - ObjectiveDispatchAdmission.ReconciliationLookBack,
-                ProductionFactCutoffUtc = productionFactRetentionDays > 0 ? now.AddDays(-productionFactRetentionDays) : null
+                ProductionFactCutoffUtc = productionFactRetentionDays > 0 ? now.AddDays(-productionFactRetentionDays) : null,
+                RequestHistoryCutoffUtc = requestHistoryRetentionDays > 0 ? now.AddDays(-requestHistoryRetentionDays) : null
             };
         }
     }

@@ -149,6 +149,13 @@ upstream integrations and excludes changes already present at that baseline.
   owning user. Pipeline create, update and delete write the pipeline and its stages
   in one transaction, so a failed write leaves the stored pipeline unchanged. The
   driver wiring check covers every method set.
+- **Retention and history:** data expiry removes captured request history and its
+  detail older than `requestHistoryRetentionDays` (default 30; `0` keeps it).
+  PostgreSQL stores request capture times as ISO-8601 text, upgrades older rows,
+  and indexes request history like the other providers, so same-day time filters
+  and retention compare correctly. The history timeline leaves out a source the
+  database provider does not store, names it in `UnavailableSources`, and logs it;
+  captain deletion logs a skipped or failed dependent cleanup.
 - **Helm server control:** `server stop`, `server restart`, `reset` and `config init`
   share one authenticated stop through `POST /api/v1/server/stop` and count the
   Admiral as stopped only when its health route no longer answers. A refused or

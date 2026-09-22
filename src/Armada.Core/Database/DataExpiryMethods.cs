@@ -60,7 +60,7 @@ namespace Armada.Core.Database
         {
             if (cutoffs == null) throw new ArgumentNullException(nameof(cutoffs));
             DataExpiryResult result = new DataExpiryResult();
-            if (!cutoffs.RecordCutoffUtc.HasValue && !cutoffs.ProductionFactCutoffUtc.HasValue) return result;
+            if (!cutoffs.AnyEnabled) return result;
 
             using (DbConnection connection = _ConnectionFactory())
             {
@@ -77,6 +77,17 @@ namespace Armada.Core.Database
                         await ExecuteAsync(connection, table, result, "DELETE FROM " + table + " WHERE created_utc < @cutoff;",
                             table, cutoffs.ProductionFactCutoffUtc.Value, cutoffs, token).ConfigureAwait(false);
                     }
+                }
+
+                // Request history ages out by capture time. Detail rows go first, so a provider whose
+                // connection does not enforce the cascading foreign key leaves no orphaned detail.
+                if (cutoffs.RequestHistoryCutoffUtc.HasValue)
+                {
+                    await ExecuteAsync(connection, "request_history_detail", result,
+                        "DELETE FROM request_history_detail WHERE request_history_id IN (SELECT id FROM request_history WHERE created_utc < @cutoff);",
+                        "request_history", cutoffs.RequestHistoryCutoffUtc.Value, cutoffs, token).ConfigureAwait(false);
+                    await ExecuteAsync(connection, "request_history", result, "DELETE FROM request_history WHERE created_utc < @cutoff;",
+                        "request_history", cutoffs.RequestHistoryCutoffUtc.Value, cutoffs, token).ConfigureAwait(false);
                 }
             }
             return result;
@@ -173,9 +184,9 @@ namespace Armada.Core.Database
                 case DatabaseTypeEnum.Sqlite:
                     return true;
                 case DatabaseTypeEnum.SqlServer:
-                    return table == "voyages" || table == "missions" || table == "signals" || table == "events" || table == "docks" || table == "merge_entries";
+                    return table == "voyages" || table == "missions" || table == "signals" || table == "events" || table == "docks" || table == "merge_entries" || table == "request_history";
                 case DatabaseTypeEnum.Postgresql:
-                    return table == "signals" || table == "events" || table == "merge_entries";
+                    return table == "signals" || table == "events" || table == "merge_entries" || table == "request_history";
                 case DatabaseTypeEnum.Mysql:
                     return false;
                 default:

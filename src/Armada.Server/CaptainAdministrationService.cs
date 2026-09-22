@@ -232,7 +232,7 @@ namespace Armada.Server
                 await _Database.Captains.DeleteAsync(scope.TenantId!, scope.UserId!, captain.Id, token).ConfigureAwait(false);
 
             CaptainDeletionResult result = new CaptainDeletionResult(CaptainAdministrationOutcomeEnum.Completed, captain.Id, "Captain deleted");
-            result.DependentsRemoved = await CascadeCleanup.RemoveDependentsForCaptainAsync(_Database, captain.Id, token).ConfigureAwait(false);
+            result.DependentsRemoved = await CascadeCleanup.RemoveDependentsForCaptainAsync(_Database, captain.Id, token, _Logging).ConfigureAwait(false);
             return result;
         }
 

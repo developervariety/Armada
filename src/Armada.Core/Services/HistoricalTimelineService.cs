@@ -9,13 +9,16 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using SyslogLogging;
 
         /// <summary>
         /// Builds a unified cross-entity historical timeline from Armada's existing records.
         /// </summary>
         public class HistoricalTimelineService
         {
+        private readonly string _Header = "[HistoricalTimelineService] ";
         private readonly DatabaseDriver _Database;
+        private readonly LoggingModule? _Logging;
         private static readonly JsonSerializerOptions _EventPayloadJsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -25,15 +28,20 @@ namespace Armada.Core.Services
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public HistoricalTimelineService(DatabaseDriver database)
+        /// <param name="database">Database driver.</param>
+        /// <param name="logging">Logging module; a source the provider does not store is logged here.</param>
+        public HistoricalTimelineService(DatabaseDriver database, LoggingModule? logging = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _Logging = logging;
         }
 
         /// <summary>
         /// Enumerate timeline entries across missions, voyages, planning sessions, merge entries, checks, releases, deployments, events, and requests.
+        /// A source the database provider does not store is omitted and named in
+        /// <see cref="HistoricalTimelineResult.UnavailableSources"/>.
         /// </summary>
-        public async Task<EnumerationResult<HistoricalTimelineEntry>> EnumerateAsync(
+        public async Task<HistoricalTimelineResult> EnumerateAsync(
             AuthContext auth,
             HistoricalTimelineQuery query,
             CancellationToken token = default)
@@ -44,19 +52,20 @@ namespace Armada.Core.Services
             Stopwatch stopwatch = Stopwatch.StartNew();
 
             List<HistoricalTimelineEntry> entries = new List<HistoricalTimelineEntry>();
-            entries.AddRange(await BuildObjectiveEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildObjectiveRefinementEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildMissionEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildVoyageEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildPlanningEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildMergeEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildCheckRunEntriesAsync(auth, query, token).ConfigureAwait(false));
-            entries.AddRange(await BuildReleaseEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildDeploymentEntriesAsync(auth, query, token).ConfigureAwait(false));
-            entries.AddRange(await BuildIncidentEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildRunbookExecutionEntriesAsync(auth, token).ConfigureAwait(false));
-            entries.AddRange(await BuildEventEntriesAsync(auth, query, token).ConfigureAwait(false));
-            entries.AddRange(await BuildRequestEntriesAsync(auth, query, token).ConfigureAwait(false));
+            List<string> unavailable = new List<string>();
+            entries.AddRange(await CollectAsync("Objective", () => BuildObjectiveEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("ObjectiveRefinementSession", () => BuildObjectiveRefinementEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Mission", () => BuildMissionEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Voyage", () => BuildVoyageEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Planning", () => BuildPlanningEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("MergeEntry", () => BuildMergeEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("CheckRun", () => BuildCheckRunEntriesAsync(auth, query, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Release", () => BuildReleaseEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Deployment", () => BuildDeploymentEntriesAsync(auth, query, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Incident", () => BuildIncidentEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("RunbookExecution", () => BuildRunbookExecutionEntriesAsync(auth, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Event", () => BuildEventEntriesAsync(auth, query, token), unavailable).ConfigureAwait(false));
+            entries.AddRange(await CollectAsync("Request", () => BuildRequestEntriesAsync(auth, query, token), unavailable).ConfigureAwait(false));
 
             IEnumerable<HistoricalTimelineEntry> filtered = entries;
 
@@ -166,15 +175,37 @@ namespace Armada.Core.Services
 
             stopwatch.Stop();
 
-            return new EnumerationResult<HistoricalTimelineEntry>
+            return new HistoricalTimelineResult
             {
                 PageNumber = query.PageNumber,
                 PageSize = pageSize,
                 TotalRecords = ordered.Count,
                 TotalPages = pageSize > 0 ? (int)Math.Ceiling((double)ordered.Count / pageSize) : 0,
                 Objects = page,
-                TotalMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2)
+                TotalMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2),
+                UnavailableSources = unavailable
             };
+        }
+
+        /// <summary>
+        /// Build one source's entries. A source whose records the configured database provider does not
+        /// store is left out of the timeline, named in the result, and logged; any other failure propagates.
+        /// </summary>
+        private async Task<List<HistoricalTimelineEntry>> CollectAsync(
+            string sourceType,
+            Func<Task<List<HistoricalTimelineEntry>>> build,
+            List<string> unavailable)
+        {
+            try
+            {
+                return await build().ConfigureAwait(false);
+            }
+            catch (NotSupportedException ex)
+            {
+                unavailable.Add(sourceType);
+                _Logging?.Info(_Header + sourceType + " entries are not in the timeline because this database provider does not store them: " + ex.Message);
+                return new List<HistoricalTimelineEntry>();
+            }
         }
 
         private async Task<List<HistoricalTimelineEntry>> BuildObjectiveEntriesAsync(AuthContext auth, CancellationToken token)

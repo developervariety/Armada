@@ -69,7 +69,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("sourceType", "Optional comma-separated source types", false))
                 .WithParameter(OpenApiParameterMetadata.Query("fromUtc", "Optional lower-bound UTC timestamp", false))
                 .WithParameter(OpenApiParameterMetadata.Query("toUtc", "Optional upper-bound UTC timestamp", false))
-                .WithResponse(200, OpenApiJson.For<EnumerationResult<HistoricalTimelineEntry>>("Historical timeline entries"))
+                .WithResponse(200, OpenApiJson.For<HistoricalTimelineResult>("Historical timeline entries and any sources the database provider does not store"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/history/enumerate", async (ApiRequest req) =>
@@ -88,7 +88,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Enumerate historical timeline entries")
                 .WithDescription("Paginated historical timeline enumeration using a JSON body and optional querystring overrides.")
                 .WithRequestBody(OpenApiJson.BodyFor<HistoricalTimelineQuery>("Historical timeline query", false))
-                .WithResponse(200, OpenApiJson.For<EnumerationResult<HistoricalTimelineEntry>>("Historical timeline entries"))
+                .WithResponse(200, OpenApiJson.For<HistoricalTimelineResult>("Historical timeline entries and any sources the database provider does not store"))
                 .WithSecurity("ApiKey"));
         }
 

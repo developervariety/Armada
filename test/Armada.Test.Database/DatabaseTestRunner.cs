@@ -144,6 +144,7 @@ namespace Armada.Test.Database
             await RunTest("MergeEntry_EnumerateByStatus_Exists", "Operational", () => TestMergeEntryLookupAsync(token), token);
             await RunTest("WorkflowProfile_Create_Read_Update_Enumerate", "Operational", () => TestWorkflowProfileCrudAsync(token), token);
             await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
+            await RunTest("RequestHistory_Timestamp_RoundTrip_And_Same_Day_Range", "Operational", () => TestRequestHistorySameDayRangeAsync(token), token);
             await RunTest("CheckRun_Create_Read_Update_Enumerate", "Operational", () => TestCheckRunCrudAsync(token), token);
             await RunTest("Environment_Create_Read_Update_Enumerate", "Operational", () => TestEnvironmentCrudAsync(token), token);
             await RunTest("Release_Create_Read_Update_Enumerate", "Operational", () => TestReleaseCrudAsync(token), token);
@@ -168,6 +169,7 @@ namespace Armada.Test.Database
             Console.WriteLine("--- Data Expiry ---");
             await RunTest("DataExpiry_Purges_Expired_Rows_And_Keeps_Retained_Rows", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyRetentionPurgeAsync(token), token);
             await RunTest("DataExpiry_Purges_Production_Facts_Older_Than_Fact_Retention", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyProductionFactRetentionAsync(token), token);
+            await RunTest("DataExpiry_Purges_Request_History_Older_Than_Request_Retention", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyRequestHistoryRetentionAsync(token), token);
 
             return _Results;
         }
@@ -2361,6 +2363,66 @@ namespace Armada.Test.Database
                         command.CommandText = sql;
                         await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
+                }
+            }
+        }
+
+        private async Task TestRequestHistorySameDayRangeAsync(CancellationToken token)
+        {
+            string route = "/api/v1/range-probe/" + Guid.NewGuid().ToString("N");
+            DateTime day = DateTime.UtcNow.Date.AddDays(-1);
+            RequestHistoryEntry morning = new RequestHistoryEntry { Method = "GET", Route = route, CreatedUtc = day.AddHours(10).AddMilliseconds(123) };
+            RequestHistoryEntry afternoon = new RequestHistoryEntry { Method = "GET", Route = route, CreatedUtc = day.AddHours(14) };
+            await _Driver.RequestHistory.CreateAsync(morning, null, token).ConfigureAwait(false);
+            await _Driver.RequestHistory.CreateAsync(afternoon, null, token).ConfigureAwait(false);
+            try
+            {
+                Console.WriteLine("  stored request_history.created_utc: " + await ReadRawRequestCreatedAsync(morning.Id, token).ConfigureAwait(false));
+                RequestHistoryRecord stored = DatabaseAssert.NotNull(await _Driver.RequestHistory.ReadAsync(morning.Id, null, token).ConfigureAwait(false), "Request history read after create");
+                DatabaseAssert.True(Math.Abs((stored.Entry.CreatedUtc - morning.CreatedUtc).TotalMilliseconds) < 1,
+                    "RequestHistory.CreatedUtc round trip: expected " + morning.CreatedUtc.ToString("o") + " got " + stored.Entry.CreatedUtc.ToString("o"));
+                DatabaseAssert.Equal(DateTimeKind.Utc, stored.Entry.CreatedUtc.Kind, "RequestHistory.CreatedUtc kind");
+
+                DateTime noon = day.AddHours(12);
+                EnumerationResult<RequestHistoryEntry> after = await _Driver.RequestHistory.EnumerateAsync(new RequestHistoryQuery { Route = route, FromUtc = noon, PageSize = 10 }, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(afternoon.Id, String.Join(",", after.Objects.ConvertAll(item => item.Id)), "Same-day FromUtc returns only the later request");
+                EnumerationResult<RequestHistoryEntry> before = await _Driver.RequestHistory.EnumerateAsync(new RequestHistoryQuery { Route = route, ToUtc = noon, PageSize = 10 }, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(morning.Id, String.Join(",", before.Objects.ConvertAll(item => item.Id)), "Same-day ToUtc returns only the earlier request");
+
+                if (_Settings.Type == DatabaseTypeEnum.Postgresql)
+                {
+                    // A row stored as PostgreSQL timestamp text is rewritten by the upgrade to the ISO form
+                    // the filters compare against.
+                    await ExecuteRawAsync(new List<string> { "UPDATE request_history SET created_utc = '" + day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) + " 14:00:00+00' WHERE id = '" + afternoon.Id + "';" }, token).ConfigureAwait(false);
+                    SchemaMigration normalize = Armada.Core.Database.Postgresql.Queries.TableQueries.GetMigrations().Find(item => item.Version == 107)!;
+                    await ExecuteRawAsync(new List<string> { normalize.Statements[0] }, token).ConfigureAwait(false);
+                    string rewritten = await ReadRawRequestCreatedAsync(afternoon.Id, token).ConfigureAwait(false);
+                    DatabaseAssert.Equal("String '" + day.AddHours(14).ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture) + "'", rewritten, "Upgrade rewrites timestamp text to ISO-8601");
+                    EnumerationResult<RequestHistoryEntry> upgraded = await _Driver.RequestHistory.EnumerateAsync(new RequestHistoryQuery { Route = route, FromUtc = noon, PageSize = 10 }, token).ConfigureAwait(false);
+                    DatabaseAssert.Equal(afternoon.Id, String.Join(",", upgraded.Objects.ConvertAll(item => item.Id)), "Same-day FromUtc finds an upgraded row");
+                }
+            }
+            finally
+            {
+                await _Driver.RequestHistory.DeleteAsync(morning.Id, null, token).ConfigureAwait(false);
+                await _Driver.RequestHistory.DeleteAsync(afternoon.Id, null, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<string> ReadRawRequestCreatedAsync(string id, CancellationToken token)
+        {
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT created_utc FROM request_history WHERE id = @id;";
+                    DbParameter parameter = command.CreateParameter();
+                    parameter.ParameterName = "@id";
+                    parameter.Value = id;
+                    command.Parameters.Add(parameter);
+                    object? value = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    return value == null ? "<none>" : value.GetType().Name + " '" + Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) + "'";
                 }
             }
         }

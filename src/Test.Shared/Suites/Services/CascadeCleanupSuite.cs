@@ -2,12 +2,14 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -121,6 +123,44 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(1, removed);
                     AssertEqual(0, (await db.ObjectiveRefinementSessions.EnumerateByCaptainAsync("cpt_target").ConfigureAwait(false)).Count);
                     AssertEqual(1, (await db.ObjectiveRefinementSessions.EnumerateByCaptainAsync("cpt_other").ConfigureAwait(false)).Count);
+                }
+            }));
+
+            cases.Add(CaseAsync("captain_cleanup_logs_a_provider_without_planning_sessions", "RemoveDependentsForCaptainAsync logs the skipped planning-session cleanup on a provider that stores none", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    await CreateEventAsync(db, "captain.assigned", captainId: "cpt_target").ConfigureAwait(false);
+
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    List<string> messages = new List<string>();
+                    object gate = new object();
+                    logging.MessageLogged += entry =>
+                    {
+                        lock (gate) messages.Add(entry.Message ?? String.Empty);
+                    };
+
+                    PropertyInfo planningSessions = typeof(DatabaseDriver).GetProperty(nameof(DatabaseDriver.PlanningSessions))!;
+                    object? original = planningSessions.GetValue(db);
+                    planningSessions.SetValue(db, new Armada.Core.Database.Postgresql.Implementations.PlanningSessionMethods(null!, null!, null!));
+                    int removed;
+                    try
+                    {
+                        removed = await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target", logging: logging).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        planningSessions.SetValue(db, original);
+                    }
+
+                    AssertEqual(1, removed, "the captain's event is still removed");
+                    List<string> logged;
+                    lock (gate) logged = new List<string>(messages);
+                    AssertTrue(
+                        logged.Exists(message => message.Contains("planning-session cleanup skipped for deleted captain cpt_target", StringComparison.Ordinal)),
+                        "the skipped planning-session cleanup is logged with the captain: " + String.Join(" | ", logged));
                 }
             }));
 

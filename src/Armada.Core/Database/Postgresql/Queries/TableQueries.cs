@@ -1125,7 +1125,19 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(103, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.PostgresqlStatements),
                 new SchemaMigration(104, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.PostgresqlStatements),
                 new SchemaMigration(105, "Persist memory proposals", MemoryProposalSchema.PostgresqlStatements),
-                new SchemaMigration(106, "Persist captain preference ranks and persona specialist flags", TierRoutingPersistence.PostgresqlStatements)
+                new SchemaMigration(106, "Persist captain preference ranks and persona specialist flags", TierRoutingPersistence.PostgresqlStatements),
+                // Request history filters and retention compare created_utc as ISO-8601 UTC text. Rows
+                // written as PostgreSQL timestamp text ("yyyy-mm-dd hh:mi:ss+00") sort before every ISO
+                // value of the same day, so they are rewritten to the ISO form the queries bind.
+                new SchemaMigration(107, "Index request history and store its capture time as ISO-8601 text",
+                    @"UPDATE request_history
+                        SET created_utc = to_char(created_utc::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD""T""HH24:MI:SS.US""0Z""')
+                        WHERE created_utc ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} ';",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_created ON request_history(created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_tenant_created ON request_history(tenant_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_user_created ON request_history(user_id, created_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_request_history_route_created ON request_history(route, created_utc DESC);"
+                )
             };
         }
 
