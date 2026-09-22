@@ -129,6 +129,14 @@ upstream integrations and excludes changes already present at that baseline.
   share one authenticated stop through `POST /api/v1/server/stop` and count the
   Admiral as stopped only when its health route no longer answers. A refused or
   unfinished stop exits non-zero, cancels a restart, and blocks every data deletion.
+- **Lease, job, and shutdown lifecycle:** a dock lease release removes only the
+  zero-count entry it observed, so a concurrent acquire keeps its lease. Sibling
+  lease reconciliation takes the per-target lease lock and keeps a lease whose
+  holder dock record is missing until the stale-lease grace has passed. A reaped
+  background job is cancelled and its terminal status is final in memory and in
+  the journal. Admiral stop runs once, waits (bounded) for its background loops
+  before disposing the database, and disposes it even when an earlier shutdown
+  step fails.
 - **Dashboard and clients:** responsive navigation, scoped controls, complete entity
   forms, structured mission evidence, routing and account controls, endpoint health,
   tool activity, and consistent REST/MCP/WebSocket contracts.

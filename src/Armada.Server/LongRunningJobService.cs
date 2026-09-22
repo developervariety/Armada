@@ -56,6 +56,16 @@ namespace Armada.Server
 
         #endregion
 
+        #region Internal-Members
+
+        /// <summary>
+        /// Test seam invoked with the job id after a job's background execution has finished and
+        /// recorded (or declined to record) its outcome.
+        /// </summary>
+        internal Action<string>? ExecutionFinished { get; set; }
+
+        #endregion
+
         #region Private-Members
 
         private const int _DefaultMaxRetainedTerminalJobs = 100;
@@ -70,6 +80,8 @@ namespace Armada.Server
         private readonly ConcurrentDictionary<string, LongRunningJob> _Jobs = new ConcurrentDictionary<string, LongRunningJob>(StringComparer.Ordinal);
         private readonly object _EvictionLock = new object();
         private readonly object _JournalLock = new object();
+        private readonly object _TransitionLock = new object();
+        private readonly ConcurrentDictionary<string, CancellationTokenSource> _Executions = new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.Ordinal);
         private readonly int _MaxRetainedTerminalJobs;
         private readonly string? _JournalDirectory;
         private readonly Func<LongRunningJob, Task>? _OnJobFailedAsync;
@@ -236,7 +248,9 @@ namespace Armada.Server
         /// <summary>
         /// Fail any job stuck in Running or Accepted past the stale threshold (its worker likely died
         /// or hung), so it reaches a terminal status instead of reading as in-flight forever.
-        /// Invoked periodically from the Admiral health loop.
+        /// A reaped job's operation is cancelled, and the Failed status is final: an operation that
+        /// finishes after the reap does not change it. Invoked periodically from the Admiral health
+        /// loop.
         /// </summary>
         /// <param name="staleMinutes">Minutes a job may stay Running or Accepted before it is failed; clamped to a minimum of 1.</param>
         /// <param name="token">Cancellation token.</param>
@@ -248,26 +262,28 @@ namespace Armada.Server
             int reaped = 0;
             DateTime cutoff = DateTime.UtcNow.AddMinutes(-staleMinutes);
 
-            foreach (KeyValuePair<string, LongRunningJob> pair in _Jobs)
+            foreach (string jobId in _Jobs.Keys.ToList())
             {
                 token.ThrowIfCancellationRequested();
 
-                LongRunningJob job = pair.Value;
-                if (job.Status != LongRunningJobStatusEnum.Accepted && job.Status != LongRunningJobStatusEnum.Running)
-                    continue;
+                LongRunningJob? failedJob = TryTransition(jobId, current =>
+                {
+                    DateTime? startAnchor = current.Status == LongRunningJobStatusEnum.Accepted
+                        ? current.SubmittedAtUtc
+                        : current.StartedAtUtc;
+                    if (startAnchor.HasValue && startAnchor.Value > cutoff)
+                        return null;
 
-                DateTime? startAnchor = job.Status == LongRunningJobStatusEnum.Accepted
-                    ? job.SubmittedAtUtc
-                    : job.StartedAtUtc;
-                if (startAnchor.HasValue && startAnchor.Value > cutoff)
-                    continue;
+                    LongRunningJob failed = current.CreateSnapshot();
+                    failed.Status = LongRunningJobStatusEnum.Failed;
+                    failed.CompletedAtUtc = DateTime.UtcNow;
+                    failed.FailureMessage = "job did not reach a terminal state within " + staleMinutes + " minutes and was reaped as stale";
+                    return failed;
+                });
+                if (failedJob == null) continue;
 
-                LongRunningJob failedJob = job.CreateSnapshot();
-                failedJob.Status = LongRunningJobStatusEnum.Failed;
-                failedJob.CompletedAtUtc = DateTime.UtcNow;
-                failedJob.FailureMessage = "job did not reach a terminal state within " + staleMinutes + " minutes and was reaped as stale";
-                _Jobs[job.JobId] = failedJob;
-                TryWriteJournal(failedJob);
+                // The job's status is final; stop the work so it does not keep running unobserved.
+                CancelExecution(jobId);
                 reaped++;
                 await NotifyFailedAsync(failedJob).ConfigureAwait(false);
             }
@@ -282,39 +298,99 @@ namespace Armada.Server
 
         private async Task ExecuteAsync(string jobId, Func<CancellationToken, Task<object?>> operationAsync)
         {
-            if (!_Jobs.TryGetValue(jobId, out LongRunningJob? acceptedJob)) return;
+            using (CancellationTokenSource execution = new CancellationTokenSource())
+            {
+                _Executions[jobId] = execution;
+                try
+                {
+                    LongRunningJob? runningJob = TryTransition(jobId, current =>
+                    {
+                        LongRunningJob running = current.CreateSnapshot();
+                        running.Status = LongRunningJobStatusEnum.Running;
+                        running.StartedAtUtc = DateTime.UtcNow;
+                        return running;
+                    });
+                    if (runningJob == null) return;
 
-            LongRunningJob runningJob = acceptedJob.CreateSnapshot();
-            runningJob.Status = LongRunningJobStatusEnum.Running;
-            runningJob.StartedAtUtc = DateTime.UtcNow;
-            _Jobs[jobId] = runningJob;
-            TryWriteJournal(runningJob);
+                    LongRunningJob? finishedJob;
+                    try
+                    {
+                        object? result = await operationAsync(execution.Token).ConfigureAwait(false);
+                        finishedJob = TryTransition(jobId, current =>
+                        {
+                            LongRunningJob succeeded = current.CreateSnapshot();
+                            succeeded.Status = LongRunningJobStatusEnum.Succeeded;
+                            succeeded.CompletedAtUtc = DateTime.UtcNow;
+                            succeeded.Result = result == null
+                                ? null
+                                : JsonSerializer.SerializeToElement(result, result.GetType());
+                            return succeeded;
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        finishedJob = TryTransition(jobId, current =>
+                        {
+                            LongRunningJob failed = current.CreateSnapshot();
+                            failed.Status = LongRunningJobStatusEnum.Failed;
+                            failed.CompletedAtUtc = DateTime.UtcNow;
+                            failed.FailureMessage = BoundFailureMessage(ex);
+                            return failed;
+                        });
+                    }
 
-            LongRunningJob finishedJob;
+                    if (finishedJob != null && finishedJob.Status == LongRunningJobStatusEnum.Failed)
+                        await NotifyFailedAsync(finishedJob).ConfigureAwait(false);
+
+                    EvictOldestTerminalJobs();
+                }
+                finally
+                {
+                    _Executions.TryRemove(new KeyValuePair<string, CancellationTokenSource>(jobId, execution));
+                    ExecutionFinished?.Invoke(jobId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Apply one status transition to a tracked job. A terminal status is final: the transition
+        /// is refused when the job is unknown or already terminal, or when <paramref name="next"/>
+        /// declines by returning null. The check, the replacement and the journal write happen under
+        /// one lock, so the reaper and the executing operation cannot overwrite each other and the
+        /// journal always records the status held in memory.
+        /// </summary>
+        /// <returns>The job as recorded, or null when no transition was made.</returns>
+        private LongRunningJob? TryTransition(string jobId, Func<LongRunningJob, LongRunningJob?> next)
+        {
+            lock (_TransitionLock)
+            {
+                if (!_Jobs.TryGetValue(jobId, out LongRunningJob? current)) return null;
+                if (LongRunningJob.IsTerminal(current.Status)) return null;
+
+                LongRunningJob? updated = next(current);
+                if (updated == null) return null;
+
+                _Jobs[jobId] = updated;
+                TryWriteJournal(updated);
+                return updated;
+            }
+        }
+
+        private void CancelExecution(string jobId)
+        {
+            if (!_Executions.TryGetValue(jobId, out CancellationTokenSource? execution)) return;
             try
             {
-                object? result = await operationAsync(CancellationToken.None).ConfigureAwait(false);
-                finishedJob = runningJob.CreateSnapshot();
-                finishedJob.Status = LongRunningJobStatusEnum.Succeeded;
-                finishedJob.CompletedAtUtc = DateTime.UtcNow;
-                finishedJob.Result = result == null
-                    ? null
-                    : JsonSerializer.SerializeToElement(result, result.GetType());
+                execution.Cancel();
             }
-            catch (Exception ex)
+            catch (ObjectDisposedException)
             {
-                finishedJob = runningJob.CreateSnapshot();
-                finishedJob.Status = LongRunningJobStatusEnum.Failed;
-                finishedJob.CompletedAtUtc = DateTime.UtcNow;
-                finishedJob.FailureMessage = BoundFailureMessage(ex);
+                // The operation finished and released its token after the job was reaped.
             }
-
-            _Jobs[jobId] = finishedJob;
-            TryWriteJournal(finishedJob);
-            if (finishedJob.Status == LongRunningJobStatusEnum.Failed)
-                await NotifyFailedAsync(finishedJob).ConfigureAwait(false);
-
-            EvictOldestTerminalJobs();
+            catch (AggregateException ex)
+            {
+                ReportFailure("job " + jobId + " was reaped but a cancellation callback of its operation failed: " + ex.Message);
+            }
         }
 
         private async Task NotifyFailedAsync(LongRunningJob job)

@@ -20,11 +20,11 @@ namespace Armada.Core.Services
     /// rescue, landing check, or post-agent DoD still reads.
     /// <para>
     /// A lease is a JSON file under <c>&lt;LogDirectory&gt;/leases/&lt;vesselId&gt;</c> keyed by a
-    /// hash of the sibling's absolute path, listing the dock ids holding it. Mutations are
-    /// serialized per target through a lock file (<c>FileShare.None</c>) so acquire and
-    /// remove-if-unleased cannot interleave. Leases survive Admiral restarts by design; a crash
-    /// leaves a stale lease that <see cref="ReconcileAsync"/> purges once the holder dock is no
-    /// longer active.
+    /// hash of the sibling's absolute path, listing the dock ids holding it. Every mutation -
+    /// acquire, release, remove-if-unleased, and reconciliation - is serialized per target
+    /// through a lock file (<c>FileShare.None</c>), so none of them can interleave. Leases
+    /// survive Admiral restarts by design; a crash leaves a stale lease that
+    /// <see cref="ReconcileAsync"/> purges once the holder dock is no longer active.
     /// </summary>
     public class SiblingLeaseRegistry
     {
@@ -34,6 +34,11 @@ namespace Armada.Core.Services
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
+        private TimeSpan _LockTimeout;
+        private TimeSpan _LockRetryInterval;
+
+        private static readonly TimeSpan _DefaultLockTimeout = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan _DefaultLockRetryInterval = TimeSpan.FromMilliseconds(200);
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -51,11 +56,15 @@ namespace Armada.Core.Services
         /// <param name="logging">Logging module.</param>
         /// <param name="database">Database driver used to verify holder-dock liveness.</param>
         /// <param name="settings">Application settings (lease root derives from the log directory).</param>
-        public SiblingLeaseRegistry(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings)
+        /// <param name="lockTimeout">How long an operation waits for a contended lease lock before it
+        /// gives up; null uses the default of ten seconds.</param>
+        public SiblingLeaseRegistry(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings, TimeSpan? lockTimeout = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _LockTimeout = lockTimeout.HasValue && lockTimeout.Value > TimeSpan.Zero ? lockTimeout.Value : _DefaultLockTimeout;
+            _LockRetryInterval = _LockTimeout < _DefaultLockRetryInterval ? _LockTimeout : _DefaultLockRetryInterval;
         }
 
         #endregion
@@ -203,10 +212,14 @@ namespace Armada.Core.Services
         /// <summary>
         /// Purge lease files whose holder docks are no longer active, and delete lease files
         /// that hold no dock ids. Called at startup and periodically so a crashed Admiral does
-        /// not pin a sibling forever.
+        /// not pin a sibling forever. Each lease is reconciled under the same per-target lock
+        /// that acquire and release take, so reconciliation never drops a holder another
+        /// operation adds while it runs; a lease whose lock stays contended is skipped until the
+        /// next pass.
         /// </summary>
-        /// <param name="grace">Minimum age before an unknown-holder lease is purged. Holder docks
-        /// that exist but are inactive are purged immediately regardless of age.</param>
+        /// <param name="grace">Minimum age of the lease record before a holder whose dock record
+        /// no longer exists is purged. A holder whose dock exists but is inactive is purged
+        /// immediately regardless of age.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Number of lease files removed.</returns>
         public async Task<int> ReconcileAsync(TimeSpan grace, CancellationToken token = default)
@@ -229,6 +242,13 @@ namespace Armada.Core.Services
 
                     try
                     {
+                        using FileStream? leaseLock = await AcquireLockAsync(leasePath, token).ConfigureAwait(false);
+
+                        if (!File.Exists(leasePath))
+                        {
+                            continue;
+                        }
+
                         LeaseDocument? doc = await ReadLeaseAsync(leasePath, token).ConfigureAwait(false);
                         if (doc == null)
                         {
@@ -237,18 +257,21 @@ namespace Armada.Core.Services
                             continue;
                         }
 
+                        bool leaseOlderThanGrace = DateTime.UtcNow - doc.UpdatedUtc >= grace;
                         bool changed = false;
                         List<string> remaining = new List<string>();
                         foreach (string holder in doc.DockIds)
                         {
-                            bool holderAlive = await IsDockActiveAsync(holder, token).ConfigureAwait(false);
-                            if (holderAlive)
+                            HolderStateEnum state = await GetHolderStateAsync(holder, token).ConfigureAwait(false);
+                            bool purge = state == HolderStateEnum.Inactive
+                                || (state == HolderStateEnum.Missing && leaseOlderThanGrace);
+                            if (purge)
                             {
-                                remaining.Add(holder);
+                                changed = true;
                             }
                             else
                             {
-                                changed = true;
+                                remaining.Add(holder);
                             }
                         }
 
@@ -308,7 +331,8 @@ namespace Armada.Core.Services
                 Directory.CreateDirectory(directory);
             }
 
-            for (int attempt = 0; attempt < 50; attempt++)
+            DateTime deadline = DateTime.UtcNow + _LockTimeout;
+            while (true)
             {
                 try
                 {
@@ -316,7 +340,8 @@ namespace Armada.Core.Services
                 }
                 catch (IOException)
                 {
-                    await Task.Delay(200, token).ConfigureAwait(false);
+                    if (DateTime.UtcNow >= deadline) break;
+                    await Task.Delay(_LockRetryInterval, token).ConfigureAwait(false);
                 }
             }
 
@@ -373,17 +398,18 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<bool> IsDockActiveAsync(string dockId, CancellationToken token)
+        private async Task<HolderStateEnum> GetHolderStateAsync(string dockId, CancellationToken token)
         {
             try
             {
                 Dock? dock = await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
-                return dock != null && dock.Active;
+                if (dock == null) return HolderStateEnum.Missing;
+                return dock.Active ? HolderStateEnum.Active : HolderStateEnum.Inactive;
             }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not read dock " + dockId + " during lease reconciliation: " + ex.Message);
-                return true;
+                return HolderStateEnum.Active;
             }
         }
 
@@ -417,6 +443,21 @@ namespace Armada.Core.Services
             {
             }
             return result;
+        }
+
+        /// <summary>
+        /// What reconciliation knows about a lease holder's dock record.
+        /// </summary>
+        private enum HolderStateEnum
+        {
+            /// <summary>The dock exists and is active, or its record could not be read.</summary>
+            Active,
+
+            /// <summary>The dock exists and is inactive.</summary>
+            Inactive,
+
+            /// <summary>No dock record exists for the holder.</summary>
+            Missing
         }
 
         /// <summary>

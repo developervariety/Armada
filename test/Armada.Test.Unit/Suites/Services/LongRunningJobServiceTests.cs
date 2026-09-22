@@ -75,6 +75,70 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("A reaped job whose operation finishes later stays Failed in memory and in the journal", async () =>
+            {
+                string journal = NewJournalDirectory();
+                TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<string> finished = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                List<LongRunningJob> reported = new List<LongRunningJob>();
+
+                LongRunningJobService service = new LongRunningJobService(
+                    journalDirectory: journal,
+                    onJobFailedAsync: failed => { lock (reported) reported.Add(failed); return Task.CompletedTask; });
+                service.ExecutionFinished = id => finished.TrySetResult(id);
+
+                // The operation ignores cancellation and completes successfully after the reap.
+                LongRunningJob job = service.Start("late-finisher", async _ =>
+                {
+                    started.TrySetResult(true);
+                    await release.Task.ConfigureAwait(false);
+                    return (object?)"late result";
+                });
+                AssertTrue(await Task.WhenAny(started.Task, Task.Delay(TimeSpan.FromSeconds(10))) == started.Task, "the operation must start");
+
+                BackdateJob(service, job.JobId, TimeSpan.FromMinutes(40), backdateSubmitted: true, backdateStarted: true);
+                AssertEqual(1, await service.ReapStaleJobsAsync(staleMinutes: 30), "the stale job is reaped");
+
+                release.TrySetResult(true);
+                AssertTrue(await Task.WhenAny(finished.Task, Task.Delay(TimeSpan.FromSeconds(10))) == finished.Task, "the operation must finish");
+
+                AssertTrue(service.TryGetStatus(job.JobId, out LongRunningJob? after), "the job stays queryable");
+                AssertEqual(LongRunningJobStatusEnum.Failed, after!.Status, "a reaped job's Failed status is final");
+                AssertContains("reaped as stale", after.FailureMessage ?? String.Empty);
+                AssertNull(after.Result, "the late result must not be recorded on a failed job");
+
+                LongRunningJobService restarted = new LongRunningJobService(journalDirectory: journal);
+                AssertTrue(restarted.TryGetStatus(job.JobId, out LongRunningJob? journalled), "the journal answers for the job");
+                AssertEqual(LongRunningJobStatusEnum.Failed, journalled!.Status, "the journal agrees with memory");
+                lock (reported) AssertEqual(1, reported.Count, "the failure is reported once");
+            });
+
+            await RunTest("Reaping a stale job cancels its operation", async () =>
+            {
+                TaskCompletionSource<CancellationToken> started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<string> finished = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                LongRunningJobService service = new LongRunningJobService();
+                service.ExecutionFinished = id => finished.TrySetResult(id);
+
+                LongRunningJob job = service.Start("cancellable", token =>
+                {
+                    started.TrySetResult(token);
+                    return HangForeverAsync(token);
+                });
+                AssertTrue(await Task.WhenAny(started.Task, Task.Delay(TimeSpan.FromSeconds(10))) == started.Task, "the operation must start");
+                CancellationToken operationToken = await started.Task;
+
+                BackdateJob(service, job.JobId, TimeSpan.FromMinutes(40), backdateSubmitted: true, backdateStarted: true);
+                AssertEqual(1, await service.ReapStaleJobsAsync(staleMinutes: 30), "the stale job is reaped");
+
+                AssertTrue(operationToken.IsCancellationRequested, "the reaped job's operation token must be cancelled");
+                AssertTrue(await Task.WhenAny(finished.Task, Task.Delay(TimeSpan.FromSeconds(10))) == finished.Task, "the cancelled operation must end");
+                AssertTrue(service.TryGetStatus(job.JobId, out LongRunningJob? after));
+                AssertEqual(LongRunningJobStatusEnum.Failed, after!.Status);
+                AssertContains("reaped as stale", after.FailureMessage ?? String.Empty, "the cancellation must not replace the reap reason");
+            });
+
             await RunTest("ReapStaleJobsAsync leaves a fresh Accepted job alone", () =>
             {
                 LongRunningJobService service = new LongRunningJobService();

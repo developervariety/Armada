@@ -131,9 +131,10 @@ namespace Armada.Test.Unit.Suites.Services
                         await restarted.HasOtherLeaseAsync("vsl_test", siblingPath, null).ConfigureAwait(false),
                         "Lease must survive a registry restart (crash-safe).");
 
-                    // The holder dock disappears; reconciliation must purge the stale lease.
+                    // The holder dock disappears; once the grace has passed, reconciliation must
+                    // purge the stale lease.
                     await testDb.Driver.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);
-                    int removed = await restarted.ReconcileAsync(TimeSpan.FromHours(1)).ConfigureAwait(false);
+                    int removed = await restarted.ReconcileAsync(TimeSpan.Zero).ConfigureAwait(false);
                     AssertTrue(removed >= 1, "Reconciliation must purge a lease whose holder dock no longer exists.");
                     AssertFalse(File.Exists(leasePath), "Lease file must be deleted after reconciliation.");
                 }
@@ -159,6 +160,84 @@ namespace Armada.Test.Unit.Suites.Services
 
                     int removed = await registry.ReconcileAsync(TimeSpan.FromHours(1)).ConfigureAwait(false);
                     AssertEqual(0, removed, "A lease held by an active dock must survive reconciliation.");
+                }
+                finally
+                {
+                    Cleanup(settings);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Reconciliation takes the lease lock and never rewrites a lease another operation holds", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+
+                try
+                {
+                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "ExampleSibling");
+                    SiblingLeaseRegistry registry = new SiblingLeaseRegistry(logging, testDb.Driver, settings, TimeSpan.FromMilliseconds(300));
+
+                    Dock dock = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
+                    await registry.TryAcquireAsync(dock.Id, "vsl_test", siblingPath).ConfigureAwait(false);
+                    dock.Active = false;
+                    await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+
+                    string leasePath = registry.GetLeasePath("vsl_test", siblingPath);
+                    string leaseBefore = await File.ReadAllTextAsync(leasePath).ConfigureAwait(false);
+
+                    // Another operation (an acquire in progress) holds the target lock for the whole pass.
+                    using (FileStream held = new FileStream(leasePath + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+                    {
+                        int removedWhileLocked = await registry.ReconcileAsync(TimeSpan.Zero).ConfigureAwait(false);
+                        AssertEqual(0, removedWhileLocked, "Reconciliation must not purge a lease whose lock another operation holds.");
+                        AssertTrue(File.Exists(leasePath), "The locked lease file must survive reconciliation.");
+                        AssertEqual(leaseBefore, await File.ReadAllTextAsync(leasePath).ConfigureAwait(false),
+                            "Reconciliation must not rewrite a lease whose lock another operation holds.");
+                    }
+
+                    int removed = await registry.ReconcileAsync(TimeSpan.Zero).ConfigureAwait(false);
+                    AssertEqual(1, removed, "Once the lock is free, the inactive holder's lease is purged.");
+                    AssertFalse(File.Exists(leasePath), "The purged lease file must be deleted.");
+                }
+                finally
+                {
+                    Cleanup(settings);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Reconciliation keeps a missing-holder lease within the grace and purges an inactive holder at once", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+
+                try
+                {
+                    SiblingLeaseRegistry registry = new SiblingLeaseRegistry(logging, testDb.Driver, settings);
+                    string missingHolderSibling = Path.Combine(settings.DocksDirectory, "ExampleVessel", "MissingHolderSibling");
+                    string inactiveHolderSibling = Path.Combine(settings.DocksDirectory, "ExampleVessel", "InactiveHolderSibling");
+
+                    // A holder with no dock record, leased just now.
+                    await registry.TryAcquireAsync("dck_no_record", "vsl_test", missingHolderSibling).ConfigureAwait(false);
+
+                    // A holder whose dock exists but is inactive.
+                    Dock inactive = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
+                    await registry.TryAcquireAsync(inactive.Id, "vsl_test", inactiveHolderSibling).ConfigureAwait(false);
+                    inactive.Active = false;
+                    await testDb.Driver.Docks.UpdateAsync(inactive).ConfigureAwait(false);
+
+                    string missingLease = registry.GetLeasePath("vsl_test", missingHolderSibling);
+                    string inactiveLease = registry.GetLeasePath("vsl_test", inactiveHolderSibling);
+
+                    int removed = await registry.ReconcileAsync(TimeSpan.FromHours(1)).ConfigureAwait(false);
+                    AssertEqual(1, removed, "Only the inactive holder's lease is purged within the grace.");
+                    AssertTrue(File.Exists(missingLease), "A missing-holder lease younger than the grace must survive.");
+                    AssertFalse(File.Exists(inactiveLease), "An inactive holder's lease is purged regardless of age.");
+
+                    removed = await registry.ReconcileAsync(TimeSpan.Zero).ConfigureAwait(false);
+                    AssertEqual(1, removed, "A missing-holder lease older than the grace is purged.");
+                    AssertFalse(File.Exists(missingLease), "The expired missing-holder lease file must be deleted.");
                 }
                 finally
                 {

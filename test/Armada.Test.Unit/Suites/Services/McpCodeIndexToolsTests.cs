@@ -222,7 +222,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("active_operation", activeAccepted.Operation);
                 AssertTrue(observedToken.HasValue);
                 CancellationToken executionToken = observedToken.GetValueOrDefault();
-                AssertFalse(executionToken.CanBeCanceled);
+                // The job runs independently of the request that started it: only reaping cancels it.
+                AssertFalse(executionToken.IsCancellationRequested, "a running job's token is not cancelled");
 
                 LongRunningJob firstTerminal = jobs.Start(
                     "first_terminal",

@@ -90,6 +90,13 @@ namespace Armada.Server
         /// published examples are checked against what the Admiral actually serves.
         /// </summary>
         internal WatsonWebserver.Core.Routing.WebserverRoutes RestRoutes => _App.Routes;
+
+        /// <summary>
+        /// How long <see cref="Stop"/> waits for each background loop to finish after cancelling it
+        /// before it continues the shutdown. Defaults to 30 seconds.
+        /// </summary>
+        internal TimeSpan BackgroundLoopStopTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
         private ArmadaMcpHttpServer _McpServer = null!;
         private Armada.Core.Services.HarborJobService? _HarborJobService = null;
         private ArmadaWebSocketHub _WebSocketHub = null!;
@@ -185,6 +192,7 @@ namespace Armada.Server
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
         private Task _ModelEndpointHealthTask = null!;
+        private int _StopRequested = 0;
         private int _HealthCheckCycles = 0;
         private TimeSpan? _HealthLoopInterval = null;
         private DateTime _StartUtc = DateTime.UtcNow;
@@ -1145,76 +1153,97 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Stop the Admiral server.
+        /// Stop the Admiral server. Only the first call runs the shutdown; later calls return at
+        /// once. Each step is isolated, so a step that throws is logged and the steps after it
+        /// still run, and the database is always disposed last, after the background loops that
+        /// use it have finished or the stop timeout has passed.
         /// </summary>
         public void Stop()
         {
+            if (Interlocked.Exchange(ref _StopRequested, 1) != 0)
+            {
+                _Logging.Debug(_Header + "stop already requested; ignoring repeated stop");
+                return;
+            }
+
             _Logging.Info(_Header + "stopping");
             try
             {
-                if (_App?.IsListening == true)
-                    _App.Stop();
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "REST API stop error: " + ex.Message);
-            }
-            try
-            {
-                _OpenCodeServerLauncher?.Dispose();
-            }
-            catch
-            {
-            }
-            // Pending account logins own CLI processes; stop them with the Admiral.
-            _AccountLogins?.Dispose();
-            try
-            {
-                _SettingsWatcher?.Dispose();
-                _SettingsWatcher = null;
-            }
-            catch
-            {
-            }
-            // Kill agent subprocesses so none survive as orphans after the Admiral exits.
-            // Runs before the token is cancelled and the database is disposed (it needs both).
-            try
-            {
-                _Admiral?.StopAllAgentProcessesAsync().GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "error stopping agent processes on shutdown: " + ex.Message);
-            }
+                RunStopStep("REST API stop", () =>
+                {
+                    if (_App?.IsListening == true)
+                        _App.Stop();
+                });
+                RunStopStep("OpenCode server stop", () => _OpenCodeServerLauncher?.Dispose());
+                // Pending account logins own CLI processes; stop them with the Admiral.
+                RunStopStep("account login stop", () => _AccountLogins?.Dispose());
+                RunStopStep("settings watcher stop", () =>
+                {
+                    _SettingsWatcher?.Dispose();
+                    _SettingsWatcher = null;
+                });
+                // Kill agent subprocesses so none survive as orphans after the Admiral exits.
+                // Runs before the token is cancelled and the database is disposed (it needs both).
+                RunStopStep("agent process stop", () => _Admiral?.StopAllAgentProcessesAsync().GetAwaiter().GetResult());
 
-            _TokenSource.Cancel();
-            try
-            {
-                _ModelEndpointHealthTask?.GetAwaiter().GetResult();
+                RunStopStep("background cancellation", () => _TokenSource.Cancel());
+                // The loops read and write the database; wait for them before it is disposed.
+                WaitForBackgroundLoop("health check loop", _HealthCheckTask);
+                WaitForBackgroundLoop("model endpoint health loop", _ModelEndpointHealthTask);
+
+                RunStopStep("objective scheduler stop", () => _ObjectiveScheduler?.Dispose());
+                RunStopStep("remote tunnel stop", () => _RemoteTunnel?.StopAsync().GetAwaiter().GetResult());
+                RunStopStep("remote dashboard relay stop", () => _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult());
+                RunStopStep("MCP server stop", () => _McpServer?.StopAsync().GetAwaiter().GetResult());
+                RunStopStep("telemetry stop", () =>
+                {
+                    _TelemetryHost?.Dispose();
+                    _TelemetryHost = null;
+                });
             }
-            catch (Exception ex)
+            finally
             {
-                _Logging.Warn(_Header + "model endpoint health loop stop error: " + ex.Message);
+                RunStopStep("database dispose", () => _Database?.Dispose());
+                RunStopStep("stop notification", () => OnStopping?.Invoke());
             }
-            _ObjectiveScheduler?.Dispose();
-            _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
-            _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
-            _McpServer?.StopAsync().GetAwaiter().GetResult();
-            try
-            {
-                _TelemetryHost?.Dispose();
-                _TelemetryHost = null;
-            }
-            catch
-            {
-            }
-            _Database?.Dispose();
-            OnStopping?.Invoke();
         }
 
         #endregion
 
         #region Private-Methods
+
+        private void RunStopStep(string step, Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + step + " failed during shutdown: " + ex.Message);
+            }
+        }
+
+        private void WaitForBackgroundLoop(string name, Task? loop)
+        {
+            if (loop == null) return;
+            try
+            {
+                if (!loop.Wait(BackgroundLoopStopTimeout))
+                {
+                    _Logging.Warn(_Header + name + " did not finish within "
+                        + BackgroundLoopStopTimeout.TotalSeconds + " s of shutdown; continuing the stop without it");
+                }
+            }
+            catch (AggregateException ex) when (ex.InnerExceptions.All(inner => inner is OperationCanceledException))
+            {
+                // Cancellation is the requested way for the loop to end.
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + name + " ended with an error during shutdown: " + ex.Message);
+            }
+        }
 
         private async Task<AuthContext> AuthenticateRequestAsync(WatsonWebserver.Core.HttpContextBase ctx)
         {

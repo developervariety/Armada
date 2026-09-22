@@ -50,8 +50,9 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Age in hours after which a stale sibling lease whose holder dock is no longer
-        /// active is purged unconditionally. Defaults to 24.
+        /// Age in hours a sibling lease record must reach before reconciliation purges a holder
+        /// whose dock record no longer exists. A holder whose dock exists but is inactive is
+        /// purged at once regardless of age. Defaults to 24.
         /// </summary>
         public int StaleLeaseGraceHours
         {

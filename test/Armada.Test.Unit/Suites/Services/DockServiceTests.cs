@@ -1349,6 +1349,38 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock lease acquired while the last release is removing the entry stays held", () =>
+            {
+                string dockId = "dck_lease_race_" + Guid.NewGuid().ToString("N");
+                DockLeaseRegistry.Acquire(dockId);
+                DockLeaseRegistry.BeforeZeroLeaseRemoval = (releasedDockId) =>
+                {
+                    if (releasedDockId == dockId) DockLeaseRegistry.Acquire(dockId);
+                };
+                try
+                {
+                    // The release observes zero; a second operation acquires before the entry is removed.
+                    DockLeaseRegistry.Release(dockId);
+                }
+                finally
+                {
+                    DockLeaseRegistry.BeforeZeroLeaseRemoval = null;
+                }
+
+                try
+                {
+                    AssertTrue(DockLeaseRegistry.IsHeld(dockId), "The lease acquired during the release must still protect the dock");
+                    AssertEqual(1, DockLeaseRegistry.LeaseCount(dockId), "Exactly the interleaved acquire must remain");
+                }
+                finally
+                {
+                    DockLeaseRegistry.Release(dockId);
+                }
+
+                AssertFalse(DockLeaseRegistry.IsHeld(dockId), "The last release must still remove the entry");
+                return Task.CompletedTask;
+            });
+
             await RunTest("ReclaimAsync defers while a definition-of-done gate holds the dock lease", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

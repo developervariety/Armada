@@ -1,6 +1,7 @@
 {
   "DefaultSeconds": 1.0,
   "Suites": {
+    "Admiral Server Stop": 5.0,
     "Admiral Service": 3.3,
     "Agent Lifecycle Handler": 13.4,
     "Alias + Pipeline Dispatch": 0.2,

@@ -538,7 +538,9 @@ repos, mission logs, diffs, instruction snapshots, dock metadata, integration
 and merge-queue worktrees, temp artifacts, backups) plus reclaimable counts.
 `action=reconcile` additionally purges stale sibling-worktree leases and, only
 when `diskLifecycle.enabled` is true and `diskLifecycle.dryRun` is false,
-deletes eligible items. Reclamation fails closed: only paths under the allowed
+deletes eligible items. Lease reconciliation takes each lease's lock, drops a
+holder whose dock is inactive at once, and drops a holder whose dock record is
+missing only after `diskLifecycle.staleLeaseGraceHours` (default 24). Reclamation fails closed: only paths under the allowed
 roots, not symlinks, past their grace period, and not referenced by active
 docks, missions, or merge-queue entries are ever touched. Docker image and
 build-cache pruning stays an explicit host-side operator action

@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Concurrent;
+    using System.Collections.Generic;
 
     /// <summary>
     /// In-memory, reference-counted leases that pin a dock's worktree against reclamation while a
@@ -38,11 +39,15 @@ namespace Armada.Core.Services
         public static void Release(string dockId)
         {
             if (String.IsNullOrWhiteSpace(dockId)) return;
-            _Leases.AddOrUpdate(dockId, 0, (_, current) => Math.Max(0, current - 1));
-            if (_Leases.TryGetValue(dockId, out int count) && count == 0)
-            {
-                _Leases.TryRemove(dockId, out _);
-            }
+            int remaining = _Leases.AddOrUpdate(dockId, 0, (_, current) => Math.Max(0, current - 1));
+            if (remaining != 0) return;
+
+            BeforeZeroLeaseRemoval?.Invoke(dockId);
+
+            // Remove only the entry this release observed at zero. An acquire that lands after the
+            // decrement has already raised the count, so the conditional removal leaves its lease
+            // in place instead of dropping a live lease by key.
+            _Leases.TryRemove(new KeyValuePair<string, int>(dockId, 0));
         }
 
         /// <summary>
@@ -65,6 +70,16 @@ namespace Armada.Core.Services
             if (_Leases.TryGetValue(dockId, out int count)) return count;
             return 0;
         }
+
+        #endregion
+
+        #region Internal-Members
+
+        /// <summary>
+        /// Test seam invoked by <see cref="Release"/> after it observes a zero count and before it
+        /// removes the entry, so a test can interleave an acquire at exactly that point.
+        /// </summary>
+        internal static Action<string>? BeforeZeroLeaseRemoval { get; set; }
 
         #endregion
 

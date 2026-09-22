@@ -280,6 +280,11 @@ objective). Finished records are kept for 14 days. `armada_dispatch_hold`
 `status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose;
 wait for that list to empty before restarting the admiral.
 
+A job that stays `Accepted` or `Running` for 30 minutes is reaped as `Failed`
+with the reason `reaped as stale`, and its operation is cancelled. A terminal
+status is final: an operation that finishes after its job was reaped does not
+change the status in memory or in the journal.
+
 For objective work, call `preview_objective_dispatch` before `armada_dispatch`.
 It performs the same read-only preflight that operator and autonomous objective
 dispatch enforce. It reports all structural blockers, a complete typed
