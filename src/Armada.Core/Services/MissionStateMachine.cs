@@ -75,6 +75,25 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Whether a captain may move its own mission to <paramref name="target"/> by emitting an
+        /// <c>[ARMADA:STATUS]</c> marker. Agent output may report progress only: the target must be
+        /// InProgress, Testing, or Review, and the transition must be legal in
+        /// <see cref="IsValidTransition"/>. Post-work and terminal statuses (WorkProduced, Complete,
+        /// Failed, Cancelled, PullRequestOpen, LandingFailed) are reached only through the completion
+        /// and landing paths, which run their checks; a status marker naming one is ignored.
+        /// </summary>
+        /// <param name="current">Current status.</param>
+        /// <param name="target">Status the agent output requested.</param>
+        /// <returns>True if the agent output may apply the transition.</returns>
+        public static bool IsAgentReportableTransition(MissionStatusEnum current, MissionStatusEnum target)
+        {
+            bool progressTarget = target == MissionStatusEnum.InProgress
+                || target == MissionStatusEnum.Testing
+                || target == MissionStatusEnum.Review;
+            return progressTarget && IsValidTransition(current, target);
+        }
+
+        /// <summary>
         /// Terminal statuses: the mission is finished and will not transition again.
         /// </summary>
         /// <param name="status">Status to classify.</param>

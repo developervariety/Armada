@@ -83,33 +83,6 @@ namespace Armada.Test.Unit.Suites.Services
         {
             // === Local Merge Happy Path ===
 
-            await RunTest("HandleCompletion sets WorkProduced then completion handler can land", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-
-                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
-                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
-
-                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
-                    Captain captain = entities.Captain;
-                    Mission mission = entities.Mission;
-                    Dock dock = entities.Dock;
-                    Vessel vessel = entities.Vessel;
-
-                    // HandleCompletionAsync should set to WorkProduced
-                    await missionService.HandleCompletionAsync(captain);
-
-                    Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id);
-                    AssertNotNull(updated, "Mission should exist after completion");
-                    AssertEqual(MissionStatusEnum.WorkProduced, updated!.Status, "Status should be WorkProduced after agent exit");
-                }
-            });
-
             await RunTest("Local merge success produces correct git call sequence", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -121,26 +94,54 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                    IMessageTemplateService templateService = new MessageTemplateService(logging);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging,
+                        testDb.Driver,
+                        settings,
+                        git,
+                        new StubMergeQueueService(),
+                        landingService,
+                        new AutoLandEvaluator(),
+                        new ConventionChecker(),
+                        new CriticalTriggerEvaluator(),
+                        templateService,
+                        null,
+                        dockService,
+                        new NoOpRemoteTriggerService(),
+                        null);
 
                     LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
                     Captain captain = entities.Captain;
                     Mission mission = entities.Mission;
-                    Dock dock = entities.Dock;
                     Vessel vessel = entities.Vessel;
+                    string integrationWorktree = Path.Combine(settings.DocksDirectory, "_integration", mission.Id);
 
-                    // Simulate: agent completion -> WorkProduced
+                    // Agent completion hands the work to landing and releases the captain.
                     await missionService.HandleCompletionAsync(captain);
-
-                    // Verify the stub recorded correct merge call
-                    // Note: The actual landing handler runs in the ArmadaServer, not in this unit test,
-                    // so we verify that HandleCompletion correctly sets up the state for landing.
-                    Mission? wp = await testDb.Driver.Missions.ReadAsync(mission.Id);
-                    AssertEqual(MissionStatusEnum.WorkProduced, wp!.Status, "Mission should be WorkProduced");
-
-                    // Verify captain was released
-                    Captain? releasedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id);
-                    AssertNotNull(releasedCaptain, "Captain should still exist");
+                    Mission? produced = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, produced!.Status, "Mission should be WorkProduced after agent exit");
+                    Captain? releasedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
                     AssertEqual(CaptainStateEnum.Idle, releasedCaptain!.State, "Captain should be Idle after completion");
+
+                    // The landing handler then merges the mission branch in the integration worktree.
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    produced.DiffSnapshot = "diff --git a/app/routes_ops.py b/app/routes_ops.py";
+                    await testDb.Driver.Missions.UpdateAsync(produced).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(produced, entities.Dock).ConfigureAwait(false);
+
+                    Mission? landed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, landed!.Status, "A successful local merge completes the mission");
+                    AssertEqual(1, git.MergeBranchCalls.Count(c => c == entities.Dock.BranchName + " -> " + integrationWorktree),
+                        "The mission branch is merged once, in the integration worktree. Calls: " + String.Join(", ", git.MergeBranchCalls));
+                    AssertFalse(git.MergeBranchCalls.Contains(entities.Dock.BranchName + " -> " + vessel.WorkingDirectory),
+                        "The mission branch must never be merged into the user working directory");
+                    AssertTrue(git.MergeBranchCalls.IndexOf(vessel.DefaultBranch + " -> " + vessel.WorkingDirectory)
+                        > git.MergeBranchCalls.IndexOf(entities.Dock.BranchName + " -> " + integrationWorktree),
+                        "After the integration merge, the user working directory syncs the landed default branch. Calls: " + String.Join(", ", git.MergeBranchCalls));
+                    AssertTrue(git.RemoveWorktreeCalls.Contains(integrationWorktree), "Integration worktree should be removed after landing");
                 }
             });
 

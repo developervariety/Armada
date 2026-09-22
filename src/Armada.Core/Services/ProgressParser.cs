@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Collections.Generic;
     using System.Text.RegularExpressions;
     using Armada.Core.Enums;
 
@@ -56,37 +57,48 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Try to parse a progress signal from an agent output record.
-        /// Returns null if the record does not contain a signal.
+        /// Parse every progress signal in an agent output record, in the order they appear.
+        /// Returns an empty list if the record contains no signal.
         /// </summary>
         /// <remarks>
         /// A runtime record is not always a single line: a Codex <c>agent_message</c> or a Claude
         /// assistant text block can carry several physical lines in one record, and a captain's
-        /// final answer commonly contains a protocol marker followed by prose. The marker only
-        /// counts when it STARTS a physical line -- a signal embedded in the middle of a prose
-        /// line is not a signal (for example an instruction file that documents the format).
-        /// When a record holds several markers, a papercut wins: it is a report that must reach
-        /// the store, while the other markers (result, status) are also re-detected from the
-        /// mission log file at exit.
+        /// final answer commonly holds several markers (a message or papercut followed by
+        /// <c>[ARMADA:RESULT] COMPLETE</c>). Each marker is returned so a caller can route every one;
+        /// none hides another. A marker only counts when it STARTS a physical line -- a signal
+        /// embedded in the middle of a prose line is not a signal (for example an instruction file
+        /// that documents the format).
         /// </remarks>
-        /// <param name="line">Agent output record.</param>
-        /// <returns>Parsed signal or null.</returns>
-        public static ProgressSignal? TryParse(string line)
+        /// <param name="record">Agent output record.</param>
+        /// <returns>Parsed signals in record order; empty when there are none.</returns>
+        public static List<ProgressSignal> ParseAll(string? record)
         {
-            if (String.IsNullOrEmpty(line)) return null;
+            List<ProgressSignal> signals = new List<ProgressSignal>();
+            if (String.IsNullOrEmpty(record)) return signals;
 
-            ProgressSignal? first = null;
-            ProgressSignal? papercut = null;
-            foreach (string physicalLine in line.Split('\n'))
+            foreach (string physicalLine in record.Split('\n'))
             {
                 ProgressSignal? parsed = TryParsePhysicalLine(physicalLine);
-                if (parsed == null) continue;
-
-                if (first == null) first = parsed;
-                if (String.Equals(parsed.Type, "papercut", StringComparison.Ordinal)) papercut = parsed;
+                if (parsed != null) signals.Add(parsed);
             }
 
-            return papercut ?? first;
+            return signals;
+        }
+
+        /// <summary>
+        /// Parse the first progress signal in an agent output record.
+        /// Returns null if the record does not contain a signal.
+        /// </summary>
+        /// <remarks>
+        /// A record can hold several markers; this returns only the first. A caller that acts on
+        /// markers of more than one type uses <see cref="ParseAll"/> so no marker is lost.
+        /// </remarks>
+        /// <param name="line">Agent output record.</param>
+        /// <returns>First parsed signal or null.</returns>
+        public static ProgressSignal? TryParse(string line)
+        {
+            List<ProgressSignal> signals = ParseAll(line);
+            return signals.Count > 0 ? signals[0] : null;
         }
 
         private static ProgressSignal? TryParsePhysicalLine(string line)

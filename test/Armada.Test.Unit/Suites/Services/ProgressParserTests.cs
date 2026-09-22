@@ -149,15 +149,35 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("COMPLETE", result.Value);
             });
 
-            await RunTest("TryParse MultiLineRecord PapercutWins", () =>
+            await RunTest("ParseAll MultiLineRecord ReturnsEveryMarkerInOrder", () =>
             {
-                // A papercut is a report that must reach the store, so it wins over the other
-                // markers in the same record. This is the exact shape that was silently dropped
-                // before the fix: a final answer that opens with a papercut and ends with RESULT.
-                ProgressParser.ProgressSignal? result = ProgressParser.TryParse(
-                    "[ARMADA:PAPERCUT] {\"category\":\"RepoFriction\",\"severity\":\"Low\",\"title\":\"Worker branch lagged landed M2\"}\n\n[ARMADA:RESULT] COMPLETE\nWired the rows.");
-                AssertNotNull(result);
-                AssertEqual("papercut", result!.Type);
+                // A final answer that opens with a papercut and ends with RESULT carries both, and
+                // each must reach its own consumer.
+                List<ProgressParser.ProgressSignal> signals = ProgressParser.ParseAll(
+                    "[ARMADA:PAPERCUT] {\"category\":\"RepoFriction\",\"severity\":\"Low\",\"title\":\"Worker branch lagged\"}\n\n[ARMADA:RESULT] COMPLETE\nWired the rows.");
+                AssertEqual(2, signals.Count);
+                AssertEqual("papercut", signals[0].Type);
+                AssertEqual("result", signals[1].Type);
+                AssertEqual("COMPLETE", signals[1].Value);
+            });
+
+            await RunTest("ParseAll MessageBeforeResult ReturnsBoth", () =>
+            {
+                List<ProgressParser.ProgressSignal> signals = ProgressParser.ParseAll(
+                    "[ARMADA:MESSAGE] Ran the suite\n[ARMADA:RESULT] COMPLETE");
+                AssertEqual(2, signals.Count);
+                AssertEqual("message", signals[0].Type);
+                AssertEqual("result", signals[1].Type);
+
+                ProgressParser.ProgressSignal? first = ProgressParser.TryParse(
+                    "[ARMADA:MESSAGE] Ran the suite\n[ARMADA:RESULT] COMPLETE");
+                AssertEqual("message", first!.Type, "TryParse returns the first marker of the record");
+            });
+
+            await RunTest("ParseAll NoMarker ReturnsEmpty", () =>
+            {
+                AssertEqual(0, ProgressParser.ParseAll(null).Count);
+                AssertEqual(0, ProgressParser.ParseAll("Some prefix text [ARMADA:PROGRESS] 30\ncontinued prose").Count);
             });
 
             await RunTest("TryParse MultiLineRecord ProsePrefixStillNull", () =>

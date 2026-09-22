@@ -73,11 +73,15 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(line)) return null;
 
-            ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(line!);
-            if (signal == null) return null;
-            if (!String.Equals(signal.Type, SignalType, StringComparison.OrdinalIgnoreCase)) return null;
+            foreach (ProgressParser.ProgressSignal signal in ProgressParser.ParseAll(line))
+            {
+                if (String.Equals(signal.Type, SignalType, StringComparison.OrdinalIgnoreCase))
+                {
+                    return TryParseValue(signal.Value);
+                }
+            }
 
-            return TryParseValue(signal.Value);
+            return null;
         }
 
         /// <summary>

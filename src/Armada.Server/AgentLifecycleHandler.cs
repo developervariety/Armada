@@ -1252,8 +1252,8 @@ namespace Armada.Server
                 AppendBounded(sb, line);
             }
 
-            ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(line);
-            if (signal == null) return;
+            List<ProgressParser.ProgressSignal> signals = ProgressParser.ParseAll(line);
+            if (signals.Count == 0) return;
 
             string? captainId = null;
             string? missionId = null;
@@ -1269,11 +1269,28 @@ namespace Armada.Server
             // chose to narrate a step or call a tool. Record it as provider progress so a captain
             // that is actively working through a long tool run (a foreground test suite, a large
             // source read) while quiet on token-usage narration is not misclassified as a
-            // provider_silent_stall and nudged mid-work. Previously only runtime token-usage updates
-            // (OnProviderProgressReceived) refreshed the tracker, which goes silent during a tool
-            // call, so a Judge running `dotnet test` for ninety seconds looked stalled.
+            // provider_silent_stall and nudged mid-work. Runtime token-usage updates
+            // (OnProviderProgressReceived) go silent during a tool call, so they alone cannot
+            // show that a captain is still working.
             _ProviderProgress?.Record(captainId, DateTime.UtcNow);
 
+            // One record can carry several markers (a message or papercut followed by the result).
+            // Each is routed on its own so none hides another, in the order the captain wrote them.
+            foreach (ProgressParser.ProgressSignal signal in signals)
+            {
+                RouteAgentSignal(captainId, missionId, signal);
+            }
+        }
+
+        /// <summary>
+        /// Route one parsed agent signal: record a terminal marker, store a papercut, or apply a
+        /// progress status and persist the progress signal.
+        /// </summary>
+        /// <param name="captainId">Emitting captain identifier.</param>
+        /// <param name="missionId">Mission identifier, when the process is mapped to one.</param>
+        /// <param name="signal">Parsed signal.</param>
+        private void RouteAgentSignal(string captainId, string? missionId, ProgressParser.ProgressSignal signal)
+        {
             // The first terminal marker ends the stage even if the process keeps running; later
             // markers (a re-review) never replace it.
             if (_TerminalMarkers != null && !String.IsNullOrEmpty(missionId) && TerminalMarkerTracker.IsTerminalMarker(signal)
@@ -1310,12 +1327,22 @@ namespace Armada.Server
                     if (signal.Type == "status" && signal.MissionStatus.HasValue)
                     {
                         Mission? mission = await _Database.Missions.ReadAsync(targetMissionId).ConfigureAwait(false);
-                        if (mission != null && IsValidTransition(mission.Status, signal.MissionStatus.Value))
+                        if (mission != null)
                         {
-                            mission.Status = signal.MissionStatus.Value;
-                            mission.LastUpdateUtc = DateTime.UtcNow;
-                            await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                            _Logging.Info(_Header + "mission " + mission.Id + " transitioned to " + signal.MissionStatus.Value + " via agent signal");
+                            // Agent output reports progress only. A post-work or terminal status is
+                            // reached through the completion and landing paths, which run their checks.
+                            if (MissionStateMachine.IsAgentReportableTransition(mission.Status, signal.MissionStatus.Value))
+                            {
+                                mission.Status = signal.MissionStatus.Value;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                                _Logging.Info(_Header + "mission " + mission.Id + " transitioned to " + signal.MissionStatus.Value + " via agent signal");
+                            }
+                            else
+                            {
+                                _Logging.Info(_Header + "mission " + mission.Id + " ignored agent status " + signal.MissionStatus.Value
+                                    + " from " + mission.Status + ": agent output may report only InProgress, Testing, or Review");
+                            }
                         }
                     }
 
@@ -1901,12 +1928,6 @@ namespace Armada.Server
                     sb.Append(tail);
                 }
             }
-        }
-
-        private static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
-        {
-            // Delegated to the single authoritative table so this handler and the services agree.
-            return MissionStateMachine.IsValidTransition(current, target);
         }
 
         private async Task<string?> ValidateMuxCaptainAsync(Captain captain, CancellationToken token)

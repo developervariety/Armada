@@ -36,6 +36,15 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("README.md", papercut.Path);
             });
 
+            await RunTest("TryParseLine FindsPapercutAfterAnotherMarkerInOneRecord", () =>
+            {
+                Papercut? papercut = PapercutParser.TryParseLine(
+                    "[ARMADA:MESSAGE] Finished\n[ARMADA:PAPERCUT] {\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"Second marker\"}");
+
+                AssertNotNull(papercut, "A papercut that is not the first marker of the record is still found");
+                AssertEqual("Second marker", papercut!.Title);
+            });
+
             await RunTest("TryParseValue UnknownCategory FallsBackToOther", () =>
             {
                 Papercut? papercut = PapercutParser.TryParseValue("{\"category\":\"Nonsense\",\"title\":\"something\"}");

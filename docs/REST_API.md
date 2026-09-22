@@ -1781,6 +1781,13 @@ mission unchanged.
 | `Failed` | (terminal) |
 | `Cancelled` | (terminal) |
 
+A captain can also move its own mission by writing an `[ARMADA:STATUS]` line to
+its output. That marker only sets `InProgress`, `Testing`, or `Review`, and only
+where the table above allows the move. A marker that names a post-work or
+terminal status (`WorkProduced`, `PullRequestOpen`, `LandingFailed`,
+`Complete`, `Failed`, `Cancelled`) is logged and ignored. Those statuses are
+set by the completion and landing paths, which run their checks.
+
 ```bash
 curl -X PUT http://localhost:7890/api/v1/missions/msn_abc123/status \
   -H "Content-Type: application/json" \

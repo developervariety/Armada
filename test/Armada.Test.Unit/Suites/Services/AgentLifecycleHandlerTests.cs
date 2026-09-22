@@ -1136,6 +1136,149 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // ----------------------------------------------------------------
+            // Agent status markers report progress only; completion runs its checks
+            // ----------------------------------------------------------------
+
+            await RunTest("Agent status markers cannot move a mission to a post-work or terminal status", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("status-captain", AgentRuntimeEnum.ClaudeCode)).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(
+                        new Mission("Status marker mission") { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id }).ConfigureAwait(false);
+
+                    int processId = 949494;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+
+                    MissionStatusEnum[] refused = new[]
+                    {
+                        MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete, MissionStatusEnum.Failed,
+                        MissionStatusEnum.Cancelled, MissionStatusEnum.PullRequestOpen, MissionStatusEnum.LandingFailed
+                    };
+                    int expectedSignals = 0;
+                    foreach (MissionStatusEnum status in refused)
+                    {
+                        handler.HandleAgentOutput(processId, "[ARMADA:STATUS] " + status);
+                        expectedSignals++;
+                        await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, expectedSignals).ConfigureAwait(false);
+                        Mission? afterRefused = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.InProgress, afterRefused!.Status, "An agent status marker must not set " + status);
+                    }
+
+                    // A progress status is still applied, and from Testing a terminal marker is still refused.
+                    handler.HandleAgentOutput(processId, "[ARMADA:STATUS] Testing");
+                    expectedSignals++;
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, expectedSignals).ConfigureAwait(false);
+                    Mission? testing = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Testing, testing!.Status, "A progress status marker is applied");
+
+                    handler.HandleAgentOutput(processId, "[ARMADA:STATUS] Complete");
+                    expectedSignals++;
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, expectedSignals).ConfigureAwait(false);
+                    Mission? stillTesting = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Testing, stillTesting!.Status, "Testing to Complete is not an agent-reportable transition");
+                }
+            });
+
+            await RunTest("Completion still runs after a captain emits a Complete status marker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService,
+                        resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("status-vessel", "https://github.com/test/status.git")).ConfigureAwait(false);
+                    Captain captain = new Captain("completion-captain", AgentRuntimeEnum.ClaudeCode);
+                    captain.State = CaptainStateEnum.Working;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = "armada/completion-captain/msn_status";
+                    dock.Active = true;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                    Mission mission = new Mission("Completion gate mission");
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.CaptainId = captain.Id;
+                    mission.DockId = dock.Id;
+                    mission.VesselId = vessel.Id;
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    captain.CurrentMissionId = mission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    int processId = 959595;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(processId, "[ARMADA:STATUS] Complete");
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+
+                    // The exit path's completion handler skips a mission already in a post-work or
+                    // terminal status, so the marker must leave the mission where completion can act.
+                    await missionService.HandleCompletionAsync(captain, mission.Id).ConfigureAwait(false);
+
+                    Mission? completed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, completed!.Status, "Completion runs and hands the work to landing");
+                    Captain? released = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, released!.State, "Completion releases the captain");
+                }
+            });
+
+            // ----------------------------------------------------------------
+            // One output record can carry several markers; each one is routed
+            // ----------------------------------------------------------------
+
+            await RunTest("A message before the result in one record still records the terminal marker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("record-captain", AgentRuntimeEnum.Codex)).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(
+                        new Mission("Record mission") { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id }).ConfigureAwait(false);
+
+                    int processId = 969696;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(processId, "[ARMADA:MESSAGE] Wired the rows and ran the suite\n\n[ARMADA:RESULT] COMPLETE\nSummary follows.");
+
+                    AssertTrue(markers.TryGet(mission.Id, out TerminalMarkerRecord? first), "The result marker after a message is recorded");
+                    AssertEqual("COMPLETE", first!.Value);
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 2).ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("A papercut and a verdict in one record are both routed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("papercut-verdict-captain", AgentRuntimeEnum.ClaudeCode)).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(
+                        new Mission("Papercut verdict mission") { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, Persona = "Worker" }).ConfigureAwait(false);
+
+                    int processId = 979797;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(
+                        processId,
+                        "[ARMADA:PAPERCUT] {\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"Record check\"}\n[ARMADA:VERDICT] PASS");
+
+                    AssertTrue(markers.TryGet(mission.Id, out TerminalMarkerRecord? first), "The verdict after a papercut is recorded");
+                    AssertEqual("PASS", first!.Value);
+                    List<ArmadaEvent> stored = await WaitForPapercutEventsAsync(testDb.Driver, 1).ConfigureAwait(false);
+                    AssertEqual(1, stored.Count, "The papercut is stored");
+                }
+            });
+
             await RunTest("MissionProcessOwnership_RequiresRegisteredCaptainGeneration", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1566,6 +1709,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             return Process.Start(startInfo)
                 ?? throw new InvalidOperationException("Failed to start silent heartbeat test process");
+        }
+
+        private static async Task WaitForProgressSignalsAsync(DatabaseDriver database, string captainId, int expected)
+        {
+            await WaitForConditionAsync(async () =>
+            {
+                List<Signal> recent = await database.Signals.EnumerateRecentAsync(200).ConfigureAwait(false);
+                return recent.Count(signal => signal.FromCaptainId == captainId) >= expected;
+            }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
         }
 
         private static async Task WaitForConditionAsync(Func<Task<bool>> predicate, TimeSpan? timeout = null)

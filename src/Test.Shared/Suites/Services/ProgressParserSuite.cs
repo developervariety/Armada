@@ -188,15 +188,15 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("COMPLETE", result.Value);
             }));
 
-            cases.Add(Case("multi_line_record_papercut_wins", "a papercut wins over other markers in the same record", TestTags.Positive, () =>
+            cases.Add(Case("multi_line_record_parse_all_returns_every_marker", "every marker in one record is returned in order", TestTags.Positive, () =>
             {
-                // A papercut is a report that must reach the store, so it wins over the other
-                // markers in the same record. This is the exact shape that was silently dropped
-                // before the fix: a final answer that opens with a papercut and ends with RESULT.
-                ProgressParser.ProgressSignal? result = ProgressParser.TryParse(
-                    "[ARMADA:PAPERCUT] {\"category\":\"RepoFriction\",\"severity\":\"Low\",\"title\":\"Worker branch lagged landed M2\"}\n\n[ARMADA:RESULT] COMPLETE\nWired the rows.");
-                AssertNotNull(result);
-                AssertEqual("papercut", result!.Type);
+                // A final answer that opens with a papercut and ends with RESULT carries both, and
+                // each must reach its own consumer.
+                List<ProgressParser.ProgressSignal> signals = ProgressParser.ParseAll(
+                    "[ARMADA:PAPERCUT] {\"category\":\"RepoFriction\",\"severity\":\"Low\",\"title\":\"Worker branch lagged\"}\n\n[ARMADA:RESULT] COMPLETE\nWired the rows.");
+                AssertEqual(2, signals.Count);
+                AssertEqual("papercut", signals[0].Type);
+                AssertEqual("result", signals[1].Type);
             }));
 
             cases.Add(Case("multi_line_record_prose_prefix_still_null", "a marker mid-prose in a multi-line record is not a signal", TestTags.Negative, () =>

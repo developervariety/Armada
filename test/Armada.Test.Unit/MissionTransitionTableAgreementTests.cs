@@ -9,8 +9,8 @@ namespace Armada.Test.Unit
 
     /// <summary>
     /// Pins every mission-transition entry point to one table. <see cref="MissionStateMachine"/> owns the
-    /// transition rules; the MCP helper, the agent lifecycle handler and the operator transition service
-    /// delegate to it, and the REST, WebSocket and MCP transitions delegate to the operator transition
+    /// transition rules; the MCP helper, the agent lifecycle handler (through its progress-only agent rule)
+    /// and the operator transition service delegate to it, and the REST, WebSocket and MCP transitions delegate to the operator transition
     /// service. A second copy of the rules would give a caller an answer that depends on which copy it
     /// reaches, so these tests assert the PullRequestOpen pairs, agreement across the whole enum, and the
     /// delegation of every entry point.
@@ -77,15 +77,43 @@ namespace Armada.Test.Unit
                 Assert(compared == statuses.Length * statuses.Length, "Every status pair was compared");
             });
 
+            // === Agent status markers: progress targets only, within the shared table ===
+            // The lifecycle handler's behaviour is covered by the Agent Lifecycle Handler suite; this pins
+            // the rule it calls across the whole enum.
+
+            await RunTest("Agent-reportable transitions are legal progress transitions for every status pair", () =>
+            {
+                MissionStatusEnum[] statuses = (MissionStatusEnum[])Enum.GetValues(typeof(MissionStatusEnum));
+                int allowed = 0;
+
+                foreach (MissionStatusEnum current in statuses)
+                {
+                    foreach (MissionStatusEnum target in statuses)
+                    {
+                        bool progressTarget = target == MissionStatusEnum.InProgress
+                            || target == MissionStatusEnum.Testing
+                            || target == MissionStatusEnum.Review;
+                        bool expected = progressTarget && MissionStateMachine.IsValidTransition(current, target);
+                        bool actual = MissionStateMachine.IsAgentReportableTransition(current, target);
+                        Assert(
+                            expected == actual,
+                            "Agent transition " + current + " to " + target + ": expected " + expected + " but the rule says " + actual);
+                        if (actual)
+                        {
+                            Assert(
+                                !MissionStateMachine.IsTerminalOrPostWork(target),
+                                "Agent output must never reach post-work or terminal status " + target);
+                            allowed++;
+                        }
+                    }
+                }
+
+                Assert(allowed > 0, "Some progress transition remains reportable by agent output");
+            });
+
             // === Delegation: no entry point keeps its own transition rules ===
             // The validators below are private or live in projects this suite does not reference, so these
             // guards assert that each entry point calls the shared rule rather than restating it.
-
-            await RunTest("AgentLifecycleHandler validator delegates to the shared state machine", () =>
-            {
-                string contents = ReadSource(Path.Combine("src", "Armada.Server", "AgentLifecycleHandler.cs"));
-                AssertContains("return MissionStateMachine.IsValidTransition(current, target);", contents, "Delegates to MissionStateMachine");
-            });
 
             await RunTest("MissionStatusTransitionService validator delegates to the shared state machine", () =>
             {

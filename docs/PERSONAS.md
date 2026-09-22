@@ -146,6 +146,14 @@ reads on the Judge's brief, not a structured signal. Do not rely on it to gate
 anything automatically; the Judge's `[ARMADA:VERDICT]` line is the structured
 outcome.
 
+### Several markers in one output record
+
+A runtime can deliver several physical lines as one output record, for example
+a final answer with an `[ARMADA:MESSAGE]` or `[ARMADA:PAPERCUT]` line followed by
+`[ARMADA:RESULT] COMPLETE`. Armada reads every marker that starts a line in the
+record and routes each one on its own. A message or papercut never hides the
+result or verdict that ends the stage.
+
 ## Validation
 
 Before release, confirm:

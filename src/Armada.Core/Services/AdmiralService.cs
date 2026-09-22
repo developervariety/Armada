@@ -2751,18 +2751,20 @@ namespace Armada.Core.Services
             if (lines == null || lines.Length == 0) return false;
             for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 200; i--)
             {
-                ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(lines[i]);
-                if (signal == null || signal.Value == null) continue;
-                string value = signal.Value.Trim();
-                if (String.Equals(signal.Type, "result", StringComparison.Ordinal)
-                    && String.Equals(value, "COMPLETE", StringComparison.OrdinalIgnoreCase))
+                foreach (ProgressParser.ProgressSignal signal in ProgressParser.ParseAll(lines[i]))
                 {
-                    return true;
-                }
-                if (String.Equals(signal.Type, "verdict", StringComparison.Ordinal)
-                    && String.Equals(value, "PASS", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
+                    if (signal.Value == null) continue;
+                    string value = signal.Value.Trim();
+                    if (String.Equals(signal.Type, "result", StringComparison.Ordinal)
+                        && String.Equals(value, "COMPLETE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                    if (String.Equals(signal.Type, "verdict", StringComparison.Ordinal)
+                        && String.Equals(value, "PASS", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
                 }
             }
             return false;

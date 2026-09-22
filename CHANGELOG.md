@@ -41,8 +41,9 @@ upstream integrations and excludes changes already present at that baseline.
   host-slot wait, preparation observations, and post-land regression links.
 - **Verification tooling:** a four-runner Linux gate, balanced unit shards,
   explicit test registration and result manifests, provider migration scenarios,
-  API collection coverage, isolated test data directories, and one owner suite
-  for review-diff coverage.
+  API collection coverage, isolated test data directories, one owner suite
+  for review-diff coverage, and a local-merge landing case that runs the real
+  landing handler.
 
 ## Removed
 
@@ -75,7 +76,11 @@ upstream integrations and excludes changes already present at that baseline.
 - **Recovery and captain lifecycle:** recovery preserves accepted source commits,
   respects dispatch holds, distinguishes provider and test failures, bounds retries,
   and checks rescue effectiveness against the declared deliverable. Terminal
-  markers end stages; interrupted and duplicate completions retain launch identity.
+  markers end stages, and every marker in a multi-line output record is routed,
+  so a message or papercut cannot hide a result or verdict. A captain's
+  `[ARMADA:STATUS]` marker sets only InProgress, Testing, or Review, so post-work
+  and terminal states always pass the completion and landing checks. Interrupted
+  and duplicate completions retain launch identity.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for emergency stop, deletion and restart. Stop all covers working
   captains, planning sessions and refinement sessions and reports stopped and
