@@ -98,6 +98,10 @@ upstream integrations and excludes changes already present at that baseline.
   ownership fields, validate migration prerequisites, and support expiry and backup
   evidence. Restore checks provider compatibility and retains local secrets.
   Status, inbox, jobs, and logs report bounded evidence and explicit failure reasons.
+- **Helm server control:** `server stop`, `server restart`, `reset` and `config init`
+  share one authenticated stop through `POST /api/v1/server/stop` and count the
+  Admiral as stopped only when its health route no longer answers. A refused or
+  unfinished stop exits non-zero, cancels a restart, and blocks every data deletion.
 - **Dashboard and clients:** responsive navigation, scoped controls, complete entity
   forms, structured mission evidence, routing and account controls, endpoint health,
   tool activity, and consistent REST/MCP/WebSocket contracts.

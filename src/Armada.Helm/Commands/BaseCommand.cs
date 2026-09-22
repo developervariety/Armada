@@ -39,8 +39,7 @@ namespace Armada.Helm.Commands
         /// </summary>
         private static void ApplyBearerAuth(ArmadaSettings settings)
         {
-            string token = string.IsNullOrEmpty(settings.ApiKey) ? "default" : settings.ApiKey;
-            _Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            _Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", AdmiralShutdown.BearerTokenFor(settings));
         }
 
         #endregion
@@ -94,10 +93,16 @@ namespace Armada.Helm.Commands
         /// </summary>
         protected string GetBaseUrl()
         {
-            ArmadaSettings settings = GetSettings();
-            // Watson binds the default "localhost" host to IPv4 loopback. Using
-            // 127.0.0.1 avoids slow IPv6 localhost fallback during readiness probes.
-            return "http://127.0.0.1:" + settings.AdmiralPort;
+            return AdmiralShutdown.BaseUrlFor(GetSettings());
+        }
+
+        /// <summary>
+        /// Build the authenticated stop-and-prove-exit logic for the configured Admiral. It never starts an
+        /// embedded server.
+        /// </summary>
+        protected AdmiralShutdown CreateAdmiralShutdown()
+        {
+            return AdmiralShutdown.ForSettings(_Client, GetSettings());
         }
 
         /// <summary>

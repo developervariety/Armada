@@ -4,10 +4,12 @@ namespace Test.Shared.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Net.Http;
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Nodes;
+    using System.Threading;
     using System.Threading.Tasks;
     using System.Xml.Linq;
     using Armada.Core.Enums;
@@ -243,6 +245,67 @@ namespace Test.Shared.Suites.Services
                     {
                         if (Directory.Exists(root)) Directory.Delete(root, true);
                     }
+                }),
+                CaseAsync("reset_keeps_data_when_admiral_refuses_stop", "Helm reset deletes nothing when the Admiral refuses the stop request", TestTags.Negative, async () =>
+                {
+                    ScriptedAdmiral admiral = new ScriptedAdmiral { StopStatus = HttpStatusCode.Unauthorized };
+                    await AssertResetKeepsDataAsync(admiral, "a refused stop");
+                    AssertEqual(1, admiral.StopRequests, "Reset must send exactly one stop request.");
+                    AssertEqual("Bearer reset-bearer", admiral.LastStopAuthorization, "The stop request must carry the Helm bearer credential.");
+                }),
+                CaseAsync("reset_keeps_data_while_admiral_still_answers", "Helm reset deletes nothing while the Admiral keeps answering after a stop", TestTags.Negative, async () =>
+                {
+                    ScriptedAdmiral admiral = new ScriptedAdmiral { StopStatus = HttpStatusCode.OK, ExitOnStop = false };
+                    await AssertResetKeepsDataAsync(admiral, "a server that keeps answering");
+                    AssertEqual(1, admiral.StopRequests, "Reset must send exactly one stop request.");
+                }),
+                CaseAsync("reset_deletes_data_after_admiral_exits", "Helm reset stops the Admiral through the stop route before deleting data", TestTags.Positive, async () =>
+                {
+                    string root = TestTemp.NewDirectory("helm-reset");
+                    try
+                    {
+                        ArmadaSettings settings = ResetSettingsIn(root);
+                        ScriptedAdmiral admiral = new ScriptedAdmiral { StopStatus = HttpStatusCode.OK, ExitOnStop = true };
+                        using (HttpClient client = new HttpClient(admiral))
+                        {
+                            int exit = await ResetCommand.ResetDataAsync(settings, FastShutdown(client), CancellationToken.None);
+                            AssertEqual(0, exit, "Reset must succeed once the Admiral has exited.");
+                        }
+
+                        AssertEqual(1, admiral.StopRequests, "Reset must stop the Admiral through its stop route.");
+                        AssertEqual("Bearer reset-bearer", admiral.LastStopAuthorization, "The stop request must carry the Helm bearer credential.");
+                        AssertTrue(admiral.UnknownRequests.Count == 0, "Reset must call only served routes: " + String.Join(", ", admiral.UnknownRequests));
+                        AssertFalse(File.Exists(settings.DatabasePath), "Reset must delete the database after the Admiral exits.");
+                        AssertFalse(File.Exists(Path.Combine(settings.LogDirectory, "admiral.log")), "Reset must delete the logs after the Admiral exits.");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(root)) Directory.Delete(root, true);
+                    }
+                }),
+                CaseAsync("server_stop_fails_unless_admiral_exits", "Helm server stop exits non-zero unless the Admiral stops answering", TestTags.Negative, async () =>
+                {
+                    ScriptedAdmiral refused = new ScriptedAdmiral { StopStatus = HttpStatusCode.Unauthorized };
+                    ScriptedAdmiral surviving = new ScriptedAdmiral { StopStatus = HttpStatusCode.OK, ExitOnStop = false };
+                    ScriptedAdmiral exiting = new ScriptedAdmiral { StopStatus = HttpStatusCode.OK, ExitOnStop = true };
+                    ScriptedAdmiral absent = new ScriptedAdmiral { Alive = false };
+
+                    AssertEqual(1, await StopExitCodeAsync(refused), "A refused stop must exit non-zero.");
+                    AssertEqual(1, await StopExitCodeAsync(surviving), "A server that keeps answering must exit non-zero.");
+                    AssertEqual(0, await StopExitCodeAsync(exiting), "A server that exits must exit zero.");
+                    AssertEqual(1, await StopExitCodeAsync(absent), "A server that was not running must exit non-zero.");
+                    AssertEqual("Bearer reset-bearer", refused.LastStopAuthorization, "The stop request must carry the Helm bearer credential.");
+                    AssertEqual(0, absent.StopRequests, "No stop request is sent when nothing answers.");
+                }),
+                CaseAsync("server_restart_does_not_start_beside_a_running_admiral", "Helm server restart refuses to start while the old Admiral keeps running", TestTags.Negative, async () =>
+                {
+                    ScriptedAdmiral refused = new ScriptedAdmiral { StopStatus = HttpStatusCode.Forbidden };
+                    ScriptedAdmiral exiting = new ScriptedAdmiral { StopStatus = HttpStatusCode.OK, ExitOnStop = true };
+                    ScriptedAdmiral absent = new ScriptedAdmiral { Alive = false };
+
+                    AssertFalse(await RestartMayStartAsync(refused), "A refused stop must cancel the restart.");
+                    AssertTrue(await RestartMayStartAsync(exiting), "A server that exits lets the restart proceed.");
+                    AssertTrue(await RestartMayStartAsync(absent), "A server that was not running lets the restart proceed.");
                 })
             };
 
@@ -252,6 +315,67 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static async Task AssertResetKeepsDataAsync(ScriptedAdmiral admiral, string situation)
+        {
+            string root = TestTemp.NewDirectory("helm-reset");
+            try
+            {
+                ArmadaSettings settings = ResetSettingsIn(root);
+                using (HttpClient client = new HttpClient(admiral))
+                {
+                    int exit = await ResetCommand.ResetDataAsync(settings, FastShutdown(client), CancellationToken.None);
+                    AssertEqual(1, exit, "Reset must fail after " + situation + ".");
+                }
+
+                AssertTrue(File.Exists(settings.DatabasePath), "Reset must keep the database after " + situation + ".");
+                AssertTrue(File.Exists(Path.Combine(settings.LogDirectory, "admiral.log")), "Reset must keep the logs after " + situation + ".");
+                AssertTrue(Directory.Exists(settings.DocksDirectory), "Reset must keep the docks after " + situation + ".");
+                AssertTrue(Directory.Exists(settings.ReposDirectory), "Reset must keep the bare repositories after " + situation + ".");
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        private static ArmadaSettings ResetSettingsIn(string root)
+        {
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.DataDirectory = root;
+            settings.DatabasePath = Path.Combine(root, "armada.db");
+            settings.LogDirectory = Path.Combine(root, "logs");
+            settings.DocksDirectory = Path.Combine(root, "docks");
+            settings.ReposDirectory = Path.Combine(root, "repos");
+            settings.ApiKey = "reset-bearer";
+            Directory.CreateDirectory(settings.LogDirectory);
+            Directory.CreateDirectory(settings.DocksDirectory);
+            Directory.CreateDirectory(settings.ReposDirectory);
+            File.WriteAllText(settings.DatabasePath, "database");
+            File.WriteAllText(Path.Combine(settings.LogDirectory, "admiral.log"), "log");
+            return settings;
+        }
+
+        private static AdmiralShutdown FastShutdown(HttpClient client)
+        {
+            return new AdmiralShutdown(client, "http://127.0.0.1:1", "reset-bearer", 3, TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(5));
+        }
+
+        private static async Task<int> StopExitCodeAsync(ScriptedAdmiral admiral)
+        {
+            using (HttpClient client = new HttpClient(admiral))
+            {
+                return await ServerStopCommand.StopAsync(FastShutdown(client), CancellationToken.None);
+            }
+        }
+
+        private static async Task<bool> RestartMayStartAsync(ScriptedAdmiral admiral)
+        {
+            using (HttpClient client = new HttpClient(admiral))
+            {
+                return await ServerRestartCommand.StopRunningServerAsync(FastShutdown(client), CancellationToken.None);
+            }
+        }
 
         private static List<string[]> ReadCommandPaths()
         {
@@ -380,6 +504,50 @@ namespace Test.Shared.Suites.Services
         private static TestCaseDescriptor CaseAsync(string id, string name, string tag, Func<Task> body)
         {
             return new TestCaseDescriptor("Services.HelmCli", id, name, _ => body(), new List<string> { tag });
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        /// <summary>
+        /// In-process stand-in for an Admiral: its health route answers while it is alive, its stop route answers
+        /// with a scripted status, and once it has exited every connection fails the way a closed port does.
+        /// </summary>
+        private sealed class ScriptedAdmiral : HttpMessageHandler
+        {
+            public bool Alive { get; set; } = true;
+
+            public HttpStatusCode StopStatus { get; set; } = HttpStatusCode.OK;
+
+            public bool ExitOnStop { get; set; } = true;
+
+            public int StopRequests { get; private set; } = 0;
+
+            public string? LastStopAuthorization { get; private set; } = null;
+
+            public List<string> UnknownRequests { get; } = new List<string>();
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                if (!Alive) throw new HttpRequestException("Connection refused");
+
+                string path = request.RequestUri!.AbsolutePath;
+                if (request.Method == HttpMethod.Get && path == AdmiralShutdown.HealthPath)
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+
+                if (request.Method == HttpMethod.Post && path == AdmiralShutdown.StopPath)
+                {
+                    StopRequests++;
+                    LastStopAuthorization = request.Headers.Authorization?.ToString();
+                    bool accepted = (int)StopStatus >= 200 && (int)StopStatus < 300;
+                    if (accepted && ExitOnStop) Alive = false;
+                    return Task.FromResult(new HttpResponseMessage(StopStatus) { Content = new StringContent(accepted ? "{\"Status\":\"shutting_down\"}" : "{\"Message\":\"Authentication required\"}") });
+                }
+
+                UnknownRequests.Add(request.Method + " " + path);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
         }
 
         #endregion

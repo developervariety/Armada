@@ -1,13 +1,10 @@
 namespace Armada.Helm.Commands
 {
     using System.ComponentModel;
-    using System.Diagnostics;
-    using System.Net.Http;
-    using System.Runtime.InteropServices;
     using System.Threading;
     using Spectre.Console;
     using Spectre.Console.Cli;
-    using Armada.Core;
+    using Armada.Helm.Infrastructure;
 
     /// <summary>
     /// Stop the Admiral server.
@@ -15,46 +12,43 @@ namespace Armada.Helm.Commands
     [Description("Stop the Admiral server")]
     public class ServerStopCommand : BaseCommand<ServerStopSettings>
     {
+        #region Public-Methods
+
         /// <inheritdoc />
         protected override async Task<int> ExecuteAsync(CommandContext context, ServerStopSettings settings, CancellationToken cancellationToken)
         {
-            try
-            {
-                using HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                await client.PostAsync(GetBaseUrl() + "/api/v1/server/stop", null, cancellationToken).ConfigureAwait(false);
-                AnsiConsole.MarkupLine("[green]Admiral server is shutting down...[/]");
-            }
-            catch (HttpRequestException)
-            {
-                AnsiConsole.MarkupLine("[gold1]Admiral server is not reachable (may already be stopped).[/]");
-                return 1;
-            }
-
-            // Wait for the process to fully exit so the exe is unlocked for subsequent builds
-            bool exited = false;
-            for (int i = 0; i < 15; i++)
-            {
-                await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
-
-                try
-                {
-                    using HttpClient pollClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                    await pollClient.GetAsync(GetBaseUrl() + "/api/v1/status/health", cancellationToken).ConfigureAwait(false);
-                    // Still responding — keep waiting
-                }
-                catch
-                {
-                    exited = true;
-                    break;
-                }
-            }
-
-            if (exited)
-                AnsiConsole.MarkupLine("[green]Admiral server stopped.[/]");
-            else
-                AnsiConsole.MarkupLine("[gold1]Server is still shutting down. Wait a moment before restarting.[/]");
-
-            return 0;
+            return await StopAsync(CreateAdmiralShutdown(), cancellationToken).ConfigureAwait(false);
         }
+
+        #endregion
+
+        #region Internal-Methods
+
+        /// <summary>
+        /// Stop the Admiral and wait for it to exit, so its executable is unlocked for a following build. Exit code
+        /// 0 means the server stopped; any other outcome, including a server that was not running, is non-zero.
+        /// </summary>
+        /// <param name="shutdown">Stop logic for the target Admiral.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Process exit code.</returns>
+        internal static async Task<int> StopAsync(AdmiralShutdown shutdown, CancellationToken cancellationToken)
+        {
+            AnsiConsole.MarkupLine("[dim]Stopping Admiral server...[/]");
+            AdmiralStopResult result = await shutdown.StopAsync(cancellationToken).ConfigureAwait(false);
+            switch (result.Outcome)
+            {
+                case AdmiralStopOutcomeEnum.Stopped:
+                    AnsiConsole.MarkupLine("[green]" + Markup.Escape(result.Message) + "[/]");
+                    return 0;
+                case AdmiralStopOutcomeEnum.NotRunning:
+                    AnsiConsole.MarkupLine("[gold1]" + Markup.Escape(result.Message) + "[/]");
+                    return 1;
+                default:
+                    AnsiConsole.MarkupLine("[red]" + Markup.Escape(result.Message) + "[/]");
+                    return 1;
+            }
+        }
+
+        #endregion
     }
 }

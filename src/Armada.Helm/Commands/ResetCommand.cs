@@ -5,6 +5,7 @@ namespace Armada.Helm.Commands
     using Spectre.Console.Cli;
     using Armada.Core;
     using Armada.Core.Settings;
+    using Armada.Helm.Infrastructure;
 
     /// <summary>
     /// Destructively reset Armada back to zero: delete database, logs, docks, and bare repos.
@@ -13,6 +14,8 @@ namespace Armada.Helm.Commands
     [Description("Destructively reset all Armada data (database, logs, docks, repos)")]
     public class ResetCommand : BaseCommand<ResetSettings>
     {
+        #region Public-Methods
+
         /// <inheritdoc />
         protected override async Task<int> ExecuteAsync(CommandContext context, ResetSettings settings, CancellationToken cancellationToken)
         {
@@ -36,35 +39,34 @@ namespace Armada.Helm.Commands
                 }
             }
 
-            // Stop the server if running
-            try
-            {
-                bool healthy = await GetApiClient().HealthCheckAsync().ConfigureAwait(false);
-                if (healthy)
-                {
-                    AnsiConsole.MarkupLine("[dim]Stopping Admiral server...[/]");
-                    try { await DeleteAsync("/api/v1/server/shutdown").ConfigureAwait(false); }
-                    catch { }
-                    await Task.Delay(1000).ConfigureAwait(false);
-                }
-            }
-            catch { }
+            return await ResetDataAsync(armadaSettings, CreateAdmiralShutdown(), cancellationToken).ConfigureAwait(false);
+        }
 
-            // Kill any captain processes
-            try
+        #endregion
+
+        #region Internal-Methods
+
+        /// <summary>
+        /// Stop the Admiral, prove it has exited, then delete the database, logs, docks and bare repositories.
+        /// Nothing is deleted while the Admiral still answers: a refused stop request or a server that keeps
+        /// answering ends the reset with a non-zero exit code and every file in place.
+        /// </summary>
+        /// <param name="armadaSettings">Settings naming the data to delete.</param>
+        /// <param name="shutdown">Stop logic for the Admiral that owns the data.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Process exit code.</returns>
+        internal static async Task<int> ResetDataAsync(ArmadaSettings armadaSettings, AdmiralShutdown shutdown, CancellationToken cancellationToken)
+        {
+            AdmiralStopResult stop = await shutdown.StopAsync(cancellationToken).ConfigureAwait(false);
+            if (!stop.IsDown)
             {
-                System.Diagnostics.Process[] claudes = System.Diagnostics.Process.GetProcessesByName("claude");
-                foreach (System.Diagnostics.Process p in claudes)
-                {
-                    try
-                    {
-                        // Only kill --print processes (captains), not interactive sessions
-                        // We can't easily inspect args, so skip this — the user can kill manually
-                    }
-                    catch { }
-                }
+                AnsiConsole.MarkupLine("[bold red]Reset refused:[/] " + Markup.Escape(stop.Message));
+                AnsiConsole.MarkupLine("[dim]Nothing was deleted. Stop the Admiral server, then run reset again.[/]");
+                return 1;
             }
-            catch { }
+
+            if (stop.Outcome == AdmiralStopOutcomeEnum.Stopped)
+                AnsiConsole.MarkupLine("[dim]" + Markup.Escape(stop.Message) + "[/]");
 
             int errors = 0;
 
@@ -141,11 +143,15 @@ namespace Armada.Helm.Commands
             else
             {
                 AnsiConsole.MarkupLine($"[bold yellow]Reset completed with {errors} error(s).[/] Some files may still exist.");
-                AnsiConsole.MarkupLine("[dim]If the server is running, stop it first and try again.[/]");
+                AnsiConsole.MarkupLine("[dim]Close any process that holds Armada files open and try again.[/]");
             }
 
             return errors > 0 ? 1 : 0;
         }
+
+        #endregion
+
+        #region Private-Methods
 
         /// <summary>
         /// Recursively clear read-only attributes on all files in a directory.
@@ -166,5 +172,7 @@ namespace Armada.Helm.Commands
                 catch { }
             }
         }
+
+        #endregion
     }
 }

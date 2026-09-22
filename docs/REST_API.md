@@ -928,6 +928,8 @@ Initiates a graceful shutdown of the Admiral server.
 }
 ```
 
+Helm's `server stop`, `server restart`, `reset` and `config init` all stop the Admiral through this route with the configured bearer credential (`ApiKey` in the Helm settings file). Helm treats the server as stopped only when a connection to `GET /api/v1/status/health` fails. A refused stop request (for example `401` or `403` when `RequireAuthForShutdown` is `true`) or a server that still answers after the wait makes `server stop` exit non-zero, cancels `server restart` before it starts a second instance, and makes `reset` and `config init` refuse to delete any data.
+
 ---
 
 #### POST /api/v1/server/restart

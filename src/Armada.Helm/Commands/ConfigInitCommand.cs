@@ -1,6 +1,7 @@
 namespace Armada.Helm.Commands
 {
     using System.ComponentModel;
+    using System.Net.Http;
     using System.Text.Json;
     using System.Threading;
     using Spectre.Console;
@@ -46,16 +47,21 @@ namespace Armada.Helm.Commands
                     // Stop embedded server if running (releases DB and file locks)
                     EmbeddedServer.Stop();
 
-                    // Try to stop a standalone server too
-                    try
+                    // Stop a standalone server too, and never delete its data while it still answers
+                    ArmadaSettings tempSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
+                    using (HttpClient client = new HttpClient())
                     {
-                        using HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-                        ArmadaSettings tempSettings = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
-                        await client.PostAsync("http://localhost:" + tempSettings.AdmiralPort + "/api/v1/server/stop", null).ConfigureAwait(false);
-                        AnsiConsole.MarkupLine("[dim]Stopped running Admiral server.[/]");
-                        await Task.Delay(1000).ConfigureAwait(false);
+                        AdmiralStopResult stop = await AdmiralShutdown.ForSettings(client, tempSettings).StopAsync(cancellationToken).ConfigureAwait(false);
+                        if (!stop.IsDown)
+                        {
+                            AnsiConsole.MarkupLine("[red]Could not stop the running Admiral server:[/] " + Markup.Escape(stop.Message));
+                            AnsiConsole.MarkupLine("[gold1]Nothing was deleted. Stop the server, then run setup again.[/]");
+                            return 1;
+                        }
+
+                        if (stop.Outcome == AdmiralStopOutcomeEnum.Stopped)
+                            AnsiConsole.MarkupLine("[dim]Stopped running Admiral server.[/]");
                     }
-                    catch { }
 
                     if (existingConfig) File.Delete(ArmadaSettings.DefaultSettingsPath);
                     if (existingData)
