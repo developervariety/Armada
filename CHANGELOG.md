@@ -57,6 +57,14 @@ upstream integrations and excludes changes already present at that baseline.
   Current subsystem guides and repository history retain the useful reference.
 - Tracked operator-specific guide chapters, context metadata, and local reports.
   The repository supplies templates; deployments keep filled files locally.
+- Unreferenced services and helpers: the feature-specific remote-control tunnel
+  handlers (the tunnel serves the generic dashboard relay only), unwired
+  resource-admission, no-op-completion, reasoning-effort, git-anchor, auto-land
+  and dock-boundary helpers, the unused dock state enum, and test-only runtime
+  and MCP wrappers. Their tests now exercise the live paths: the operator
+  transition service against the whole transition table, the Claude Code launch
+  environment, and the OpenCode output transform. Source files hold no literal
+  NUL bytes, and the solution gives each automated test project its own name.
 
 ## Changed
 

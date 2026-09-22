@@ -207,4 +207,4 @@ The proxy uses generic relay methods:
 - `armada.ws.message`
 - `armada.ws.close`
 
-It still accepts older feature-specific tunnel methods server-side for compatibility, but generic relay is the extension path for remote dashboard support.
+Armada answers any other tunnel method with `404 unsupported_method`; remote dashboard support extends through the generic relay.

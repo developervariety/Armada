@@ -19,8 +19,7 @@ namespace Armada.Runtimes
     /// Prompt is delivered via stdin (not as a CLI argument) to avoid the Windows
     /// cmd.exe ~8KB command-line length limit when long mission briefs are dispatched.
     ///
-    /// Connection parameters and the captain coding agent are resolved through
-    /// <see cref="OpenCodeConnection"/>.
+    /// The captain coding agent is resolved through <see cref="OpenCodeConnection"/>.
     ///
     /// Windows install path: resolved via ARMADA_TEST_OPENCODE env override, then
     /// PATH/npm fallback via ResolveExecutable.
@@ -527,50 +526,6 @@ namespace Armada.Runtimes
                 || String.Equals(evt.Type, "step-start", StringComparison.Ordinal)
                 || String.Equals(evt.Type, "step-finish", StringComparison.Ordinal)
                 || evt.Type.StartsWith("tool", StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Scan opencode --format json event lines and concatenate assistant text parts and
-        /// tool-call narrations in order. Returns true with the joined text when any content
-        /// was seen, or false with empty text when the stream is empty or step_start-only.
-        /// Stateless and process-free so it is unit-testable in isolation.
-        /// </summary>
-        /// <param name="lines">The raw JSON event lines from opencode stdout.</param>
-        /// <param name="text">Joined assistant text and tool narrations, or empty when none was found.</param>
-        protected bool TryExtractAssistantResult(IReadOnlyList<string> lines, out string text)
-        {
-            System.Text.StringBuilder builder = new System.Text.StringBuilder();
-            bool sawContent = false;
-
-            if (lines != null)
-            {
-                foreach (string line in lines)
-                {
-                    if (String.IsNullOrEmpty(line))
-                        continue;
-
-                    OpenCodeEvent? evt = null;
-                    try
-                    {
-                        evt = JsonSerializer.Deserialize<OpenCodeEvent>(line, _JsonOptions);
-                    }
-                    catch
-                    {
-                        // Non-JSON noise line: ignore for assistant-result extraction.
-                    }
-
-                    if (evt != null && IsAssistantContentEvent(evt))
-                    {
-                        builder.Append(BuildAssistantContent(evt));
-                        sawContent = true;
-                    }
-
-                    // tool_use events are suppressed (non-content), so they are not counted here.
-                }
-            }
-
-            text = sawContent ? builder.ToString() : String.Empty;
-            return sawContent;
         }
 
         /// <summary>

@@ -2,13 +2,13 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Diagnostics;
-    using System.Reflection;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Test.Common;
+    using SyslogLogging;
 
     /// <summary>
     /// Tests that a Claude captain served by an external provider is pointed at that
@@ -23,30 +23,28 @@ namespace Armada.Test.Unit.Suites.Services
         private const string _ProviderKeyVariable = "EXAMPLE_PROVIDER_KEY";
         private const string _ProviderKeyValue = "test-key-not-a-real-credential";
 
-        private static void InvokeRouting(ProcessStartInfo startInfo, Captain? captain)
+        /// <summary>
+        /// Apply the environment a Claude Code captain launch applies, through the runtime's own
+        /// launch environment hook, with the given provider registry.
+        /// </summary>
+        private static void InvokeRouting(ProcessStartInfo startInfo, Captain? captain, ModelProvidersSettings? providers = null)
         {
-            InvokeRouting(startInfo, captain, null);
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            LaunchEnvironmentClaudeCodeRuntime runtime = new LaunchEnvironmentClaudeCodeRuntime(logging, providers);
+            runtime.ApplyLaunchEnvironment(startInfo, captain);
         }
 
-        private static void InvokeRouting(ProcessStartInfo startInfo, Captain? captain, ModelProvidersSettings? providers)
+        private sealed class LaunchEnvironmentClaudeCodeRuntime : ClaudeCodeRuntime
         {
-            MethodInfo? method = typeof(ClaudeCodeRuntime).GetMethod(
-                "ApplyProviderRouting",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            if (method == null) throw new InvalidOperationException("Could not find ApplyProviderRouting.");
-
-            MethodInfo? modelMethod = typeof(ClaudeCodeRuntime).GetMethod(
-                "ApplyProviderModelRouting",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            if (modelMethod == null) throw new InvalidOperationException("Could not find ApplyProviderModelRouting.");
-
-            if (captain != null)
+            public LaunchEnvironmentClaudeCodeRuntime(LoggingModule logging, ModelProvidersSettings? providers)
+                : base(logging, providers)
             {
-                modelMethod.Invoke(null, new object?[] { startInfo, captain, captain.Model, providers });
             }
-            else
+
+            public void ApplyLaunchEnvironment(ProcessStartInfo startInfo, Captain? captain)
             {
-                method.Invoke(null, new object?[] { startInfo, captain });
+                ApplyEnvironment(startInfo, captain);
             }
         }
 

@@ -293,8 +293,6 @@
     "Release Service": 0.1,
     "Release Version": 0.0,
     "Release Webhook Dispatcher": 7.0,
-    "Remote Control Management Service": 0.2,
-    "Remote Control Query Service": 0.1,
     "Remote Dashboard Relay Service": 0.0,
     "Remote Trigger Event Hooks": 1.4,
     "Remote Tunnel Manager": 0.0,

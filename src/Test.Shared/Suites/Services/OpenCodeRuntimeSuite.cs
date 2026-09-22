@@ -14,9 +14,9 @@ namespace Test.Shared.Suites.Services
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
-    /// Descriptors for the OpenCode runtime's argument builder and reasoning-variant mapping. Positive
-    /// cases confirm the headless <c>opencode run</c> command shape and the effort-to-variant collapse;
-    /// negative cases confirm optional flags are omitted and bad input is rejected rather than emitted.
+    /// Descriptors for the OpenCode runtime's argument builder and provider-error rendering. Positive
+    /// cases confirm the headless <c>opencode run</c> command shape; negative cases confirm optional
+    /// flags are omitted, bad input is rejected rather than emitted, and provider errors render bounded.
     /// </summary>
     public sealed class OpenCodeRuntimeSuite : IArmadaTestSuite
     {
@@ -72,21 +72,6 @@ namespace Test.Shared.Suites.Services
             {
                 AssertThrows<ArgumentNullException>(() => OpenCodeCommandBuilder.BuildRunArguments("", "hi", null, null, false, true));
                 AssertThrows<ArgumentNullException>(() => OpenCodeCommandBuilder.BuildRunArguments("/tmp/wd", "", null, null, false, true));
-            }));
-
-            // ---- Reasoning variant mapping ----
-            cases.Add(Case("variant_maps_levels", "Reasoning effort maps to OpenCode minimal/high", TestTags.Positive, () =>
-            {
-                AssertEqual("minimal", ReasoningEffortTranslator.ToOpenCodeVariant(ReasoningEffortEnum.Minimal));
-                AssertEqual("minimal", ReasoningEffortTranslator.ToOpenCodeVariant(ReasoningEffortEnum.Low));
-                AssertEqual("high", ReasoningEffortTranslator.ToOpenCodeVariant(ReasoningEffortEnum.Medium));
-                AssertEqual("high", ReasoningEffortTranslator.ToOpenCodeVariant(ReasoningEffortEnum.High));
-            }));
-
-            cases.Add(Case("variant_off_and_null_omit", "Reasoning effort Off/null omit the OpenCode variant", TestTags.Negative, () =>
-            {
-                AssertNull(ReasoningEffortTranslator.ToOpenCodeVariant(ReasoningEffortEnum.Off));
-                AssertNull(ReasoningEffortTranslator.ToOpenCodeVariant(null));
             }));
 
             cases.Add(Case("api_error_is_safe_activity", "OpenCode API errors become bounded activity", TestTags.Negative, () =>

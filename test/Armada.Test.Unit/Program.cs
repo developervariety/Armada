@@ -155,8 +155,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RuntimeOutputFormattingTests());
             runner.AddSuite(new RemoteTunnelManagerTests());
             runner.AddSuite(new ProxyRegistryTests());
-            runner.AddSuite(new RemoteControlQueryServiceTests());
-            runner.AddSuite(new RemoteControlManagementServiceTests());
             runner.AddSuite(new WebSocketClientOutputQueueTests());
             runner.AddSuite(new WebSocketReplayBufferTests());
             runner.AddSuite(new FleetReconciliationSnapshotServiceTests());

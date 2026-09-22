@@ -453,7 +453,7 @@ export default function ObjectiveDetail() {
       return JSON.stringify(buildPayload());
     } catch {
       // A form value that cannot be turned into a payload (such as invalid preparation JSON) is an edit.
-      return ' unparseable';
+      return '\u0000unparseable';
     }
   }
 

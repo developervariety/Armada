@@ -239,6 +239,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("http://127.0.0.1:9999/session/ses_1/message", handler.Captures[1].Uri);
             });
 
+            await RunTest("CompleteAsync_BlankBaseUrl_FallsBackToLocalhostDefault", async () =>
+            {
+                ScriptedHttpMessageHandler handler = new ScriptedHttpMessageHandler();
+                handler.Enqueue(HttpStatusCode.OK, "{\"id\":\"ses_1\"}");
+                handler.Enqueue(HttpStatusCode.OK, "{\"parts\":[{\"type\":\"text\",\"text\":\"ok\"}]}");
+                HttpClient http = new HttpClient(handler);
+
+                ArmadaSettings settings = BuildSettings();
+                settings.CodeIndex.OpenCodeServer.BaseUrl = "   ";
+
+                OpenCodeServerInferenceClient client = new OpenCodeServerInferenceClient(settings, SilentLogging(), http);
+                await client.CompleteAsync("sys", "user").ConfigureAwait(false);
+
+                AssertEqual("http://127.0.0.1:4096/session", handler.Captures[0].Uri,
+                    "A blank daemon base URL falls back to the localhost default");
+            });
+
             await RunTest("CompleteAsync_SessionIdContainingSlash_EscapedSoItDoesNotShiftPathStructure", async () =>
             {
                 ScriptedHttpMessageHandler handler = new ScriptedHttpMessageHandler();

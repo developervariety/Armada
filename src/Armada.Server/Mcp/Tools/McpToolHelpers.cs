@@ -22,21 +22,6 @@ namespace Armada.Server.Mcp.Tools
     public static class McpToolHelpers
     {
         /// <summary>
-        /// Checks whether a mission status transition is valid.
-        /// </summary>
-        /// <param name="current">Current mission status.</param>
-        /// <param name="target">Target mission status.</param>
-        /// <returns>True if the transition is allowed; otherwise, false.</returns>
-        public static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
-        {
-            // Delegated to the single authoritative table so the MCP transition tool and the
-            // services agree. A local copy here omitted every PullRequestOpen transition, so the
-            // operator tool rejected the PR-fallback flow as an invalid transition.
-            return MissionStateMachine.IsValidTransition(current, target);
-        }
-
-
-        /// <summary>
         /// Read a text file safely, allowing concurrent writes from other processes.
         /// </summary>
         public static async Task<string> ReadTextFileSafeAsync(string path)

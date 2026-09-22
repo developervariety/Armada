@@ -565,18 +565,21 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Point THIS captain process at an external provider's Anthropic-native endpoint
-        /// when its model resolves to one. Does nothing for a model that stays on the
-        /// runtime's native endpoint, so a captain on the native Anthropic account is
-        /// untouched.
+        /// Point this captain process at an external provider's Anthropic-native endpoint when the
+        /// requested model resolves to one. Does nothing for a model that stays on the runtime's
+        /// native endpoint, so a captain on the native Anthropic account is untouched. Used by both
+        /// the mission launch path (where the model comes from the captain record) and the captain
+        /// creation validation path (where the captain record has not been built yet, so the model
+        /// id is passed directly); without the model argument, validation would launch the Claude CLI
+        /// on the native endpoint and fail every external id with model_not_found.
         /// </summary>
         /// <remarks>
         /// Why the runtime and not a provider overlay: Claude models cache only when the request
         /// carries <c>cache_control</c> markers, and the OpenAI-compatible adapter Armada uses for
         /// external providers on OpenCode cannot emit them. Served that way, a captain re-reads its
-        /// whole context at full price on every step -- 168M input tokens in one day, which reached
-        /// the provider's daily spend cap. The Claude Code CLI speaks Anthropic natively and sends
-        /// the markers, so pointing it at the provider's own Anthropic endpoint restores caching.
+        /// whole context at full price on every step. The Claude Code CLI speaks Anthropic natively
+        /// and sends the markers, so pointing it at the provider's own Anthropic endpoint keeps
+        /// caching.
         ///
         /// The endpoint and credential are resolved per captain by
         /// <see cref="ModelProviderResolver"/>: a registered provider prefix (for example
@@ -587,28 +590,12 @@ namespace Armada.Runtimes
         ///
         /// Isolation is per process, not global: <see cref="ProcessStartInfo.Environment"/> is a
         /// private copy for the child being launched. A native Claude captain launched in the same
-        /// second keeps its own credentials and endpoint. Nothing else in Armada sets ANTHROPIC_*,
-        /// so there is no value here to collide with.
+        /// second keeps its own credentials and endpoint.
         ///
         /// When the key is absent the captain is left on the native endpoint rather than launched
         /// against a half-configured one, because an unauthenticated launch fails per step and reads
         /// as a provider outage.
         /// </remarks>
-        /// <param name="startInfo">Start info for the captain process being launched.</param>
-        /// <param name="captain">Captain being launched; may be null.</param>
-        private static void ApplyProviderRouting(ProcessStartInfo startInfo, Captain? captain)
-        {
-            ApplyProviderModelRouting(startInfo, captain, captain?.Model, null);
-        }
-
-        /// <summary>
-        /// Apply provider routing when the requested model id resolves to an external
-        /// provider. Used by both the mission launch path (where the model comes from the
-        /// captain record) and the captain creation validation path (where the captain
-        /// record has not been built yet, so the model id is passed directly). Without
-        /// this overload, model validation launches the Claude CLI on the native endpoint
-        /// and fails every external id with model_not_found.
-        /// </summary>
         /// <param name="startInfo">Start info for the captain process being launched.</param>
         /// <param name="captain">Captain being launched; may be null.</param>
         /// <param name="model">Provider model id to validate, or null when the captain's model is used.</param>
