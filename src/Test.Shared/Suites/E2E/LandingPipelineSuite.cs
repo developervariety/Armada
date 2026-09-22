@@ -47,23 +47,6 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("PullRequestOpen", mission.Status.ToString());
             }));
 
-            cases.Add(CaseAsync("pull_request_open_transitions_to_complete", "PullRequestOpen_TransitionsToComplete", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "PR to Complete", "WorkProduced");
-                await TransitionAsync(authClient, missionId, "PullRequestOpen");
-
-                HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "Complete");
-                AssertStatusCode(HttpStatusCode.OK, resp);
-
-                Mission mission = await GetMissionAsync(authClient, missionId);
-                AssertEqual("Complete", mission.Status.ToString());
-                AssertTrue(mission.CompletedUtc != null,
-                    "CompletedUtc should be set");
-            }));
-
             cases.Add(CaseAsync("pull_request_open_transitions_to_landing_failed", "PullRequestOpen_TransitionsToLandingFailed", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -116,34 +99,6 @@ namespace Test.Shared.Suites.E2E
             }));
 
             // === Manual Complete Without Dock (Audit Event) ===
-
-            cases.Add(CaseAsync("manual_complete_no_dock_emits_audit_event", "ManualComplete_NoDock_EmitsAuditEvent", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                // Create a mission and advance to WorkProduced (no dock since no vessel assignment)
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "Manual complete audit", "WorkProduced");
-
-                // Manually transition to Complete (no dock exists for this mission)
-                HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "Complete");
-                AssertStatusCode(HttpStatusCode.OK, resp);
-
-                Mission mission = await GetMissionAsync(authClient, missionId);
-                AssertEqual("Complete", mission.Status.ToString());
-
-                // Check that the audit event was emitted
-                EnumerationResult<ArmadaEvent> events = await GetTypedAsync<EnumerationResult<ArmadaEvent>>(authClient, "/api/v1/events?type=mission.manual_complete_no_dock");
-                int count = 0;
-                foreach (ArmadaEvent evt in events.Objects ?? new List<ArmadaEvent>())
-                {
-                    if (evt.MissionId != null && evt.MissionId == missionId)
-                    {
-                        count++;
-                    }
-                }
-                AssertTrue(count >= 1, "Expected at least 1 mission.manual_complete_no_dock event for mission " + missionId);
-            }));
 
             // === MergeQueue Auto-Enqueue ===
 

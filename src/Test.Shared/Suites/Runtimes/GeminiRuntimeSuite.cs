@@ -41,19 +41,6 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("yolo", runtime.ApprovalMode);
             }));
 
-            cases.Add(Case("build_arguments_uses_approval_mode_and_stdin_prompt", "BuildArguments Uses ApprovalMode And Stdin Prompt", TestTags.Positive, () =>
-            {
-                InspectableGeminiRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("line one\nline two\nUser: test prompt");
-                AssertTrue(args.Contains("--approval-mode"));
-                AssertTrue(args.Contains("yolo"));
-                // The prompt is delivered on stdin, not via -p, to avoid Windows cmd.exe multi-line-argument
-                // truncation, so neither -p nor the prompt text may appear in the argument list.
-                AssertFalse(args.Contains("-p"));
-                AssertFalse(args.Contains("line one\nline two\nUser: test prompt"));
-                AssertTrue(runtime.PromptViaStdin);
-            }));
-
             cases.Add(Case("build_arguments_includes_model_when_supplied", "BuildArguments Includes Model When Supplied", TestTags.Positive, () =>
             {
                 InspectableGeminiRuntime runtime = CreateRuntime();

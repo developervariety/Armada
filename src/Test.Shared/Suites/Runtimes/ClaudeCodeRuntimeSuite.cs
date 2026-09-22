@@ -80,21 +80,15 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("sonnet", args[modelIndex + 1]);
             }));
 
-            cases.Add(Case("delivers_prompt_via_stdin_not_argument", "Delivers Prompt Via Stdin Not Argument", TestTags.Positive, () =>
+            cases.Add(Case("build_arguments_omits_partial_messages_by_default", "BuildArguments Omits Partial Messages By Default", TestTags.Negative, () =>
             {
+                // Captains always stream JSON events; only an interactive caller asks for partial deltas.
                 InspectableClaudeCodeRuntime runtime = CreateRuntime();
-                AssertTrue(runtime.PromptViaStdin);
-                // The prompt is delivered on stdin, not as a CLI argument (avoids Windows cmd.exe
-                // multi-line-argument truncation), so it must not appear in the argument list.
-                List<string> args = runtime.Args("line one\nline two\nUser: real question", "sonnet");
-                AssertFalse(args.Contains("line one\nline two\nUser: real question"));
-            }));
-
-            cases.Add(Case("build_arguments_omits_stream_json_by_default", "BuildArguments Omits StreamJson By Default", TestTags.Negative, () =>
-            {
-                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                AssertFalse(runtime.StreamJsonOutput);
                 List<string> args = runtime.Args("hi");
-                AssertFalse(args.Contains("stream-json"));
+                int fmt = args.IndexOf("--output-format");
+                AssertTrue(fmt >= 0);
+                AssertEqual("stream-json", args[fmt + 1]);
                 AssertFalse(args.Contains("--include-partial-messages"));
             }));
 

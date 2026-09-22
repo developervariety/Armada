@@ -19,14 +19,6 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Create ClaudeCode Returns ClaudeCodeRuntime", () =>
-            {
-                AgentRuntimeFactory factory = CreateFactory();
-                IAgentRuntime runtime = factory.Create(AgentRuntimeEnum.ClaudeCode);
-                AssertNotNull(runtime);
-                AssertEqual("Claude Code", runtime.Name);
-            });
-
             await RunTest("Create Codex Returns CodexRuntime", () =>
             {
                 AgentRuntimeFactory factory = CreateFactory();

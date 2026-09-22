@@ -49,52 +49,6 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("mux", runtime.ExecutablePath);
             }));
 
-            cases.Add(Case("build_arguments_includes_endpoint_config_and_final_message_artifact", "BuildArguments Includes Endpoint Config And Final Message Artifact", TestTags.Positive, () =>
-            {
-                InspectableMuxRuntime runtime = CreateRuntime();
-                Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
-                {
-                    RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions
-                    {
-                        ConfigDirectory = "C:/mux/config",
-                        Endpoint = "captain-prod",
-                        BaseUrl = "https://mux.example.com",
-                        AdapterType = "openai",
-                        Temperature = 0.2,
-                        MaxTokens = 4096,
-                        SystemPromptPath = "C:/mux/prompts/system.txt",
-                        ApprovalPolicy = "deny"
-                    })
-                };
-
-                List<string> args = runtime.Args("C:/worktree", "test prompt", "gpt-5.4-mini", "C:/logs/final.txt", captain);
-
-                AssertEqual("print", args[0]);
-                AssertTrue(args.Contains("--config-dir"));
-                AssertTrue(args.Contains("C:/mux/config"));
-                AssertTrue(args.Contains("--output-format"));
-                AssertTrue(args.Contains("jsonl"));
-                AssertTrue(args.Contains("--output-last-message"));
-                AssertTrue(args.Contains("C:/logs/final.txt"));
-                AssertTrue(args.Contains("--endpoint"));
-                AssertTrue(args.Contains("captain-prod"));
-                AssertTrue(args.Contains("--model"));
-                AssertTrue(args.Contains("gpt-5.4-mini"));
-                AssertTrue(args.Contains("--base-url"));
-                AssertTrue(args.Contains("https://mux.example.com"));
-                AssertTrue(args.Contains("--adapter-type"));
-                AssertTrue(args.Contains("openai"));
-                AssertTrue(args.Contains("--temperature"));
-                AssertTrue(args.Contains("0.2"));
-                AssertTrue(args.Contains("--max-tokens"));
-                AssertTrue(args.Contains("4096"));
-                AssertTrue(args.Contains("--system-prompt"));
-                AssertTrue(args.Contains("C:/mux/prompts/system.txt"));
-                AssertTrue(args.Contains("--approval-policy"));
-                AssertTrue(args.Contains("deny"));
-                AssertEqual("test prompt", args[args.Count - 1]);
-            }));
-
             cases.Add(Case("build_arguments_defaults_to_yolo_approval", "BuildArguments Defaults To Yolo Approval", TestTags.Positive, () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();

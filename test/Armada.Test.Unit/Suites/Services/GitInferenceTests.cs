@@ -11,12 +11,6 @@ namespace Armada.Test.Unit.Suites.Services
         {
             // InferVesselName
 
-            await RunTest("InferVesselName HttpsUrl ExtractsRepoName", () =>
-            {
-                string name = GitInference.InferVesselName("https://github.com/user/myapp.git");
-                AssertEqual("myapp", name);
-            });
-
             await RunTest("InferVesselName HttpsUrlNoGit ExtractsRepoName", () =>
             {
                 string name = GitInference.InferVesselName("https://github.com/user/myapp");

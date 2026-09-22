@@ -134,23 +134,6 @@ namespace Test.Shared.Suites.Services
 
             // ----- API key (X-Api-Key) -----
 
-            cases.Add(CaseAsync("apikey_valid_key_authenticated", "AuthenticateAsync ApiKey ValidKey ReturnsAuthenticated", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-
-                    AuthenticationService svc = CreateService(db, apiKey: "testkey");
-                    AuthContext ctx = await svc.AuthenticateAsync(null, null, "testkey");
-
-                    AssertTrue(ctx.IsAuthenticated, "Should be authenticated with valid API key");
-                    AssertEqual(Constants.SystemTenantId, ctx.TenantId);
-                    AssertEqual(Constants.SystemUserId, ctx.UserId);
-                    AssertTrue(ctx.IsAdmin, "API key auth should grant admin");
-                    AssertEqual("ApiKey", ctx.AuthMethod);
-                }
-            }));
-
             cases.Add(CaseAsync("apikey_wrong_key_unauthenticated", "AuthenticateAsync ApiKey WrongKey ReturnsUnauthenticated", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

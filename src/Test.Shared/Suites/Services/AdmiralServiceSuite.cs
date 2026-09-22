@@ -353,56 +353,6 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("handle_process_exit_async_stalls_captain_on_non_retryable_runtime_failure", "HandleProcessExitAsync stalls captain on non-retryable runtime failure", TestTags.Negative, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    StubGitService git = new StubGitService();
-                    ArmadaSettings settings = CreateSettings();
-                    settings.MaxRecoveryAttempts = 3;
-                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
-
-                    Voyage voyage = new Voyage("Quota Voyage");
-                    voyage.Status = VoyageStatusEnum.InProgress;
-                    await db.Voyages.CreateAsync(voyage);
-
-                    Mission mission = new Mission("Quota Judge");
-                    mission.VoyageId = voyage.Id;
-                    mission.Status = MissionStatusEnum.InProgress;
-                    mission.ProcessId = 4242;
-                    await db.Missions.CreateAsync(mission);
-
-                    Captain captain = new Captain("quota-judge");
-                    captain.State = CaptainStateEnum.Working;
-                    captain.CurrentMissionId = mission.Id;
-                    captain.ProcessId = 4242;
-                    await db.Captains.CreateAsync(captain);
-
-                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
-                    Directory.CreateDirectory(missionLogDir);
-                    await File.WriteAllTextAsync(
-                        Path.Combine(missionLogDir, mission.Id + ".log"),
-                        "[stderr] You've hit your limit and must wait for reset.\n[2026-04-02 23:49:03] Agent exited with code 1").ConfigureAwait(false);
-
-                    await service.HandleProcessExitAsync(4242, 1, captain.Id, mission.Id).ConfigureAwait(false);
-
-                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
-                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
-
-                    AssertNotNull(updatedMission, "Mission should still exist");
-                    AssertNotNull(updatedCaptain, "Captain should still exist");
-                    AssertNotNull(updatedVoyage, "Voyage should still exist");
-                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "Mission should fail immediately on a non-retryable runtime error");
-                    AssertContains("hit your limit", updatedMission.FailureReason ?? String.Empty, "Mission should preserve the runtime failure reason");
-                    AssertEqual(CaptainStateEnum.Stalled, updatedCaptain!.State, "Captain should be stalled when the runtime is unavailable");
-                    AssertNull(updatedCaptain.CurrentMissionId, "Captain mission assignment should be cleared");
-                    AssertEqual(VoyageStatusEnum.Cancelled, updatedVoyage!.Status, "Voyage should be halted after the failed mission");
-                }
-            }));
-
             cases.Add(CaseAsync("health_check_async_no_captains_does_not_throw", "HealthCheckAsync NoCaptains DoesNotThrow", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

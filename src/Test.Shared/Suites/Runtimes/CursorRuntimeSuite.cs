@@ -41,20 +41,6 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("cursor-agent", runtime.ExecutablePath);
             }));
 
-            cases.Add(Case("build_arguments_uses_non_interactive_text_output", "BuildArguments Uses NonInteractive Text Output", TestTags.Positive, () =>
-            {
-                InspectableCursorRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("line one\nline two\nUser: test prompt");
-                // -p keeps non-interactive print mode; the prompt is delivered on stdin (not as a positional
-                // argument) to avoid Windows cmd.exe multi-line-argument truncation.
-                AssertEqual("-p", args[0]);
-                AssertFalse(args.Contains("line one\nline two\nUser: test prompt"));
-                AssertTrue(runtime.PromptViaStdin);
-                AssertTrue(args.Contains("--force"));
-                AssertTrue(args.Contains("--output-format"));
-                AssertTrue(args.Contains("text"));
-            }));
-
             cases.Add(Case("build_arguments_includes_model_when_supplied", "BuildArguments Includes Model When Supplied", TestTags.Positive, () =>
             {
                 InspectableCursorRuntime runtime = CreateRuntime();

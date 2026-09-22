@@ -48,20 +48,15 @@ namespace Armada.Test.Runtimes.Suites
             return new InspectableMuxRuntime(logging);
         }
 
+        private void AssertFlagValue(List<string> args, string flag, string expectedValue)
+        {
+            int index = args.IndexOf(flag);
+            AssertTrue(index >= 0 && index + 1 < args.Count, flag + " must be present and carry a value");
+            AssertEqual(expectedValue, args[index + 1], flag + " value");
+        }
+
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Name Returns Mux", () =>
-            {
-                InspectableMuxRuntime runtime = CreateRuntime();
-                AssertEqual("Mux", runtime.Name);
-            });
-
-            await RunTest("ExecutablePath Default Is Mux", () =>
-            {
-                InspectableMuxRuntime runtime = CreateRuntime();
-                AssertEqual("mux", runtime.ExecutablePath);
-            });
-
             await RunTest("BuildArguments Uses Current Mux Run Contract", () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();
@@ -88,18 +83,18 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(args.Contains("-w"));
                 AssertTrue(args.Contains("C:/worktree"));
                 AssertTrue(args.Contains("--yolo"));
-                AssertTrue(args.Contains("--config-dir"));
+                AssertFlagValue(args, "--config-dir", "C:/mux/config");
                 AssertTrue(args.Contains("--output-format"));
                 AssertTrue(args.Contains("jsonl"));
-                AssertTrue(args.Contains("--output-last-message"));
-                AssertTrue(args.Contains("--endpoint"));
+                AssertFlagValue(args, "--output-last-message", "C:/logs/final.txt");
+                AssertFlagValue(args, "--endpoint", "captain-prod");
                 AssertFalse(args.Contains("--base-url"));
                 AssertFalse(args.Contains("--adapter-type"));
                 AssertFalse(args.Contains("--temperature"));
                 AssertFalse(args.Contains("--max-tokens"));
                 AssertFalse(args.Contains("--system-prompt"));
                 AssertFalse(args.Contains("--approval-policy"));
-                AssertTrue(args.Contains("test prompt"));
+                AssertEqual("test prompt", args[args.Count - 1], "Mux takes the prompt as the trailing positional argument");
                 AssertTrue(runtime.UsesPromptStdin());
             });
 

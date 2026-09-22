@@ -828,26 +828,6 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("Mission not found", resp.GetProperty("error").GetString());
             }));
 
-            cases.Add(CaseAsync("transition_mission_status_to_complete_sets_completed_utc", "TransitionMissionStatus_ToComplete_SetsCompletedUtc", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-                int restPort = fx.RestPort;
-
-                string missionId = await CreateMissionViaRestAsync(authClient, "ws-complete-mission").ConfigureAwait(false);
-
-                // Pending -> Assigned -> InProgress via REST
-                await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
-                    JsonHelper.ToJsonContent(new { Status = "Assigned" })).ConfigureAwait(false);
-                await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
-                    JsonHelper.ToJsonContent(new { Status = "InProgress" })).ConfigureAwait(false);
-
-                JsonElement resp = await WsCommandAsync(fx, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
-                AssertEqual("command.result", resp.GetProperty("type").GetString());
-                Mission data = DeserializeData<Mission>(resp);
-                AssertNotNull(data.CompletedUtc);
-            }));
-
             cases.Add(CaseAsync("list_missions_with_pagination_respects_page_size", "ListMissions_WithPagination_RespectsPageSize", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);

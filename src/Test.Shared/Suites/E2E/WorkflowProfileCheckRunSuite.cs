@@ -31,8 +31,6 @@ namespace Test.Shared.Suites.E2E
         private string _GlobalProfileId = String.Empty;
         private string _VesselProfileId = String.Empty;
         private string _MissingInputProfileId = String.Empty;
-        private string _FirstRunId = String.Empty;
-        private string _RetryRunId = String.Empty;
 
         #endregion
 
@@ -330,122 +328,6 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(preview.Issues.Exists(issue => issue.Code == "passing_checks_required"), "Expected passing_checks_required issue.");
             }));
 
-            cases.Add(CaseAsync("check_runs_run_read_retry_list_and_delete", "CheckRuns_RunReadRetryListAndDelete", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage runResponse = await authClient.PostAsync("/api/v1/check-runs",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        VesselId = _VesselId,
-                        WorkflowProfileId = _VesselProfileId,
-                        Type = CheckRunTypeEnum.Build,
-                        Label = "Build Check",
-                        BranchName = "feature/workflow-check",
-                        CommitHash = "abc123"
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, runResponse.StatusCode);
-
-                CheckRun firstRun = await JsonHelper.DeserializeAsync<CheckRun>(runResponse).ConfigureAwait(false);
-                _FirstRunId = firstRun.Id;
-                AssertStartsWith("chk_", _FirstRunId);
-                AssertEqual(CheckRunStatusEnum.Passed, firstRun.Status);
-                AssertEqual("feature/workflow-check", firstRun.BranchName);
-                AssertEqual(0, firstRun.ExitCode ?? -1);
-                AssertTrue(firstRun.Artifacts.Count == 1, "Expected one collected artifact");
-
-                HttpResponseMessage detailResponse = await authClient.GetAsync("/api/v1/check-runs/" + _FirstRunId).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, detailResponse.StatusCode);
-                CheckRun detail = await JsonHelper.DeserializeAsync<CheckRun>(detailResponse).ConfigureAwait(false);
-                AssertEqual(_FirstRunId, detail.Id);
-                AssertEqual(_VesselProfileId, detail.WorkflowProfileId);
-
-                HttpResponseMessage listResponse = await authClient.GetAsync(
-                    "/api/v1/check-runs?vesselId=" + Uri.EscapeDataString(_VesselId)
-                    + "&workflowProfileId=" + Uri.EscapeDataString(_VesselProfileId)
-                    + "&type=" + Uri.EscapeDataString(CheckRunTypeEnum.Build.ToString())
-                    + "&pageSize=100").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, listResponse.StatusCode);
-
-                EnumerationResult<CheckRun> list = await JsonHelper.DeserializeAsync<EnumerationResult<CheckRun>>(listResponse).ConfigureAwait(false);
-                AssertTrue(list.Objects.Exists(run => run.Id == _FirstRunId), "First run should be listed");
-
-                HttpResponseMessage retryResponse = await authClient.PostAsync("/api/v1/check-runs/" + _FirstRunId + "/retry", null).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, retryResponse.StatusCode);
-
-                CheckRun retryRun = await JsonHelper.DeserializeAsync<CheckRun>(retryResponse).ConfigureAwait(false);
-                _RetryRunId = retryRun.Id;
-                AssertNotEqual(_FirstRunId, _RetryRunId);
-                AssertEqual(CheckRunStatusEnum.Passed, retryRun.Status);
-
-                HttpResponseMessage previewResponse = await authClient.GetAsync(
-                    "/api/v1/vessels/" + _VesselId + "/landing-preview").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, previewResponse.StatusCode);
-                LandingPreviewResult preview = await JsonHelper.DeserializeAsync<LandingPreviewResult>(previewResponse).ConfigureAwait(false);
-                AssertTrue(preview.HasPassingChecks, "Expected landing preview to detect passing checks.");
-                AssertFalse(preview.Issues.Exists(issue => issue.Code == "passing_checks_required"), "Did not expect passing_checks_required after a successful check.");
-                AssertTrue(preview.IsReadyToLand, "Expected landing preview to be ready after a passing check.");
-
-                HttpResponseMessage deleteResponse = await authClient.DeleteAsync("/api/v1/check-runs/" + _FirstRunId).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NoContent, deleteResponse.StatusCode);
-
-                HttpResponseMessage deletedRead = await authClient.GetAsync("/api/v1/check-runs/" + _FirstRunId).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NotFound, deletedRead.StatusCode);
-            }));
-
-            cases.Add(CaseAsync("check_runs_run_parses_structured_summaries", "CheckRuns_RunParsesStructuredSummaries", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                await File.WriteAllTextAsync(
-                    Path.Combine(_WorkingDirectory, "summary.txt"),
-                    "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5, Duration: 2 s").ConfigureAwait(false);
-                await File.WriteAllTextAsync(
-                    Path.Combine(_WorkingDirectory, "coverage.cobertura.xml"),
-                    """
-                    <coverage line-rate="0.8" branch-rate="0.5" lines-covered="8" lines-valid="10" branches-covered="2" branches-valid="4"></coverage>
-                    """).ConfigureAwait(false);
-
-                HttpResponseMessage profileResponse = await authClient.PostAsync("/api/v1/workflow-profiles",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Name = "Structured Parse Profile",
-                        Scope = WorkflowProfileScopeEnum.Vessel,
-                        VesselId = _VesselId,
-                        UnitTestCommand = BuildEmitFileCommand("summary.txt"),
-                        ExpectedArtifacts = new[] { "coverage.cobertura.xml" }
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, profileResponse.StatusCode);
-
-                WorkflowProfile parseProfile = await JsonHelper.DeserializeAsync<WorkflowProfile>(profileResponse).ConfigureAwait(false);
-
-                try
-                {
-                    HttpResponseMessage runResponse = await authClient.PostAsync("/api/v1/check-runs",
-                        JsonHelper.ToJsonContent(new
-                        {
-                            VesselId = _VesselId,
-                            WorkflowProfileId = parseProfile.Id,
-                            Type = CheckRunTypeEnum.UnitTest,
-                            Label = "Structured Unit Tests"
-                        })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, runResponse.StatusCode);
-
-                    CheckRun parsedRun = await JsonHelper.DeserializeAsync<CheckRun>(runResponse).ConfigureAwait(false);
-                    AssertNotNull(parsedRun.TestSummary);
-                    AssertEqual(5, parsedRun.TestSummary!.Passed ?? -1);
-                    AssertEqual(5, parsedRun.TestSummary.Total ?? -1);
-                    AssertNotNull(parsedRun.CoverageSummary);
-                    AssertEqual(80d, parsedRun.CoverageSummary!.Lines?.Percentage ?? -1d);
-                }
-                finally
-                {
-                    try { await authClient.DeleteAsync("/api/v1/workflow-profiles/" + parseProfile.Id).ConfigureAwait(false); } catch { }
-                }
-            }));
-
             cases.Add(CaseAsync("check_runs_run_without_auth_returns_401", "CheckRuns_RunWithoutAuthReturns401", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -465,14 +347,6 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                if (!String.IsNullOrWhiteSpace(_RetryRunId))
-                {
-                    try { await authClient.DeleteAsync("/api/v1/check-runs/" + _RetryRunId).ConfigureAwait(false); } catch { }
-                }
-                if (!String.IsNullOrWhiteSpace(_FirstRunId))
-                {
-                    try { await authClient.DeleteAsync("/api/v1/check-runs/" + _FirstRunId).ConfigureAwait(false); } catch { }
-                }
                 if (!String.IsNullOrWhiteSpace(_VesselProfileId))
                 {
                     try { await authClient.DeleteAsync("/api/v1/workflow-profiles/" + _VesselProfileId).ConfigureAwait(false); } catch { }
@@ -509,13 +383,6 @@ namespace Test.Shared.Suites.E2E
         #endregion
 
         #region Private-Methods
-
-        private static string BuildEmitFileCommand(string relativePath)
-        {
-            return OperatingSystem.IsWindows()
-                ? "type .\\" + relativePath.Replace('/', '\\')
-                : "cat \"" + relativePath + "\"";
-        }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
         {

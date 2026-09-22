@@ -13,14 +13,6 @@ namespace Armada.Test.Unit.Suites.Database
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("SchemaMigration valid construction", () =>
-            {
-                SchemaMigration migration = new SchemaMigration(1, "Initial schema", "CREATE TABLE test (id TEXT);");
-                AssertEqual(1, migration.Version);
-                AssertEqual("Initial schema", migration.Description);
-                AssertEqual(1, migration.Statements.Count);
-            });
-
             await RunTest("SchemaMigration multiple statements", () =>
             {
                 SchemaMigration migration = new SchemaMigration(2, "Add indexes",

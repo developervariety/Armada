@@ -82,51 +82,6 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(events.Objects.Count >= 1);
             }));
 
-            cases.Add(CaseAsync("voyage_workflow_create_and_cancel", "VoyageWorkflow_CreateAndCancel", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                // Setup: fleet + vessel
-                Fleet fleet = await CreateFleetAsync(authClient, "Voyage Fleet").ConfigureAwait(false);
-                string fleetId = fleet.Id!;
-                Vessel vessel = await CreateVesselAsync(authClient, "VoyageRepo", TestRepoHelper.GetLocalBareRepoUrl(), fleetId).ConfigureAwait(false);
-                string vesselId = vessel.Id!;
-
-                // Create voyage with multiple missions
-                Voyage voyage = await CreateVoyageAsync(
-                    authClient, "API Hardening", vesselId,
-                    new MissionDescription("Add rate limiting", "Add rate limiting middleware"),
-                    new MissionDescription("Add input validation", "Validate all POST endpoints"),
-                    new MissionDescription("Add request logging", "Log with correlation IDs")).ConfigureAwait(false);
-
-                string voyageId = voyage.Id!;
-                AssertStartsWith("vyg_", voyageId);
-                AssertEqual("InProgress", voyage.Status.ToString());
-
-                // Verify voyage details show missions
-                VoyageDetailResponse voyageDetail = await GetAsync<VoyageDetailResponse>(authClient, "/api/v1/voyages/" + voyageId).ConfigureAwait(false);
-                AssertEqual(3, voyageDetail.Missions!.Count);
-
-                // Verify missions are linked to the voyage
-                EnumerationResult<Mission> missionsByVoyage = await GetAsync<EnumerationResult<Mission>>(authClient, "/api/v1/missions?voyageId=" + voyageId).ConfigureAwait(false);
-                AssertEqual(3, missionsByVoyage.Objects.Count);
-
-                // Cancel the voyage
-                HttpResponseMessage cancelResp = await authClient.DeleteAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false);
-                AssertStatusCode(HttpStatusCode.OK, cancelResp);
-
-                // Verify cancel response has voyage data
-                CancelVoyageResponse cancelResult = await JsonHelper.DeserializeAsync<CancelVoyageResponse>(cancelResp).ConfigureAwait(false);
-                Assert(cancelResult.Voyage != null, "Cancel response should have Voyage property");
-
-                // Verify via GET that voyage still exists and has a valid status
-                VoyageDetailResponse cancelledDetail = await GetAsync<VoyageDetailResponse>(authClient, "/api/v1/voyages/" + voyageId).ConfigureAwait(false);
-                string voyageStatus = cancelledDetail.Voyage!.Status.ToString();
-                Assert(voyageStatus == "Cancelled" || voyageStatus == "InProgress" || voyageStatus == "Complete",
-                    "Expected Cancelled, InProgress, or Complete but got " + voyageStatus);
-            }));
-
             cases.Add(CaseAsync("signal_flow_create_and_retrieve", "SignalFlow_CreateAndRetrieve", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -357,18 +312,6 @@ namespace Test.Shared.Suites.E2E
             MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
             Mission mission = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
             return mission;
-        }
-
-        private static async Task<Voyage> CreateVoyageAsync(HttpClient authClient, string title, string vesselId, params MissionDescription[] missions)
-        {
-            List<object> missionList = new List<object>();
-            foreach (MissionDescription m in missions)
-            {
-                missionList.Add(new { Title = m.Title, Description = m.Description });
-            }
-            HttpResponseMessage resp = await authClient.PostAsync("/api/v1/voyages", JsonHelper.ToJsonContent(new { Title = title, VesselId = vesselId, Missions = missionList })).ConfigureAwait(false);
-            resp.EnsureSuccessStatusCode();
-            return await JsonHelper.DeserializeAsync<Voyage>(resp).ConfigureAwait(false);
         }
 
         private static async Task<Signal> CreateSignalAsync(HttpClient authClient, string type, string payload, string? toCaptainId = null)

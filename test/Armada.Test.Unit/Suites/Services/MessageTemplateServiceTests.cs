@@ -24,19 +24,6 @@ namespace Armada.Test.Unit.Suites.Services
         {
             // RenderTemplate
 
-            await RunTest("RenderTemplate ReplacesAllPlaceholders", () =>
-            {
-                MessageTemplateService service = CreateService();
-                Dictionary<string, string> parameters = new Dictionary<string, string>
-                {
-                    ["MissionId"] = "msn_abc123",
-                    ["CaptainId"] = "cpt_def456"
-                };
-
-                string result = service.RenderTemplate("Mission: {MissionId}, Captain: {CaptainId}", parameters);
-                AssertEqual("Mission: msn_abc123, Captain: cpt_def456", result);
-            });
-
             await RunTest("RenderTemplate EmptyTemplate ReturnsEmpty", () =>
             {
                 MessageTemplateService service = CreateService();

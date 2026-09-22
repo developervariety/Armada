@@ -27,15 +27,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(svc.IsAuthorized(anonymous, "GET", "/api/v1/status/health"), "health stays open");
             });
 
-            await RunTest("IsAuthorized NoAuthRequired Endpoint Unauthenticated ReturnsTrue", () =>
-            {
-                AuthorizationService svc = new AuthorizationService();
-                AuthContext ctx = new AuthContext();
-
-                bool result = svc.IsAuthorized(ctx, "GET", "/api/v1/status/health");
-                AssertTrue(result, "Unauthenticated request to NoAuthRequired endpoint should be authorized");
-            });
-
             await RunTest("IsAuthorized NoAuthRequired Endpoint Authenticated ReturnsTrue", () =>
             {
                 AuthorizationService svc = new AuthorizationService();

@@ -2,7 +2,6 @@ namespace Test.Shared.Suites.E2E
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using System.Net;
     using System.Net.Http;
     using System.Threading;
@@ -27,12 +26,8 @@ namespace Test.Shared.Suites.E2E
         private const string SuiteId = "E2E.Objective";
 
         private string _ObjectiveId = String.Empty;
-        private string _VesselId = String.Empty;
-        private string _VoyageId = String.Empty;
-        private string _ReleaseId = String.Empty;
         private string _CaptainId = String.Empty;
         private string _RefinementSessionId = String.Empty;
-        private string _WorkingDirectory = String.Empty;
 
         #endregion
 
@@ -50,9 +45,6 @@ namespace Test.Shared.Suites.E2E
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-
-                _WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada-objective-follow-through-" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(_WorkingDirectory);
 
                 HttpResponseMessage createResponse = await authClient.PostAsync("/api/v1/objectives",
                     JsonHelper.ToJsonContent(new
@@ -300,77 +292,6 @@ namespace Test.Shared.Suites.E2E
                 _CaptainId = String.Empty;
             }));
 
-            cases.Add(CaseAsync("objectives_voyage_and_release_creation_link_back_to_objective", "Objectives_VoyageAndReleaseCreationLinkBackToObjective", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage vesselResponse = await authClient.PostAsync("/api/v1/vessels",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Name = "Objective Follow Through Vessel",
-                        RepoUrl = "file:///tmp/objective-follow-through.git",
-                        LocalPath = _WorkingDirectory,
-                        WorkingDirectory = _WorkingDirectory,
-                        DefaultBranch = "main"
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, vesselResponse.StatusCode);
-                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResponse).ConfigureAwait(false);
-                _VesselId = vessel.Id;
-
-                HttpResponseMessage createObjectiveResponse = await authClient.PostAsync("/api/v1/objectives",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Title = "Objective Follow Through",
-                        Status = ObjectiveStatusEnum.Scoped,
-                        VesselIds = new[] { _VesselId }
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, createObjectiveResponse.StatusCode);
-                Objective createdObjective = await JsonHelper.DeserializeAsync<Objective>(createObjectiveResponse).ConfigureAwait(false);
-                _ObjectiveId = createdObjective.Id;
-
-                HttpResponseMessage createVoyageResponse = await authClient.PostAsync("/api/v1/voyages",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Title = "Objective Voyage",
-                        Description = "Objective follow-through voyage",
-                        VesselId = _VesselId,
-                        ObjectiveId = _ObjectiveId,
-                        // This objective is created without a dispatch preflight; the test exercises the
-                        // objective/voyage linkage, not the preflight gate, so it forces past it.
-                        ForcePreflight = true,
-                        Missions = new[]
-                        {
-                            new
-                            {
-                                Title = "Objective Mission",
-                                Description = "Implement follow-through"
-                            }
-                        }
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, createVoyageResponse.StatusCode);
-                Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(createVoyageResponse).ConfigureAwait(false);
-                _VoyageId = voyage.Id;
-
-                HttpResponseMessage createReleaseResponse = await authClient.PostAsync("/api/v1/releases",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        VesselId = _VesselId,
-                        Title = "Objective Draft Release",
-                        ObjectiveIds = new[] { _ObjectiveId }
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, createReleaseResponse.StatusCode);
-                Release release = await JsonHelper.DeserializeAsync<Release>(createReleaseResponse).ConfigureAwait(false);
-                _ReleaseId = release.Id;
-
-                HttpResponseMessage objectiveResponse = await authClient.GetAsync("/api/v1/objectives/" + _ObjectiveId).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, objectiveResponse.StatusCode);
-                Objective linkedObjective = await JsonHelper.DeserializeAsync<Objective>(objectiveResponse).ConfigureAwait(false);
-                AssertTrue(linkedObjective.VoyageIds.Contains(_VoyageId), "Expected voyage link on objective.");
-                AssertTrue(linkedObjective.ReleaseIds.Contains(_ReleaseId), "Expected release link on objective.");
-                AssertEqual(ObjectiveStatusEnum.Released, linkedObjective.Status);
-            }));
-
             cases.Add(CaseAsync("objective_cleanup_resources", "Objective_CleanupResources", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -380,10 +301,6 @@ namespace Test.Shared.Suites.E2E
                 {
                     try { await authClient.DeleteAsync("/api/v1/objectives/" + _ObjectiveId).ConfigureAwait(false); } catch { }
                 }
-                if (!String.IsNullOrWhiteSpace(_ReleaseId))
-                {
-                    try { await authClient.DeleteAsync("/api/v1/releases/" + _ReleaseId).ConfigureAwait(false); } catch { }
-                }
                 if (!String.IsNullOrWhiteSpace(_RefinementSessionId))
                 {
                     try { await authClient.DeleteAsync("/api/v1/objective-refinement-sessions/" + _RefinementSessionId).ConfigureAwait(false); } catch { }
@@ -391,23 +308,6 @@ namespace Test.Shared.Suites.E2E
                 if (!String.IsNullOrWhiteSpace(_CaptainId))
                 {
                     try { await authClient.DeleteAsync("/api/v1/captains/" + _CaptainId).ConfigureAwait(false); } catch { }
-                }
-                if (!String.IsNullOrWhiteSpace(_VoyageId))
-                {
-                    try { await authClient.DeleteAsync("/api/v1/voyages/" + _VoyageId).ConfigureAwait(false); } catch { }
-                    try { await authClient.DeleteAsync("/api/v1/voyages/" + _VoyageId + "/purge").ConfigureAwait(false); } catch { }
-                }
-                if (!String.IsNullOrWhiteSpace(_VesselId))
-                {
-                    try { await authClient.DeleteAsync("/api/v1/vessels/" + _VesselId).ConfigureAwait(false); } catch { }
-                }
-                try
-                {
-                    if (!String.IsNullOrWhiteSpace(_WorkingDirectory) && Directory.Exists(_WorkingDirectory))
-                        Directory.Delete(_WorkingDirectory, true);
-                }
-                catch
-                {
                 }
             }));
 

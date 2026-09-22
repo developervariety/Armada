@@ -11,12 +11,6 @@ namespace Armada.Test.Unit.Suites.Services
         {
             // --- NoAuthRequired endpoints ---
 
-            await RunTest("HealthEndpoint IsNoAuthRequired", () =>
-            {
-                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/status/health");
-                AssertEqual(PermissionLevel.NoAuthRequired, level);
-            });
-
             await RunTest("Authenticate POST IsNoAuthRequired", () =>
             {
                 PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/authenticate");

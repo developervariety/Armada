@@ -199,7 +199,7 @@ not registered and will never run, never fail, and never appear.
 
 ### Ownership
 
-The legacy executables remain the owners of the fork cases they execute. The shared runner owns every shared case it executes. When a shared case cannot execute correctly, it is recorded once in `src/Test.Shared/Infrastructure/SharedCaseDispositions.cs` and reported by every runner as a named, counted skip:
+The legacy executables remain the owners of the fork cases they execute. The shared runner owns every shared case it executes. Each behaviour has one executed implementation: a shared case that only repeats an executed legacy case is deleted, and a legacy case that only repeats an executed shared case is deleted, so neither survives as a skip. When a shared case cannot execute correctly, it is recorded once in `src/Test.Shared/Infrastructure/SharedCaseDispositions.cs` and reported by every runner as a named, counted skip:
 
 | Disposition | Meaning | Owner named in the record |
 |-------------|---------|---------------------------|

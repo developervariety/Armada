@@ -190,6 +190,11 @@ upstream integrations and excludes changes already present at that baseline.
   WebSocket drives connection state and reconnects; a replaced socket's late events
   are ignored. The home page's bounded mission-summary refresh has a dashboard test
   in place of source-text checks in the unit suite.
+- **Test ownership:** each behaviour has one executed test implementation. Shared
+  copies of executed legacy cases and legacy copies of executed shared cases are
+  deleted instead of skipped. Seeded-persona, empty-model-context and default Claude
+  argument cases assert the current contract; two model-context cases remain named
+  skips awaiting an owner decision.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

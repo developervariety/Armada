@@ -278,69 +278,6 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("create_worktree_async_dirty_tracked_files_throws_and_cleans_up", "CreateWorktreeAsync DirtyTrackedFiles Throws And Cleans Up", TestTags.Negative, async () =>
-            {
-                GitService service = CreateService();
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
-                string sourceDir = Path.Combine(rootDir, "source");
-                string bareDir = Path.Combine(rootDir, "bare.git");
-                string hooksDir = Path.Combine(rootDir, "hooks");
-                string worktreeDir = Path.Combine(rootDir, "worktree");
-                string branchName = "armada/dirty-worktree";
-
-                try
-                {
-                    Directory.CreateDirectory(sourceDir);
-                    Directory.CreateDirectory(Path.Combine(sourceDir, "test"));
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-
-                    await File.WriteAllTextAsync(
-                        Path.Combine(sourceDir, "test", "Dirty.csproj"),
-                        "<Project>\n  <PropertyGroup />\n</Project>\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "test/Dirty.csproj").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Add tracked file").ConfigureAwait(false);
-
-                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
-                    Directory.CreateDirectory(hooksDir);
-
-                    // Dirty the tracked checkout deterministically during `git worktree add`
-                    // without depending on line-ending behavior in the host Git install.
-                    await File.WriteAllTextAsync(
-                        Path.Combine(hooksDir, "post-checkout"),
-                        "#!/bin/sh\nprintf '\\n<!-- dirty -->\\n' >> test/Dirty.csproj\n").ConfigureAwait(false);
-                    await RunGitAsync(bareDir, "config", "core.hooksPath", hooksDir).ConfigureAwait(false);
-
-                    InvalidOperationException? ex = null;
-                    try
-                    {
-                        await service.CreateWorktreeAsync(bareDir, worktreeDir, branchName, "main").ConfigureAwait(false);
-                        throw new Exception("Assertion failed: expected InvalidOperationException but no exception was thrown");
-                    }
-                    catch (InvalidOperationException caught)
-                    {
-                        ex = caught;
-                    }
-
-                    AssertTrue(ex != null, "Expected dirty worktree creation to throw");
-                    AssertTrue(ex!.Message.Contains("contains tracked modifications", StringComparison.Ordinal), "Exception should explain that the checkout is dirty");
-                    AssertTrue(ex.Message.Contains("test/Dirty.csproj", StringComparison.Ordinal), "Exception should list the dirty tracked file");
-                    AssertFalse(Directory.Exists(worktreeDir), "Failed worktree creation should clean up the worktree directory");
-
-                    string branchList = await RunGitAsync(bareDir, "branch", "--list", branchName).ConfigureAwait(false);
-                    AssertEqual(String.Empty, branchList.Trim(), "Failed worktree creation should delete the created branch ref");
-                }
-                finally
-                {
-                    if (Directory.Exists(rootDir))
-                    {
-                        try { Directory.Delete(rootDir, true); }
-                        catch { }
-                    }
-                }
-            }));
-
             cases.Add(CaseAsync("fetch_async_checked_out_worktree_branch_uses_remote_tracking_refs", "FetchAsync CheckedOutWorktreeBranch UsesRemoteTrackingRefs", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();

@@ -41,12 +41,6 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Name Returns Codex", () =>
-            {
-                CodexRuntime runtime = CreateRuntime();
-                AssertEqual("Codex", runtime.Name);
-            });
-
             await RunTest("SupportsResume Returns False", () =>
             {
                 CodexRuntime runtime = CreateRuntime();

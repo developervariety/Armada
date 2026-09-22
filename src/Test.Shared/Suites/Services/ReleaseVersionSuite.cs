@@ -68,34 +68,6 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(programContents.Contains("SetApplicationVersion(\"0.9.0\")"), "Helm CLI version should not be hard-coded");
             }));
 
-            cases.Add(Case("source_mcp_helpers_use_net10_framework", "Source MCP Helpers Use Net10 Framework", TestTags.Positive, () =>
-            {
-                string mcpConfigHelperContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "Armada.Helm", "Commands", "McpConfigHelper.cs"));
-                string installMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "install-mcp.bat"));
-                string installMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "install-mcp.sh"));
-                string removeMcpBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "remove-mcp.bat"));
-                string removeMcpShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "remove-mcp.sh"));
-                string resolveFrameworkBatContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "windows", "resolve-framework.bat"));
-                string resolveFrameworkShContents = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "common", "resolve-framework.sh"));
-
-                AssertContains("private const string SourceMcpFramework = \"net10.0\";", mcpConfigHelperContents, "McpConfigHelper should pin source MCP installs to net10.0");
-                AssertFalse(mcpConfigHelperContents.Contains("\"net8.0\""), "McpConfigHelper should not pin source MCP installs to net8.0");
-                AssertContains("ARMADA_TARGET_FRAMEWORK=\"${ARMADA_TARGET_FRAMEWORK:-net10.0}\"", resolveFrameworkShContents, "Shell framework resolver should default to net10.0");
-                AssertContains("export ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS=", resolveFrameworkShContents, "Shell framework resolver should expose reusable msbuild framework arguments");
-                AssertContains("source \"${SCRIPT_DIR}/resolve-framework.sh\"", installMcpShContents, "install-mcp.sh should resolve the framework override");
-                AssertContains("-f \"$ARMADA_TARGET_FRAMEWORK\" -- mcp install --yes", installMcpShContents, "install-mcp.sh should honor the resolved framework override");
-                AssertContains("source \"${SCRIPT_DIR}/resolve-framework.sh\"", removeMcpShContents, "remove-mcp.sh should resolve the framework override");
-                AssertContains("-f \"$ARMADA_TARGET_FRAMEWORK\" -- mcp remove --yes", removeMcpShContents, "remove-mcp.sh should honor the resolved framework override");
-                AssertContains("set \"FRAMEWORK=net10.0\"", resolveFrameworkBatContents, "Windows framework resolver should default to net10.0");
-                AssertContains("set \"ARMADA_FORWARD_FRAMEWORK_ARGS=%FORWARD_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable wrapper forwarding arguments");
-                AssertContains("set \"ARMADA_DOTNET_FRAMEWORK_ARGS=%DOTNET_FRAMEWORK_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable dotnet framework arguments");
-                AssertContains("set \"ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS=%DOTNET_MSBUILD_FRAMEWORK_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable msbuild framework arguments");
-                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", installMcpBatContents, "install-mcp.bat should resolve the Windows framework override");
-                AssertContains("%ARMADA_DOTNET_FRAMEWORK_ARGS% -- mcp install --yes", installMcpBatContents, "install-mcp.bat should honor the resolved framework override");
-                AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeMcpBatContents, "remove-mcp.bat should resolve the Windows framework override");
-                AssertContains("%ARMADA_DOTNET_FRAMEWORK_ARGS% -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should honor the resolved framework override");
-            }));
-
             cases.Add(Case("windows_install_scripts_allow_explicit_framework_overrides", "Windows Install Scripts Allow Explicit Framework Overrides", TestTags.Positive, () =>
             {
                 string installBatContents = ReadRepositoryFile("scripts", "windows", "install.bat");
@@ -616,16 +588,6 @@ namespace Test.Shared.Suites.Services
                     body();
                     return Task.CompletedTask;
                 },
-                tags: new List<string> { tag });
-        }
-
-        private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
-        {
-            return new TestCaseDescriptor(
-                suiteId: "Services.ReleaseVersion",
-                caseId: caseId,
-                displayName: displayName,
-                executeAsync: (CancellationToken ct) => body(),
                 tags: new List<string> { tag });
         }
 

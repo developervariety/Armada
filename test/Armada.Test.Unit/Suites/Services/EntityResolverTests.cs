@@ -13,19 +13,6 @@ namespace Armada.Test.Unit.Suites.Services
         {
             // Vessel Resolution
 
-            await RunTest("ResolveVessel ById ReturnsMatch", () =>
-            {
-                List<Vessel> vessels = new List<Vessel>
-                {
-                    new Vessel("myapp", "https://github.com/user/myapp") { Id = "vsl_abc123" },
-                    new Vessel("other", "https://github.com/user/other") { Id = "vsl_def456" }
-                };
-
-                Vessel? result = EntityResolver.ResolveVessel(vessels, "vsl_abc123");
-                AssertNotNull(result);
-                AssertEqual("myapp", result!.Name);
-            });
-
             await RunTest("ResolveVessel ByName ReturnsMatch", () =>
             {
                 List<Vessel> vessels = new List<Vessel>

@@ -940,25 +940,6 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(data.Objects.Count >= 2);
             }));
 
-            cases.Add(CaseAsync("armada_enumerate_missions_with_status_filter", "ArmadaEnumerate_Missions_WithStatusFilter", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient mcpClient = fx.McpClient;
-                string sessionId = await InitMcpSessionAsync(mcpClient);
-
-                await RestCreateMissionAsync(mcpClient, sessionId, "EnumMission1").ConfigureAwait(false);
-                await RestCreateMissionAsync(mcpClient, sessionId, "EnumMission2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
-                {
-                    entityType = "missions",
-                    status = "Pending"
-                }).ConfigureAwait(false);
-                AssertToolResultValid(result);
-                string text = GetToolResultText(result);
-                EnumerationResult<JsonElement> data = JsonHelper.Deserialize<EnumerationResult<JsonElement>>(text);
-                AssertTrue(data.Objects.Count >= 2);
-            }));
-
             cases.Add(CaseAsync("armada_enumerate_vessels_with_fleet_filter", "ArmadaEnumerate_Vessels_WithFleetFilter", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -1827,54 +1808,6 @@ namespace Test.Shared.Suites.E2E
 
                 JsonElement result = rawResult.GetProperty("result");
                 AssertToolResultValid(result);
-            }));
-
-            cases.Add(CaseAsync("armada_purge_voyage_deletes_voyage_and_missions", "ArmadaPurgeVoyage_DeletesVoyageAndMissions", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient mcpClient = fx.McpClient;
-                string sessionId = await InitMcpSessionAsync(mcpClient);
-
-                string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "PurgeVoyageFleet").ConfigureAwait(false);
-                string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "PurgeVoyageVessel").ConfigureAwait(false);
-                string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-
-                // Cancel the voyage first — purge is blocked on Open/InProgress voyages
-                await CallToolAsync(mcpClient, sessionId, "armada_cancel_voyage", new { voyageId = voyageId }).ConfigureAwait(false);
-
-                // Also cancel any InProgress missions individually (cancel_voyage only cancels Pending/Assigned)
-                JsonElement statusResult = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
-                {
-                    voyageId = voyageId,
-                    summary = false,
-                    includeMissions = true
-                }).ConfigureAwait(false);
-                string statusText = GetToolResultText(statusResult);
-                VoyageDetailResponse detail = JsonHelper.Deserialize<VoyageDetailResponse>(statusText);
-                if (detail.Missions != null)
-                {
-                    foreach (Mission m in detail.Missions)
-                    {
-                        if (m.Status == Armada.Core.Enums.MissionStatusEnum.InProgress ||
-                            m.Status == Armada.Core.Enums.MissionStatusEnum.Assigned)
-                        {
-                            await CallToolAsync(mcpClient, sessionId, "armada_cancel_mission", new { missionId = m.Id }).ConfigureAwait(false);
-                        }
-                    }
-                }
-
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_purge_voyage", new
-                {
-                    voyageId = voyageId
-                }).ConfigureAwait(false);
-                AssertToolResultValid(result);
-                string text = GetToolResultText(result);
-
-                PurgeVoyageResponse data = JsonHelper.Deserialize<PurgeVoyageResponse>(text);
-                if (data.Error != null)
-                    throw new Exception("Purge returned error: " + data.Error);
-                AssertEqual("deleted", data.Status);
-                AssertTrue(data.MissionsDeleted >= 0);
             }));
 
             cases.Add(CaseAsync("armada_purge_voyage_not_found_returns_error", "ArmadaPurgeVoyage_NotFound_ReturnsError", TestTags.Negative, async () =>

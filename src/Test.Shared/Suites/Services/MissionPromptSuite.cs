@@ -368,7 +368,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("generate_claude_md_async_includes_update_instructions_even_when_model_context_is_empty", "GenerateClaudeMdAsync includes update instructions even when ModelContext is empty", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("generate_claude_md_async_carries_no_model_context_sections_when_enabled_context_is_empty", "GenerateClaudeMdAsync carries no model context sections when enabled ModelContext is empty", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -392,10 +392,12 @@ namespace Test.Shared.Suites.Services
 
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
+                        // Updating the vessel model context is an operator action, so an enabled but empty
+                        // context gives the captain neither a context section nor update instructions.
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertFalse(content.Contains("## Model Context\n"), "Should not contain Model Context section when null");
-                        AssertContains("## Model Context Updates", content);
-                        AssertContains("update_vessel_context", content);
+                        AssertContains("First mission", content);
+                        AssertFalse(content.Contains("## Model Context"), "An empty model context must not produce a Model Context section");
+                        AssertFalse(content.Contains("update_vessel_context"), "The brief must not tell a captain to update the vessel model context");
                     }
                     finally
                     {
@@ -467,99 +469,6 @@ namespace Test.Shared.Suites.Services
                         AssertContains("[ARMADA:RESULT] COMPLETE", content);
                         AssertContains("[ARMADA:VERDICT] PASS", content);
                         AssertContains("standalone", content.ToLowerInvariant());
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            }));
-
-            cases.Add(CaseAsync("template_resolved_claude_md_de_duplicates_shared_context_sections", "Template-resolved CLAUDE.md de-duplicates shared context sections", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    IPromptTemplateService templateService;
-                    MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
-                    await templateService.SeedDefaultsAsync();
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        Vessel vessel = new Vessel("DedupVessel", "https://github.com/test/repo");
-                        vessel.ProjectContext = "Service-oriented C# backend.";
-                        vessel.StyleGuide = "Prefer explicit types.";
-                        vessel.EnableModelContext = true;
-                        vessel.ModelContext = "Background jobs are scheduled from ArmadaServer.";
-
-                        Captain captain = new Captain("architect-prompt-captain");
-                        captain.Runtime = AgentRuntimeEnum.Codex;
-                        captain.SystemInstructions = "Be concise and careful.";
-
-                        Mission mission = new Mission("Plan work", "Break this objective into missions.");
-                        mission.Persona = "Architect";
-
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
-
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CODEX.md"));
-                        AssertEqual(1, Regex.Matches(content, "^## Project Context$", RegexOptions.Multiline).Count);
-                        AssertEqual(1, Regex.Matches(content, "^## Code Style$", RegexOptions.Multiline).Count);
-                        AssertEqual(1, Regex.Matches(content, "^## Model Context$", RegexOptions.Multiline).Count);
-                        AssertEqual(1, Regex.Matches(content, "^## Repository$", RegexOptions.Multiline).Count);
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            }));
-
-            cases.Add(CaseAsync("template_resolved_persona_prompts_require_structured_test_and_judge_analysis", "Template-resolved persona prompts require structured test and judge analysis", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    IPromptTemplateService templateService;
-                    MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
-                    await templateService.SeedDefaultsAsync();
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        Vessel vessel = new Vessel("PersonaPromptVessel", "https://github.com/test/repo");
-
-                        Mission judgeMission = new Mission();
-                        judgeMission.Title = "Judge structure test";
-                        judgeMission.Description = "Verify judge review requirements.";
-                        judgeMission.Persona = "Judge";
-
-                        await service.GenerateClaudeMdAsync(tempDir, judgeMission, vessel);
-
-                        string judgeContent = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("## Completeness", judgeContent, "Judge prompt should require a Completeness section");
-                        AssertContains("## Failure Modes", judgeContent, "Judge prompt should require a Failure Modes section");
-                        AssertContains("PASS is not allowed", judgeContent, "Judge prompt should constrain PASS approvals");
-
-                        Mission testMission = new Mission();
-                        testMission.Title = "Test coverage structure test";
-                        testMission.Description = "Verify test engineer requirements.";
-                        testMission.Persona = "Test Engineer";
-
-                        await service.GenerateClaudeMdAsync(tempDir, testMission, vessel);
-
-                        string testContent = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("negative or edge-path", testContent, "Test engineer prompt should require negative-path coverage");
-                        AssertContains("## Coverage Added", testContent, "Test engineer prompt should request a coverage summary section");
-                        AssertContains("## Residual Risks", testContent, "Test engineer prompt should request residual risk reporting");
                     }
                     finally
                     {
@@ -716,56 +625,6 @@ namespace Test.Shared.Suites.Services
                         AssertContains("PlaceholderTestVessel", content);
                         AssertFalse(content.Contains("{MissionTitle}"), "Should not contain literal {MissionTitle} placeholder");
                         AssertFalse(content.Contains("{VesselName}"), "Should not contain literal {VesselName} placeholder");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            }));
-
-            cases.Add(CaseAsync("generate_claude_md_async_strips_stale_armada_mission_blocks_from_existing_instructions", "GenerateClaudeMdAsync strips stale Armada mission blocks from existing instructions", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        string existingInstructions =
-                            "## Project Context\n" +
-                            "Stable project guidance.\n" +
-                            "\n" +
-                            "## Code Style\n" +
-                            "Use explicit types.\n" +
-                            "\n" +
-                            "# Mission Instructions\n" +
-                            "\n" +
-                            "## Mission\n" +
-                            "- **Title:** Stale mission title\n" +
-                            "\n" +
-                            "[ARMADA:MISSION] Old task\n";
-                        await File.WriteAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"), existingInstructions);
-
-                        Vessel vessel = new Vessel("ExistingInstructionsVessel", "https://github.com/test/repo");
-                        Mission mission = new Mission("Fresh mission", "Fresh description.");
-
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
-
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("## Existing Project Instructions", content);
-                        AssertContains("Stable project guidance.", content);
-                        AssertFalse(content.Contains("Stale mission title"), "Generated mission blocks from the existing file should be stripped");
-                        AssertTrue(
-                            content.IndexOf("## Existing Project Instructions", StringComparison.Ordinal) ==
-                            content.LastIndexOf("## Existing Project Instructions", StringComparison.Ordinal),
-                            "Existing project instructions should be wrapped only once");
                     }
                     finally
                     {

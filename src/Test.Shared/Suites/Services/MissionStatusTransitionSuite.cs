@@ -62,23 +62,6 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("PullRequestOpen", status.ToString(), "PullRequestOpen enum name");
             }));
 
-            cases.Add(Case("all_expected_statuses_defined", "All expected statuses defined", TestTags.Positive, () =>
-            {
-                string[] expected = new[]
-                {
-                    "Pending", "Assigned", "InProgress", "WorkProduced", "PullRequestOpen",
-                    "Testing", "Review", "Complete", "Failed", "LandingFailed", "Cancelled"
-                };
-
-                string[] actual = Enum.GetNames(typeof(MissionStatusEnum));
-                AssertEqual(expected.Length, actual.Length, "Enum value count");
-
-                foreach (string name in expected)
-                {
-                    Assert(Enum.TryParse<MissionStatusEnum>(name, out _), "Missing enum value: " + name);
-                }
-            }));
-
             // === HandleCompletionAsync Tests (InProgress -> WorkProduced) ===
 
             cases.Add(CaseAsync("handle_completion_sets_status_to_work_produced", "HandleCompletion sets status to WorkProduced", TestTags.Positive, async () =>
