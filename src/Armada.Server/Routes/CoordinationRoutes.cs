@@ -47,12 +47,7 @@ namespace Armada.Server.Routes
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
+                    return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
                 List<CoordinationRoom> rooms = await _coordination.EnumerateRoomsAsync().ConfigureAwait(false);
@@ -70,12 +65,7 @@ namespace Armada.Server.Routes
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
+                    return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
                 CoordinationRoomCreateRequest request = JsonSerializer.Deserialize<CoordinationRoomCreateRequest>(req.Http.Request.DataAsString, _jsonOptions)
@@ -118,12 +108,7 @@ namespace Armada.Server.Routes
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
+                    return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
                 string key = req.Parameters["key"];
@@ -153,12 +138,7 @@ namespace Armada.Server.Routes
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
+                    return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
                 string key = req.Parameters["key"];
@@ -212,12 +192,7 @@ namespace Armada.Server.Routes
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
+                    return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
                 string key = req.Parameters["key"];
@@ -253,12 +228,7 @@ namespace Armada.Server.Routes
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
+                    return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
                 CoordinationClaimSubjectEnum? subjectType = null;
@@ -285,12 +255,7 @@ namespace Armada.Server.Routes
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
+                    return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
                 string key = req.Parameters["key"];

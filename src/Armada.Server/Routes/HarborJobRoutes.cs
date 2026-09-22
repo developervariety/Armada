@@ -104,13 +104,7 @@ namespace Armada.Server.Routes
 
         private static object Denied(ApiRequest request, AuthContext context)
         {
-            bool authenticated = context != null && context.IsAuthenticated;
-            request.Http.Response.StatusCode = authenticated ? 403 : 401;
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = authenticated ? "Administrator permission required" : "Authentication required"
-            };
+            return RouteAuthRefusal.Refuse(request, context, "Administrator permission required");
         }
 
         #endregion

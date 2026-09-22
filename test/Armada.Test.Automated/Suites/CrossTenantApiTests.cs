@@ -18,6 +18,25 @@ using System.IO;
     /// </summary>
     public class CrossTenantApiTests : TestSuite
     {
+        private sealed class AuthRefusalProbe
+        {
+            public AuthRefusalProbe(string routeFile, string method, string path, bool asOrdinaryUser)
+            {
+                RouteFile = routeFile;
+                Method = method;
+                Path = path;
+                AsOrdinaryUser = asOrdinaryUser;
+            }
+
+            public string RouteFile { get; }
+
+            public string Method { get; }
+
+            public string Path { get; }
+
+            public bool AsOrdinaryUser { get; }
+        }
+
         private sealed class TenantUserCredentialResult
         {
             public string TenantId { get; set; } = String.Empty;
@@ -1300,6 +1319,18 @@ using System.IO;
                 AssertEqual(mergeEntryAId, entry.Id);
             }).ConfigureAwait(false);
 
+            await RunTest("MergeQueue_ProcessFromTenantBAdmin_IsForbiddenAndLeavesTenantAEntryQueued", async () =>
+            {
+                HttpResponseMessage process = await _ClientB!.PostAsync("/api/v1/merge-queue/process", null).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, process.StatusCode, "Processing the whole queue acts on every tenant, so a tenant administrator is refused");
+                ArmadaErrorResponse body = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(process).ConfigureAwait(false);
+                AssertEqual("Forbidden", body.Error, "403 body names Forbidden");
+
+                MergeEntry entry = await JsonHelper.DeserializeAsync<MergeEntry>(
+                    await _ClientA!.GetAsync("/api/v1/merge-queue/" + mergeEntryAId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(Armada.Core.Enums.MergeStatusEnum.Queued, entry.Status, "Tenant A's entry is not processed by tenant B's request");
+            }).ConfigureAwait(false);
+
             await RunTest("MergeQueue_BatchPurgeFromTenantBAdmin_DoesNotPurgeTenantATerminalEntry", async () =>
             {
                 // Tenant A cancels its own entry, which makes it terminal and so purgeable.
@@ -1346,6 +1377,127 @@ using System.IO;
                 AssertEqual(HttpStatusCode.Forbidden, forbidden.StatusCode);
                 ArmadaErrorResponse forbiddenBody = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(forbidden).ConfigureAwait(false);
                 AssertEqual("Forbidden", forbiddenBody.Error, "403 body names Forbidden");
+            }).ConfigureAwait(false);
+
+            await RunTest("RouteAuthRefusals_BodyErrorMatchesStatusOnEveryRouteFile", async () =>
+            {
+                // One representative refusal per route file: an anonymous caller must be refused with 401 and
+                // NotAuthorized, and an authenticated caller without permission with 403 and Forbidden. The harbor
+                // runner routes are served only when harbor runners are enabled, which this harness does not do.
+                List<AuthRefusalProbe> probes = new List<AuthRefusalProbe>
+                {
+                    new AuthRefusalProbe("AskRoutes", "POST", "/api/v1/ask", false),
+                    new AuthRefusalProbe("AskRoutes", "POST", "/api/v1/ask", true),
+                    new AuthRefusalProbe("AuthRoutes", "GET", "/api/v1/whoami", false),
+                    new AuthRefusalProbe("BackupRoutes", "GET", "/api/v1/backup", false),
+                    new AuthRefusalProbe("BackupRoutes", "GET", "/api/v1/backup", true),
+                    new AuthRefusalProbe("CaptainRoutes", "GET", "/api/v1/captains", false),
+                    new AuthRefusalProbe("CaptainRoutes", "POST", "/api/v1/captains", true),
+                    new AuthRefusalProbe("CheckRunRoutes", "GET", "/api/v1/check-runs", false),
+                    new AuthRefusalProbe("CodeIndexRoutes", "GET", "/api/v1/vessels/vsl_missing/code-index/status", false),
+                    new AuthRefusalProbe("CoordinationRoutes", "GET", "/api/v1/coordination/rooms", false),
+                    new AuthRefusalProbe("CoordinationRoutes", "GET", "/api/v1/coordination/rooms", true),
+                    new AuthRefusalProbe("DeploymentRoutes", "GET", "/api/v1/deployments", false),
+                    new AuthRefusalProbe("DeploymentRoutes", "POST", "/api/v1/deployments", true),
+                    new AuthRefusalProbe("DockRoutes", "GET", "/api/v1/docks", false),
+                    new AuthRefusalProbe("DockRoutes", "DELETE", "/api/v1/docks/dck_missing", true),
+                    new AuthRefusalProbe("EnvironmentRoutes", "GET", "/api/v1/environments", false),
+                    new AuthRefusalProbe("EnvironmentRoutes", "POST", "/api/v1/environments", true),
+                    new AuthRefusalProbe("EventRoutes", "GET", "/api/v1/events", false),
+                    new AuthRefusalProbe("EventRoutes", "DELETE", "/api/v1/events/evt_missing", true),
+                    new AuthRefusalProbe("FleetRoutes", "GET", "/api/v1/fleets", false),
+                    new AuthRefusalProbe("FleetRoutes", "POST", "/api/v1/fleets", true),
+                    new AuthRefusalProbe("HistoryRoutes", "GET", "/api/v1/history", false),
+                    new AuthRefusalProbe("InboxRoutes", "GET", "/api/v1/inbox", false),
+                    new AuthRefusalProbe("InboxRoutes", "GET", "/api/v1/inbox", true),
+                    new AuthRefusalProbe("IncidentRoutes", "GET", "/api/v1/incidents", false),
+                    new AuthRefusalProbe("IncidentRoutes", "POST", "/api/v1/incidents", true),
+                    new AuthRefusalProbe("JobRoutes", "GET", "/api/v1/jobs", false),
+                    new AuthRefusalProbe("MergeQueueRoutes", "GET", "/api/v1/merge-queue", false),
+                    new AuthRefusalProbe("MergeQueueRoutes", "POST", "/api/v1/merge-queue/process", true),
+                    new AuthRefusalProbe("MissionRoutes", "GET", "/api/v1/missions", false),
+                    new AuthRefusalProbe("MissionRoutes", "POST", "/api/v1/missions", true),
+                    new AuthRefusalProbe("ModelEndpointRoutes", "GET", "/api/v1/model-endpoints", false),
+                    new AuthRefusalProbe("ObjectiveRefinementRoutes", "GET", "/api/v1/objective-refinement-sessions/ors_missing", false),
+                    new AuthRefusalProbe("ObjectiveRefinementRoutes", "POST", "/api/v1/objectives/obj_missing/refinement-sessions", true),
+                    new AuthRefusalProbe("ObjectiveRoutes", "GET", "/api/v1/objectives", false),
+                    new AuthRefusalProbe("ObjectiveRoutes", "POST", "/api/v1/objectives", true),
+                    new AuthRefusalProbe("PersonaRoutes", "GET", "/api/v1/personas", false),
+                    new AuthRefusalProbe("PersonaRoutes", "POST", "/api/v1/personas", true),
+                    new AuthRefusalProbe("PipelineRoutes", "GET", "/api/v1/pipelines", false),
+                    new AuthRefusalProbe("PipelineRoutes", "POST", "/api/v1/pipelines", true),
+                    new AuthRefusalProbe("PlanningSessionRoutes", "GET", "/api/v1/planning-sessions", false),
+                    new AuthRefusalProbe("PlanningSessionRoutes", "POST", "/api/v1/planning-sessions", true),
+                    new AuthRefusalProbe("PlaybookRoutes", "GET", "/api/v1/playbooks", false),
+                    new AuthRefusalProbe("PlaybookRoutes", "POST", "/api/v1/playbooks", true),
+                    new AuthRefusalProbe("ProductionRoutes", "GET", "/api/v1/production/summary", false),
+                    new AuthRefusalProbe("ProjectProfileRoutes", "GET", "/api/v1/project-profiles", false),
+                    new AuthRefusalProbe("PromptTemplateRoutes", "GET", "/api/v1/prompt-templates", false),
+                    new AuthRefusalProbe("PromptTemplateRoutes", "POST", "/api/v1/prompt-templates", true),
+                    new AuthRefusalProbe("ReleaseRoutes", "GET", "/api/v1/releases", false),
+                    new AuthRefusalProbe("ReleaseRoutes", "POST", "/api/v1/releases", true),
+                    new AuthRefusalProbe("RequestHistoryRoutes", "GET", "/api/v1/request-history", false),
+                    new AuthRefusalProbe("RequestHistoryRoutes", "DELETE", "/api/v1/request-history/req_missing", true),
+                    new AuthRefusalProbe("RunbookRoutes", "GET", "/api/v1/runbooks", false),
+                    new AuthRefusalProbe("RunbookRoutes", "POST", "/api/v1/runbooks", true),
+                    new AuthRefusalProbe("RuntimeRoutes", "GET", "/api/v1/runtimes/mux/endpoints", false),
+                    new AuthRefusalProbe("SignalRoutes", "GET", "/api/v1/signals", false),
+                    new AuthRefusalProbe("SignalRoutes", "POST", "/api/v1/signals", true),
+                    new AuthRefusalProbe("SkillRoutes", "GET", "/api/v1/skills", false),
+                    new AuthRefusalProbe("StatusRoutes", "GET", "/api/v1/status", false),
+                    new AuthRefusalProbe("StatusRoutes", "GET", "/api/v1/status", true),
+                    new AuthRefusalProbe("StatusRoutes", "POST", "/api/v1/settings/usage-preview", true),
+                    new AuthRefusalProbe("TenantRoutes", "GET", "/api/v1/tenants", false),
+                    new AuthRefusalProbe("TenantRoutes", "GET", "/api/v1/tenants", true),
+                    new AuthRefusalProbe("TokenUsageRoutes", "GET", "/api/v1/token-usage/summary", false),
+                    new AuthRefusalProbe("TypedDecisionRoutes", "GET", "/api/v1/typed-decisions", false),
+                    new AuthRefusalProbe("TypedDecisionRoutes", "GET", "/api/v1/typed-decisions", true),
+                    new AuthRefusalProbe("UsageAccountLoginRoutes", "GET", "/api/v1/usage-accounts/acct_missing/login/status", false),
+                    new AuthRefusalProbe("VesselRoutes", "GET", "/api/v1/vessels", false),
+                    new AuthRefusalProbe("VesselRoutes", "POST", "/api/v1/vessels", true),
+                    new AuthRefusalProbe("VoyageRoutes", "GET", "/api/v1/voyages", false),
+                    new AuthRefusalProbe("VoyageRoutes", "POST", "/api/v1/voyages", true),
+                    new AuthRefusalProbe("WorkflowProfileRoutes", "GET", "/api/v1/workflow-profiles", false),
+                    new AuthRefusalProbe("WorkflowProfileRoutes", "POST", "/api/v1/workflow-profiles", true),
+                    new AuthRefusalProbe("WorkspaceRoutes", "GET", "/api/v1/workspace/vessels/vsl_missing/tree", false),
+                };
+
+                List<string> failures = new List<string>();
+                foreach (AuthRefusalProbe probe in probes)
+                {
+                    HttpClient client = probe.AsOrdinaryUser ? _ClientA3! : _UnauthClient;
+                    using (HttpRequestMessage request = new HttpRequestMessage(new HttpMethod(probe.Method), probe.Path))
+                    {
+                        if (probe.Method != "GET" && probe.Method != "DELETE")
+                            request.Content = JsonHelper.ToJsonContent(new { });
+                        HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
+                        HttpStatusCode expectedStatus = probe.AsOrdinaryUser ? HttpStatusCode.Forbidden : HttpStatusCode.Unauthorized;
+                        string expectedError = probe.AsOrdinaryUser ? "Forbidden" : "NotAuthorized";
+                        string raw = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        string where = probe.RouteFile + " " + probe.Method + " " + probe.Path + (probe.AsOrdinaryUser ? " (ordinary user)" : " (anonymous)");
+                        if (response.StatusCode != expectedStatus)
+                        {
+                            failures.Add(where + ": expected " + (int)expectedStatus + " but got " + (int)response.StatusCode + " " + raw);
+                            continue;
+                        }
+
+                        ArmadaErrorResponse? body;
+                        try
+                        {
+                            body = System.Text.Json.JsonSerializer.Deserialize<ArmadaErrorResponse>(raw, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        }
+                        catch (System.Text.Json.JsonException ex)
+                        {
+                            failures.Add(where + ": body is not an error document (" + ex.Message + "): " + raw);
+                            continue;
+                        }
+
+                        if (body == null || body.Error != expectedError)
+                            failures.Add(where + ": body error expected " + expectedError + " but got " + (body?.Error ?? "<none>") + " " + raw);
+                    }
+                }
+
+                AssertTrue(failures.Count == 0, "Every auth refusal names the same outcome as its status:\n" + String.Join("\n", failures));
             }).ConfigureAwait(false);
 
             #endregion

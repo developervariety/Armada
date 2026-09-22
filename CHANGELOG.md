@@ -202,8 +202,9 @@ upstream integrations and excludes changes already present at that baseline.
   control runs one operation that stops running missions' agent processes and
   cancels InProgress missions. Batch dock delete refuses active docks per ID like
   single delete. REST mission create merges vessel default playbooks like MCP.
-  Batch merge-queue purge is limited to a tenant administrator's own tenant, and
-  merge-queue auth refusals name `NotAuthorized` or `Forbidden` to match the status.
+  Batch merge-queue purge is limited to a tenant administrator's own tenant.
+  Every REST route's auth refusal names `NotAuthorized` (401) or `Forbidden` (403)
+  in the body to match the status, through one shared mapping.
   The Helm stdio MCP host supplies mission status transitions.
 - **MCP tool results:** one rule decides that a tool result is an error: an
   explicit `isError: true` result, or a top-level non-empty `Error` string. HTTP

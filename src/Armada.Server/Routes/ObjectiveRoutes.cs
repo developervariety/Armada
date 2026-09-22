@@ -51,7 +51,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/objectives", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveQuery query = BuildQueryFromRequest(req);
                 return await _Objectives.EnumerateAsync(ctx, query).ConfigureAwait(false);
             },
@@ -87,7 +87,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/objectives/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveQuery query = JsonSerializer.Deserialize<ObjectiveQuery>(req.Http.Request.DataAsString, _JsonOptions) ?? new ObjectiveQuery();
                 ApplyQuerystringOverrides(req, query);
                 return await _Objectives.EnumerateAsync(ctx, query).ConfigureAwait(false);
@@ -103,7 +103,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/objectives/reorder", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveReorderRequest request = JsonSerializer.Deserialize<ObjectiveReorderRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? new ObjectiveReorderRequest();
 
@@ -128,7 +128,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/objectives/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (objective == null)
                 {
@@ -150,7 +150,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/objectives/{id}/dispatch-preview", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (objective == null)
                 {
@@ -188,7 +188,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/objectives", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
 
@@ -215,7 +215,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/objectives/import/github", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 GitHubObjectiveImportRequest request = JsonSerializer.Deserialize<GitHubObjectiveImportRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as GitHubObjectiveImportRequest.");
 
@@ -243,7 +243,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/objectives/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
 
@@ -274,7 +274,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/objectives/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 try
                 {
                     await _Objectives.DeleteAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
@@ -299,7 +299,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/backlog", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveQuery query = BuildQueryFromRequest(req);
                 return await _Objectives.EnumerateAsync(ctx, query).ConfigureAwait(false);
             },
@@ -335,7 +335,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/backlog/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveQuery query = JsonSerializer.Deserialize<ObjectiveQuery>(req.Http.Request.DataAsString, _JsonOptions) ?? new ObjectiveQuery();
                 ApplyQuerystringOverrides(req, query);
                 return await _Objectives.EnumerateAsync(ctx, query).ConfigureAwait(false);
@@ -351,7 +351,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/backlog/reorder", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveReorderRequest request = JsonSerializer.Deserialize<ObjectiveReorderRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? new ObjectiveReorderRequest();
 
@@ -376,7 +376,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/backlog/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (objective == null)
                 {
@@ -398,7 +398,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/backlog/{id}/dispatch-preview", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (objective == null)
                 {
@@ -436,7 +436,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/backlog", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
 
@@ -463,7 +463,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/backlog/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
 
@@ -494,7 +494,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/backlog/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 try
                 {
                     await _Objectives.DeleteAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
@@ -560,17 +560,6 @@ namespace Armada.Server.Routes
             query.Tag = NormalizeEmpty(QueryValueReader.Read(req, "tag")) ?? query.Tag;
             query.TargetVersion = NormalizeEmpty(QueryValueReader.Read(req, "targetVersion")) ?? query.TargetVersion;
             query.Search = NormalizeEmpty(QueryValueReader.Read(req, "search")) ?? query.Search;
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

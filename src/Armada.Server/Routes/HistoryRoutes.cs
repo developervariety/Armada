@@ -44,7 +44,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/history", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 HistoricalTimelineQuery query = BuildQueryFromRequest(req);
                 ApplyScope(ctx, query);
@@ -75,7 +75,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/history/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 HistoricalTimelineQuery query = JsonSerializer.Deserialize<HistoricalTimelineQuery>(req.Http.Request.DataAsString, _BodyJsonOptions)
                     ?? new HistoricalTimelineQuery();
@@ -140,17 +140,6 @@ namespace Armada.Server.Routes
             query.TenantId = ctx.TenantId;
             if (!ctx.IsTenantAdmin)
                 query.UserId = ctx.UserId;
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

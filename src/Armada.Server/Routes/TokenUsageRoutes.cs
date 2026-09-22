@@ -46,7 +46,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/token-usage/summary", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 TokenUsageQuery query = BuildQueryFromRequest(req);
                 if (!query.FromUtc.HasValue) query.FromUtc = DateTime.UtcNow.AddHours(-24);
@@ -80,7 +80,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/token-usage", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 TokenUsageQuery query = BuildQueryFromRequest(req);
                 ApplyScope(ctx, query);
@@ -109,7 +109,7 @@ namespace Armada.Server.Routes
             app.Post<TokenUsageQuery>("/api/v1/token-usage/delete/by-filter", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 TokenUsageQuery query = JsonSerializer.Deserialize<TokenUsageQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new TokenUsageQuery();
                 ApplyScope(ctx, query);
@@ -126,17 +126,6 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<TokenUsageQuery>("Token-usage filter query", false))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete summary"))
                 .WithSecurity("ApiKey"));
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

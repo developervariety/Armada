@@ -42,7 +42,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/deployments", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 DeploymentQuery query = BuildQueryFromRequest(req);
                 return await _Deployments.EnumerateAsync(ctx, query).ConfigureAwait(false);
@@ -69,7 +69,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/deployments/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 DeploymentQuery query = JsonSerializer.Deserialize<DeploymentQuery>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? new DeploymentQuery();
@@ -87,7 +87,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/deployments", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 DeploymentUpsertRequest request = JsonSerializer.Deserialize<DeploymentUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as DeploymentUpsertRequest.");
@@ -117,7 +117,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/deployments/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 Deployment? deployment = await _Deployments.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (deployment == null)
@@ -140,7 +140,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/deployments/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 DeploymentUpsertRequest request = JsonSerializer.Deserialize<DeploymentUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as DeploymentUpsertRequest.");
@@ -203,7 +203,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/deployments/{id}/verify", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -231,7 +231,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/deployments/{id}/rollback", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -259,7 +259,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/deployments/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -290,7 +290,7 @@ namespace Armada.Server.Routes
             Func<AuthContext, string, string?, Task<Deployment>> handler)
         {
             AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-            if (ctx == null) return BuildAuthError(req);
+            if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
             DeploymentApprovalBody? body = null;
             if (!String.IsNullOrWhiteSpace(req.Http.Request.DataAsString))
@@ -430,17 +430,6 @@ namespace Armada.Server.Routes
 
                 query.PageNumber++;
             }
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

@@ -42,7 +42,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/request-history", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = BuildQueryFromRequest(req);
                 ApplyScope(ctx, query);
@@ -74,7 +74,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/request-history/summary", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = BuildQueryFromRequest(req);
                 if (!query.FromUtc.HasValue) query.FromUtc = DateTime.UtcNow.AddHours(-24);
@@ -102,7 +102,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/request-history/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = BuildQueryFromRequest(req);
                 ApplyScope(ctx, query);
@@ -126,7 +126,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/request-history/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = BuildQueryFromRequest(req);
                 ApplyScope(ctx, query);
@@ -153,7 +153,7 @@ namespace Armada.Server.Routes
             app.Post<DeleteMultipleRequest>("/api/v1/request-history/delete/multiple", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 DeleteMultipleRequest? body = JsonSerializer.Deserialize<DeleteMultipleRequest>(req.Http.Request.DataAsString, _jsonOptions);
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
@@ -199,7 +199,7 @@ namespace Armada.Server.Routes
             app.Post<RequestHistoryQuery>("/api/v1/request-history/delete/by-filter", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = JsonSerializer.Deserialize<RequestHistoryQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new RequestHistoryQuery();
                 ApplyScope(ctx, query);
@@ -216,17 +216,6 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<RequestHistoryQuery>("Request-history filter query", false))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete summary"))
                 .WithSecurity("ApiKey"));
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

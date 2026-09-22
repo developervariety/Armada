@@ -48,7 +48,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/releases", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 ReleaseQuery query = BuildQueryFromRequest(req);
                 return await _Releases.EnumerateAsync(ctx, query).ConfigureAwait(false);
@@ -72,7 +72,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/releases/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 ReleaseQuery query = JsonSerializer.Deserialize<ReleaseQuery>(req.Http.Request.DataAsString, _BodyJsonOptions)
                     ?? new ReleaseQuery();
@@ -90,7 +90,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/releases", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 ReleaseUpsertRequest request = JsonSerializer.Deserialize<ReleaseUpsertRequest>(req.Http.Request.DataAsString, _BodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as ReleaseUpsertRequest.");
@@ -120,7 +120,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/releases/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 Release? release = await _Releases.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (release == null)
@@ -143,7 +143,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/releases/{id}/github/pull-requests", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 Release? release = await _Releases.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (release == null)
@@ -174,7 +174,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/releases/{id}/webhook-events", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -198,7 +198,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/releases/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 ReleaseUpsertRequest request = JsonSerializer.Deserialize<ReleaseUpsertRequest>(req.Http.Request.DataAsString, _BodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as ReleaseUpsertRequest.");
@@ -233,7 +233,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/releases/{id}/refresh", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -261,7 +261,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/releases/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -311,17 +311,6 @@ namespace Armada.Server.Routes
             query.MissionId = NormalizeEmpty(QueryValueReader.Read(req, "missionId")) ?? query.MissionId;
             query.CheckRunId = NormalizeEmpty(QueryValueReader.Read(req, "checkRunId")) ?? query.CheckRunId;
             query.Search = NormalizeEmpty(QueryValueReader.Read(req, "search")) ?? query.Search;
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

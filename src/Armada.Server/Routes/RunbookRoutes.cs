@@ -44,7 +44,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/runbooks", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookQuery query = BuildRunbookQueryFromRequest(req);
                 return await _Runbooks.EnumerateAsync(ctx, query).ConfigureAwait(false);
             },
@@ -65,7 +65,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/runbooks/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookQuery query = JsonSerializer.Deserialize<RunbookQuery>(req.Http.Request.DataAsString, _JsonOptions) ?? new RunbookQuery();
                 ApplyRunbookQuerystringOverrides(req, query);
                 return await _Runbooks.EnumerateAsync(ctx, query).ConfigureAwait(false);
@@ -81,7 +81,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/runbooks/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 Runbook? runbook = await _Runbooks.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (runbook == null)
                 {
@@ -103,7 +103,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/runbooks", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookUpsertRequest request = JsonSerializer.Deserialize<RunbookUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as RunbookUpsertRequest.");
 
@@ -130,7 +130,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/runbooks/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookUpsertRequest request = JsonSerializer.Deserialize<RunbookUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as RunbookUpsertRequest.");
 
@@ -161,7 +161,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/runbooks/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 try
                 {
                     await _Runbooks.DeleteAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
@@ -186,7 +186,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/runbook-executions", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookExecutionQuery query = BuildExecutionQueryFromRequest(req);
                 return await _Runbooks.EnumerateExecutionsAsync(ctx, query).ConfigureAwait(false);
             },
@@ -207,7 +207,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/runbook-executions/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookExecutionQuery query = JsonSerializer.Deserialize<RunbookExecutionQuery>(req.Http.Request.DataAsString, _JsonOptions) ?? new RunbookExecutionQuery();
                 ApplyExecutionQuerystringOverrides(req, query);
                 return await _Runbooks.EnumerateExecutionsAsync(ctx, query).ConfigureAwait(false);
@@ -223,7 +223,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/runbook-executions/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookExecution? execution = await _Runbooks.ReadExecutionAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (execution == null)
                 {
@@ -245,7 +245,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/runbooks/{id}/executions", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookExecutionStartRequest request = JsonSerializer.Deserialize<RunbookExecutionStartRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? new RunbookExecutionStartRequest();
 
@@ -278,7 +278,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/runbook-executions/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 RunbookExecutionUpdateRequest request = JsonSerializer.Deserialize<RunbookExecutionUpdateRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? new RunbookExecutionUpdateRequest();
 
@@ -309,7 +309,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/runbook-executions/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 try
                 {
                     await _Runbooks.DeleteExecutionAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
@@ -375,17 +375,6 @@ namespace Armada.Server.Routes
             query.DeploymentId = NormalizeEmpty(QueryValueReader.Read(req, "deploymentId")) ?? query.DeploymentId;
             query.IncidentId = NormalizeEmpty(QueryValueReader.Read(req, "incidentId")) ?? query.IncidentId;
             query.Search = NormalizeEmpty(QueryValueReader.Read(req, "search")) ?? query.Search;
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

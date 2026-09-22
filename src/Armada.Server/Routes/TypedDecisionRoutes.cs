@@ -435,8 +435,7 @@ namespace Armada.Server.Routes
 
         private static object Refuse(ApiRequest req, AuthContext ctx)
         {
-            req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-            return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "Administrator access required" : "Authentication required" };
+            return RouteAuthRefusal.Refuse(req, ctx, "Administrator access required");
         }
 
         #endregion

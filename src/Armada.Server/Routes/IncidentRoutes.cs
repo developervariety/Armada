@@ -47,7 +47,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/incidents", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 IncidentQuery query = BuildQueryFromRequest(req);
                 return await _Incidents.EnumerateAsync(ctx, query).ConfigureAwait(false);
             },
@@ -73,7 +73,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/incidents/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 IncidentQuery query = JsonSerializer.Deserialize<IncidentQuery>(req.Http.Request.DataAsString, _JsonOptions) ?? new IncidentQuery();
                 ApplyQuerystringOverrides(req, query);
                 return await _Incidents.EnumerateAsync(ctx, query).ConfigureAwait(false);
@@ -89,7 +89,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/incidents/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 Incident? incident = await _Incidents.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (incident == null)
                 {
@@ -111,7 +111,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/incidents", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 IncidentUpsertRequest request = JsonSerializer.Deserialize<IncidentUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as IncidentUpsertRequest.");
 
@@ -140,7 +140,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/incidents/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 IncidentUpsertRequest request = JsonSerializer.Deserialize<IncidentUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as IncidentUpsertRequest.");
 
@@ -174,7 +174,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/incidents/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -317,17 +317,6 @@ namespace Armada.Server.Routes
 
                 query.PageNumber++;
             }
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

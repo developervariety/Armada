@@ -45,6 +45,50 @@ namespace Armada.Server.Routes
         }
 
         /// <summary>
+        /// Set the refusal status on the response and build the matching error body, naming what an authenticated
+        /// caller lacks with <paramref name="permissionDeniedMessage"/>.
+        /// </summary>
+        /// <param name="req">API request whose response status is set.</param>
+        /// <param name="ctx">Authentication context of the caller; null counts as unauthenticated.</param>
+        /// <param name="permissionDeniedMessage">Message returned to an authenticated caller that lacks permission.</param>
+        /// <returns>The error body for the refusal.</returns>
+        public static ApiErrorResponse Refuse(ApiRequest req, AuthContext? ctx, string permissionDeniedMessage)
+        {
+            ApiErrorResponse response = Refuse(req, ctx);
+            if (response.Error == ApiResultEnum.Forbidden && !String.IsNullOrEmpty(permissionDeniedMessage))
+                response.Message = permissionDeniedMessage;
+            return response;
+        }
+
+        /// <summary>
+        /// Refuse an authenticated caller that lacks permission: set HTTP 403 and build a
+        /// <see cref="ApiResultEnum.Forbidden"/> body carrying <paramref name="message"/>.
+        /// </summary>
+        /// <param name="req">API request whose response status is set.</param>
+        /// <param name="message">Message naming what the caller lacks.</param>
+        /// <returns>The error body for the refusal.</returns>
+        public static ApiErrorResponse Forbid(ApiRequest req, string message)
+        {
+            if (req == null) throw new ArgumentNullException(nameof(req));
+            req.Http.Response.StatusCode = 403;
+            ApiErrorResponse response = Build(true);
+            if (!String.IsNullOrEmpty(message)) response.Message = message;
+            return response;
+        }
+
+        /// <summary>
+        /// Build the error body for a refusal whose status an authorization helper has already set on the response:
+        /// 401 names <see cref="ApiResultEnum.NotAuthorized"/>, any other status names <see cref="ApiResultEnum.Forbidden"/>.
+        /// </summary>
+        /// <param name="req">API request whose response status is already set.</param>
+        /// <returns>The error body for the refusal.</returns>
+        public static ApiErrorResponse FromStatus(ApiRequest req)
+        {
+            if (req == null) throw new ArgumentNullException(nameof(req));
+            return Build(req.Http.Response.StatusCode != 401);
+        }
+
+        /// <summary>
         /// Build the error body for a refusal without touching a response.
         /// </summary>
         /// <param name="authenticated">True when the caller is authenticated but lacks permission.</param>

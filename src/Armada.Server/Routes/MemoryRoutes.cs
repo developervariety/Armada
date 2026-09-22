@@ -191,8 +191,7 @@ namespace Armada.Server.Routes
             }
             catch (UnauthorizedAccessException denied)
             {
-                req.Http.Response.StatusCode = 403;
-                return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = denied.Message };
+                return RouteAuthRefusal.Forbid(req, denied.Message);
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
             {

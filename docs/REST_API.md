@@ -297,9 +297,9 @@ All error responses use a consistent JSON format with `Error`, `Description`, `M
 - The `Error` field always contains one of the error codes listed above.
 - The `Message` field provides a specific, actionable description of what went wrong.
 - HTTP status codes are set on the response and match the error code mapping above.
-- Merge-queue routes build their authentication and authorization refusals through one shared mapping, so a
-  `401` body carries `NotAuthorized` and a `403` body carries `Forbidden`. Other routes set the same `401`/`403`
-  status but still return `BadRequest` in the body; rely on the status code for those.
+- Every route builds its authentication and authorization refusals through one shared mapping, so a `401`
+  body carries `NotAuthorized` and a `403` body carries `Forbidden`. A route may name what the caller lacks in
+  `Message` (for example `Administrator access required`); the `Error` code always matches the status.
 - Clients should check the HTTP status code first, then parse the response body for details.
 
 ---

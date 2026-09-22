@@ -54,7 +54,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/workflow-profiles", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 WorkflowProfileQuery query = BuildQueryFromRequest(req);
                 ApplyReadScope(ctx, query);
@@ -81,7 +81,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/workflow-profiles/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 WorkflowProfileQuery query = JsonSerializer.Deserialize<WorkflowProfileQuery>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? new WorkflowProfileQuery();
@@ -104,7 +104,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/workflow-profiles/validate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 WorkflowProfile profile = JsonSerializer.Deserialize<WorkflowProfile>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as WorkflowProfile.");
@@ -125,7 +125,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/workflow-profiles/preview/vessels/{vesselId}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 string vesselId = req.Parameters["vesselId"];
                 Vessel? vessel = await ReadAccessibleVesselAsync(ctx, vesselId).ConfigureAwait(false);
@@ -158,7 +158,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/workflow-profiles/resolve/vessels/{vesselId}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 string vesselId = req.Parameters["vesselId"];
                 Vessel? vessel = await ReadAccessibleVesselAsync(ctx, vesselId).ConfigureAwait(false);
@@ -191,11 +191,10 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/workflow-profiles", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 if (!CanManage(ctx))
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only tenant administrators can manage workflow profiles" };
+                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can manage workflow profiles");
                 }
 
                 WorkflowProfile profile = JsonSerializer.Deserialize<WorkflowProfile>(req.Http.Request.DataAsString, _bodyJsonOptions)
@@ -231,7 +230,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/workflow-profiles/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 WorkflowProfile? profile = await _database.WorkflowProfiles.ReadAsync(
                     req.Parameters["id"],
@@ -256,11 +255,10 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/workflow-profiles/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 if (!CanManage(ctx))
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only tenant administrators can manage workflow profiles" };
+                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can manage workflow profiles");
                 }
 
                 WorkflowProfile? existing = await _database.WorkflowProfiles.ReadAsync(
@@ -331,11 +329,10 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/workflow-profiles/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 if (!CanManage(ctx))
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only tenant administrators can manage workflow profiles" };
+                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can manage workflow profiles");
                 }
 
                 WorkflowProfile? existing = await _database.WorkflowProfiles.ReadAsync(
@@ -364,17 +361,6 @@ namespace Armada.Server.Routes
         private static bool CanManage(AuthContext ctx)
         {
             return ctx.IsAdmin || ctx.IsTenantAdmin;
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

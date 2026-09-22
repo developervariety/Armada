@@ -366,17 +366,9 @@ namespace Armada.Server.Routes
 
         private static ApiErrorResponse BuildAuthError(ApiRequest req)
         {
-            string message = req.Http.Response.StatusCode == 401
-                ? "Authentication required"
-                : req.Http.Response.StatusCode == 404
-                    ? "Vessel not found"
-                    : "You do not have permission to perform this action";
-
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = message
-            };
+            if (req.Http.Response.StatusCode == 404)
+                return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+            return RouteAuthRefusal.FromStatus(req);
         }
 
         #endregion

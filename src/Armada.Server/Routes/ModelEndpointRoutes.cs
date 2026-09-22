@@ -48,7 +48,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/model-endpoints", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 return await _Endpoints.EnumerateAsync(ctx).ConfigureAwait(false);
             },
@@ -62,7 +62,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/model-endpoints", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 if (!TryDeserializeEndpoint(req.Http.Request.DataAsString, out ModelEndpoint? request, out string parseError))
                 {
@@ -83,8 +83,7 @@ namespace Armada.Server.Routes
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "You do not have permission to create this model endpoint." };
+                    return RouteAuthRefusal.Forbid(req, "You do not have permission to create this model endpoint.");
                 }
                 catch (InvalidOperationException)
                 {
@@ -104,7 +103,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/model-endpoints/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 ModelEndpoint? endpoint = await _Endpoints.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 if (endpoint == null)
@@ -127,7 +126,7 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/model-endpoints/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 if (!TryDeserializeEndpoint(req.Http.Request.DataAsString, out ModelEndpoint? request, out string parseError))
                 {
@@ -147,8 +146,7 @@ namespace Armada.Server.Routes
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "You do not have permission to modify this model endpoint." };
+                    return RouteAuthRefusal.Forbid(req, "You do not have permission to modify this model endpoint.");
                 }
                 catch (ArgumentException ex)
                 {
@@ -169,7 +167,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/model-endpoints/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -184,8 +182,7 @@ namespace Armada.Server.Routes
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "You do not have permission to delete this model endpoint." };
+                    return RouteAuthRefusal.Forbid(req, "You do not have permission to delete this model endpoint.");
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -205,7 +202,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/model-endpoints/{id}/validate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -218,8 +215,7 @@ namespace Armada.Server.Routes
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "You do not have permission to validate this model endpoint." };
+                    return RouteAuthRefusal.Forbid(req, "You do not have permission to validate this model endpoint.");
                 }
             },
             api => api
@@ -234,7 +230,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/model-endpoints/health-check", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -243,8 +239,7 @@ namespace Armada.Server.Routes
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Global administrator access is required for a health sweep." };
+                    return RouteAuthRefusal.Forbid(req, "Global administrator access is required for a health sweep.");
                 }
             },
             api => api
@@ -253,17 +248,6 @@ namespace Armada.Server.Routes
                 .WithDescription("Global administrators can probe every enabled endpoint with its own credentials and timeout. Returns the number of endpoints probed.")
                 .WithResponse(200, OpenApiJson.For<ModelEndpointHealthSweepResponse>("Health sweep summary"))
                 .WithSecurity("ApiKey"));
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static bool TryDeserializeEndpoint(string json, out ModelEndpoint? endpoint, out string error)

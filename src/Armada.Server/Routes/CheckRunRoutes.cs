@@ -55,7 +55,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/check-runs", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 CheckRunQuery query = BuildQueryFromRequest(req);
                 ApplyScope(ctx, query);
@@ -88,7 +88,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/check-runs/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 CheckRunQuery query = JsonSerializer.Deserialize<CheckRunQuery>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? new CheckRunQuery();
@@ -111,7 +111,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/check-runs", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 CheckRunRequest request = JsonSerializer.Deserialize<CheckRunRequest>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as CheckRunRequest.");
@@ -139,7 +139,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/check-runs/import", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 CheckRunImportRequest request = JsonSerializer.Deserialize<CheckRunImportRequest>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as CheckRunImportRequest.");
@@ -167,7 +167,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/check-runs/sync/github-actions", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 GitHubActionsSyncRequest request = JsonSerializer.Deserialize<GitHubActionsSyncRequest>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as GitHubActionsSyncRequest.");
@@ -193,7 +193,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/check-runs/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 CheckRun? run = await _database.CheckRuns.ReadAsync(req.Parameters["id"], BuildScopedQuery(ctx)).ConfigureAwait(false);
                 if (run == null)
@@ -216,7 +216,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/check-runs/{id}/retry", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 try
                 {
@@ -242,7 +242,7 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/check-runs/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 CheckRunQuery scope = BuildScopedQuery(ctx);
                 CheckRun? existing = await _database.CheckRuns.ReadAsync(req.Parameters["id"], scope).ConfigureAwait(false);
@@ -264,17 +264,6 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401
-                    ? "Authentication required"
-                    : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(

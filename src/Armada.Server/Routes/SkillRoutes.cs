@@ -45,7 +45,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/skills", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 SkillQuery query = new SkillQuery();
                 ApplyQuerystringOverrides(req, query);
@@ -71,7 +71,7 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/skills/enumerate", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 SkillQuery query = JsonSerializer.Deserialize<SkillQuery>(req.Http.Request.DataAsString, _bodyJsonOptions) ?? new SkillQuery();
                 ApplyQuerystringOverrides(req, query);
@@ -92,11 +92,10 @@ namespace Armada.Server.Routes
             app.Post("/api/v1/skills", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 if (!CanManage(ctx))
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only tenant administrators can manage skills" };
+                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can manage skills");
                 }
 
                 Skill skill = JsonSerializer.Deserialize<Skill>(req.Http.Request.DataAsString, _bodyJsonOptions)
@@ -124,7 +123,7 @@ namespace Armada.Server.Routes
             app.Get("/api/v1/skills/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 Skill? skill = await _database.Skills.ReadAsync(req.Parameters["id"], BuildScopedReadQuery(ctx)).ConfigureAwait(false);
                 if (skill == null)
@@ -145,11 +144,10 @@ namespace Armada.Server.Routes
             app.Put("/api/v1/skills/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 if (!CanManage(ctx))
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only tenant administrators can manage skills" };
+                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can manage skills");
                 }
 
                 Skill? existing = await _database.Skills.ReadAsync(req.Parameters["id"], BuildScopedReadQuery(ctx)).ConfigureAwait(false);
@@ -183,11 +181,10 @@ namespace Armada.Server.Routes
             app.Delete("/api/v1/skills/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
                 if (!CanManage(ctx))
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only tenant administrators can manage skills" };
+                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can manage skills");
                 }
 
                 Skill? existing = await _database.Skills.ReadAsync(req.Parameters["id"], BuildScopedReadQuery(ctx)).ConfigureAwait(false);
@@ -213,15 +210,6 @@ namespace Armada.Server.Routes
         private static bool CanManage(AuthContext ctx)
         {
             return ctx.IsAdmin || ctx.IsTenantAdmin;
-        }
-
-        private static ApiErrorResponse BuildAuthError(ApiRequest req)
-        {
-            return new ApiErrorResponse
-            {
-                Error = ApiResultEnum.BadRequest,
-                Message = req.Http.Response.StatusCode == 401 ? "Authentication required" : "You do not have permission to perform this action"
-            };
         }
 
         private static async Task<AuthContext?> AuthorizeAsync(
