@@ -1,5 +1,8 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -108,6 +111,49 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("pytest", summary!.Format, "Format");
                 AssertEqual(5, summary.Passed, "Passed");
                 AssertEqual(0, summary.Failed, "Failed");
+            }).ConfigureAwait(false);
+
+            // An artifact path is relative to the check's working directory. A path that climbs into a
+            // sibling directory whose name starts with the working directory's name is outside it and
+            // must not be read, while the same file inside the working directory is.
+            await RunTest("Artifact summaries refuse a sibling directory that shares the working directory's name prefix", () =>
+            {
+                string baseDirectory = Path.Combine(Path.GetTempPath(), "armada_parse_containment_" + Guid.NewGuid().ToString("N"));
+                string workingDirectory = Path.Combine(baseDirectory, "checkout");
+                string sibling = Path.Combine(baseDirectory, "checkout-backup");
+                Directory.CreateDirectory(workingDirectory);
+                Directory.CreateDirectory(sibling);
+                const string coverage = "<coverage line-rate=\"0.75\" lines-covered=\"15\" lines-valid=\"20\"></coverage>";
+                const string junit = "<testsuite tests=\"4\" failures=\"1\" errors=\"0\" skipped=\"0\"></testsuite>";
+                File.WriteAllText(Path.Combine(sibling, "coverage.cobertura.xml"), coverage);
+                File.WriteAllText(Path.Combine(sibling, "results.xml"), junit);
+                File.WriteAllText(Path.Combine(workingDirectory, "coverage.cobertura.xml"), coverage);
+                File.WriteAllText(Path.Combine(workingDirectory, "results.xml"), junit);
+
+                try
+                {
+                    List<CheckRunArtifact> outside = new List<CheckRunArtifact>
+                    {
+                        new CheckRunArtifact { Path = "../checkout-backup/coverage.cobertura.xml" },
+                        new CheckRunArtifact { Path = "../checkout-backup/results.xml" }
+                    };
+                    AssertNull(CheckRunParsingService.ParseCoverageSummary(workingDirectory, outside), "a sibling-prefix coverage artifact is not read");
+                    AssertNull(CheckRunParsingService.ParseTestSummary(null, workingDirectory, outside), "a sibling-prefix test artifact is not read");
+
+                    List<CheckRunArtifact> inside = new List<CheckRunArtifact>
+                    {
+                        new CheckRunArtifact { Path = "coverage.cobertura.xml" },
+                        new CheckRunArtifact { Path = "results.xml" }
+                    };
+                    AssertNotNull(CheckRunParsingService.ParseCoverageSummary(workingDirectory, inside), "the same coverage artifact inside the working directory is read");
+                    AssertNotNull(CheckRunParsingService.ParseTestSummary(null, workingDirectory, inside), "the same test artifact inside the working directory is read");
+                }
+                finally
+                {
+                    Directory.Delete(baseDirectory, recursive: true);
+                }
+
+                return Task.CompletedTask;
             }).ConfigureAwait(false);
         }
     }

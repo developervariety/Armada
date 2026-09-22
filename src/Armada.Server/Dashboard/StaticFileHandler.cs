@@ -5,6 +5,7 @@ namespace Armada.Server.Dashboard
     using System.IO;
     using System.Reflection;
     using Armada.Core;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Serves static files for the web dashboard from the dashboard directory (the React build
@@ -139,11 +140,8 @@ namespace Armada.Server.Dashboard
             content = Array.Empty<byte>();
             contentType = "application/octet-stream";
 
-            string filePath = Path.Combine(_ExternalDashboardPath!, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            filePath = Path.GetFullPath(filePath);
-
-            // Ensure the resolved path is still within the dashboard directory
-            if (!filePath.StartsWith(_ExternalDashboardPath!, StringComparison.OrdinalIgnoreCase))
+            string? filePath = PathContainment.TryResolve(_ExternalDashboardPath!, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (filePath == null)
                 return false;
 
             if (!File.Exists(filePath))

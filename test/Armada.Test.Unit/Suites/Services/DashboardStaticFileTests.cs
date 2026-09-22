@@ -62,6 +62,35 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("TryGetFile RefusesSiblingDirectorySharingTheDashboardNamePrefix", () =>
+            {
+                string baseDirectory = Path.Combine(Path.GetTempPath(), "armada_dashboard_base_" + Guid.NewGuid().ToString("N"));
+                string directory = Path.Combine(baseDirectory, "dashboard");
+                string sibling = Path.Combine(baseDirectory, "dashboard-backup");
+                Directory.CreateDirectory(directory);
+                Directory.CreateDirectory(sibling);
+                File.WriteAllText(Path.Combine(directory, "index.html"), "<!doctype html><title>React dashboard</title>");
+                File.WriteAllText(Path.Combine(sibling, "probe.txt"), "outside the dashboard");
+
+                try
+                {
+                    StaticFileHandler.SetExternalPath(directory);
+
+                    // A rooted request path replaces the dashboard directory when combined, so the containment
+                    // check alone decides whether a sibling with the same name prefix is served.
+                    string rootedSibling = Path.Combine(sibling, "probe.txt").Replace('\\', '/');
+                    AssertFalse(StaticFileHandler.TryGetFile("/dashboard/" + rootedSibling, out _, out _), "a sibling directory that shares the dashboard's name prefix is not served");
+                    AssertTrue(StaticFileHandler.TryGetFile("/dashboard/index.html", out _, out _), "a file inside the dashboard directory is still served");
+                }
+                finally
+                {
+                    StaticFileHandler.SetExternalPath(null);
+                    if (Directory.Exists(baseDirectory)) Directory.Delete(baseDirectory, recursive: true);
+                }
+
+                return Task.CompletedTask;
+            });
+
             await RunTest("ServerAssembly EmbedsNoDashboardFiles", () =>
             {
                 string[] resources = typeof(StaticFileHandler).Assembly.GetManifestResourceNames();

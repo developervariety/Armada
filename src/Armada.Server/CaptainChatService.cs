@@ -570,18 +570,17 @@ namespace Armada.Server
             return CallerMcpToolAccessFactory.Create(caller, _SessionTokens, _Settings.McpPort, _Logging);
         }
 
-        private static void MaterializeIsolationPlan(CaptainLaunchIsolationPlan plan, string scopedDirectory)
+        internal static void MaterializeIsolationPlan(CaptainLaunchIsolationPlan plan, string scopedDirectory)
         {
             if (plan == null) throw new ArgumentNullException(nameof(plan));
             if (String.IsNullOrWhiteSpace(scopedDirectory)) throw new ArgumentNullException(nameof(scopedDirectory));
             if (plan.FilesToWrite.Count == 0) return;
 
             Directory.CreateDirectory(scopedDirectory);
-            string scopedRoot = Path.GetFullPath(scopedDirectory) + Path.DirectorySeparatorChar;
             foreach (IsolationConfigFile file in plan.FilesToWrite)
             {
-                string destination = Path.GetFullPath(Path.Combine(scopedDirectory, file.RelativePath));
-                if (!destination.StartsWith(scopedRoot, StringComparison.Ordinal))
+                string? destination = PathContainment.TryResolve(scopedDirectory, file.RelativePath);
+                if (destination == null)
                     throw new InvalidOperationException("Captain runtime configuration escaped its scoped directory.");
                 string? parent = Path.GetDirectoryName(destination);
                 if (!String.IsNullOrWhiteSpace(parent)) Directory.CreateDirectory(parent);

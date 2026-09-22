@@ -216,6 +216,13 @@ upstream integrations and excludes changes already present at that baseline.
   name prefix. A tunnelled request has one deadline covering send and response,
   releases its pending entry on every exit, and reports caller cancellation
   separately from a timeout.
+- **Path containment:** one rule decides that a path is inside a root: it is the
+  root itself or lies below the root plus a directory separator, compared
+  ordinally after normalization. The server and proxy dashboards, check-run
+  artifact collection and summary parsing, Workspace browsing, captain runtime
+  configuration writes, Harbor directory mapping, dock occupant listing, and the
+  API-endpoint workspace tools all apply it, so a sibling directory whose name
+  starts with the root's name is outside.
 - **Papercut merge:** the typed-decision merge works on copies of the listed
   groups, so an unavailable answer after an earlier merge returns the original
   groups with their original counts.

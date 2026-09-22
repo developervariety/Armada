@@ -55,6 +55,33 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetFileAsync refuses a sibling directory that shares the workspace root's name prefix", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-workspace-" + Guid.NewGuid().ToString("N"));
+                string sibling = root + "-backup";
+                Directory.CreateDirectory(root);
+                Directory.CreateDirectory(sibling);
+
+                try
+                {
+                    await File.WriteAllTextAsync(Path.Combine(root, "inside.txt"), "inside").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sibling, "secret.txt"), "outside").ConfigureAwait(false);
+
+                    WorkspaceService service = new WorkspaceService();
+                    Vessel vessel = CreateVessel(root);
+                    WorkspaceFileResponse inside = await service.GetFileAsync(vessel, "inside.txt").ConfigureAwait(false);
+                    AssertEqual("inside", inside.Content);
+
+                    await AssertThrowsAsync<UnauthorizedAccessException>(
+                        () => service.GetFileAsync(vessel, "../" + Path.GetFileName(sibling) + "/secret.txt")).ConfigureAwait(false);
+                }
+                finally
+                {
+                    TryDeleteDirectory(root);
+                    TryDeleteDirectory(sibling);
+                }
+            });
+
             await RunTest("SearchAsync skips hidden workspace directories", async () =>
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada-workspace-" + Guid.NewGuid().ToString("N"));

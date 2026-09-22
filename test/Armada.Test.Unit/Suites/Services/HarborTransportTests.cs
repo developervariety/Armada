@@ -467,6 +467,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("/runner/docks/vessel/mission", runnerPath, "runner path mirrors the dock path");
                 AssertFalse(HarborMissionRouting.TryMapWorkingDirectory(mapped, Path.Combine(Path.GetTempPath(), "elsewhere"), out _, out string outside), "a dock outside the root is refused");
                 AssertEqual(HarborMissionRouting.ReasonWorkingDirectoryUnmapped, outside, "outside reason");
+                AssertFalse(HarborMissionRouting.TryMapWorkingDirectory(mapped, Path.Combine(admiralRoot + "-backup", "mission"), out _, out _), "a sibling sharing the root's name prefix is refused");
                 AssertFalse(HarborMissionRouting.TryMapWorkingDirectory(new HarborMissionRoute { RunnerId = "hbr_a", RunnerWorkingDirectoryRoot = "/runner" }, admiralRoot, out _, out string incomplete), "a half map is refused");
                 AssertEqual(HarborMissionRouting.ReasonWorkingDirectoryMapIncomplete, incomplete, "incomplete reason");
             });

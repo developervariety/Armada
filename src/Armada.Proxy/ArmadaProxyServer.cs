@@ -6,6 +6,7 @@ namespace Armada.Proxy
     using System.Text.Json;
     using Armada.Core;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Proxy.Models;
     using Armada.Proxy.Services;
     using Armada.Proxy.Settings;
@@ -939,23 +940,15 @@ namespace Armada.Proxy
         }
 
         /// <summary>
-        /// Resolve a request-relative path below a static root. The resolved path must be the root
-        /// itself or lie below the root plus a directory separator, so a sibling directory whose
-        /// name starts with the root's name is refused. Both paths come from the same normalization
-        /// of the root, so the comparison is ordinal on every platform.
+        /// Resolve a request-relative path below a static root with the shared containment rule
+        /// (<see cref="PathContainment"/>): the root itself or below the root plus a directory separator.
         /// </summary>
         /// <param name="rootDirectory">Static root directory.</param>
         /// <param name="relativePath">Decoded request-relative path.</param>
         /// <returns>The full path when it stays inside the root; otherwise null.</returns>
         internal static string? TryResolveStaticPath(string rootDirectory, string relativePath)
         {
-            string normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
-            string fullPath = Path.GetFullPath(Path.Combine(normalizedRoot, relativePath));
-            if (String.Equals(fullPath, normalizedRoot, StringComparison.Ordinal)) return fullPath;
-            string rootPrefix = normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
-                ? normalizedRoot
-                : normalizedRoot + Path.DirectorySeparatorChar;
-            return fullPath.StartsWith(rootPrefix, StringComparison.Ordinal) ? fullPath : null;
+            return PathContainment.TryResolve(rootDirectory, relativePath);
         }
 
         private static string GetContentType(string fullPath)

@@ -4,6 +4,7 @@ namespace Armada.Runtimes.Tools
     using System.Collections.Generic;
     using System.IO;
     using System.Threading;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Resolves tool paths inside one mission workspace and rejects traversal and reparse-point escapes.
@@ -27,13 +28,7 @@ namespace Armada.Runtimes.Tools
             string candidate = Path.GetFullPath(Path.IsPathRooted(requestedPath)
                 ? requestedPath
                 : Path.Combine(root, requestedPath));
-            string comparisonRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-            // Use ordinal containment on every host. Windows can host case-sensitive directories;
-            // accepting a case-only sibling would make the boundary depend on the parent volume.
-            StringComparison comparison = StringComparison.Ordinal;
-            if (!candidate.StartsWith(comparisonRoot, comparison)
-                && !String.Equals(candidate, root, comparison))
+            if (!PathContainment.IsWithin(root, candidate))
                 throw new WorkspaceBoundaryException();
 
             EnsureNoReparsePoint(root, candidate);

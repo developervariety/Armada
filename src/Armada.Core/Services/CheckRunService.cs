@@ -1090,8 +1090,8 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    string fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
-                    if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+                    string? fullPath = PathContainment.TryResolve(root, relativePath);
+                    if (fullPath == null) continue;
                     if (!File.Exists(fullPath)) continue;
 
                     FileInfo info = new FileInfo(fullPath);

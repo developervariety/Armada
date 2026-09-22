@@ -3,6 +3,7 @@ namespace Armada.Core.Harbor
     using System;
     using System.IO;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -86,8 +87,7 @@ namespace Armada.Core.Harbor
 
             string root = Path.GetFullPath(route.AdmiralWorkingDirectoryRoot!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string full = Path.GetFullPath(admiralPath);
-            bool inside = String.Equals(full, root, StringComparison.Ordinal)
-                || full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+            bool inside = PathContainment.IsWithin(root, full);
             if (!inside)
             {
                 failureReason = ReasonWorkingDirectoryUnmapped;

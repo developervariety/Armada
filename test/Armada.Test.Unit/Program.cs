@@ -148,6 +148,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new GitInferenceTests());
             runner.AddSuite(new DockServiceTests());
             runner.AddSuite(new DockPathOccupantsTests());
+            runner.AddSuite(new PathContainmentTests());
             runner.AddSuite(new LogRotationServiceTests());
             runner.AddSuite(new DataExpiryServiceTests());
             runner.AddSuite(new NotificationServiceTests());

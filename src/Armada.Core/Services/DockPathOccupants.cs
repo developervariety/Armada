@@ -31,7 +31,7 @@ namespace Armada.Core.Services
                 if (!Int32.TryParse(name, out int pid) || pid <= 1 || pid == self) continue;
                 string? cwd = ReadCwd(pid);
                 if (String.IsNullOrEmpty(cwd)) continue;
-                if (cwd.Equals(root, StringComparison.Ordinal) || cwd.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                if (PathContainment.IsWithin(root, cwd))
                     pids.Add(pid);
             }
             return pids;

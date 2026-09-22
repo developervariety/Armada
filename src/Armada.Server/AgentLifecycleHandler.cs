@@ -928,11 +928,10 @@ namespace Armada.Server
             if (plan.IsEmpty) return null;
 
             Directory.CreateDirectory(scopedDirectory);
-            string scopedRoot = Path.GetFullPath(scopedDirectory) + Path.DirectorySeparatorChar;
             foreach (IsolationConfigFile file in plan.FilesToWrite)
             {
-                string destination = Path.GetFullPath(Path.Combine(scopedDirectory, file.RelativePath));
-                if (!destination.StartsWith(scopedRoot, StringComparison.Ordinal))
+                string? destination = PathContainment.TryResolve(scopedDirectory, file.RelativePath);
+                if (destination == null)
                     throw new InvalidOperationException("Captain runtime configuration escaped its scoped directory.");
 
                 string? parent = Path.GetDirectoryName(destination);

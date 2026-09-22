@@ -55,6 +55,32 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Chat runtime configuration is written only inside its scoped directory", () =>
+            {
+                string baseDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_chat_scope_" + Guid.NewGuid().ToString("N"));
+                string scoped = System.IO.Path.Combine(baseDirectory, "runtime-config");
+                try
+                {
+                    CaptainLaunchIsolationPlan inside = new CaptainLaunchIsolationPlan();
+                    inside.FilesToWrite.Add(new IsolationConfigFile { RelativePath = ".gemini/settings.json", Contents = "{}" });
+                    CaptainChatService.MaterializeIsolationPlan(inside, scoped + System.IO.Path.DirectorySeparatorChar);
+                    AssertTrue(System.IO.File.Exists(System.IO.Path.Combine(scoped, ".gemini", "settings.json")),
+                        "a file below the scoped directory is written, also when the directory is given with a trailing separator");
+
+                    CaptainLaunchIsolationPlan sibling = new CaptainLaunchIsolationPlan();
+                    sibling.FilesToWrite.Add(new IsolationConfigFile { RelativePath = "../runtime-config-backup/settings.json", Contents = "{}" });
+                    AssertThrows<InvalidOperationException>(() => CaptainChatService.MaterializeIsolationPlan(sibling, scoped));
+                    AssertFalse(System.IO.Directory.Exists(System.IO.Path.Combine(baseDirectory, "runtime-config-backup")),
+                        "nothing is written to a sibling directory that shares the scoped directory's name prefix");
+                }
+                finally
+                {
+                    if (System.IO.Directory.Exists(baseDirectory)) System.IO.Directory.Delete(baseDirectory, recursive: true);
+                }
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("An OpenCode chat reply contains only the answer, not tool activity records", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

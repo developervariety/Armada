@@ -331,6 +331,61 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RunAsync does not collect an expected artifact from a sibling directory that shares the working directory's name prefix", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_checks", "usr_checks").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-run-" + Guid.NewGuid().ToString("N"));
+                string siblingDirectory = workingDirectory + "-backup";
+                Directory.CreateDirectory(Path.Combine(workingDirectory, "artifacts"));
+                Directory.CreateDirectory(siblingDirectory);
+
+                try
+                {
+                    await File.WriteAllTextAsync(Path.Combine(workingDirectory, "artifacts", "existing.txt"), "artifact").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(siblingDirectory, "secret.txt"), "outside").ConfigureAwait(false);
+                    string siblingRelative = "../" + Path.GetFileName(siblingDirectory) + "/secret.txt";
+
+                    Vessel vessel = CreateVessel("ten_checks", "usr_checks", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_checks",
+                        UserId = "usr_checks",
+                        Name = "Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "dotnet --version",
+                        ExpectedArtifacts = new List<string> { "artifacts/existing.txt", siblingRelative }
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_checks", "usr_checks", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    AssertEqual(1, run.Artifacts.Count, "only the artifact inside the working directory is collected");
+                    AssertEqual("artifacts/existing.txt", run.Artifacts[0].Path);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                    TryDeleteDirectory(siblingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RunPendingOrNewAsync resolves matching pending run in-place", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
