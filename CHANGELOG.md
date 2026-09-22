@@ -87,7 +87,8 @@ upstream integrations and excludes changes already present at that baseline.
   preferences; dead model-list entries have visible diagnostics and fallback.
 - **Runtime execution:** inference-endpoint captains resolve endpoint credentials;
   API-endpoint missions have bounded command execution and deterministic conversation
-  compaction. Large output keeps diagnostic content and archives its full form.
+  compaction, Anthropic stable-prefix caching, and provider cache/reasoning usage
+  counters. Large output keeps diagnostic content and archives its full form.
   Runtime logs expose command and failure context, and launch configuration delivers
   the correct scoped MCP credential for each supported runtime.
 - **Indexing:** source chunks follow declaration boundaries, embedding clients use

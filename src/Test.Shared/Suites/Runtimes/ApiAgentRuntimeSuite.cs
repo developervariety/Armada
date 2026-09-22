@@ -478,7 +478,10 @@ namespace Test.Shared.Suites.Runtimes
                         ApiKey = "endpoint-secret",
                         Enabled = true
                     };
-                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 2);
+                    LoggingModule logging = CreateLogging();
+                    List<string> logs = new List<string>();
+                    logging.MessageLogged += entry => logs.Add(entry.Message ?? String.Empty);
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, logging, 2);
                     List<RuntimeTokenUsage> progress = new List<RuntimeTokenUsage>();
                     List<RuntimeTokenUsage> usage = new List<RuntimeTokenUsage>();
                     List<string> output = new List<string>();
@@ -508,6 +511,11 @@ namespace Test.Shared.Suites.Runtimes
                     AssertEqual(12L, usage[0].InputTokens);
                     AssertEqual(7L, usage[0].OutputTokens);
                     AssertEqual(19L, usage[0].ProviderTotalTokens ?? 0L);
+                    AssertEqual(8L, usage[1].CacheReadTokens);
+                    AssertEqual(0L, usage[1].CacheWriteTokens);
+                    AssertEqual(2L, usage[1].ReasoningTokens);
+                    AssertEqual(1, logs.FindAll(line => line.Contains("cannot mark a prompt-cache breakpoint", StringComparison.Ordinal)).Count);
+                    AssertFalse(requests[0].Contains("cache_control", StringComparison.Ordinal), "Anthropic cache fields must not reach another provider.");
                 }
                 finally
                 {
@@ -850,7 +858,7 @@ namespace Test.Shared.Suites.Runtimes
                     : new[]
                     {
                         "{\"id\":\"fixture-2\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"final answer\"},\"finish_reason\":null}],\"usage\":null}",
-                        "{\"id\":\"fixture-2\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"total_tokens\":23}}"
+                        "{\"id\":\"fixture-2\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"total_tokens\":23,\"prompt_tokens_details\":{\"cached_tokens\":8},\"completion_tokens_details\":{\"reasoning_tokens\":2}}}"
                     };
                 await WriteHttpStreamingResponseAsync(stream, response).ConfigureAwait(false);
             }

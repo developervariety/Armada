@@ -325,6 +325,28 @@ mission launch, Ask, planning sessions, and backlog refinement. Captains with th
 be refused before you turn the setting on. Usage-preview returns the same list as
 `accountLoginRefusals`.
 
+### Retire shared login files
+
+Enable `requireAccountLogin` only after the draft usage preview has no
+`accountLoginRefusals`. Check the saved policy and run an account-bound Ask
+request. Verify the launch paths for planning and refinement too. A preview
+checks login-file presence; it does not prove that a provider accepts a token.
+Keep the execution hold and scheduler pause in place during this check.
+
+Before retirement, check for host-side operator sessions that still use the
+shared login. Confirm that account login paths are separate files, not links to
+the shared path. Retire only the service user's runtime credential files:
+`~/.codex/auth.json`, `~/.claude/.credentials.json`,
+`~/.local/share/opencode/auth.json`, and `~/.config/cursor/auth.json` when present.
+Use a protected rollback location outside the runtime search paths during the
+change. Do not copy a token into an account home or print its contents.
+
+Keep each mounted folder, its configuration, profiles, and session history.
+Keep the account folders and their login files. Recheck the refusal preview and
+an account-bound Ask request after retirement. Restore only the affected login
+file if a dependent operator session was missed; do not disable the gate to
+hide an account launch failure. Remove the rollback copy after verification.
+
 **Owner decision required before rollout.** Confirm that each additional
 subscription account is permitted for this use under the provider's terms
 (Anthropic, OpenAI, Cursor, OpenCode) before you add a second-account captain.

@@ -260,6 +260,14 @@ shape rule, not a typed decision.
   including diagnostics. A conversation that still exceeds the ceiling fails the
   run.
 
+Anthropic API endpoints request a five-minute cache breakpoint on the fixed
+launch message. This caches the tools, system prompt, and launch prefix when
+the provider minimum is met. Later messages do not move that breakpoint. Other
+transports log once that explicit breakpoints are unavailable; automatic
+provider caching may still apply. Cache reads, cache writes, and reasoning
+tokens are copied from provider usage into runtime usage events. A zero counter
+is not proof that a request was eligible for caching.
+
 A 2026-09-19 census of 1,129 real Claude Code sessions found zero
 `compact_boundary` events, so no Bash `tool.call` hook ships.
 

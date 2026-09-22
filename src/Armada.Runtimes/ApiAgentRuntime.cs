@@ -303,13 +303,11 @@ namespace Armada.Runtimes
                 messages.Add(ChatMessage.System(BuildSystemPrompt(workingDirectory)));
                 messages.Add(ChatMessage.User(prompt));
 
-                // Said once, at the start, rather than paid for silently on every turn: this loop re-sends
-                // the whole conversation each iteration, and the client exposes no way to mark a cache
-                // breakpoint on the stable prefix, so a long run pays full input price per turn. Measured on
-                // one Judge run: input climbed 35,136 to 41,273 tokens over about forty turns with the
-                // provider reporting no cached tokens on any of them.
-                _Logging.Info(_Header + "process " + processId
-                    + ": this transport cannot mark a prompt-cache breakpoint, so every turn re-sends the conversation at full input cost.");
+                // Cache capability is announced once, never inferred from a zero counter.
+                string cacheCapability = _Endpoint.Provider == ModelProviderEnum.Anthropic
+                    ? "Anthropic prompt caching is requested through the stable system and launch prefix; provider minimums still apply."
+                    : "this transport cannot mark a prompt-cache breakpoint; provider automatic caching may still apply.";
+                _Logging.Info(_Header + "process " + processId + ": " + cacheCapability);
 
                 for (int iteration = 0; iteration < _MaxIterations; iteration++)
                 {
@@ -346,6 +344,9 @@ namespace Armada.Runtimes
                             Source = "api_endpoint",
                             InputTokens = response.Usage.PromptTokens ?? 0,
                             OutputTokens = response.Usage.CompletionTokens ?? 0,
+                            CacheReadTokens = response.Usage.CachedPromptTokens ?? 0,
+                            CacheWriteTokens = response.Usage.CacheCreationTokens ?? 0,
+                            ReasoningTokens = response.Usage.ReasoningTokens ?? 0,
                             ProviderTotalTokens = response.Usage.TotalTokens
                         };
                         PublishTokenUsage(processId, usage);
@@ -790,7 +791,7 @@ namespace Armada.Runtimes
                 return endpoint.Provider switch
                 {
                     ModelProviderEnum.Ollama => new OllamaClient(endpoint.BaseUrl, endpoint.ApiKey, logging, transport),
-                    ModelProviderEnum.Anthropic => new AnthropicClient(endpoint.BaseUrl, endpoint.ApiKey, logging, transport),
+                    ModelProviderEnum.Anthropic => new CachedAnthropicClient(endpoint.BaseUrl, endpoint.ApiKey, logging, transport),
                     ModelProviderEnum.Gemini => new GeminiClient(endpoint.BaseUrl, endpoint.ApiKey, logging, transport),
                     ModelProviderEnum.VoyageAI => throw new InvalidOperationException("VoyageAI does not support inference endpoints."),
                     ModelProviderEnum.OpenAI or ModelProviderEnum.OpenAICompatible => new OpenAiClient(endpoint.BaseUrl, endpoint.ApiKey, logging, transport),

@@ -37,6 +37,7 @@ namespace Armada.Test.Runtimes
             runner.AddSuite(new ApiAgentRuntimeToolFailureTests());
             runner.AddSuite(new RunCommandToolTests());
             runner.AddSuite(new ApiAgentRuntimeCompactionTests());
+            runner.AddSuite(new ApiAgentRuntimeCacheTests());
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 

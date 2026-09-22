@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="PolyPrompt" Version="2.4.1" />
+    <PackageReference Include="PolyPrompt" Version="2.6.0" />
     <PackageReference Include="SyslogLogging" Version="2.2.1" />
   </ItemGroup>
 
