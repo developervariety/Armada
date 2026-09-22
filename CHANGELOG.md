@@ -169,7 +169,7 @@ upstream integrations and excludes changes already present at that baseline.
   lease reconciliation takes the per-target lease lock and keeps a lease whose
   holder dock record is missing until the stale-lease grace has passed. A reaped
   background job is cancelled and its terminal status is final in memory and in
-  the journal. Admiral stop runs once, waits (bounded) for its background loops
+  the journal; each job status is journalled before it is visible. Admiral stop runs once, waits (bounded) for its background loops
   before disposing the database, and disposes it even when an earlier shutdown
   step fails.
 - **Capacity admission:** one global workload reservation covers the active-workload

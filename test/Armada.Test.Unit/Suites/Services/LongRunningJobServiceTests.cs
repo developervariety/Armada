@@ -188,6 +188,10 @@ namespace Armada.Test.Unit.Suites.Services
                 LongRunningJob accepted = accepting.Start("voyage_dispatch", _ => never.Task, "obj_example", "vsl_example");
                 AssertEqual(LongRunningJobStatusEnum.Accepted, accepted.Status);
 
+                // The accepting process stops only after its last journal write: a live executor that
+                // started later would write Running over the next process's Lost record.
+                await WaitStatusAsync(accepting, accepted.JobId, LongRunningJobStatusEnum.Running);
+
                 // The next process on the same data directory.
                 List<LongRunningJob> reported = new List<LongRunningJob>();
                 LongRunningJobService restarted = new LongRunningJobService(
@@ -438,6 +442,18 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.Delay(10);
             }
             throw new TimeoutException("job " + jobId + " did not finish within 10 s");
+        }
+
+        private static async Task WaitStatusAsync(LongRunningJobService jobs, string jobId, LongRunningJobStatusEnum status)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (jobs.TryGetStatus(jobId, out LongRunningJob? job) && job != null && job.Status == status)
+                    return;
+                await Task.Delay(10);
+            }
+            throw new TimeoutException("job " + jobId + " did not reach " + status + " within 10 s");
         }
 
         private static int FreePort()

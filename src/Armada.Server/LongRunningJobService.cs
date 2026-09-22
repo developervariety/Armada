@@ -356,8 +356,8 @@ namespace Armada.Server
         /// Apply one status transition to a tracked job. A terminal status is final: the transition
         /// is refused when the job is unknown or already terminal, or when <paramref name="next"/>
         /// declines by returning null. The check, the replacement and the journal write happen under
-        /// one lock, so the reaper and the executing operation cannot overwrite each other and the
-        /// journal always records the status held in memory.
+        /// one lock, so the reaper and the executing operation cannot overwrite each other, and the
+        /// journal is written before memory exposes the new status.
         /// </summary>
         /// <returns>The job as recorded, or null when no transition was made.</returns>
         private LongRunningJob? TryTransition(string jobId, Func<LongRunningJob, LongRunningJob?> next)
@@ -370,8 +370,9 @@ namespace Armada.Server
                 LongRunningJob? updated = next(current);
                 if (updated == null) return null;
 
-                _Jobs[jobId] = updated;
+                // Journal before memory: a status a reader can see is already durable.
                 TryWriteJournal(updated);
+                _Jobs[jobId] = updated;
                 return updated;
             }
         }
