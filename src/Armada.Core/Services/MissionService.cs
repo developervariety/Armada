@@ -5692,15 +5692,11 @@ namespace Armada.Core.Services
                 "MissionHandoff",
                 principalDisplay: "Armada Mission Handoff");
 
-            EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+            List<Incident> existing = await incidents.EnumerateActiveAsync(auth, new IncidentQuery
             {
-                MissionId = completedMission.Id,
-                PageNumber = 1,
-                PageSize = 25
+                MissionId = completedMission.Id
             }, token).ConfigureAwait(false);
-            if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed
-                && item.Status != IncidentStatusEnum.RolledBack
-                && item.RootCause != null && item.RootCause.StartsWith("handoff_blocked:", StringComparison.Ordinal)))
+            if (existing.Any(item => item.RootCause != null && item.RootCause.StartsWith("handoff_blocked:", StringComparison.Ordinal)))
             {
                 return;
             }
@@ -5864,15 +5860,11 @@ namespace Armada.Core.Services
                 "MissionHandoff",
                 principalDisplay: "Armada Mission Handoff");
 
-            EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+            List<Incident> existing = await incidents.EnumerateActiveAsync(auth, new IncidentQuery
             {
-                MissionId = mission.Id,
-                PageNumber = 1,
-                PageSize = 25
+                MissionId = mission.Id
             }, token).ConfigureAwait(false);
-            if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed
-                && item.Status != IncidentStatusEnum.RolledBack
-                && item.RootCause != null && item.RootCause.Contains(RevisionKindVerdict.RevisionCommentOnlyReason, StringComparison.Ordinal)))
+            if (existing.Any(item => item.RootCause != null && item.RootCause.Contains(RevisionKindVerdict.RevisionCommentOnlyReason, StringComparison.Ordinal)))
             {
                 return;
             }
@@ -9959,13 +9951,11 @@ namespace Armada.Core.Services
                     true,
                     "MissionAssignment",
                     principalDisplay: "Armada Mission Assignment");
-                EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+                List<Incident> existing = await incidents.EnumerateActiveAsync(auth, new IncidentQuery
                 {
-                    MissionId = mission.Id,
-                    PageNumber = 1,
-                    PageSize = 25
+                    MissionId = mission.Id
                 }, token).ConfigureAwait(false);
-                if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack))
+                if (existing.Count > 0)
                     return;
 
                 string title = mission.Title ?? mission.Id;

@@ -3153,13 +3153,11 @@ namespace Armada.Core.Services
                     "Admiral",
                     principalDisplay: "Armada Admiral");
 
-                EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+                List<Incident> existing = await incidents.EnumerateActiveAsync(auth, new IncidentQuery
                 {
-                    MissionId = mission.Id,
-                    PageNumber = 1,
-                    PageSize = 25
+                    MissionId = mission.Id
                 }, token).ConfigureAwait(false);
-                if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack))
+                if (existing.Count > 0)
                     return;
 
                 string title = mission.Title ?? mission.Id;

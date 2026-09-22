@@ -360,6 +360,20 @@ acknowledgement path.
 | Write | `armada_create_incident`, `armada_update_incident`, `armada_close_incident` |
 | Destructive | `armada_delete_incident` |
 
+An incident is active until it is `Closed` or `RolledBack`. When recovery,
+assignment or handoff checks for an existing incident of a mission or voyage, it
+filters out terminal incidents first and reads every matching active incident.
+Any number of newer closed incidents cannot hide an older open one, so recovery
+updates that incident instead of opening a duplicate. When a voyage is
+cancelled, recovery closes every active incident of its failed mission.
+
+Autonomous recovery skips failures in voyages that ended `Complete` or
+`Cancelled`. A failure in a `Failed` voyage stays eligible, because a mission
+failure is what ends a voyage `Failed`. Cancelling a voyage cancels only its
+`Pending`, `Assigned` and `InProgress` missions, including when captain
+recovery finds the voyage cancelled. Finished missions keep their status, and
+produced work takes its status from landing evidence (section 8.26).
+
 ### 8.11 Releases
 
 | Risk | Tools |

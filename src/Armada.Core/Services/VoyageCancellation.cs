@@ -99,9 +99,7 @@ namespace Armada.Core.Services
 
             foreach (Mission mission in missions)
             {
-                if (mission.Status == MissionStatusEnum.Pending
-                    || mission.Status == MissionStatusEnum.Assigned
-                    || mission.Status == MissionStatusEnum.InProgress)
+                if (MissionStateMachine.IsCancelledWithVoyage(mission.Status))
                 {
                     if (!String.IsNullOrEmpty(mission.CaptainId))
                     {

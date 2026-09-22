@@ -53,7 +53,10 @@ namespace Armada.Server
         private readonly IConventionChecker? _ConventionChecker;
         private readonly ICriticalTriggerEvaluator? _CriticalTriggerEvaluator;
         private readonly ProviderProgressTracker? _ProviderProgress;
-        private readonly ConcurrentDictionary<string, SemaphoreSlim> _MissionLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
+        // Per-mission policy gates. An entry lives only while a policy application for that mission
+        // holds or waits on it, so the map never grows with the number of missions ever handled.
+        private readonly Dictionary<string, MissionLockEntry> _MissionLocks = new Dictionary<string, MissionLockEntry>(StringComparer.Ordinal);
+        private readonly object _MissionLocksSync = new object();
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
         private int _LandingDrainNoDockCount = 0;
         private int _LandingDrainDiffFailedCount = 0;
@@ -73,6 +76,7 @@ namespace Armada.Server
 
         // Missions whose withheld nudge already produced an event, so a finished captain yields one
         // event rather than one per sweep tick; every withheld nudge is still counted and logged.
+        // An entry is dropped once no Working captain holds the mission.
         private readonly ConcurrentDictionary<string, byte> _NudgeSuppressedMissions =
             new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
@@ -247,7 +251,7 @@ namespace Armada.Server
             // them out before consuming a selection slot. The per-sweep cache keyed by voyage id keeps the
             // filter bounded -- each distinct voyage is read at most once per sweep, never re-hydrating
             // full mission rows.
-            Dictionary<string, bool> terminalVoyageCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+            Dictionary<string, bool> closedVoyageCache = new Dictionary<string, bool>(StringComparer.Ordinal);
             int processed = 0;
             int reconciledSkipped = 0;
 
@@ -267,7 +271,7 @@ namespace Armada.Server
                     continue;
                 }
 
-                if (await IsTerminalVoyageAsync(candidate.VoyageId, terminalVoyageCache, token).ConfigureAwait(false))
+                if (await IsRecoveryClosedVoyageAsync(candidate.VoyageId, closedVoyageCache, token).ConfigureAwait(false))
                     continue;
 
                 // Exclude auto-rescue missions: they can never be rescued again (Classify returns
@@ -305,6 +309,19 @@ namespace Armada.Server
         /// Number of rescues currently deferred by an engaged dispatch hold and waiting for it to clear.
         /// </summary>
         public int HoldDeferredRescueCount => _HoldDeferredRescues.Count;
+
+        /// <summary>
+        /// Number of per-mission policy gates currently held or awaited.
+        /// </summary>
+        internal int MissionLockCount
+        {
+            get { lock (_MissionLocksSync) { return _MissionLocks.Count; } }
+        }
+
+        /// <summary>
+        /// Number of missions whose withheld stall nudge has already been recorded.
+        /// </summary>
+        internal int NudgeSuppressedMissionCount => _NudgeSuppressedMissions.Count;
 
         /// <summary>
         /// Branches the last landing-drain sweep could not measure because no dock worktree held them.
@@ -379,7 +396,10 @@ namespace Armada.Server
             public DateTime HoldSetByUtc { get; }
         }
 
-        private async Task<bool> IsTerminalVoyageAsync(string? voyageId, Dictionary<string, bool> cache, CancellationToken token)
+        // Recovery is closed for a voyage that ended Complete or Cancelled. A Failed voyage stays
+        // eligible: a mission failure is what ends a voyage Failed, and that failure is exactly what
+        // recovery exists to rescue. Later policy conditions still decide whether a rescue launches.
+        private async Task<bool> IsRecoveryClosedVoyageAsync(string? voyageId, Dictionary<string, bool> cache, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(voyageId))
                 return false;
@@ -687,16 +707,12 @@ namespace Armada.Server
         private async Task<bool> HasOpenStuckVoyageIncidentAsync(Voyage voyage, CancellationToken token)
         {
             AuthContext auth = BuildVoyageAuth(voyage);
-            EnumerationResult<Incident> page = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            List<Incident> active = await _Incidents.EnumerateActiveAsync(auth, new IncidentQuery
             {
-                VoyageId = voyage.Id,
-                PageNumber = 1,
-                PageSize = 25
+                VoyageId = voyage.Id
             }, token).ConfigureAwait(false);
 
-            return page.Objects.Any(item =>
-                item.Status != IncidentStatusEnum.Closed &&
-                item.Status != IncidentStatusEnum.RolledBack &&
+            return active.Any(item =>
                 (item.Summary ?? String.Empty).Contains("no live missions", StringComparison.OrdinalIgnoreCase));
         }
 
@@ -705,16 +721,12 @@ namespace Armada.Server
         private async Task CloseOpenStuckVoyageIncidentsAsync(Voyage voyage, CancellationToken token)
         {
             AuthContext auth = BuildVoyageAuth(voyage);
-            EnumerationResult<Incident> page = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            List<Incident> active = await _Incidents.EnumerateActiveAsync(auth, new IncidentQuery
             {
-                VoyageId = voyage.Id,
-                PageNumber = 1,
-                PageSize = 25
+                VoyageId = voyage.Id
             }, token).ConfigureAwait(false);
 
-            foreach (Incident incident in page.Objects.Where(item =>
-                item.Status != IncidentStatusEnum.Closed &&
-                item.Status != IncidentStatusEnum.RolledBack &&
+            foreach (Incident incident in active.Where(item =>
                 (item.Summary ?? String.Empty).Contains("no live missions", StringComparison.OrdinalIgnoreCase)))
             {
                 await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
@@ -979,8 +991,16 @@ namespace Armada.Server
 
         private async Task<bool> ApplyFailurePolicyAsync(string? tenantId, string missionId, CancellationToken token)
         {
-            SemaphoreSlim missionLock = _MissionLocks.GetOrAdd(missionId, _ => new SemaphoreSlim(1, 1));
-            await missionLock.WaitAsync(token).ConfigureAwait(false);
+            MissionLockEntry missionLock = EnterMissionLock(missionId);
+            try
+            {
+                await missionLock.Gate.WaitAsync(token).ConfigureAwait(false);
+            }
+            catch
+            {
+                LeaveMissionLock(missionId, missionLock);
+                throw;
+            }
 
             try
             {
@@ -1136,8 +1156,43 @@ namespace Armada.Server
             }
             finally
             {
-                missionLock.Release();
+                missionLock.Gate.Release();
+                LeaveMissionLock(missionId, missionLock);
             }
+        }
+
+        private MissionLockEntry EnterMissionLock(string missionId)
+        {
+            lock (_MissionLocksSync)
+            {
+                if (!_MissionLocks.TryGetValue(missionId, out MissionLockEntry? entry))
+                {
+                    entry = new MissionLockEntry();
+                    _MissionLocks[missionId] = entry;
+                }
+                entry.Users++;
+                return entry;
+            }
+        }
+
+        private void LeaveMissionLock(string missionId, MissionLockEntry entry)
+        {
+            lock (_MissionLocksSync)
+            {
+                entry.Users--;
+                if (entry.Users == 0)
+                {
+                    _MissionLocks.Remove(missionId);
+                    entry.Gate.Dispose();
+                }
+            }
+        }
+
+        private sealed class MissionLockEntry
+        {
+            public SemaphoreSlim Gate { get; } = new SemaphoreSlim(1, 1);
+
+            public int Users { get; set; }
         }
 
         private async Task<Mission?> ReadMissionAsync(string? tenantId, string missionId, CancellationToken token)
@@ -1487,15 +1542,12 @@ namespace Armada.Server
 
         private async Task CloseActiveMissionIncidentsAsync(AuthContext auth, Mission mission, string note, CancellationToken token)
         {
-            EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            List<Incident> active = await _Incidents.EnumerateActiveAsync(auth, new IncidentQuery
             {
-                MissionId = mission.Id,
-                PageNumber = 1,
-                PageSize = 25
+                MissionId = mission.Id
             }, token).ConfigureAwait(false);
 
-            foreach (Incident incident in existing.Objects.Where(item =>
-                item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack))
+            foreach (Incident incident in active)
             {
                 Incident updated = await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
                 {
@@ -1512,15 +1564,12 @@ namespace Armada.Server
 
         private async Task<Incident> EnsureIncidentAsync(AuthContext auth, Mission mission, RecoveryDecision decision, CancellationToken token)
         {
-            EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            List<Incident> activeIncidents = await _Incidents.EnumerateActiveAsync(auth, new IncidentQuery
             {
-                MissionId = mission.Id,
-                PageNumber = 1,
-                PageSize = 25
+                MissionId = mission.Id
             }, token).ConfigureAwait(false);
 
-            Incident? active = existing.Objects
-                .FirstOrDefault(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack);
+            Incident? active = activeIncidents.FirstOrDefault();
             string recoveryNote = decision.DispatchRescue
                 ? "Autonomous policy classified this as recoverable and will dispatch one rescue mission."
                 : "Autonomous policy stopped before rescue dispatch: " + decision.Reason + "." + BuildModeScopeNote(mission);
@@ -2347,10 +2396,25 @@ namespace Armada.Server
 
         private async Task NudgeStalledLiveCaptainsAsync(CancellationToken token)
         {
-            if (!_Settings.AutonomousRecovery.SendStallMailNudges) return;
+            if (!_Settings.AutonomousRecovery.SendStallMailNudges)
+            {
+                _NudgeSuppressedMissions.Clear();
+                return;
+            }
 
             double thresholdMinutes = Math.Max(1.0, _Settings.StallThresholdMinutes * _Settings.AutonomousRecovery.StallMailNudgeThresholdRatio);
             List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+
+            // A suppression record is kept only while a Working captain still holds the mission.
+            HashSet<string> heldMissionIds = working
+                .Where(item => !String.IsNullOrWhiteSpace(item.CurrentMissionId))
+                .Select(item => item.CurrentMissionId!)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (string suppressedMissionId in _NudgeSuppressedMissions.Keys)
+            {
+                if (!heldMissionIds.Contains(suppressedMissionId))
+                    _NudgeSuppressedMissions.TryRemove(suppressedMissionId, out byte _);
+            }
 
             foreach (Captain captain in working)
             {

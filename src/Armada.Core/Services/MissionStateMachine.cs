@@ -121,6 +121,20 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Whether cancelling a mission's voyage also cancels the mission: the transition to
+        /// Cancelled is legal and the mission has not produced work (Pending, Assigned, InProgress).
+        /// A finished mission keeps its outcome, and produced work under an ended voyage takes its
+        /// status from landing evidence through <see cref="TerminalVoyageMissionRule"/>.
+        /// </summary>
+        /// <param name="status">Mission status.</param>
+        /// <returns>True if voyage cancellation cancels a mission in this status.</returns>
+        public static bool IsCancelledWithVoyage(MissionStatusEnum status)
+        {
+            return IsValidTransition(status, MissionStatusEnum.Cancelled)
+                && !IsTerminalOrPostWork(status);
+        }
+
+        /// <summary>
         /// Statuses in which a captain is actively responsible for the mission
         /// (InProgress, Assigned, Review, Testing).
         /// </summary>

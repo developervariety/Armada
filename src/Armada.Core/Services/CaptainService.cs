@@ -169,7 +169,9 @@ namespace Armada.Core.Services
 
                 if (voyageCancelled || !missionRecoverable)
                 {
-                    if (voyageCancelled && mission.Status != MissionStatusEnum.Cancelled)
+                    // A cancelled voyage cancels only work it may still stop; finished and produced
+                    // missions keep their status.
+                    if (voyageCancelled && MissionStateMachine.IsCancelledWithVoyage(mission.Status))
                     {
                         mission.Status = MissionStatusEnum.Cancelled;
                         mission.CompletedUtc = DateTime.UtcNow;

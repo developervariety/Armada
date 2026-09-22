@@ -125,6 +125,37 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Enumerate every non-terminal incident (not Closed and not RolledBack) that matches the
+        /// query's filters. Terminal incidents are filtered out before paging and every page is
+        /// visited, so newer closed incidents can never hide an older active one.
+        /// </summary>
+        /// <param name="auth">Caller context.</param>
+        /// <param name="query">Filters to apply. Paging and the terminal filter are set by this method.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Every matching active incident, newest first.</returns>
+        public async Task<List<Incident>> EnumerateActiveAsync(
+            AuthContext auth,
+            IncidentQuery query,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (query == null) throw new ArgumentNullException(nameof(query));
+
+            query.ExcludeTerminal = true;
+            query.OldestFirst = false;
+            query.PageSize = 500;
+            query.PageNumber = 1;
+            List<Incident> active = new List<Incident>();
+            while (true)
+            {
+                EnumerationResult<Incident> page = await EnumerateAsync(auth, query, token).ConfigureAwait(false);
+                active.AddRange(page.Objects);
+                if (page.Objects.Count == 0 || page.PageNumber >= page.TotalPages) return active;
+                query.PageNumber++;
+            }
+        }
+
+        /// <summary>
         /// Read one incident.
         /// </summary>
         public async Task<Incident?> ReadAsync(AuthContext auth, string id, CancellationToken token = default)

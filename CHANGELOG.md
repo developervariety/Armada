@@ -142,6 +142,12 @@ upstream integrations and excludes changes already present at that baseline.
   launch no more captains than `MaxConcurrentCaptainWorkloads`. Fleet-capacity
   admission reads the active-work footprint in one query on every database provider
   instead of enumerating retained voyage and mission history.
+- **Recovery bookkeeping:** active-incident lookups filter out closed and
+  rolled-back incidents first and read every match, so newer closed incidents
+  cannot hide an open one. Voyage cancellation, including captain recovery under a
+  cancelled voyage, cancels only Pending, Assigned and InProgress missions.
+  Per-mission recovery gates and nudge-suppression records are released once the
+  mission is no longer in use.
 - **Dashboard and clients:** responsive navigation, scoped controls, complete entity
   forms, structured mission evidence, routing and account controls, endpoint health,
   tool activity, and consistent REST/MCP/WebSocket contracts.

@@ -184,6 +184,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Cancelled voyage recovery keeps finished and produced mission statuses", async () =>
+            {
+                MissionStatusEnum[] preserved = new MissionStatusEnum[]
+                {
+                    MissionStatusEnum.Complete,
+                    MissionStatusEnum.Failed,
+                    MissionStatusEnum.WorkProduced,
+                    MissionStatusEnum.PullRequestOpen,
+                    MissionStatusEnum.LandingFailed
+                };
+                foreach (MissionStatusEnum status in preserved)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        StubDockService docks = new StubDockService();
+                        CaptainService captainService = new CaptainService(CreateLogging(), testDb.Driver, CreateSettings(), new StubGitService(), docks);
+                        int launchAttempts = 0;
+                        captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) =>
+                        {
+                            launchAttempts++;
+                            return Task.FromResult(7777);
+                        };
+
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                            new Vessel("recover-preserve-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                            new Voyage("recover-preserve-voyage") { Status = VoyageStatusEnum.Cancelled }).ConfigureAwait(false);
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("recover-preserve-captain")
+                        {
+                            State = CaptainStateEnum.Working,
+                            CurrentMissionId = "msn_keepstatus",
+                            CurrentDockId = "dck_keepstatus"
+                        }).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(new Mission("Finished Mission")
+                        {
+                            Id = "msn_keepstatus",
+                            VesselId = vessel.Id,
+                            VoyageId = voyage.Id,
+                            CaptainId = captain.Id,
+                            DockId = "dck_keepstatus",
+                            Status = status
+                        }).ConfigureAwait(false);
+                        await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                        {
+                            Id = "dck_keepstatus",
+                            CaptainId = captain.Id,
+                            WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_recover_preserve_" + Guid.NewGuid().ToString("N")),
+                            Active = true
+                        }).ConfigureAwait(false);
+
+                        await captainService.TryRecoverAsync(captain).ConfigureAwait(false);
+
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync("msn_keepstatus").ConfigureAwait(false);
+                        Captain? updatedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        AssertEqual(status, updated!.Status, "A " + status + " mission keeps its status when its voyage is cancelled");
+                        AssertEqual(0, launchAttempts, "A " + status + " mission is not relaunched");
+                        AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "The captain is released when recovery is skipped");
+                    }
+                }
+            });
+
             await RunTest("Healthy recovery worktree relaunch skips destructive repair", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

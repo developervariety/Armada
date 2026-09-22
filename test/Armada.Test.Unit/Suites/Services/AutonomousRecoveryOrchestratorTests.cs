@@ -1009,6 +1009,118 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("landing", incidentPage.Objects[0].RecoveryNotes ?? "", "Incident should preserve landing ownership reason.");
             }).ConfigureAwait(false);
 
+            await RunTest("Recovery reuses an older open incident hidden behind newer closed incidents", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_hidden", "usr_auto_hidden").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_hidden", "usr_auto_hidden").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Review denied: missing tests").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated("ten_auto_hidden", "usr_auto_hidden", false, true, "UnitTest");
+                Incident open = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Older open incident",
+                    Status = IncidentStatusEnum.Open,
+                    MissionId = failed.Id,
+                    VesselId = vessel.Id
+                }).ConfigureAwait(false);
+                await Task.Delay(20).ConfigureAwait(false);
+                for (int i = 0; i < 25; i++)
+                {
+                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Newer closed incident " + i,
+                        Status = IncidentStatusEnum.Closed,
+                        MissionId = failed.Id,
+                        VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+                }
+
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver), incidents, new RunbookService(testDb.Driver, new LoggingModule()));
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Incident> active = (await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    ExcludeTerminal = true,
+                    PageNumber = 1,
+                    PageSize = 100
+                }).ConfigureAwait(false)).Objects;
+                AssertEqual(1, active.Count, "Recovery must not open a duplicate while an older incident is still open.");
+                AssertEqual(open.Id, active[0].Id, "Recovery updates the existing open incident.");
+                AssertContains("human review", active[0].RecoveryNotes ?? "", "The existing incident receives the recovery note.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Cancelled voyage closes every active incident of the failed mission beyond one page", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_many_open", "usr_auto_many_open").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_many_open", "usr_auto_many_open").ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Cancelled voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Cancelled,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge failed after voyage cancellation").ConfigureAwait(false);
+                failed.VoyageId = voyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated("ten_auto_many_open", "usr_auto_many_open", false, true, "UnitTest");
+                for (int i = 0; i < 30; i++)
+                {
+                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Open incident " + i,
+                        Status = IncidentStatusEnum.Open,
+                        MissionId = failed.Id,
+                        VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+                }
+
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver), incidents, new RunbookService(testDb.Driver, new LoggingModule()));
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Incident> active = (await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    ExcludeTerminal = true,
+                    PageNumber = 1,
+                    PageSize = 100
+                }).ConfigureAwait(false)).Objects;
+                AssertEqual(0, active.Count, "Every active incident of a cancelled-voyage mission is closed, not only the first page.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Recovery policy gates are released once no application holds them", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_gate", "usr_auto_gate").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_gate", "usr_auto_gate").ConfigureAwait(false);
+                Mission first = await CreateFailedMissionAsync(testDb, vessel, "Review denied: missing tests").ConfigureAwait(false);
+                Mission second = await CreateFailedMissionAsync(testDb, vessel, "Review denied: missing tests").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver), incidents, new RunbookService(testDb.Driver, new LoggingModule()));
+                await Task.WhenAll(
+                    orchestrator.HandleMissionOutcomeAsync(first, false),
+                    orchestrator.HandleMissionOutcomeAsync(first, false),
+                    orchestrator.HandleMissionOutcomeAsync(second, false)).ConfigureAwait(false);
+
+                AssertEqual(0, orchestrator.MissionLockCount, "No per-mission gate remains after every policy application finished.");
+                AssertEqual(1, await CountIncidentsAsync(incidents, vessel, first.Id).ConfigureAwait(false),
+                    "Concurrent applications for one mission stay serialized.");
+            }).ConfigureAwait(false);
+
             await RunTest("Cancelled parent voyage suppresses failed-mission rescue and cancels active rescue", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1671,6 +1783,13 @@ namespace Armada.Test.Unit.Suites.Services
                     .ConfigureAwait(false);
                 AssertEqual(1, suppressed.Count, "The suppression is recorded once per mission, not once per sweep.");
                 AssertContains("[verdict] PASS", suppressed[0].Message ?? String.Empty, "The event names the marker that finished the mission.");
+                AssertEqual(1, orchestrator.NudgeSuppressedMissionCount, "The suppression is remembered while the captain still holds the mission.");
+
+                captain.State = CaptainStateEnum.Idle;
+                captain.CurrentMissionId = null;
+                await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(0, orchestrator.NudgeSuppressedMissionCount, "The suppression record is dropped once no Working captain holds the mission.");
             }).ConfigureAwait(false);
 
             await RunTest("ReviewerFeedback_JudgeStageFailure_InlinedIntoWorkerRescueBrief", async () =>
