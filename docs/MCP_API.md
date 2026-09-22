@@ -260,8 +260,9 @@ is returned. The voyage and mission rows are created when the job runs, not
 before the response: an `Accepted` job is not yet a voyage. Read the voyage ID
 from the job's result. A dispatch refused after acceptance (the hold engaged in
 between, or another dispatch won the objective) ends `Failed` with the refusal
-body as its error. A successful job is not evidence that a captain has started
-work.
+body as its `FailureMessage`. `armada_job_status` reports a `Failed` or `Lost`
+job's reason in `FailureMessage`, and reading it is a successful call. A
+successful job is not evidence that a captain has started work.
 
 While the dispatch hold is engaged, every dispatch entry point refuses at
 submission with `dispatch_hold_active`, the holder (`SetBy`), `SetByUtc` and
@@ -376,6 +377,15 @@ Armada uses two error levels:
    invalid cursor, or unhandled call failure.
 2. A structured Armada error result for a valid tool call that cannot perform
    the requested operation.
+
+A tool result is an error when it is an explicit protocol result with
+`isError: true`, or when its top-level `Error` field is a non-empty string. An
+explicit `isError` flag decides in both directions. A null or empty `Error`
+field, or an `Error` nested inside the payload, is a successful result. Over
+HTTP, an error result reaches the client with `isError: true` and its full
+payload, and the tool-call audit records it as `Failed` with the error message.
+Local stdio (`armada mcp stdio`) applies the same rule and answers an error
+result with a JSON-RPC internal error that carries the message.
 
 When a structured result includes an action hint, follow it before you retry.
 Do not repeat a dispatch call until you have checked whether it created a

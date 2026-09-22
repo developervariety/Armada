@@ -356,13 +356,14 @@ namespace Armada.Server.Mcp
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 object result = await registration.Handler(arguments).ConfigureAwait(false);
-                CallToolResult toolResult = ConvertToolResult(result);
+                CallToolResult toolResult = ConvertToolResult(result, out string? toolError);
+                bool toolFailed = toolResult.IsError == true;
                 await WriteToolAuditAsync(
                     request.Params.Name,
                     arguments,
-                    "Succeeded",
-                    true,
-                    null,
+                    toolFailed ? "Failed" : "Succeeded",
+                    !toolFailed,
+                    toolFailed ? toolError : null,
                     cancellationToken).ConfigureAwait(false);
                 return await AppendPendingWakesAsync(
                     request.Params.Name,
@@ -452,14 +453,22 @@ namespace Armada.Server.Mcp
             }
         }
 
-        private static CallToolResult ConvertToolResult(object result)
+        /// <summary>
+        /// Convert a handler's return value to a protocol result. <see cref="McpToolResultError"/>
+        /// decides whether it is an error, and the result's <c>IsError</c> flag carries that decision.
+        /// </summary>
+        private static CallToolResult ConvertToolResult(object result, out string? errorMessage)
         {
             if (result is CallToolResult callToolResult)
+            {
+                McpToolResultError.TryGetError(callToolResult, out errorMessage);
                 return callToolResult;
+            }
 
             JsonElement serialized = result is JsonElement element
                 ? element.Clone()
                 : JsonSerializer.SerializeToElement(result, _JsonOptions);
+            bool isError = McpToolResultError.TryGetError(serialized, out errorMessage);
 
             if (serialized.ValueKind == JsonValueKind.Object
                 && serialized.TryGetProperty("content", out _))
@@ -467,13 +476,16 @@ namespace Armada.Server.Mcp
                 CallToolResult? protocolResult =
                     JsonSerializer.Deserialize<CallToolResult>(serialized.GetRawText(), _JsonOptions);
                 if (protocolResult != null)
+                {
+                    protocolResult.IsError = isError;
                     return protocolResult;
+                }
             }
 
             string text = result is string stringResult
                 ? stringResult
                 : serialized.GetRawText();
-            return CreateTextResult(text, isError: false);
+            return CreateTextResult(text, isError);
         }
 
         private static string? ReadParticipantHeader(HttpContext context)

@@ -490,6 +490,61 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(observedAudit.Succeeded);
             }).ConfigureAwait(false);
 
+            await RunTest("ErrorEnvelopeResult_IsFlaggedAndAuditedAsFailed", async () =>
+            {
+                AuditedToolCall call = await CallAuditedToolAsync(
+                    () => Task.FromResult((object)new { Error = "Dock not found" })).ConfigureAwait(false);
+                JsonElement response = call.Response;
+                McpToolCallAudit? audit = call.Audit;
+                JsonElement result = response.GetProperty("result");
+                AssertTrue(result.GetProperty("isError").GetBoolean(), "an error envelope must reach the client with isError=true");
+                AssertContains("Dock not found", ResultText(response));
+                AssertNotNull(audit, "the error result must reach the audit sink");
+                AssertEqual("Failed", audit!.Phase);
+                AssertFalse(audit.Succeeded, "an error envelope must not be audited as succeeded");
+                AssertEqual("Dock not found", audit.Error);
+            }).ConfigureAwait(false);
+
+            await RunTest("ExplicitIsErrorResult_IsAuditedAsFailed", async () =>
+            {
+                AuditedToolCall call = await CallAuditedToolAsync(
+                    () => Task.FromResult((object)new ModelContextProtocol.Protocol.CallToolResult
+                    {
+                        Content = new List<ModelContextProtocol.Protocol.ContentBlock>
+                        {
+                            new ModelContextProtocol.Protocol.TextContentBlock { Text = "explicit refusal" }
+                        },
+                        IsError = true
+                    })).ConfigureAwait(false);
+                JsonElement response = call.Response;
+                McpToolCallAudit? audit = call.Audit;
+                AssertTrue(response.GetProperty("result").GetProperty("isError").GetBoolean());
+                AssertNotNull(audit);
+                AssertEqual("Failed", audit!.Phase);
+                AssertFalse(audit.Succeeded, "an explicit isError result must not be audited as succeeded");
+                AssertEqual("explicit refusal", audit.Error);
+            }).ConfigureAwait(false);
+
+            await RunTest("NullOrNestedErrorField_IsNotAnError", async () =>
+            {
+                AuditedToolCall call = await CallAuditedToolAsync(
+                    () => Task.FromResult((object)new
+                    {
+                        Status = "ok",
+                        Error = (string?)null,
+                        Detail = new { Error = "nested diagnostic" }
+                    })).ConfigureAwait(false);
+                JsonElement response = call.Response;
+                McpToolCallAudit? audit = call.Audit;
+                JsonElement result = response.GetProperty("result");
+                bool flagged = result.TryGetProperty("isError", out JsonElement isError) && isError.GetBoolean();
+                AssertFalse(flagged, "a null top-level Error or a nested Error is a successful result");
+                AssertNotNull(audit);
+                AssertEqual("Succeeded", audit!.Phase);
+                AssertTrue(audit.Succeeded);
+                AssertNull(audit.Error);
+            }).ConfigureAwait(false);
+
             await RunTest("RequiredAuditFailureBlocksToolHandler", async () =>
             {
                 int port = GetAvailablePort();
@@ -522,6 +577,42 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(response.TryGetProperty("error", out _), "audit failure should be a JSON-RPC error");
                 AssertFalse(handlerRan, "the tool handler must not run before its required audit exists");
             }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Start a server with one audited tool, call it once, and return the response with the
+        /// terminal audit record.
+        /// </summary>
+        private static async Task<AuditedToolCall> CallAuditedToolAsync(Func<Task<object>> handler)
+        {
+            int port = GetAvailablePort();
+            await using ArmadaMcpHttpServer server = CreateServer(port);
+            AuditedToolCall call = new AuditedToolCall();
+            server.ToolCallAuditSink = (audit, token) =>
+            {
+                call.Audit = audit;
+                return Task.CompletedTask;
+            };
+            server.RegisterTool(
+                "armada_result",
+                "Return the test result",
+                new { type = "object" },
+                args => handler());
+            await server.StartAsync().ConfigureAwait(false);
+
+            using HttpClient client = new HttpClient
+            {
+                BaseAddress = new Uri("http://127.0.0.1:" + port)
+            };
+            call.Response = await CallToolAsync(client, 1, "armada_result", null).ConfigureAwait(false);
+            return call;
+        }
+
+        private sealed class AuditedToolCall
+        {
+            public JsonElement Response { get; set; }
+
+            public McpToolCallAudit? Audit { get; set; }
         }
 
         private static void RegisterStatusTool(ArmadaMcpHttpServer server)

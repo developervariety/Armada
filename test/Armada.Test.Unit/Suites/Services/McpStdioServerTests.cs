@@ -211,6 +211,49 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(output.Length, message.TotalBytesRead, "tool errors should not write trailing stdout");
             }).ConfigureAwait(false);
 
+            await RunTest("ToolCallNullErrorField_ReturnsResult", async () =>
+            {
+                ArmadaMcpStdioServer server = CreateServer();
+                server.RegisterTool(
+                    "armada_ok",
+                    "Successful tool whose payload carries an unset Error field",
+                    new { type = "object" },
+                    args => Task.FromResult((object)new { Status = "ok", Error = (string?)null }));
+
+                string request = "{\"jsonrpc\":\"2.0\",\"id\":\"ok-1\",\"method\":\"tools/call\",\"params\":{\"name\":\"armada_ok\",\"arguments\":{}}}";
+
+                byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
+
+                AssertFalse(response.TryGetProperty("error", out _), "a null Error field is not a tool error: " + message.Body);
+                AssertContains("ok", response.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);
+            }).ConfigureAwait(false);
+
+            await RunTest("ToolCallExplicitIsErrorResult_ReturnsInternalError", async () =>
+            {
+                ArmadaMcpStdioServer server = CreateServer();
+                server.RegisterTool(
+                    "armada_refuse",
+                    "Tool that returns an explicit protocol error result",
+                    new { type = "object" },
+                    args => Task.FromResult((object)new
+                    {
+                        content = new[] { new { type = "text", text = "explicit refusal" } },
+                        isError = true
+                    }));
+
+                string request = "{\"jsonrpc\":\"2.0\",\"id\":\"refuse-1\",\"method\":\"tools/call\",\"params\":{\"name\":\"armada_refuse\",\"arguments\":{}}}";
+
+                byte[] output = await RunServerAsync(server, CreateFrame(request)).ConfigureAwait(false);
+                MessageReadResult message = ReadSingleMessage(output);
+                JsonElement response = JsonSerializer.Deserialize<JsonElement>(message.Body);
+                JsonElement error = response.GetProperty("error");
+
+                AssertEqual(-32603, error.GetProperty("code").GetInt32());
+                AssertContains("explicit refusal", error.GetProperty("message").GetString()!);
+            }).ConfigureAwait(false);
+
             await RunTest("McpConfigHelper_CodexUsesStdioAndClaudeRemainsHttp", () =>
             {
                 string helper = ReadRepositoryFile("src", "Armada.Helm", "Commands", "McpConfigHelper.cs");

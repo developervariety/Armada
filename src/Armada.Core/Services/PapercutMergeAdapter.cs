@@ -100,7 +100,9 @@ namespace Armada.Core.Services
         /// Return the listing with same-issue groups merged, when the decision is in Gate mode and the
         /// model is confident. The rule verdict — the input listing unmerged — is returned unchanged
         /// when the decision is Off, when fewer than two groups exist, or the first time the model is
-        /// unavailable in this invocation. Never throws into the caller.
+        /// unavailable in this invocation. An unavailable answer discards every merge already made in
+        /// the invocation, and the input groups are never modified, so that fallback carries the
+        /// original counts. Merged groups in the result are copies. Never throws into the caller.
         /// </summary>
         /// <param name="groups">The grouped papercuts to consider. Null is treated as empty.</param>
         /// <param name="token">Cancellation token.</param>
@@ -158,7 +160,9 @@ namespace Armada.Core.Services
                             }
                         }
 
-                        if (!merged) representatives.Add(group);
+                        // A representative is a copy, so a merge never changes a caller's group
+                        // and the unavailable fallback above returns the input exactly as given.
+                        if (!merged) representatives.Add(CopyGroup(group));
                     }
 
                     output.AddRange(representatives);
@@ -307,6 +311,26 @@ namespace Armada.Core.Services
                 Confidence = confidence,
                 Result = result,
                 RedactedState = redactedState
+            };
+        }
+
+        private static PapercutGroup CopyGroup(PapercutGroup group)
+        {
+            return new PapercutGroup
+            {
+                Key = group.Key,
+                VesselId = group.VesselId,
+                Category = group.Category,
+                HighestSeverity = group.HighestSeverity,
+                SampleTitle = group.SampleTitle,
+                SampleDetail = group.SampleDetail,
+                SamplePath = group.SamplePath,
+                Count = group.Count,
+                DistinctCaptainCount = group.DistinctCaptainCount,
+                FirstSeenUtc = group.FirstSeenUtc,
+                LastSeenUtc = group.LastSeenUtc,
+                SampleMissionIds = new List<string>(group.SampleMissionIds),
+                MergedGroupKeys = new List<string>(group.MergedGroupKeys)
             };
         }
 

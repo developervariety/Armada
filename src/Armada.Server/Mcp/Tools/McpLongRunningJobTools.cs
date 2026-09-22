@@ -98,7 +98,7 @@ namespace Armada.Server.Mcp.Tools
                     job.CompletedAtUtc,
                     job.ObjectiveId,
                     job.VesselId,
-                    Error = job.FailureMessage
+                    job.FailureMessage
                 };
             }
 

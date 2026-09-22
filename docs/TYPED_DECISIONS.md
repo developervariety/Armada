@@ -520,6 +520,9 @@ Two decision points read the papercut grouping:
   skeleton as every other adapter: the listing call's token reaches the client
   (the call is bounded at two minutes), and a timeout, provider error, or thrown
   exception records `typed_decision.unavailable` and returns the plain grouping.
+  The plain grouping is the input exactly as given: merges are applied to copies,
+  so an unavailable answer after an earlier merge in the same listing discards
+  that merge and every group keeps its original count.
 - **`memory_candidate`** (ships `Gate`, threshold `0.90`) runs in the weekly
   papercut sweep. At most once per seven days the health loop groups the
   papercuts reported in the last seven days, applies the papercut merge, and offers the

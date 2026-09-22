@@ -147,6 +147,20 @@ upstream integrations and excludes changes already present at that baseline.
   Batch merge-queue purge is limited to a tenant administrator's own tenant, and
   merge-queue auth refusals name `NotAuthorized` or `Forbidden` to match the status.
   The Helm stdio MCP host supplies mission status transitions.
+- **MCP tool results:** one rule decides that a tool result is an error: an
+  explicit `isError: true` result, or a top-level non-empty `Error` string. HTTP
+  returns such a result with `isError: true` and audits it as `Failed` with its
+  message; local stdio applies the same rule. A null or nested `Error` is a
+  successful result. `armada_job_status` reports a failed or lost job's reason in
+  `FailureMessage`.
+- **Remote proxy:** dashboard asset paths must resolve to the bundle directory or
+  below it, so an encoded traversal cannot read a sibling directory with the same
+  name prefix. A tunnelled request has one deadline covering send and response,
+  releases its pending entry on every exit, and reports caller cancellation
+  separately from a timeout.
+- **Papercut merge:** the typed-decision merge works on copies of the listed
+  groups, so an unavailable answer after an earlier merge returns the original
+  groups with their original counts.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

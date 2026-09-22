@@ -164,6 +164,10 @@ Behavior when session state is missing:
 
 The dashboard bundle served from `/dashboard` is the same built output from `src/Armada.Dashboard/dist`, which carries the `i18n/armada.json` catalog.
 
+A `/dashboard/*` path is URL-decoded and resolved against the dashboard bundle directory. The proxy serves a file only when the resolved path is that directory or lies below it (the directory plus a path separator, compared exactly), so an encoded `..` cannot reach a sibling directory whose name starts with `dashboard`. Any other path returns the dashboard index.
+
+Every tunnelled request has one deadline of `requestTimeoutSeconds`, started before the request is sent. The deadline covers both sending the request and waiting for the response, so a stalled tunnel send still times out: an HTTP relay answers `504` and the pending request is released. A browser that disconnects cancels its relay without a timeout response.
+
 ## Relay Policy
 
 The relay transport is generic, but remote policy is still explicit.

@@ -217,6 +217,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, (await testDb.Driver.Events.EnumerateByTypeAsync(PapercutMergeAdapter.MergeProposedEventType, 10).ConfigureAwait(false)).Count, "no merge proposed");
             });
 
+            await RunTest("Merge_ThenUnavailable_ReturnsTheOriginalGroupsUnchanged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                int call = 0;
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(_ =>
+                {
+                    call++;
+                    return call == 1
+                        ? FakeTypedDecisionClient.Noul("same_issue", 0.99)
+                        : FakeTypedDecisionClient.Unavailable("http_429");
+                });
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                PapercutGroup largest = Group("a", "same words here", 5);
+                PapercutGroup middle = Group("b", "same words here", 4);
+                PapercutGroup smallest = Group("c", "other words here", 3);
+                List<PapercutGroup> output = await adapter.MergeAsync(
+                    new List<PapercutGroup> { largest, middle, smallest },
+                    CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(2, client.Calls, "the first comparison merged and the second was unavailable");
+                AssertEqual(3, output.Count, "the unavailable fallback lists every original group");
+                AssertEqual(12, output.Sum(g => g.Count), "the fallback reports each papercut once");
+                PapercutGroup listedLargest = output.Single(g => g.Key == largest.Key);
+                AssertEqual(5, listedLargest.Count, "the fallback carries the original count, not the partial merge");
+                AssertEqual(0, listedLargest.MergedGroupKeys.Count, "the fallback carries no merge annotation");
+                AssertEqual(5, largest.Count, "the caller's group is never modified");
+                AssertEqual(0, largest.MergedGroupKeys.Count, "the caller's group gains no merge annotation");
+            });
+
+            await RunTest("Merge_Applied_LeavesTheCallersGroupsUnchanged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("same_issue", 0.99));
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                PapercutGroup larger = Group("a", "same words here", 5);
+                PapercutGroup smaller = Group("b", "same words here", 4);
+                List<PapercutGroup> output = await adapter.MergeAsync(
+                    new List<PapercutGroup> { larger, smaller },
+                    CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(1, output.Count, "the pair is merged");
+                AssertEqual(9, output[0].Count, "the merged group carries both counts");
+                AssertEqual(5, larger.Count, "the caller's group keeps its own count");
+                AssertEqual(0, larger.MergedGroupKeys.Count, "the caller's group gains no merge annotation");
+            });
+
             await RunTest("ListTool_PassesItsOwnTokenToTheMergeDecision", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

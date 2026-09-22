@@ -312,8 +312,9 @@ namespace Armada.Server.Mcp
 
             object toolResult = await registration.Handler(arguments).ConfigureAwait(false);
             JsonNode? toolNode = ToJsonNode(toolResult);
-            if (TryGetToolError(toolNode, out string? errorMessage))
-                throw new JsonRpcToolException(errorMessage ?? "Tool returned an error.");
+            if (toolNode != null
+                && McpToolResultError.TryGetError(JsonSerializer.SerializeToElement(toolNode, _JsonOptions), out string? errorMessage))
+                throw new JsonRpcToolException(errorMessage ?? McpToolResultError.DefaultMessage);
 
             if (toolNode is JsonObject toolObject && toolObject.ContainsKey("content"))
                 return toolObject;
@@ -333,22 +334,6 @@ namespace Armada.Server.Mcp
                     }
                 }
             };
-        }
-
-        private static bool TryGetToolError(JsonNode? node, out string? errorMessage)
-        {
-            errorMessage = null;
-            if (node is not JsonObject obj) return false;
-
-            foreach (KeyValuePair<string, JsonNode?> property in obj)
-            {
-                if (!String.Equals(property.Key, "Error", StringComparison.OrdinalIgnoreCase)) continue;
-
-                errorMessage = property.Value == null ? "Tool returned an error." : property.Value.GetValue<string>();
-                return true;
-            }
-
-            return false;
         }
 
         private static JsonNode? ExtractId(JsonElement request)

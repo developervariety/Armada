@@ -61,11 +61,32 @@ namespace Armada.Test.Unit.Suites.Services
                     HttpResponseMessage assetResponse = await harness.Browser.GetAsync("/dashboard/assets/proxy-smoke.js").ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, assetResponse.StatusCode, "Dashboard asset should load");
                     AssertContains("proxy smoke asset", await assetResponse.Content.ReadAsStringAsync().ConfigureAwait(false), "Dashboard asset should come from the proxy build");
+
+                    HttpResponseMessage siblingResponse = await harness.Browser.GetAsync("/dashboard/%2e%2e%2fdashboard-backup/probe.txt").ConfigureAwait(false);
+                    string siblingBody = await siblingResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    AssertFalse(siblingBody.Contains("sibling secret", StringComparison.Ordinal), "An encoded traversal must not read a sibling directory that shares the dashboard root's name prefix");
+                    AssertContains("Dashboard Smoke", siblingBody, "A path outside the dashboard root falls back to the SPA index");
                 }
                 finally
                 {
                     await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
                 }
+            }).ConfigureAwait(false);
+
+            await RunTest("StaticPathResolution_StaysInsideTheRoot", () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_proxy_root_" + Guid.NewGuid().ToString("N"), "dashboard");
+                string sep = Path.DirectorySeparatorChar.ToString();
+
+                AssertEqual(Path.Combine(root, "assets", "app.js"), ArmadaProxyServer.TryResolveStaticPath(root, Path.Combine("assets", "app.js")), "A file below the root resolves");
+                AssertEqual(root, ArmadaProxyServer.TryResolveStaticPath(root, "."), "The root itself resolves");
+                AssertEqual(Path.Combine(root, "index.html"), ArmadaProxyServer.TryResolveStaticPath(root + sep, "index.html"), "A root given with a trailing separator resolves the same way");
+                AssertEqual(Path.Combine(root, "index.html"), ArmadaProxyServer.TryResolveStaticPath(root, Path.Combine("assets", "..", "index.html")), "A traversal that stays inside the root resolves");
+                AssertNull(ArmadaProxyServer.TryResolveStaticPath(root, Path.Combine("..", "dashboard-backup", "probe.txt")), "A sibling directory that shares the root's name prefix is outside the root");
+                AssertEqual(root, ArmadaProxyServer.TryResolveStaticPath(root, Path.Combine("..", "dashboard")), "Leaving and re-entering the root resolves to the root itself");
+                AssertNull(ArmadaProxyServer.TryResolveStaticPath(root, Path.Combine("..", "secret.txt")), "The parent directory is outside the root");
+                AssertNull(ArmadaProxyServer.TryResolveStaticPath(root, Path.Combine("..", "dashboardX")), "A longer sibling name is outside the root");
+                return Task.CompletedTask;
             }).ConfigureAwait(false);
 
             await RunTest("ProxyRelaysApiWebSocketAndReconnectBehavior", async () =>
@@ -501,6 +522,10 @@ namespace Armada.Test.Unit.Suites.Services
                 Directory.CreateDirectory(assets);
                 File.WriteAllText(Path.Combine(dashboard, "index.html"), "<!doctype html><html><body>Dashboard Smoke</body></html>");
                 File.WriteAllText(Path.Combine(assets, "proxy-smoke.js"), "console.log('proxy smoke asset');");
+
+                string sibling = Path.Combine(baseDirectory, "dashboard-backup");
+                Directory.CreateDirectory(sibling);
+                File.WriteAllText(Path.Combine(sibling, "probe.txt"), "sibling secret");
             }
         }
 

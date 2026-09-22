@@ -392,6 +392,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(answer.Contains("job_not_found", StringComparison.Ordinal), "an accepted job is never job_not_found after a restart: " + answer);
                     AssertContains("Lost", answer, "armada_job_status reports the job Lost: " + answer);
                     AssertContains("job_lost_on_restart", answer, "and names why: " + answer);
+                    AssertContains("FailureMessage", answer, "the reason is the job's FailureMessage: " + answer);
+                    AssertFalse(answer.Contains("\"isError\":true", StringComparison.Ordinal), "reading a Lost job is a successful status query: " + answer);
 
                     using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(dbSettings))
                     {
