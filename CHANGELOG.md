@@ -80,7 +80,9 @@ upstream integrations and excludes changes already present at that baseline.
   renames for protected paths, auto-land predicates, critical triggers and
   consumer-test triggers. Branch diffs surface unexpected Git errors instead of
   substituting a working-tree diff. Rollback after a failed landing is a
-  conditional push against the inspected head.
+  conditional push against the inspected head, and merge-queue test commands
+  drain both output streams and stop their process tree at
+  `MergeQueueTestTimeoutSeconds`.
 - **Recovery and captain lifecycle:** recovery preserves accepted source commits,
   respects dispatch holds, distinguishes provider and test failures, bounds retries,
   and checks rescue effectiveness against the declared deliverable. Terminal

@@ -82,6 +82,7 @@ Because each entry is landed immediately, the next entry in the same group alway
 | **Merge conflict** | Entry marked `Failed` with message. Worktree cleaned up. Next entry in the same group continues. |
 | **Test failure** | Entry marked `Failed` with exit code and truncated output. Worktree cleaned up. Next entry continues. |
 | **Landing evidence unavailable** | Entry marked `Failed` with `landing_evidence_unavailable: vessel_unreadable`, `vessel_not_found`, `changed_files_unreadable`, or `diff_unreadable` and the underlying error. Nothing is pushed. |
+| **Test timeout** | The test command and its whole process tree are stopped after `MergeQueueTestTimeoutSeconds`; the entry is marked `Failed` with `merge_queue_test_timeout`. Both output streams drain concurrently, so a command that fills one stream while holding the other open cannot hold the host test lock. |
 | **Push failure** | Entry marked `Failed` with error message. Typically means the remote rejected the push (force-push protection, etc.). |
 | **Failure after the push advanced the target** | The queue rolls the target back to its pre-land head with `git push --force-with-lease=refs/heads/<target>:<inspected-head>`. If another writer moved the target after the rollback inspected it, the push is refused and that writer's commit stays. The `merge_queue.failed_target_advanced` event records `rolled_back`, `partial_rollback: ...`, or `rollback_failed: ...`. |
 | **Vessel not found** | All entries in the group are marked `Failed` with a message indicating the vessel could not be resolved. |
@@ -247,5 +248,6 @@ commit SHA before an operator retires a parked ref.
 - **`LandingMode`** (in `ArmadaSettings`) -- global landing policy. Can be overridden per-vessel (`Vessel.LandingMode`) or per-voyage (`Voyage.LandingMode`).
 - **`BranchCleanupPolicy`** (in `ArmadaSettings`) -- global branch cleanup policy. Can be overridden per-vessel (`Vessel.BranchCleanupPolicy`).
 - **`MergeQueueTestCommand`** (in `ArmadaSettings`) -- default test command to run for entries that don't specify their own. Can be overridden per entry via the `testCommand` parameter on `armada_enqueue_merge`.
+- **`MergeQueueTestTimeoutSeconds`** (in `ArmadaSettings`, default `3600`, clamped to 1-86400) -- longest time a merge-queue test command may run before the queue stops it with its process tree and fails the entry.
 - **`DocksDirectory`** -- parent directory for temporary merge worktrees. Worktrees are created under `_merge-queue/` within this directory.
 - **`ReposDirectory`** -- fallback repository path when a vessel's `LocalPath` is not set.

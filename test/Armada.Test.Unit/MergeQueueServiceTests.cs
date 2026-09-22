@@ -488,6 +488,139 @@ namespace Armada.Test.Unit
                     try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
                 }
             });
+            await RunTest("ProcessSingle_TestCommandFillingStderrWithStdoutOpen_CompletesAndReleasesTestLock", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_stderr_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mq-stderr-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        // Far more stderr than a pipe buffer holds, written while stdout stays open. A
+                        // runner that reads stdout to the end before stderr waits forever here.
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "yes stderr-line | head -c 1048576 1>&2; echo tests-done";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        Task<MergeEntry?> processing = service.ProcessSingleAsync(entry.Id);
+                        Task finished = await Task.WhenAny(processing, Task.Delay(TimeSpan.FromSeconds(90))).ConfigureAwait(false);
+                        AssertTrue(finished == processing, "A child filling stderr while stdout is open must not block the merge-queue test run");
+
+                        MergeEntry? afterProcess = await processing.ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Landed, afterProcess!.Status, "Passing tests still land the entry");
+
+                        using (CancellationTokenSource lockWait = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+                        using (await HostWideCommandLock.AcquireAsync(lockWait.Token).ConfigureAwait(false))
+                        {
+                            // Acquired: the test run released the host lock.
+                        }
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            await RunTest("ProcessSingle_TestCommandPastTimeout_StopsProcessTreeAndFailsEntry", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_timeout_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string pidFile = Path.Combine(rootDir, "child.pid");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.MergeQueueTestTimeoutSeconds = 2;
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mq-timeout-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        string preRemoteHead = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "sleep 300 & echo $! > '" + pidFile + "'; wait";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        Task<MergeEntry?> processing = service.ProcessSingleAsync(entry.Id);
+                        Task finished = await Task.WhenAny(processing, Task.Delay(TimeSpan.FromSeconds(90))).ConfigureAwait(false);
+                        AssertTrue(finished == processing, "A test command past its timeout must be stopped");
+
+                        MergeEntry? afterProcess = await processing.ConfigureAwait(false);
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "A timed-out test run fails the entry");
+                        AssertContains("merge_queue_test_timeout", afterProcess.TestOutput ?? "", "The failure names the timeout");
+                        AssertEqual(preRemoteHead, (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                            "A timed-out test run does not land");
+
+                        AssertTrue(File.Exists(pidFile), "The test command started its child");
+                        int childPid = Int32.Parse((await File.ReadAllTextAsync(pidFile).ConfigureAwait(false)).Trim());
+                        bool childGone = false;
+                        for (int attempt = 0; attempt < 50 && !childGone; attempt++)
+                        {
+                            try
+                            {
+                                using (Process child = Process.GetProcessById(childPid))
+                                {
+                                    childGone = child.HasExited;
+                                }
+                            }
+                            catch (ArgumentException)
+                            {
+                                childGone = true;
+                            }
+
+                            if (!childGone) await Task.Delay(100).ConfigureAwait(false);
+                        }
+                        AssertTrue(childGone, "The timeout kills the whole process tree, including the command's child");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
         }
 
         private static string BuildMarkerCommand(string markerPath)

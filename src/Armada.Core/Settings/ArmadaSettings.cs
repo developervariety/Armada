@@ -523,6 +523,16 @@ namespace Armada.Core.Settings
         public string? MergeQueueTestCommand { get; set; } = null;
 
         /// <summary>
+        /// Longest time, in seconds, a merge-queue test command may run. When it expires the queue
+        /// stops the command and its whole process tree and fails the entry. Clamped to [1, 86400].
+        /// </summary>
+        public int MergeQueueTestTimeoutSeconds
+        {
+            get => _MergeQueueTestTimeoutSeconds;
+            set => _MergeQueueTestTimeoutSeconds = Math.Max(1, Math.Min(86400, value));
+        }
+
+        /// <summary>
         /// Path to the GitHub CLI executable (gh). Default: gh (resolved via PATH).
         /// </summary>
         public string GhCliPath { get; set; } = "gh";
@@ -966,6 +976,7 @@ namespace Armada.Core.Settings
         private int _McpPort = Constants.DefaultMcpPort;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _LaunchProcessIdGraceSeconds = 30;
+        private int _MergeQueueTestTimeoutSeconds = 3600;
         private int _MaxInterruptedExitRedispatchAttempts = 2;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _StageWatchdogTimeoutMinutes = 30;

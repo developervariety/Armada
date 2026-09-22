@@ -2499,53 +2499,31 @@ namespace Armada.Core.Services
                 CreateNoWindow = true
             };
 
-            using (Process process = new Process { StartInfo = startInfo })
+            TimeSpan timeout = TimeSpan.FromSeconds(_Settings.MergeQueueTestTimeoutSeconds);
+            GitProcessResult result;
+            try
             {
-                process.Start();
-
-                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-
-                string output = stdout;
-                if (!String.IsNullOrEmpty(stderr))
-                    output += "\n--- STDERR ---\n" + stderr;
-
-                return new TestResult(process.ExitCode, output);
+                result = await RunBoundedProcessAsync(startInfo, timeout, token).ConfigureAwait(false);
             }
+            catch (TimeoutException ex)
+            {
+                _Logging.Warn(_Header + "tests TIMED OUT in " + workingDir + ": " + ex.Message);
+                return new TestResult(-1, "merge_queue_test_timeout: " + ex.Message);
+            }
+
+            string output = result.StandardOutput;
+            if (!String.IsNullOrEmpty(result.StandardError))
+                output += "\n--- STDERR ---\n" + result.StandardError;
+
+            return new TestResult(result.ExitCode, output);
         }
 
         private async Task RunGitAsync(string workingDir, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            GitProcessResult result = await RunGitCapturingAsync(workingDir, token, args).ConfigureAwait(false);
+            if (result.ExitCode != 0)
             {
-                FileName = "git",
-                WorkingDirectory = workingDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            foreach (string arg in args)
-            {
-                startInfo.ArgumentList.Add(arg);
-            }
-
-            string argsDisplay = String.Join(" ", args);
-
-            using (Process process = new Process { StartInfo = startInfo })
-            {
-                process.Start();
-
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-
-                if (process.ExitCode != 0)
-                {
-                    throw new InvalidOperationException("git " + argsDisplay + " failed: " + stderr);
-                }
+                throw new InvalidOperationException("git " + String.Join(" ", args) + " failed: " + result.StandardError);
             }
         }
 
@@ -2566,23 +2544,73 @@ namespace Armada.Core.Services
                 CreateNoWindow = true
             };
 
+            // Fail fast on credential prompts instead of waiting on a terminal nobody answers.
+            startInfo.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
+            startInfo.EnvironmentVariables["GCM_INTERACTIVE"] = "Never";
+
             foreach (string arg in args)
             {
                 startInfo.ArgumentList.Add(arg);
             }
 
+            return await RunBoundedProcessAsync(startInfo, GitProcessTimeouts.Resolve(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The one process runner for the merge queue. Stdout and stderr drain concurrently, so a child
+        /// that fills one pipe while holding the other open cannot block; the caller's cancellation and
+        /// <paramref name="timeout"/> both stop the wait and kill the whole process tree. A timeout
+        /// throws <see cref="TimeoutException"/>; a caller cancellation throws
+        /// <see cref="OperationCanceledException"/>.
+        /// </summary>
+        private async Task<GitProcessResult> RunBoundedProcessAsync(ProcessStartInfo startInfo, TimeSpan timeout, CancellationToken token)
+        {
+            using (CancellationTokenSource timeoutCts = new CancellationTokenSource(timeout))
+            using (CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token))
             using (Process process = new Process { StartInfo = startInfo })
             {
                 process.Start();
 
-                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-                Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-                string stdout = await stdoutTask.ConfigureAwait(false);
-                string stderr = await stderrTask.ConfigureAwait(false);
+                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCts.Token);
+                Task<string> stderrTask = process.StandardError.ReadToEndAsync(linkedCts.Token);
+                try
+                {
+                    await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
+                    string stdout = await stdoutTask.ConfigureAwait(false);
+                    string stderr = await stderrTask.ConfigureAwait(false);
+                    return new GitProcessResult(process.ExitCode, stdout, stderr);
+                }
+                catch (OperationCanceledException)
+                {
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Kill throws InvalidOperationException only when the process has already
+                        // exited, which is the state the kill wants.
+                    }
+                    catch (Exception killEx)
+                    {
+                        _Logging.Warn(_Header + "could not kill " + startInfo.FileName + " process tree; it may still be running: " + killEx.Message);
+                    }
 
-                return new GitProcessResult(process.ExitCode, stdout, stderr);
+                    ObserveDrain(stdoutTask);
+                    ObserveDrain(stderrTask);
+
+                    if (token.IsCancellationRequested) throw;
+                    throw new TimeoutException(
+                        startInfo.FileName + " did not finish within " + ((int)timeout.TotalSeconds) + " seconds and was stopped with its process tree");
+                }
             }
+        }
+
+        private static void ObserveDrain(Task<string> drain)
+        {
+            // A cancelled drain faults after the process is killed; observe it so the fault is not
+            // raised later as an unobserved task exception.
+            drain.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
         }
 
         private async Task<bool> IsBranchCheckedOutInWorktreeAsync(string repoPath, string branchName, CancellationToken token)
