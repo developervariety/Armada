@@ -57,27 +57,34 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
-                using (SqliteCommand cmd = conn.CreateCommand())
+                // The pipeline row and its stages change together or not at all.
+                using (SqliteTransaction tx = conn.BeginTransaction())
                 {
-                    cmd.CommandText = @"INSERT INTO pipelines (id, tenant_id, user_id, ownership_scope, name, description, is_built_in, active, created_utc, last_update_utc)
-                            VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @is_built_in, @active, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", pipeline.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
-                    cmd.Parameters.AddWithValue("@name", pipeline.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@active", pipeline.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(pipeline.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(pipeline.LastUpdateUtc));
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText = @"INSERT INTO pipelines (id, tenant_id, user_id, ownership_scope, name, description, is_built_in, active, created_utc, last_update_utc)
+                                VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @is_built_in, @active, @created_utc, @last_update_utc);";
+                        cmd.Parameters.AddWithValue("@id", pipeline.Id);
+                        cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
+                        cmd.Parameters.AddWithValue("@name", pipeline.Name);
+                        cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@active", pipeline.Active ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(pipeline.CreatedUtc));
+                        cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(pipeline.LastUpdateUtc));
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
 
-                foreach (PipelineStage stage in pipeline.Stages)
-                {
-                    stage.PipelineId = pipeline.Id;
-                    await InsertStageAsync(conn, stage, token).ConfigureAwait(false);
+                    foreach (PipelineStage stage in pipeline.Stages)
+                    {
+                        stage.PipelineId = pipeline.Id;
+                        await InsertStageAsync(conn, tx, stage, token).ConfigureAwait(false);
+                    }
+
+                    await tx.CommitAsync(token).ConfigureAwait(false);
                 }
             }
 
@@ -180,42 +187,50 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
-                using (SqliteCommand cmd = conn.CreateCommand())
+                // The pipeline row and its stages change together or not at all.
+                using (SqliteTransaction tx = conn.BeginTransaction())
                 {
-                    cmd.CommandText = @"UPDATE pipelines SET
-                            tenant_id = @tenant_id,
-                            user_id = @user_id,
-                            ownership_scope = @ownership_scope,
-                            name = @name,
-                            description = @description,
-                            is_built_in = @is_built_in,
-                            active = @active,
-                            last_update_utc = @last_update_utc
-                            WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", pipeline.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
-                    cmd.Parameters.AddWithValue("@name", pipeline.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@active", pipeline.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(pipeline.LastUpdateUtc));
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText = @"UPDATE pipelines SET
+                                tenant_id = @tenant_id,
+                                user_id = @user_id,
+                                ownership_scope = @ownership_scope,
+                                name = @name,
+                                description = @description,
+                                is_built_in = @is_built_in,
+                                active = @active,
+                                last_update_utc = @last_update_utc
+                                WHERE id = @id;";
+                        cmd.Parameters.AddWithValue("@id", pipeline.Id);
+                        cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
+                        cmd.Parameters.AddWithValue("@name", pipeline.Name);
+                        cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@active", pipeline.Active ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(pipeline.LastUpdateUtc));
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
 
-                // Delete existing stages and reinsert
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "DELETE FROM pipeline_stages WHERE pipeline_id = @pipeline_id;";
-                    cmd.Parameters.AddWithValue("@pipeline_id", pipeline.Id);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                    // Delete existing stages and reinsert
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText = "DELETE FROM pipeline_stages WHERE pipeline_id = @pipeline_id;";
+                        cmd.Parameters.AddWithValue("@pipeline_id", pipeline.Id);
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
 
-                foreach (PipelineStage stage in pipeline.Stages)
-                {
-                    stage.PipelineId = pipeline.Id;
-                    await InsertStageAsync(conn, stage, token).ConfigureAwait(false);
+                    foreach (PipelineStage stage in pipeline.Stages)
+                    {
+                        stage.PipelineId = pipeline.Id;
+                        await InsertStageAsync(conn, tx, stage, token).ConfigureAwait(false);
+                    }
+
+                    await tx.CommitAsync(token).ConfigureAwait(false);
                 }
             }
 
@@ -231,20 +246,28 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
-                // Delete stages first
-                using (SqliteCommand cmd = conn.CreateCommand())
+                // The pipeline row and its stages change together or not at all.
+                using (SqliteTransaction tx = conn.BeginTransaction())
                 {
-                    cmd.CommandText = "DELETE FROM pipeline_stages WHERE pipeline_id = @pipeline_id;";
-                    cmd.Parameters.AddWithValue("@pipeline_id", id);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                    // Delete stages first
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText = "DELETE FROM pipeline_stages WHERE pipeline_id = @pipeline_id;";
+                        cmd.Parameters.AddWithValue("@pipeline_id", id);
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
 
-                // Delete pipeline
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "DELETE FROM pipelines WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    // Delete pipeline
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = tx;
+                        cmd.CommandText = "DELETE FROM pipelines WHERE id = @id;";
+                        cmd.Parameters.AddWithValue("@id", id);
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+
+                    await tx.CommitAsync(token).ConfigureAwait(false);
                 }
             }
         }
@@ -381,12 +404,14 @@ namespace Armada.Core.Database.Sqlite.Implementations
         /// Insert a single pipeline stage row.
         /// </summary>
         /// <param name="conn">Open SQLite connection.</param>
+        /// <param name="tx">Transaction the write belongs to.</param>
         /// <param name="stage">Pipeline stage to insert.</param>
         /// <param name="token">Cancellation token.</param>
-        private static async Task InsertStageAsync(SqliteConnection conn, PipelineStage stage, CancellationToken token)
+        private static async Task InsertStageAsync(SqliteConnection conn, SqliteTransaction tx, PipelineStage stage, CancellationToken token)
         {
             using (SqliteCommand cmd = conn.CreateCommand())
             {
+                cmd.Transaction = tx;
                 cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description, preferred_model, requires_review, review_deny_action)
                         VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description, @preferred_model, @requires_review, @review_deny_action);";
                 cmd.Parameters.AddWithValue("@id", stage.Id);

@@ -752,6 +752,19 @@ namespace Armada.Core.Database.Mysql.Implementations
             return Convert.ToInt32(value);
         }
 
+        /// <summary>
+        /// Read the audit completion time from its TEXT column. The write binds a UTC DateTime, which the
+        /// connector stores as offset-free "yyyy-MM-dd HH:mm:ss" text, so the text is read as UTC.
+        /// </summary>
+        private static DateTime? ReadAuditUtc(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            if (value is DateTime stored) return DateTime.SpecifyKind(stored, DateTimeKind.Utc);
+            string text = value.ToString()!;
+            if (String.IsNullOrEmpty(text)) return null;
+            return DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+        }
+
         private static MergeEntry MergeEntryFromReader(MySqlDataReader reader)
         {
             MergeEntry entry = new MergeEntry();
@@ -772,6 +785,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             entry.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
+            MergeEntryAuditColumns.Read(reader, entry, value => (value == null || value == DBNull.Value) ? (bool?)null : Convert.ToBoolean(value), ReadAuditUtc);
             try { entry.PrUrl = reader["pr_url"] as string; } catch { }
             try { entry.PrBaseBranch = reader["pr_base_branch"] as string; } catch { }
             try

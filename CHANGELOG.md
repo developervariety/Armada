@@ -144,6 +144,11 @@ upstream integrations and excludes changes already present at that baseline.
   ownership fields, validate migration prerequisites, and support expiry and backup
   evidence. Restore checks provider compatibility and retains local secrets.
   Status, inbox, jobs, and logs report bounded evidence and explicit failure reasons.
+- **Stored-record fidelity:** every provider reads back all nine merge-entry audit
+  fields through one shared column contract, and signal and event reads return their
+  owning user. Pipeline create, update and delete write the pipeline and its stages
+  in one transaction, so a failed write leaves the stored pipeline unchanged. The
+  driver wiring check covers every method set.
 - **Helm server control:** `server stop`, `server restart`, `reset` and `config init`
   share one authenticated stop through `POST /api/v1/server/stop` and count the
   Admiral as stopped only when its health route no longer answers. A refused or

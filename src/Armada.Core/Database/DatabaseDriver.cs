@@ -2,6 +2,8 @@ namespace Armada.Core.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
@@ -16,6 +18,14 @@ namespace Armada.Core.Database
         // -2 is after its version record commits; -4 is between first-boot user and credential inserts.
         // No callback is installed in normal use.
         internal Action<int, int>? MigrationCheckpoint { get; set; }
+
+        // Every entity method set is a public property typed by an interface from the method-set
+        // namespace, so the wiring check covers a method set the moment it is declared.
+        private static readonly PropertyInfo[] _MethodSetProperties = typeof(DatabaseDriver)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(property => property.PropertyType.IsInterface
+                && property.PropertyType.Namespace == typeof(IFleetMethods).Namespace)
+            .ToArray();
 
         #region Public-Members
 
@@ -280,18 +290,10 @@ namespace Armada.Core.Database
         public List<string> FindUnwiredMethodSets()
         {
             List<string> missing = new List<string>();
-
-            if (ProjectProfiles == null) missing.Add(nameof(ProjectProfiles));
-            if (Skills == null) missing.Add(nameof(Skills));
-            if (CoordinationLeases == null) missing.Add(nameof(CoordinationLeases));
-            if (JudgeFollowUps == null) missing.Add(nameof(JudgeFollowUps));
-            if (HarborRunnerEnrollments == null) missing.Add(nameof(HarborRunnerEnrollments));
-            if (HarborJobs == null) missing.Add(nameof(HarborJobs));
-            if (MissionAttemptFacts == null) missing.Add(nameof(MissionAttemptFacts));
-            if (PreparationClaimObservations == null) missing.Add(nameof(PreparationClaimObservations));
-            if (MemoryProposals == null) missing.Add(nameof(MemoryProposals));
-            if (LaneStateTransitions == null) missing.Add(nameof(LaneStateTransitions));
-            if (DataExpiry == null) missing.Add(nameof(DataExpiry));
+            foreach (PropertyInfo property in _MethodSetProperties)
+            {
+                if (property.GetValue(this) == null) missing.Add(property.Name);
+            }
 
             return missing;
         }

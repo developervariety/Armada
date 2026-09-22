@@ -143,6 +143,7 @@ namespace Armada.Test.Database
             await RunTest("MergeEntry_Create_Read_Update_Enumerate", "Operational", () => TestMergeEntryCrudAsync(token), token);
             await RunTest("MergeEntry_EnumerateByStatus_Exists", "Operational", () => TestMergeEntryLookupAsync(token), token);
             await RunTest("WorkflowProfile_Create_Read_Update_Enumerate", "Operational", () => TestWorkflowProfileCrudAsync(token), token);
+            await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
             await RunTest("CheckRun_Create_Read_Update_Enumerate", "Operational", () => TestCheckRunCrudAsync(token), token);
             await RunTest("Environment_Create_Read_Update_Enumerate", "Operational", () => TestEnvironmentCrudAsync(token), token);
             await RunTest("Release_Create_Read_Update_Enumerate", "Operational", () => TestReleaseCrudAsync(token), token);
@@ -1927,12 +1928,14 @@ namespace Armada.Test.Database
                 Signal? read = await _Driver.Signals.ReadAsync(signal.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Signal read returned null");
                 DatabaseAssert.Equal(tenant.Id, read.TenantId, "Signal.TenantId");
+                DatabaseAssert.Equal(graph.User.Id, read.UserId, "Signal.UserId");
                 DatabaseAssert.Equal(captain.Id, read.ToCaptainId, "Signal.ToCaptainId");
                 DatabaseAssert.Equal(false, read.Read, "Signal.Read");
 
                 EnumerationResult<Signal> page = await _Driver.Signals.EnumerateAsync(tenant.Id, new EnumerationQuery { PageNumber = 1, PageSize = 10 }, token).ConfigureAwait(false);
                 DatabaseAssert.True(page.TotalRecords >= 1, "Signal enumeration should include created signal");
                 DatabaseAssert.ContainsIds(page.Objects, x => x.Id, signal.Id);
+                DatabaseAssert.Equal(graph.User.Id, page.Objects.Find(x => x.Id == signal.Id)!.UserId, "Enumerated Signal.UserId");
 
                 await _Driver.Signals.MarkReadAsync(signal.Id, token).ConfigureAwait(false);
                 Signal? reread = await _Driver.Signals.ReadAsync(signal.Id, token).ConfigureAwait(false);
@@ -1987,6 +1990,7 @@ namespace Armada.Test.Database
                 ArmadaEvent? read = await _Driver.Events.ReadAsync(evt.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Event read returned null");
                 DatabaseAssert.Equal(tenant.Id, read.TenantId, "Event.TenantId");
+                DatabaseAssert.Equal(graph.User.Id, read.UserId, "Event.UserId");
                 DatabaseAssert.Equal(vessel.Id, read.VesselId, "Event.VesselId");
                 DatabaseAssert.Equal(captain.Id, read.CaptainId, "Event.CaptainId");
                 DatabaseAssert.Equal(mission.Id, read.MissionId, "Event.MissionId");
@@ -1995,6 +1999,7 @@ namespace Armada.Test.Database
                 EnumerationResult<ArmadaEvent> page = await _Driver.Events.EnumerateAsync(tenant.Id, new EnumerationQuery { PageNumber = 1, PageSize = 10, MissionId = mission.Id }, token).ConfigureAwait(false);
                 DatabaseAssert.True(page.TotalRecords >= 1, "Event enumeration should include created event");
                 DatabaseAssert.ContainsIds(page.Objects, x => x.Id, evt.Id);
+                DatabaseAssert.Equal(graph.User.Id, page.Objects.Find(x => x.Id == evt.Id)!.UserId, "Enumerated Event.UserId");
             }
             finally
             {
@@ -2074,18 +2079,88 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(vessel.Id, read.VesselId, "MergeEntry.VesselId");
                 DatabaseAssert.Equal(mission.Id, read.MissionId, "MergeEntry.MissionId");
 
+                DatabaseAssert.Equal(merge.Status, read.Status, "MergeEntry.Status");
+                AssertMergeAuditFields(new MergeEntry(), read, "created without audit values");
+
+                // Every audit value the writes persist must come back on a read, and a later write that
+                // does not touch them must not replace them with what a partial read returned.
+                MergeEntry audited = new MergeEntry("feature/audited-" + Guid.NewGuid().ToString("N"))
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    MissionId = mission.Id,
+                    VesselId = vessel.Id,
+                    Status = MergeStatusEnum.Queued
+                };
+                SetMergeAuditFields(audited, "created");
+                await _Driver.MergeEntries.CreateAsync(audited, token).ConfigureAwait(false);
+                try
+                {
+                    MergeEntry createdRead = DatabaseAssert.NotNull(await _Driver.MergeEntries.ReadAsync(audited.Id, token).ConfigureAwait(false), "Audited merge entry read after create");
+                    AssertMergeAuditFields(audited, createdRead, "after create");
+                }
+                finally
+                {
+                    if (!_NoCleanup) await _Driver.MergeEntries.DeleteAsync(audited.Id, token).ConfigureAwait(false);
+                }
+
                 read.Status = MergeStatusEnum.Landed;
-                MergeEntry updated = await _Driver.MergeEntries.UpdateAsync(read, token).ConfigureAwait(false);
-                DatabaseAssert.Equal(MergeStatusEnum.Landed, updated.Status, "MergeEntry.Status");
+                SetMergeAuditFields(read, "updated");
+                await _Driver.MergeEntries.UpdateAsync(read, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    MergeEntry persisted = DatabaseAssert.NotNull(await reopened.MergeEntries.ReadAsync(merge.Id, token).ConfigureAwait(false), "Updated merge entry retained");
+                    DatabaseAssert.Equal(MergeStatusEnum.Landed, persisted.Status, "MergeEntry.Status after update and reopen");
+                    AssertMergeAuditFields(read, persisted, "after update and reopen");
+
+                    persisted.Priority = persisted.Priority + 1;
+                    await reopened.MergeEntries.UpdateAsync(persisted, token).ConfigureAwait(false);
+                }
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    MergeEntry rewritten = DatabaseAssert.NotNull(await reopened.MergeEntries.ReadAsync(merge.Id, token).ConfigureAwait(false), "Rewritten merge entry retained");
+                    DatabaseAssert.Equal(MergeStatusEnum.Landed, rewritten.Status, "MergeEntry.Status after an unrelated update");
+                    AssertMergeAuditFields(read, rewritten, "after an unrelated update");
+                }
 
                 EnumerationResult<MergeEntry> page = await _Driver.MergeEntries.EnumerateAsync(tenant.Id, new EnumerationQuery { PageNumber = 1, PageSize = 10, MissionId = mission.Id }, token).ConfigureAwait(false);
                 DatabaseAssert.True(page.TotalRecords >= 1, "Merge entry enumeration should include created merge entry");
                 DatabaseAssert.ContainsIds(page.Objects, x => x.Id, merge.Id);
+                AssertMergeAuditFields(read, page.Objects.Find(x => x.Id == merge.Id)!, "enumerated");
             }
             finally
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
+        }
+
+        private static void SetMergeAuditFields(MergeEntry entry, string label)
+        {
+            bool created = label == "created";
+            entry.AuditLane = created ? "Deferred" : "Fast";
+            entry.AuditConventionPassed = !created;
+            entry.AuditConventionNotes = "convention notes " + label;
+            entry.AuditCriticalTrigger = "critical trigger " + label;
+            entry.AuditDeepPicked = created;
+            entry.AuditDeepCompletedUtc = created
+                ? new DateTime(2026, 3, 4, 5, 6, 7, DateTimeKind.Utc)
+                : new DateTime(2026, 4, 5, 6, 7, 8, DateTimeKind.Utc);
+            entry.AuditDeepVerdict = created ? "Pass" : "Concern";
+            entry.AuditDeepNotes = "deep notes " + label;
+            entry.AuditDeepRecommendedAction = "recommended action " + label;
+        }
+
+        private static void AssertMergeAuditFields(MergeEntry expected, MergeEntry actual, string stage)
+        {
+            DatabaseAssert.Equal(expected.AuditLane, actual.AuditLane, "MergeEntry.AuditLane " + stage);
+            DatabaseAssert.Equal(expected.AuditConventionPassed, actual.AuditConventionPassed, "MergeEntry.AuditConventionPassed " + stage);
+            DatabaseAssert.Equal(expected.AuditConventionNotes, actual.AuditConventionNotes, "MergeEntry.AuditConventionNotes " + stage);
+            DatabaseAssert.Equal(expected.AuditCriticalTrigger, actual.AuditCriticalTrigger, "MergeEntry.AuditCriticalTrigger " + stage);
+            DatabaseAssert.Equal(expected.AuditDeepPicked, actual.AuditDeepPicked, "MergeEntry.AuditDeepPicked " + stage);
+            DatabaseAssert.Equal(expected.AuditDeepCompletedUtc, actual.AuditDeepCompletedUtc, "MergeEntry.AuditDeepCompletedUtc " + stage);
+            DatabaseAssert.Equal(expected.AuditDeepVerdict, actual.AuditDeepVerdict, "MergeEntry.AuditDeepVerdict " + stage);
+            DatabaseAssert.Equal(expected.AuditDeepNotes, actual.AuditDeepNotes, "MergeEntry.AuditDeepNotes " + stage);
+            DatabaseAssert.Equal(expected.AuditDeepRecommendedAction, actual.AuditDeepRecommendedAction, "MergeEntry.AuditDeepRecommendedAction " + stage);
         }
 
         private async Task TestMergeEntryLookupAsync(CancellationToken token)
@@ -2133,10 +2208,15 @@ namespace Armada.Test.Database
                 read.Description = "Updated workflow profile description";
                 read.BuildCommand = "dotnet build -c Release";
                 read.ExpectedArtifacts.Add("artifacts/extra.zip");
-                WorkflowProfile updated = await _Driver.WorkflowProfiles.UpdateAsync(read, token).ConfigureAwait(false);
-                DatabaseAssert.Equal("Updated workflow profile description", updated.Description, "Updated WorkflowProfile.Description");
-                DatabaseAssert.Equal("dotnet build -c Release", updated.BuildCommand, "Updated WorkflowProfile.BuildCommand");
-                DatabaseAssert.True(updated.ExpectedArtifacts.Contains("artifacts/extra.zip"), "Updated WorkflowProfile.ExpectedArtifacts");
+                List<string> expectedArtifacts = new List<string>(read.ExpectedArtifacts);
+                await _Driver.WorkflowProfiles.UpdateAsync(read, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    WorkflowProfile persisted = DatabaseAssert.NotNull(await reopened.WorkflowProfiles.ReadAsync(profileA.Id, null, token).ConfigureAwait(false), "Updated workflow profile retained");
+                    DatabaseAssert.Equal("Updated workflow profile description", persisted.Description, "Updated WorkflowProfile.Description after reopen");
+                    DatabaseAssert.Equal("dotnet build -c Release", persisted.BuildCommand, "Updated WorkflowProfile.BuildCommand after reopen");
+                    DatabaseAssert.Equal(String.Join("|", expectedArtifacts), String.Join("|", persisted.ExpectedArtifacts), "Updated WorkflowProfile.ExpectedArtifacts after reopen");
+                }
 
                 EnumerationResult<WorkflowProfile> page = await _Driver.WorkflowProfiles.EnumerateAsync(new WorkflowProfileQuery
                 {
@@ -2151,6 +2231,137 @@ namespace Armada.Test.Database
             finally
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestPipelineWriteAtomicityAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            string triggerName = "trg_block_pipeline_delete_" + suffix;
+            Pipeline pipeline = new Pipeline("atomic-pipeline-" + suffix) { Description = "original description" };
+            bool triggerInstalled = false;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("pipeline-atomic-tenant", token: token).ConfigureAwait(false);
+                pipeline.TenantId = tenant.Id;
+                pipeline.Stages.Add(new PipelineStage(1, "Worker"));
+                pipeline.Stages.Add(new PipelineStage(2, "Judge"));
+                await _Driver.Pipelines.CreateAsync(pipeline, token).ConfigureAwait(false);
+
+                // A stage insert that fails after the parent row and the old stages were rewritten (here a
+                // duplicate stage id) must leave the stored pipeline exactly as it was.
+                Pipeline changed = DatabaseAssert.NotNull(await _Driver.Pipelines.ReadAsync(pipeline.Id, token).ConfigureAwait(false), "Pipeline read after create");
+                changed.Description = "changed description";
+                PipelineStage architect = new PipelineStage(1, "Architect");
+                PipelineStage duplicate = new PipelineStage(2, "Worker") { Id = architect.Id };
+                changed.Stages = new List<PipelineStage> { architect, duplicate };
+                bool updateFailed = false;
+                try { await _Driver.Pipelines.UpdateAsync(changed, token).ConfigureAwait(false); }
+                catch (Exception) { updateFailed = true; }
+                DatabaseAssert.True(updateFailed, "An update whose stage insert fails must throw");
+                await AssertPipelineUnchangedAsync(pipeline.Id, "original description", "after a failed update", token).ConfigureAwait(false);
+
+                // A parent delete that fails after the stages were deleted must leave the stages in place.
+                await ExecuteRawAsync(BlockPipelineDeleteSql(triggerName, pipeline.Id), token).ConfigureAwait(false);
+                triggerInstalled = true;
+                bool deleteFailed = false;
+                try { await _Driver.Pipelines.DeleteAsync(pipeline.Id, token).ConfigureAwait(false); }
+                catch (Exception) { deleteFailed = true; }
+                DatabaseAssert.True(deleteFailed, "A delete whose parent delete fails must throw");
+                await DropPipelineDeleteBlockAsync(triggerName, token).ConfigureAwait(false);
+                triggerInstalled = false;
+                await AssertPipelineUnchangedAsync(pipeline.Id, "original description", "after a failed delete", token).ConfigureAwait(false);
+
+                await _Driver.Pipelines.DeleteAsync(pipeline.Id, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                    DatabaseAssert.True(await reopened.Pipelines.ReadAsync(pipeline.Id, token).ConfigureAwait(false) == null, "Pipeline removed by a successful delete");
+                DatabaseAssert.Equal(0L, await CountPipelineStagesAsync(pipeline.Id, token).ConfigureAwait(false), "Stages removed by a successful delete");
+            }
+            finally
+            {
+                if (triggerInstalled) await DropPipelineDeleteBlockAsync(triggerName, token).ConfigureAwait(false);
+                if (!_NoCleanup)
+                {
+                    try { await _Driver.Pipelines.DeleteAsync(pipeline.Id, token).ConfigureAwait(false); }
+                    catch (Exception ex) { Console.WriteLine("  pipeline cleanup failed: " + ex.Message); }
+                }
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task AssertPipelineUnchangedAsync(string pipelineId, string description, string stage, CancellationToken token)
+        {
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                Pipeline stored = DatabaseAssert.NotNull(await reopened.Pipelines.ReadAsync(pipelineId, token).ConfigureAwait(false), "Pipeline retained " + stage);
+                DatabaseAssert.Equal(description, stored.Description, "Pipeline.Description " + stage);
+                DatabaseAssert.Equal("Worker|Judge", String.Join("|", stored.Stages.ConvertAll(item => item.PersonaName)), "Pipeline stages " + stage);
+            }
+        }
+
+        private async Task<long> CountPipelineStagesAsync(string pipelineId, CancellationToken token)
+        {
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT COUNT(*) FROM pipeline_stages WHERE pipeline_id = @id;";
+                    DbParameter parameter = command.CreateParameter();
+                    parameter.ParameterName = "@id";
+                    parameter.Value = pipelineId;
+                    command.Parameters.Add(parameter);
+                    return Convert.ToInt64(await command.ExecuteScalarAsync(token).ConfigureAwait(false));
+                }
+            }
+        }
+
+        private List<string> BlockPipelineDeleteSql(string triggerName, string pipelineId)
+        {
+            switch (_Settings.Type)
+            {
+                case DatabaseTypeEnum.Sqlite:
+                    return new List<string> { "CREATE TRIGGER " + triggerName + " BEFORE DELETE ON pipelines WHEN OLD.id = '" + pipelineId + "' BEGIN SELECT RAISE(ABORT, 'pipeline delete blocked'); END;" };
+                case DatabaseTypeEnum.Postgresql:
+                    return new List<string>
+                    {
+                        "CREATE FUNCTION " + triggerName + "_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'pipeline delete blocked'; END $$;",
+                        "CREATE TRIGGER " + triggerName + " BEFORE DELETE ON pipelines FOR EACH ROW WHEN (OLD.id = '" + pipelineId + "') EXECUTE FUNCTION " + triggerName + "_fn();"
+                    };
+                case DatabaseTypeEnum.Mysql:
+                    return new List<string> { "CREATE TRIGGER " + triggerName + " BEFORE DELETE ON pipelines FOR EACH ROW BEGIN IF OLD.id = '" + pipelineId + "' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'pipeline delete blocked'; END IF; END" };
+                case DatabaseTypeEnum.SqlServer:
+                    return new List<string> { "CREATE TRIGGER " + triggerName + " ON pipelines AFTER DELETE AS BEGIN IF EXISTS (SELECT 1 FROM deleted WHERE id = '" + pipelineId + "') THROW 50001, 'pipeline delete blocked', 1; END" };
+                default:
+                    throw new NotSupportedException("No delete block for provider " + _Settings.Type);
+            }
+        }
+
+        private async Task DropPipelineDeleteBlockAsync(string triggerName, CancellationToken token)
+        {
+            List<string> statements = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Postgresql => new List<string> { "DROP TRIGGER IF EXISTS " + triggerName + " ON pipelines;", "DROP FUNCTION IF EXISTS " + triggerName + "_fn();" },
+                DatabaseTypeEnum.SqlServer => new List<string> { "DROP TRIGGER IF EXISTS " + triggerName + ";" },
+                _ => new List<string> { "DROP TRIGGER IF EXISTS " + triggerName + ";" }
+            };
+            await ExecuteRawAsync(statements, token).ConfigureAwait(false);
+        }
+
+        private async Task ExecuteRawAsync(List<string> statements, CancellationToken token)
+        {
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                foreach (string sql in statements)
+                {
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = sql;
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                }
             }
         }
 

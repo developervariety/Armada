@@ -57,21 +57,6 @@ namespace Armada.Core.Database.Postgresql
             InitializeImplementations();
         }
 
-        /// <summary>
-        /// Instantiate the PostgreSQL database driver with a raw connection string.
-        /// </summary>
-        /// <param name="connectionString">PostgreSQL connection string.</param>
-        /// <param name="logging">Logging module.</param>
-        public PostgresqlDatabaseDriver(string connectionString, LoggingModule logging)
-        {
-            _ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
-            _Settings = new DatabaseSettings();
-            _DataSource = NpgsqlDataSource.Create(_ConnectionString);
-
-            InitializeImplementations();
-        }
-
         #endregion
 
         #region Public-Methods

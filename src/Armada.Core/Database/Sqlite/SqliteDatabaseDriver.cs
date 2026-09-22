@@ -58,50 +58,7 @@ namespace Armada.Core.Database.Sqlite
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ConnectionString = settings.GetConnectionString();
 
-            Fleets = new FleetMethods(this, _Settings, _Logging);
-            Vessels = new VesselMethods(this, _Settings, _Logging);
-            Captains = new CaptainMethods(this, _Settings, _Logging);
-            Missions = new MissionMethods(this, _Settings, _Logging);
-            Voyages = new VoyageMethods(this, _Settings, _Logging);
-            PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
-            PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
-            CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
-            CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
-            CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
-            CoordinationClaims = new CoordinationClaimMethods(this, _Settings, _Logging);
-            Objectives = new ObjectiveMethods(this, _Settings, _Logging);
-            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
-            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
-            Docks = new DockMethods(this, _Settings, _Logging);
-            Signals = new SignalMethods(this, _Settings, _Logging);
-            Events = new EventMethods(this, _Settings, _Logging);
-            RequestHistory = new RequestHistoryMethods(this, _Settings, _Logging);
-            MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
-            LandingJobs = new LandingJobMethods(this, _Settings, _Logging);
-            Tenants = new TenantMethods(this, _Settings, _Logging);
-            Users = new UserMethods(this, _Settings, _Logging);
-            Credentials = new CredentialMethods(this, _Settings, _Logging);
-            HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
-            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
-            Playbooks = new PlaybookMethods(this, _Settings, _Logging);
-            Memories = new MemoryMethods(this, _Settings, _Logging);
-            Personas = new PersonaMethods(this, _Settings, _Logging);
-            Pipelines = new PipelineMethods(this, _Settings, _Logging);
-            WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
-            Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
-            CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
-            Releases = new ReleaseMethods(this, _Settings, _Logging);
-            Deployments = new DeploymentMethods(this, _Settings, _Logging);
-            JudgeFollowUps = new JudgeFollowUpMethods(this);
-            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
-            Skills = new SkillMethods(this, _Settings, _Logging);
-            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
+            InitializeImplementations();
         }
 
         /// <summary>
@@ -115,53 +72,7 @@ namespace Armada.Core.Database.Sqlite
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = new DatabaseSettings();
 
-            Fleets = new FleetMethods(this, _Settings, _Logging);
-            Vessels = new VesselMethods(this, _Settings, _Logging);
-            Captains = new CaptainMethods(this, _Settings, _Logging);
-            Missions = new MissionMethods(this, _Settings, _Logging);
-            Voyages = new VoyageMethods(this, _Settings, _Logging);
-            PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
-            PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
-            CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
-            CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
-            CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
-            CoordinationClaims = new CoordinationClaimMethods(this, _Settings, _Logging);
-            Objectives = new ObjectiveMethods(this, _Settings, _Logging);
-            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
-            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
-            Docks = new DockMethods(this, _Settings, _Logging);
-            Signals = new SignalMethods(this, _Settings, _Logging);
-            Events = new EventMethods(this, _Settings, _Logging);
-            RequestHistory = new RequestHistoryMethods(this, _Settings, _Logging);
-            MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
-            LandingJobs = new LandingJobMethods(this, _Settings, _Logging);
-            Tenants = new TenantMethods(this, _Settings, _Logging);
-            Users = new UserMethods(this, _Settings, _Logging);
-            Credentials = new CredentialMethods(this, _Settings, _Logging);
-            HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
-            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
-            Playbooks = new PlaybookMethods(this, _Settings, _Logging);
-            Memories = new MemoryMethods(this, _Settings, _Logging);
-            Personas = new PersonaMethods(this, _Settings, _Logging);
-            Pipelines = new PipelineMethods(this, _Settings, _Logging);
-            WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
-            Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
-            CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
-            Releases = new ReleaseMethods(this, _Settings, _Logging);
-            Deployments = new DeploymentMethods(this, _Settings, _Logging);
-            JudgeFollowUps = new JudgeFollowUpMethods(this);
-            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
-            Skills = new SkillMethods(this, _Settings, _Logging);
-            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
-            Jobs = new JobMethods(this, _Settings, _Logging);
-            TokenUsage = new TokenUsageMethods(this, _Settings, _Logging);
-            ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
+            InitializeImplementations();
         }
 
         #endregion
@@ -900,15 +811,7 @@ namespace Armada.Core.Database.Sqlite
             entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
             entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            try { entry.AuditLane = reader["audit_lane"] as string; } catch { }
-            try { object av = reader["audit_convention_passed"]; entry.AuditConventionPassed = (av == null || av == DBNull.Value) ? (bool?)null : Convert.ToInt64(av) == 1; } catch { }
-            try { entry.AuditConventionNotes = reader["audit_convention_notes"] as string; } catch { }
-            try { entry.AuditCriticalTrigger = reader["audit_critical_trigger"] as string; } catch { }
-            try { object dv = reader["audit_deep_picked"]; entry.AuditDeepPicked = (dv == null || dv == DBNull.Value) ? (bool?)null : Convert.ToInt64(dv) == 1; } catch { }
-            try { entry.AuditDeepCompletedUtc = FromIso8601Nullable(reader["audit_deep_completed_utc"]); } catch { }
-            try { entry.AuditDeepVerdict = reader["audit_deep_verdict"] as string; } catch { }
-            try { entry.AuditDeepNotes = reader["audit_deep_notes"] as string; } catch { }
-            try { entry.AuditDeepRecommendedAction = reader["audit_deep_recommended_action"] as string; } catch { }
+            MergeEntryAuditColumns.Read(reader, entry, value => (value == null || value == DBNull.Value) ? (bool?)null : Convert.ToInt64(value) == 1, FromIso8601Nullable);
             try { entry.PrUrl = reader["pr_url"] as string; } catch { }
             try { entry.PrBaseBranch = reader["pr_base_branch"] as string; } catch { }
             try
@@ -967,6 +870,61 @@ namespace Armada.Core.Database.Sqlite
             cred.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             cred.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return cred;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private void InitializeImplementations()
+        {
+            Fleets = new FleetMethods(this, _Settings, _Logging);
+            Vessels = new VesselMethods(this, _Settings, _Logging);
+            Captains = new CaptainMethods(this, _Settings, _Logging);
+            Missions = new MissionMethods(this, _Settings, _Logging);
+            Voyages = new VoyageMethods(this, _Settings, _Logging);
+            PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
+            PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
+            CoordinationRooms = new CoordinationRoomMethods(this, _Settings, _Logging);
+            CoordinationMessages = new CoordinationMessageMethods(this, _Settings, _Logging);
+            CoordinationParticipants = new CoordinationParticipantMethods(this, _Settings, _Logging);
+            CoordinationClaims = new CoordinationClaimMethods(this, _Settings, _Logging);
+            Objectives = new ObjectiveMethods(this, _Settings, _Logging);
+            ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
+            ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);
+            Docks = new DockMethods(this, _Settings, _Logging);
+            Signals = new SignalMethods(this, _Settings, _Logging);
+            Events = new EventMethods(this, _Settings, _Logging);
+            RequestHistory = new RequestHistoryMethods(this, _Settings, _Logging);
+            MergeEntries = new MergeEntryMethods(this, _Settings, _Logging);
+            LandingJobs = new LandingJobMethods(this, _Settings, _Logging);
+            Tenants = new TenantMethods(this, _Settings, _Logging);
+            Users = new UserMethods(this, _Settings, _Logging);
+            Credentials = new CredentialMethods(this, _Settings, _Logging);
+            HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
+            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
+            Playbooks = new PlaybookMethods(this, _Settings, _Logging);
+            Memories = new MemoryMethods(this, _Settings, _Logging);
+            Personas = new PersonaMethods(this, _Settings, _Logging);
+            Pipelines = new PipelineMethods(this, _Settings, _Logging);
+            WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
+            CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
+            Releases = new ReleaseMethods(this, _Settings, _Logging);
+            Deployments = new DeploymentMethods(this, _Settings, _Logging);
+            JudgeFollowUps = new JudgeFollowUpMethods(this);
+            ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
+            Skills = new SkillMethods(this, _Settings, _Logging);
+            CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
+            Jobs = new JobMethods(this, _Settings, _Logging);
+            TokenUsage = new TokenUsageMethods(this, _Settings, _Logging);
+            ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
         }
 
         #endregion

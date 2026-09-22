@@ -3,7 +3,10 @@ namespace Armada.Test.Unit
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
+    using System.Reflection;
     using Armada.Core.Database;
+    using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -198,6 +201,56 @@ namespace Armada.Test.Unit
                 Assert(
                     providerFailures.Count == 0,
                     "Every provider must wire every method set. " + String.Join(" | ", providerFailures));
+            });
+
+            // The wiring check must name every method set a driver declares, not a hand-kept subset:
+            // clear each one in turn and require the check to report exactly that one. Both SQLite
+            // constructors must also wire every method set.
+
+            await RunTest("The wiring check reports every unassigned method set", () =>
+            {
+                LoggingModule logging = new LoggingModule();
+                string path = Path.Combine(Path.GetTempPath(), "armada-wiring-" + Guid.NewGuid().ToString("N") + ".db");
+                DatabaseSettings settings = new DatabaseSettings();
+                settings.Type = DatabaseTypeEnum.Sqlite;
+                settings.Filename = path;
+
+                List<string> failures = new List<string>();
+                try
+                {
+                    DatabaseDriver[] drivers = new DatabaseDriver[]
+                    {
+                        new SqliteDatabaseDriver(settings, logging),
+                        new SqliteDatabaseDriver(settings.GetConnectionString(), logging)
+                    };
+                    for (int index = 0; index < drivers.Length; index++)
+                    {
+                        List<string> unwired = drivers[index].FindUnwiredMethodSets();
+                        if (unwired.Count > 0) failures.Add("SQLite constructor " + index + " left unassigned: " + String.Join(", ", unwired));
+                    }
+
+                    List<PropertyInfo> methodSets = typeof(DatabaseDriver)
+                        .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                        .Where(property => property.PropertyType.IsInterface && property.PropertyType.Name.EndsWith("Methods", StringComparison.Ordinal))
+                        .ToList();
+                    foreach (string required in new[] { "Jobs", "TokenUsage", "ModelEndpoints", "Pipelines", "Fleets" })
+                        Assert(methodSets.Exists(property => property.Name == required), "method set " + required + " is declared");
+
+                    foreach (PropertyInfo methodSet in methodSets)
+                    {
+                        DatabaseDriver driver = new SqliteDatabaseDriver(settings.GetConnectionString(), logging);
+                        methodSet.SetValue(driver, null);
+                        List<string> reported = driver.FindUnwiredMethodSets();
+                        if (reported.Count != 1 || reported[0] != methodSet.Name)
+                            failures.Add(methodSet.Name + " cleared, reported [" + String.Join(", ", reported) + "]");
+                    }
+                }
+                finally
+                {
+                    try { File.Delete(path); } catch (IOException) { }
+                }
+
+                Assert(failures.Count == 0, String.Join(" | ", failures));
             });
 
             // A persona's default captain seeds the dispatch UI's per-step assignment. The column was
