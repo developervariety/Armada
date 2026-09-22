@@ -156,6 +156,10 @@ upstream integrations and excludes changes already present at that baseline.
   and retention compare correctly. The history timeline leaves out a source the
   database provider does not store, names it in `UnavailableSources`, and logs it;
   captain deletion logs a skipped or failed dependent cleanup.
+- **Provider test coverage:** the database runner checks the active-work footprint
+  query on all four providers: active voyages count every mission, a mission
+  without a voyage counts only while active, and terminal work and other tenants
+  are excluded.
 - **Helm server control:** `server stop`, `server restart`, `reset` and `config init`
   share one authenticated stop through `POST /api/v1/server/stop` and count the
   Admiral as stopped only when its health route no longer answers. A refused or

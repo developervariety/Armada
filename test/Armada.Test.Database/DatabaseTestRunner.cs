@@ -134,6 +134,7 @@ namespace Armada.Test.Database
             await RunTest("Mission_Admission_Observation_Reopen_And_Stale_Write", "Operational", () => TestMissionAdmissionAsync(token), token);
             await RunTest("Dock_AnchorSnapshot_Create_Reopen", "Operational", () => TestDockAnchorSnapshotAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
+            await RunTest("Mission_ActiveWorkFootprints_Count_Active_Work_Only", "Operational", () => TestActiveWorkFootprintsAsync(token), token);
             await RunTest("Mission_Fork_Fields_Create_Update_Reopen_Query", "Operational", () => TestMissionForkFieldsAsync(token), token);
             await RunTest("Dock_Create_Read_Update", "Operational", () => TestDockCrudAsync(token), token);
             await RunTest("Signal_Create_Read_Enumerate_MarkRead", "Operational", () => TestSignalCrudAsync(token), token);
@@ -2424,6 +2425,62 @@ namespace Armada.Test.Database
                     object? value = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
                     return value == null ? "<none>" : value.GetType().Name + " '" + Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) + "'";
                 }
+            }
+        }
+
+        private async Task TestActiveWorkFootprintsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("footprint-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "footprint-user", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "footprint-fleet", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "footprint-vessel", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "footprint-captain", token).ConfigureAwait(false);
+                TenantMetadata otherTenant = await fixture.CreateTenantAsync("footprint-other", token: token).ConfigureAwait(false);
+
+                Voyage open = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "footprint-open", token, v => v.Status = VoyageStatusEnum.Open).ConfigureAwait(false);
+                Voyage running = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "footprint-running", token, v => v.Status = VoyageStatusEnum.InProgress).ConfigureAwait(false);
+                Voyage complete = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "footprint-complete", token, v => v.Status = VoyageStatusEnum.Complete).ConfigureAwait(false);
+                Voyage cancelled = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "footprint-cancelled", token, v => v.Status = VoyageStatusEnum.Cancelled).ConfigureAwait(false);
+
+                // Every mission of an active voyage counts whatever its own status.
+                Mission finishedInOpen = await fixture.CreateMissionAsync(tenant.Id, user.Id, open.Id, vessel.Id, captain.Id, "footprint-finished-in-open", token, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+                Mission pendingInRunning = await fixture.CreateMissionAsync(tenant.Id, user.Id, running.Id, vessel.Id, captain.Id, "footprint-pending-in-running", token, configure: m => m.Status = MissionStatusEnum.Pending).ConfigureAwait(false);
+                Mission activeInComplete = await fixture.CreateMissionAsync(tenant.Id, user.Id, complete.Id, vessel.Id, captain.Id, "footprint-active-in-complete", token, configure: m => m.Status = MissionStatusEnum.InProgress).ConfigureAwait(false);
+                Mission activeInCancelled = await fixture.CreateMissionAsync(tenant.Id, user.Id, cancelled.Id, vessel.Id, captain.Id, "footprint-active-in-cancelled", token, configure: m => m.Status = MissionStatusEnum.Assigned).ConfigureAwait(false);
+
+                // A mission without a voyage counts only while its own status is active.
+                Mission standalonePending = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "footprint-standalone-pending", token, configure: m => m.Status = MissionStatusEnum.Pending).ConfigureAwait(false);
+                Mission standaloneReview = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "footprint-standalone-review", token, configure: m => m.Status = MissionStatusEnum.Review).ConfigureAwait(false);
+                Mission standaloneComplete = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "footprint-standalone-complete", token, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+                Mission standaloneFailed = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "footprint-standalone-failed", token, configure: m => m.Status = MissionStatusEnum.Failed).ConfigureAwait(false);
+                Mission standaloneCancelled = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "footprint-standalone-cancelled", token, configure: m => m.Status = MissionStatusEnum.Cancelled).ConfigureAwait(false);
+
+                List<string> expected = new List<string> { finishedInOpen.Id, pendingInRunning.Id, standalonePending.Id, standaloneReview.Id };
+                expected.Sort(StringComparer.Ordinal);
+                List<string> excluded = new List<string> { activeInComplete.Id, activeInCancelled.Id, standaloneComplete.Id, standaloneFailed.Id, standaloneCancelled.Id };
+
+                List<ActiveWorkFootprint> scoped = await _Driver.Missions.EnumerateActiveWorkFootprintsAsync(tenant.Id, token).ConfigureAwait(false);
+                List<string> scopedIds = scoped.ConvertAll(item => item.MissionId);
+                scopedIds.Sort(StringComparer.Ordinal);
+                DatabaseAssert.Equal(String.Join(",", expected), String.Join(",", scopedIds), "Tenant-scoped active work footprints");
+                foreach (ActiveWorkFootprint footprint in scoped)
+                    DatabaseAssert.Equal(vessel.Id, footprint.VesselId, "ActiveWorkFootprint.VesselId of " + footprint.MissionId);
+                DatabaseAssert.Equal(open.Id, scoped.Find(item => item.MissionId == finishedInOpen.Id)!.VoyageId, "ActiveWorkFootprint.VoyageId of a voyage mission");
+                DatabaseAssert.True(scoped.Find(item => item.MissionId == standalonePending.Id)!.VoyageId == null, "ActiveWorkFootprint.VoyageId of a standalone mission is null");
+
+                List<ActiveWorkFootprint> otherScope = await _Driver.Missions.EnumerateActiveWorkFootprintsAsync(otherTenant.Id, token).ConfigureAwait(false);
+                DatabaseAssert.True(!otherScope.Exists(item => expected.Contains(item.MissionId)), "Another tenant's scope excludes these footprints");
+
+                List<ActiveWorkFootprint> all = await _Driver.Missions.EnumerateActiveWorkFootprintsAsync(null, token).ConfigureAwait(false);
+                DatabaseAssert.ContainsIds(all, item => item.MissionId, expected.ToArray());
+                DatabaseAssert.True(!all.Exists(item => excluded.Contains(item.MissionId)), "Unscoped footprints exclude terminal work");
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
         }
 
