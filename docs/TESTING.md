@@ -41,6 +41,10 @@ The script prints one summary line per process, the summed unit totals, and one 
 
 Use the script locally for quick runs of one runner or one suite. The full gate runs on a Linux host; see [Gate Host](#gate-host).
 
+The `Mission Review Diff` unit suite owns all six review-diff cases. It checks
+unchanged small diffs, retained code and file headers, generated-data elision,
+small data files, and generic elision for large code files.
+
 ## Gate Host
 
 The gate is the four runners together: `unit` (sharded), `automated`, `runtimes` and `shared`. A commit passes only when all four pass in one combined run. Run the gate on a Linux host, not on a macOS workstation.

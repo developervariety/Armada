@@ -41,7 +41,8 @@ upstream integrations and excludes changes already present at that baseline.
   host-slot wait, preparation observations, and post-land regression links.
 - **Verification tooling:** a four-runner Linux gate, balanced unit shards,
   explicit test registration and result manifests, provider migration scenarios,
-  API collection coverage, and isolated test data directories.
+  API collection coverage, isolated test data directories, and one owner suite
+  for review-diff coverage.
 
 ## Removed
 
