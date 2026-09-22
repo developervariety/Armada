@@ -21,6 +21,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton from '../components/shared/CopyButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { retainSelection } from '../lib/selection';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { MERGE_STATUSES, mergeDeleteOutcome } from '../lib/mergeQueueOutcome';
@@ -92,7 +93,7 @@ export default function MergeQueue() {
       setEntries(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
-      setSelected([]);
+      setSelected(prev => retainSelection(prev, (result.objects || []).map(e => e.id)));
       setError('');
     } catch {
       setError(t('Failed to load merge queue.'));

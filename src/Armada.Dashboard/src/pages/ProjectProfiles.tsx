@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createProjectProfile, deleteProjectProfile, listFleets, listProjectProfiles, listVessels, updateProjectProfile } from '../api/client';
+import { createProjectProfile, deleteProjectProfile, listAllFleets, listAllVessels, listProjectProfiles, updateProjectProfile } from '../api/client';
 import type { Fleet, ProjectProfile, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -81,8 +81,8 @@ export default function ProjectProfiles() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('projectprofiles', load);
 
   useEffect(() => {
-    void listFleets().then((r) => setFleets(r.objects || [])).catch(() => {});
-    void listVessels().then((r) => setVessels(r.objects || [])).catch(() => {});
+    void listAllFleets().then(setFleets).catch(() => {});
+    void listAllVessels().then(setVessels).catch(() => {});
   }, []);
 
   function openCreate() {

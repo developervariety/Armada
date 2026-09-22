@@ -146,12 +146,24 @@ describe('Dashboard home', () => {
     }
   });
 
-  it('loads a bounded page of mission summaries instead of full missions', async () => {
+  it('loads and refreshes a bounded page of mission summaries and keeps only the latest page', async () => {
     renderDashboard();
     expect(await screen.findByText('Recent mission')).toBeInTheDocument();
+    await waitFor(() => expect(socketHandlers.length).toBeGreaterThan(0));
 
+    vi.mocked(listMissionSummaries).mockResolvedValue(page([
+      { id: 'msn_newer', title: 'Newer mission', status: 'InProgress', voyageId: null, vesselId: 'vsl_alpha', captainId: null, createdUtc: '2026-09-14T10:00:00Z' },
+    ]) as never);
+    act(() => {
+      socketHandlers.forEach((handler) => handler({ type: 'mission.changed' }));
+    });
+
+    expect(await screen.findByText('Newer mission')).toBeInTheDocument();
+    expect(screen.queryByText('Recent mission')).not.toBeInTheDocument();
     expect(listMissions).not.toHaveBeenCalled();
-    expect(listMissionSummaries).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 10 }));
+    const requests = vi.mocked(listMissionSummaries).mock.calls.map(([params]) => params?.pageSize);
+    expect(requests).toHaveLength(2);
+    expect(requests).toEqual([10, 10]);
   });
 
   it('names voyage vessels from the voyage mission summary, not from the recent mission slice', async () => {

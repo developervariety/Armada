@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 
@@ -62,4 +62,23 @@ test('loads every dock and paginates, sorts and filters over the whole set', asy
   // Newest first across all 30 docks; one page of 25 rows.
   expect(screen.getByText('branch-029')).toBeInTheDocument();
   expect(screen.queryByText('branch-000')).not.toBeInTheDocument();
+});
+
+test('a refresh keeps the selected docks that still exist and drops the ones that vanished', async () => {
+  vi.mocked(listDocks).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 3, totalMs: 1, objects: [dock(1), dock(2), dock(3)] as never });
+  render(<MemoryRouter><Docks /></MemoryRouter>);
+  await screen.findByText('branch-001');
+
+  const checkbox = (branch: string) => within(screen.getByText(branch).closest('tr') as HTMLElement).getByTitle('Select this dock') as HTMLInputElement;
+  fireEvent.click(checkbox('branch-001'));
+  fireEvent.click(checkbox('branch-002'));
+  expect(screen.getByText(/Delete Selected/)).toHaveTextContent('(2)');
+
+  vi.mocked(listDocks).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 2, totalMs: 1, objects: [dock(1), dock(3)] as never });
+  fireEvent.click(screen.getByTitle('Refresh dock data'));
+  await waitFor(() => expect(screen.queryByText('branch-002')).not.toBeInTheDocument());
+
+  expect(checkbox('branch-001').checked).toBe(true);
+  expect(checkbox('branch-003').checked).toBe(false);
+  expect(screen.getByText(/Delete Selected/)).toHaveTextContent('(1)');
 });

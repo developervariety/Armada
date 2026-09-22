@@ -172,6 +172,14 @@ upstream integrations and excludes changes already present at that baseline.
 - **Papercut merge:** the typed-decision merge works on copies of the listed
   groups, so an unavailable answer after an earlier merge returns the original
   groups with their original counts.
+- **Dashboard loading:** a list refresh keeps the bulk selection for rows that still
+  exist and drops only rows that vanished. Fleet and vessel pickers on project
+  profiles and pipelines read every page. Mission, captain, vessel and merge-entry
+  detail pages apply only the newest load, show the spinner and any load failure
+  when the id changes, and never show the previous record. Only the current
+  WebSocket drives connection state and reconnects; a replaced socket's late events
+  are ignored. The home page's bounded mission-summary refresh has a dashboard test
+  in place of source-text checks in the unit suite.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

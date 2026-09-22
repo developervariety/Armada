@@ -4,8 +4,8 @@ import {
   createProjectProfile,
   deleteProjectProfile,
   getProjectProfile,
-  listFleets,
-  listVessels,
+  listAllFleets,
+  listAllVessels,
   previewPersonaPrompt,
   updateProjectProfile,
 } from '../api/client';
@@ -66,8 +66,8 @@ export default function ProjectProfileDetail() {
   const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
-    void listFleets().then((r) => setFleets(r.objects || [])).catch(() => {});
-    void listVessels().then((r) => setVessels(r.objects || [])).catch(() => {});
+    void listAllFleets().then(setFleets).catch(() => {});
+    void listAllVessels().then(setVessels).catch(() => {});
     if (createMode) return;
     setLoading(true);
     getProjectProfile(id!)

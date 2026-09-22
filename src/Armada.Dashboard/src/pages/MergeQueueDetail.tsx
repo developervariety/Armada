@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, listVessels, getMissionDiff, getMissionLog, getVesselLandingPreview } from '../api/client';
 import type { MergeEntry, Vessel, LandingPreviewResult } from '../types/models';
@@ -13,6 +13,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 
 /** Statuses in which the merge queue is still working the entry, so the page polls for the outcome. */
 const IN_FLIGHT_STATUSES = ['Testing', 'Rebasing', 'Merging', 'Pushing', 'CreatingPR'];
@@ -30,7 +31,7 @@ export default function MergeQueueDetail() {
   const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const entryLoadedRef = useRef(false);
+  const entryRequests = useLatestRequest();
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -51,28 +52,35 @@ export default function MergeQueueDetail() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    // A ref, not the entry state: the callback is created once per id, so a captured entry would stay null.
-    const isInitialLoad = !entryLoadedRef.current;
+    // The spinner shows only on the first load of this id, so a poll keeps the page on screen. A load superseded
+    // by a later one (another id or a newer poll) writes nothing.
+    const request = entryRequests.begin(id);
+    const isInitialLoad = request.isInitialLoad;
+    if (isInitialLoad) {
+      setLoading(true);
+      setEntry(null);
+      setLandingPreview(null);
+      setError('');
+    }
     try {
-      if (isInitialLoad) setLoading(true);
       const [e, vResult] = await Promise.all([getMergeEntry(id), listVessels({ pageSize: 1000 })]);
+      if (!request.isCurrent()) return;
       setEntry(e);
-      entryLoadedRef.current = true;
+      request.markLoaded();
       setVessels(vResult.objects);
       if (e.vesselId) {
         if (isInitialLoad) setLoadingLandingPreview(true);
         getVesselLandingPreview(e.vesselId, e.branchName)
-          .then((result) => setLandingPreview(result))
-          .catch(() => setLandingPreview(null))
-          .finally(() => setLoadingLandingPreview(false));
+          .then((result) => { if (request.isCurrent()) setLandingPreview(result); })
+          .catch(() => { if (request.isCurrent()) setLandingPreview(null); })
+          .finally(() => { if (request.isCurrent()) setLoadingLandingPreview(false); });
       } else {
         setLandingPreview(null);
       }
-      if (isInitialLoad) setError('');
     } catch {
-      if (isInitialLoad) setError(t('Failed to load merge entry.'));
+      if (request.isCurrent() && isInitialLoad) setError(t('Failed to load merge entry.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
   }, [id, t]);
 

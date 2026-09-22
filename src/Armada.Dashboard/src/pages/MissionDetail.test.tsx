@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import MissionDetail from './MissionDetail';
+import { NavigateButton, deferred } from '../test/routeRace';
 import {
   deleteMission,
   getMission,
@@ -171,5 +172,45 @@ describe('MissionDetail', () => {
     await waitFor(() => expect(getMission).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole('button', { name: 'Land' })).toBeInTheDocument();
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+  });
+
+  it('keeps the newest mission when an earlier request resolves after a later one', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    vi.mocked(getMission).mockImplementation(((id: string) => (id === 'msn_1' ? first.promise : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/missions/msn_1']}>
+        <NavigateButton to="/missions/msn_2" />
+        <Routes><Route path="/missions/:id" element={<MissionDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('go /missions/msn_2'));
+    await act(async () => { second.resolve(mission({ id: 'msn_2', title: 'Second mission' })); });
+    expect(await screen.findByRole('heading', { name: 'Second mission' })).toBeInTheDocument();
+
+    await act(async () => { first.resolve(mission({ title: 'First mission' })); });
+    expect(screen.getByRole('heading', { name: 'Second mission' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'First mission' })).not.toBeInTheDocument();
+  });
+
+  it('shows the spinner instead of the previous mission while another id loads, and reports its failure', async () => {
+    const second = deferred<unknown>();
+    vi.mocked(getMission).mockImplementation(((id: string) => (id === 'msn_1' ? Promise.resolve(mission({ title: 'First mission' })) : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/missions/msn_1']}>
+        <NavigateButton to="/missions/msn_2" />
+        <Routes><Route path="/missions/:id" element={<MissionDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('heading', { name: 'First mission' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('go /missions/msn_2'));
+    expect(await screen.findByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'First mission' })).not.toBeInTheDocument();
+
+    await act(async () => { second.reject(new Error('gone')); });
+    expect(await screen.findByText(/Failed to load mission: gone/)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'First mission' })).not.toBeInTheDocument();
   });
 });

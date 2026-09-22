@@ -17,6 +17,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { retainSelection } from '../lib/selection';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -91,7 +92,7 @@ export default function Signals() {
       setTotalPages(result.totalPages || 0);
       setTotalRecords(result.totalRecords || 0);
       setTotalMs(result.totalMs || 0);
-      setSelected([]);
+      setSelected(prev => retainSelection(prev, (result.objects || []).map(s => s.id)));
     } catch {
       setError(t('Failed to load signals.'));
     } finally {

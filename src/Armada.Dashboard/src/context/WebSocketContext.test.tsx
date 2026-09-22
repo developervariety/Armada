@@ -1,4 +1,5 @@
 import { act, render } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
 
 vi.mock('./AuthContext', () => ({
@@ -119,4 +120,43 @@ test('authenticates with the session token before subscribing', () => {
     { Route: 'authenticate', token: 'session-1' },
     { Route: 'subscribe' },
   ]);
+});
+
+test('a replaced socket that closes late leaves the current socket in place and starts no reconnect', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('WebSocket', FakeSocket);
+  const state: { current: ReturnType<typeof useWebSocket> | null } = { current: null };
+  function Capture() {
+    state.current = useWebSocket();
+    return null;
+  }
+  // StrictMode runs the connect effect, its cleanup, and the effect again: the first socket is closed and
+  // replaced before its close event arrives.
+  render(
+    <StrictMode>
+      <WebSocketProvider>
+        <Capture />
+      </WebSocketProvider>
+    </StrictMode>,
+  );
+  expect(FakeSocket.instances).toHaveLength(2);
+  const [replaced, current] = FakeSocket.instances;
+  act(() => {
+    current.readyState = FakeSocket.OPEN;
+    current.onopen?.();
+  });
+  expect(state.current?.connected).toBe(true);
+
+  act(() => {
+    replaced.onclose?.();
+    vi.advanceTimersByTime(3500);
+  });
+
+  expect(FakeSocket.instances).toHaveLength(2);
+  expect(state.current?.connected).toBe(true);
+  act(() => {
+    state.current?.send({ Route: 'ping' });
+  });
+  expect(current.sent.map((frame) => JSON.parse(frame))).toContainEqual({ Route: 'ping' });
+  vi.useRealTimers();
 });

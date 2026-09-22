@@ -36,6 +36,7 @@ import Button from '../components/shared/Button';
 import CaptainRef from '../components/shared/CaptainRef';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useLocale } from '../context/LocaleContext';
 
 const MISSION_STATUSES = [
@@ -66,7 +67,7 @@ export default function MissionDetail() {
   // Log viewer (shared modal)
   const [logModal, setLogModal] = useState<{ open: boolean; title: string; missionId: string; content: string; totalLines: number; lineCount: number; readable: boolean; entries: FormattedLogEntry[] | null; entriesTruncated: boolean }>({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200, readable: true, entries: null, entriesTruncated: false });
   const [instructionsModal, setInstructionsModal] = useState<{ open: boolean; title: string; content: string }>({ open: false, title: '', content: '' });
-  const missionLoadedRef = useRef(false);
+  const missionRequests = useLatestRequest();
 
   // Transition
   const [showTransition, setShowTransition] = useState(false);
@@ -109,24 +110,31 @@ export default function MissionDetail() {
 
   const loadMission = useCallback(async () => {
     if (!id) return;
-    // Only show loading spinner on initial load, not background refreshes
-    const isInitialLoad = !missionLoadedRef.current;
-    if (isInitialLoad) setLoading(true);
+    // The spinner shows only on the first load of this id, so an auto-refresh keeps the page on screen. A load
+    // superseded by a later one (another id or a newer refresh) writes nothing.
+    const request = missionRequests.begin(id);
+    const isInitialLoad = request.isInitialLoad;
+    if (isInitialLoad) {
+      setLoading(true);
+      setMission(null);
+      setLandingPreview(null);
+      setError('');
+    }
     try {
       const m = await getMission(id);
+      if (!request.isCurrent()) return;
       setMission(m);
       setLoadingLandingPreview(true);
       getMissionLandingPreview(id)
-        .then((result) => setLandingPreview(result))
-        .catch(() => setLandingPreview(null))
-        .finally(() => setLoadingLandingPreview(false));
-      missionLoadedRef.current = true;
-      // Only clear error on initial load -- don't dismiss user-facing errors from actions
-      if (isInitialLoad) setError('');
+        .then((result) => { if (request.isCurrent()) setLandingPreview(result); })
+        .catch(() => { if (request.isCurrent()) setLandingPreview(null); })
+        .finally(() => { if (request.isCurrent()) setLoadingLandingPreview(false); });
+      request.markLoaded();
     } catch (e: unknown) {
-      if (isInitialLoad) setError(t('Failed to load mission: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
+      // A background refresh keeps the page and does not dismiss user-facing errors from actions.
+      if (request.isCurrent() && isInitialLoad) setError(t('Failed to load mission: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
   }, [id, t]);
 

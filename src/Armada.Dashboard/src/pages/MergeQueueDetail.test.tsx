@@ -1,6 +1,7 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import MergeQueueDetail from './MergeQueueDetail';
+import { NavigateButton, deferred } from '../test/routeRace';
 import { getMergeEntry, getVesselLandingPreview, listVessels } from '../api/client';
 
 vi.mock('../api/client', () => ({
@@ -156,5 +157,45 @@ describe('MergeQueueDetail', () => {
     expect(screen.getByText('Merging')).toBeInTheDocument();
     expect(screen.queryByText('Failed to load merge entry.')).not.toBeInTheDocument();
     intervals.restore();
+  });
+
+  it('keeps the newest merge entry when an earlier request resolves after a later one', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    vi.mocked(getMergeEntry).mockImplementation(((id: string) => (id === 'mrg_1' ? first.promise : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/merge-queue/mrg_1']}>
+        <NavigateButton to="/merge-queue/mrg_2" />
+        <Routes><Route path="/merge-queue/:id" element={<MergeQueueDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('go /merge-queue/mrg_2'));
+    await act(async () => { second.resolve(entry({ id: 'mrg_2', branchName: 'armada/second-branch' })); });
+    expect((await screen.findAllByText('armada/second-branch')).length).toBeGreaterThan(0);
+
+    await act(async () => { first.resolve(entry({ branchName: 'armada/first-branch' })); });
+    expect(screen.getAllByText('armada/second-branch').length).toBeGreaterThan(0);
+    expect(screen.queryByText('armada/first-branch')).not.toBeInTheDocument();
+  });
+
+  it('shows the spinner instead of the previous merge entry while another id loads, and reports its failure', async () => {
+    const second = deferred<unknown>();
+    vi.mocked(getMergeEntry).mockImplementation(((id: string) => (id === 'mrg_1' ? Promise.resolve(entry({ branchName: 'armada/first-branch' })) : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/merge-queue/mrg_1']}>
+        <NavigateButton to="/merge-queue/mrg_2" />
+        <Routes><Route path="/merge-queue/:id" element={<MergeQueueDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect((await screen.findAllByText('armada/first-branch')).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByText('go /merge-queue/mrg_2'));
+    expect(await screen.findByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByText('armada/first-branch')).not.toBeInTheDocument();
+
+    await act(async () => { second.reject(new Error('unavailable')); });
+    expect(await screen.findByText('Failed to load merge entry.')).toBeInTheDocument();
+    expect(screen.queryByText('armada/first-branch')).not.toBeInTheDocument();
   });
 });

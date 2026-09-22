@@ -1,6 +1,7 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import VesselDetail from './VesselDetail';
+import { NavigateButton, deferred } from '../test/routeRace';
 import {
   getVessel,
   getVesselLandingPreview,
@@ -130,5 +131,45 @@ describe('VesselDetail', () => {
     await waitFor(() => expect(getVessel).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole('heading', { name: 'EngineLib Renamed' })).toBeInTheDocument();
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+  });
+
+  it('keeps the newest vessel when an earlier request resolves after a later one', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    vi.mocked(getVessel).mockImplementation(((id: string) => (id === 'vsl_1' ? first.promise : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/vessels/vsl_1']}>
+        <NavigateButton to="/vessels/vsl_2" />
+        <Routes><Route path="/vessels/:id" element={<VesselDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('go /vessels/vsl_2'));
+    await act(async () => { second.resolve({ ...vessel, id: 'vsl_2', name: 'SecondVessel' }); });
+    expect(await screen.findByRole('heading', { name: 'SecondVessel' })).toBeInTheDocument();
+
+    await act(async () => { first.resolve({ ...vessel, name: 'FirstVessel' }); });
+    expect(screen.getByRole('heading', { name: 'SecondVessel' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'FirstVessel' })).not.toBeInTheDocument();
+  });
+
+  it('shows the spinner instead of the previous vessel while another id loads, and reports its failure', async () => {
+    const second = deferred<unknown>();
+    vi.mocked(getVessel).mockImplementation(((id: string) => (id === 'vsl_1' ? Promise.resolve({ ...vessel, name: 'FirstVessel' }) : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/vessels/vsl_1']}>
+        <NavigateButton to="/vessels/vsl_2" />
+        <Routes><Route path="/vessels/:id" element={<VesselDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('heading', { name: 'FirstVessel' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('go /vessels/vsl_2'));
+    expect(await screen.findByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'FirstVessel' })).not.toBeInTheDocument();
+
+    await act(async () => { second.reject(Object.assign(new Error('unavailable'), { status: 500 })); });
+    expect(await screen.findByText('Failed to load vessel.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'FirstVessel' })).not.toBeInTheDocument();
   });
 });

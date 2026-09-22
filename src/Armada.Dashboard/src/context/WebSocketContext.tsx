@@ -60,9 +60,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = `${protocol}//${window.location.host}/ws`;
       const ws = new WebSocket(url);
+      // A socket acts only while it is the provider's current socket. A socket that was closed and replaced
+      // (auth change, remount) can still deliver open, message and close events; those must not touch the
+      // connection state, drop the current socket, or start a second reconnect.
+      const isCurrent = () => mountedRef.current && wsRef.current === ws;
 
       ws.onopen = () => {
-        if (!mountedRef.current) { ws.close(); return; }
+        if (!isCurrent()) { ws.close(); return; }
         setConnected(true);
         // The server refuses every other route until the session authenticates,
         // and it handles frames in order, so subscribe follows authentication.
@@ -71,6 +75,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       };
 
       ws.onmessage = (evt) => {
+        if (!isCurrent()) return;
         let data: WebSocketMessage;
         try {
           data = JSON.parse(evt.data) as WebSocketMessage;
@@ -96,7 +101,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       };
 
       ws.onclose = () => {
-        if (!mountedRef.current) return;
+        if (!isCurrent()) return;
         setConnected(false);
         wsRef.current = null;
         reconnectTimerRef.current = window.setTimeout(() => {
@@ -105,7 +110,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       };
 
       ws.onerror = () => {
-        setConnected(false);
+        if (isCurrent()) setConnected(false);
       };
 
       wsRef.current = ws;

@@ -593,6 +593,9 @@ export const deleteCredential = (id: string) => del<void>(`/api/v1/credentials/$
 // ==================== Fleets ====================
 export const listFleets = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Fleet>>(`/api/v1/fleets${buildQuery(params)}`);
+/** Every fleet visible to the caller; the server caps a page at 1000 and defaults to 10, so this reads each page. */
+export const listAllFleets = () =>
+  listAllPages((pageNumber) => listFleets({ pageNumber, pageSize: 1000 }));
 export const getFleet = (id: string) => get<Fleet>(`/api/v1/fleets/${id}`);
 export const createFleet = (data: Partial<Fleet>) => post<Fleet>('/api/v1/fleets', data);
 export const updateFleet = (id: string, data: Partial<Fleet>) => put<Fleet>(`/api/v1/fleets/${id}`, data);
@@ -602,6 +605,9 @@ export const deleteFleetsBatch = (ids: string[]) => post<BatchDeleteResult>('/ap
 // ==================== Vessels ====================
 export const listVessels = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Vessel>>(`/api/v1/vessels${buildQuery(params)}`);
+/** Every vessel visible to the caller; the server caps a page at 1000 and defaults to 10, so this reads each page. */
+export const listAllVessels = () =>
+  listAllPages((pageNumber) => listVessels({ pageNumber, pageSize: 1000 }));
 export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);

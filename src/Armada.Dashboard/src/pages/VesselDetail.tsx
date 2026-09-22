@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { getVessel, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
@@ -11,6 +11,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -61,7 +62,7 @@ export default function VesselDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notFound, setNotFound] = useState(false);
-  const vesselLoadedRef = useRef(false);
+  const vesselRequests = useLatestRequest();
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
@@ -79,17 +80,28 @@ export default function VesselDetail() {
     return m;
   }, [fleets]);
 
-  // The vessel is read by id; the spinner shows only on the first load, so an auto-refresh keeps the page on screen.
+  // The vessel is read by id; the spinner shows only on the first load of this id, so an auto-refresh keeps the page
+  // on screen. A load superseded by a later one (another id or a newer refresh) writes nothing.
   const load = useCallback(async () => {
     if (!id) return;
-    const isInitialLoad = !vesselLoadedRef.current;
-    if (isInitialLoad) setLoading(true);
+    const request = vesselRequests.begin(id);
+    const isInitialLoad = request.isInitialLoad;
+    if (isInitialLoad) {
+      setLoading(true);
+      setVessel(null);
+      setMissions([]);
+      setReadiness(null);
+      setLandingPreview(null);
+      setNotFound(false);
+      setError('');
+    }
     try {
       let found: Vessel;
       try {
         found = await getVessel(id);
       } catch (e: unknown) {
         if ((e as { status?: number } | null)?.status === 404) {
+          if (!request.isCurrent()) return;
           setVessel(null);
           setNotFound(true);
           return;
@@ -101,27 +113,27 @@ export default function VesselDetail() {
         listMissionSummaries({ pageSize: 1000, filters: { vesselId: id } }),
         listPipelines({ pageSize: 9999 }),
       ]);
+      if (!request.isCurrent()) return;
       setVessel(found);
       setNotFound(false);
-      vesselLoadedRef.current = true;
+      request.markLoaded();
       setFleets(fResult.objects);
       setMissions(mResult.objects || []);
       setPipelines(pResult.objects);
       if (isInitialLoad) setLoadingReadiness(true);
       getVesselReadiness(id)
-        .then((result) => setReadiness(result))
-        .catch(() => setReadiness(null))
-        .finally(() => setLoadingReadiness(false));
+        .then((result) => { if (request.isCurrent()) setReadiness(result); })
+        .catch(() => { if (request.isCurrent()) setReadiness(null); })
+        .finally(() => { if (request.isCurrent()) setLoadingReadiness(false); });
       if (isInitialLoad) setLoadingLandingPreview(true);
       getVesselLandingPreview(id, found.defaultBranch || null)
-        .then((result) => setLandingPreview(result))
-        .catch(() => setLandingPreview(null))
-        .finally(() => setLoadingLandingPreview(false));
-      if (isInitialLoad) setError('');
+        .then((result) => { if (request.isCurrent()) setLandingPreview(result); })
+        .catch(() => { if (request.isCurrent()) setLandingPreview(null); })
+        .finally(() => { if (request.isCurrent()) setLoadingLandingPreview(false); });
     } catch {
-      if (isInitialLoad) setError(t('Failed to load vessel.'));
+      if (request.isCurrent() && isInitialLoad) setError(t('Failed to load vessel.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
   }, [id, t]);
 

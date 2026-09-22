@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { createPipeline, getPipeline, updatePipeline, deletePipeline, listPersonas, listVessels, createVoyage } from '../api/client';
+import { createPipeline, getPipeline, updatePipeline, deletePipeline, listPersonas, listAllVessels, createVoyage } from '../api/client';
 import type { Pipeline, PipelineStage, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
@@ -92,8 +92,7 @@ export default function PipelineDetail() {
       const personaResult = await listPersonas({ pageSize: 9999 });
       setPersonaNames(personaResult.objects.map(p => p.name));
       try {
-        const vesselResult = await listVessels();
-        setVessels(vesselResult.objects || []);
+        setVessels(await listAllVessels());
       } catch { /* vessels are optional for run-mode */ }
       if (isInitialLoad) setError('');
     } catch {

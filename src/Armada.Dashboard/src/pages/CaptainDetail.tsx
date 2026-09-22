@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   createCaptain,
@@ -29,6 +29,7 @@ import CaptainTierBadge from '../components/shared/CaptainTierBadge';
 import { parsePreferenceRank } from '../lib/captainTier';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -59,7 +60,7 @@ export default function CaptainDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notFound, setNotFound] = useState(false);
-  const captainLoadedRef = useRef(false);
+  const captainRequests = useLatestRequest();
   const [quarantineOpen, setQuarantineOpen] = useState(false);
   const [quarantining, setQuarantining] = useState(false);
 
@@ -90,32 +91,42 @@ export default function CaptainDetail() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // The spinner shows only on the first load, so an auto-refresh keeps the page on screen.
+  // The spinner shows only on the first load of this id, so an auto-refresh keeps the page on screen. A load
+  // superseded by a later one (another id or a newer refresh) writes nothing.
   const load = useCallback(async () => {
     if (!id) return;
-    const isInitialLoad = !captainLoadedRef.current;
-    if (isInitialLoad) setLoading(true);
+    const request = captainRequests.begin(id);
+    const isInitialLoad = request.isInitialLoad;
+    if (isInitialLoad) {
+      setLoading(true);
+      setCaptain(null);
+      setCurrentMission(null);
+      setMissions([]);
+      setNotFound(false);
+      setError('');
+    }
     try {
       const cap = await getCaptain(id);
+      if (!request.isCurrent()) return;
       setCaptain(cap);
       setNotFound(false);
-      captainLoadedRef.current = true;
+      request.markLoaded();
       // Load current mission if set
       if (cap.currentMissionId) {
         try {
           const m = await getMission(cap.currentMissionId);
-          setCurrentMission(m);
-        } catch { setCurrentMission(null); }
+          if (request.isCurrent()) setCurrentMission(m);
+        } catch { if (request.isCurrent()) setCurrentMission(null); }
       } else {
         setCurrentMission(null);
       }
       // Load missions assigned to this captain
       try {
         const mResult = await listMissionSummaries({ pageSize: 100, filters: { captainId: id } });
-        setMissions(mResult.objects || []);
-      } catch { setMissions([]); }
-      if (isInitialLoad) setError('');
+        if (request.isCurrent()) setMissions(mResult.objects || []);
+      } catch { if (request.isCurrent()) setMissions([]); }
     } catch (e: unknown) {
+      if (!request.isCurrent()) return;
       if ((e as { status?: number } | null)?.status === 404) {
         setCaptain(null);
         setNotFound(true);
@@ -123,7 +134,7 @@ export default function CaptainDetail() {
         setError(t('Failed to load captain.'));
       }
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
   }, [id, t]);
 

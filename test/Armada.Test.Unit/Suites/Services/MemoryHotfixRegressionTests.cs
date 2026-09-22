@@ -1,11 +1,10 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.IO;
-    using System.Text.RegularExpressions;
     using Armada.Test.Common;
 
     /// <summary>
-    /// Regression tests for memory-sensitive dashboard and mission list surfaces.
+    /// Regression tests for memory-sensitive mission list surfaces.
     /// </summary>
     public class MemoryHotfixRegressionTests : TestSuite
     {
@@ -19,32 +18,6 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("DashboardHomeRefresh DoesNotRequestUnboundedMissionPage", () =>
-            {
-                string dashboard = ReadRepositoryFile("src", "Armada.Dashboard", "src", "pages", "Dashboard.tsx");
-                bool requestsUnboundedMissionPage = Regex.IsMatch(
-                    dashboard,
-                    @"listMissions\s*\(\s*\{[^}]*pageSize\s*:\s*9999",
-                    RegexOptions.Singleline);
-
-                AssertFalse(
-                    requestsUnboundedMissionPage,
-                    "Dashboard home/refresh must not request an effectively unbounded mission page.");
-            });
-
-            await RunTest("DashboardHomeRefresh DoesNotRetainRawMissionPage", () =>
-            {
-                string dashboard = ReadRepositoryFile("src", "Armada.Dashboard", "src", "pages", "Dashboard.tsx");
-                bool retainsRawMissionPage = Regex.IsMatch(
-                    dashboard,
-                    @"setAllMissions\s*\(\s*missionRes\.objects\s*\)",
-                    RegexOptions.Singleline);
-
-                AssertFalse(
-                    retainsRawMissionPage,
-                    "Dashboard home/refresh must not retain the raw mission page response.");
-            });
-
             await RunTest("MissionEnumerationRoutes DefaultResponsesStripHeavyMissionFields", () =>
             {
                 string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "MissionRoutes.cs");

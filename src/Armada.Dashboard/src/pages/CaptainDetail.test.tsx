@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import CaptainDetail from './CaptainDetail';
+import { NavigateButton, deferred } from '../test/routeRace';
 import { getCaptain, listMissionSummaries, listModelEndpoints, updateCaptain } from '../api/client';
 
 vi.mock('../api/client', () => ({
@@ -153,5 +154,45 @@ describe('CaptainDetail', () => {
 
     expect(await screen.findByText('Mux captains require a named Mux endpoint.')).toBeInTheDocument();
     expect(updateCaptain).not.toHaveBeenCalled();
+  });
+
+  it('keeps the newest captain when an earlier request resolves after a later one', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    vi.mocked(getCaptain).mockImplementation(((id: string) => (id === 'cpt_1' ? first.promise : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/captains/cpt_1']}>
+        <NavigateButton to="/captains/cpt_2" />
+        <Routes><Route path="/captains/:id" element={<CaptainDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('go /captains/cpt_2'));
+    await act(async () => { second.resolve({ ...captain, id: 'cpt_2', name: 'second-captain' }); });
+    expect(await screen.findByRole('heading', { name: 'second-captain' })).toBeInTheDocument();
+
+    await act(async () => { first.resolve({ ...captain, name: 'first-captain' }); });
+    expect(screen.getByRole('heading', { name: 'second-captain' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'first-captain' })).not.toBeInTheDocument();
+  });
+
+  it('shows the spinner instead of the previous captain while another id loads, and reports its failure', async () => {
+    const second = deferred<unknown>();
+    vi.mocked(getCaptain).mockImplementation(((id: string) => (id === 'cpt_1' ? Promise.resolve({ ...captain, name: 'first-captain' }) : second.promise)) as never);
+    render(
+      <MemoryRouter initialEntries={['/captains/cpt_1']}>
+        <NavigateButton to="/captains/cpt_2" />
+        <Routes><Route path="/captains/:id" element={<CaptainDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('heading', { name: 'first-captain' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('go /captains/cpt_2'));
+    expect(await screen.findByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'first-captain' })).not.toBeInTheDocument();
+
+    await act(async () => { second.reject(Object.assign(new Error('unavailable'), { status: 500 })); });
+    expect(await screen.findByText('Failed to load captain.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'first-captain' })).not.toBeInTheDocument();
   });
 });
