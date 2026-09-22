@@ -319,6 +319,15 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(result.Contains("TIMEOUT_BEHAVIOR"), "Tool plumbing arguments must not reach the mission log");
             });
 
+            await RunTest("A JSON Error Event Reaches The Mission Log", () =>
+            {
+                InspectableCursorRuntime runtime = CreateRuntime();
+                string rendered = runtime.TransformLine("{\"type\":\"error\",\"message\":\"quota exceeded\"}");
+                AssertContains("quota exceeded", rendered, "the provider's error text is kept");
+                string plain = runtime.TransformLine("{\"type\":\"error\",\"error\":\"usage limit reached\"}");
+                AssertContains("usage limit reached", plain, "an error string is kept");
+            });
+
             await RunTest("RealJsonl_StartedAndThinkingEvents_AreSuppressed", () =>
             {
                 InspectableCursorRuntime runtime = CreateRuntime();

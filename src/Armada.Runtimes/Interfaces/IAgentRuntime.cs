@@ -99,7 +99,8 @@ namespace Armada.Runtimes.Interfaces
             CaptainLaunchIsolationPlan? isolationPlan = null);
 
         /// <summary>
-        /// Stop an agent process gracefully.
+        /// Stop an agent process. No shutdown request is sent: the agent gets a short grace period to exit on its
+        /// own, and its process tree is then killed.
         /// </summary>
         /// <param name="processId">Process ID to stop.</param>
         /// <param name="token">Cancellation token.</param>

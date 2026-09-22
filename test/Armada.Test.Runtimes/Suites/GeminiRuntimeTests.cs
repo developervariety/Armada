@@ -22,6 +22,8 @@ namespace Armada.Test.Runtimes.Suites
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);
 
             public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
+
+            public string TransformLine(string line) => TransformOutputLine(line);
         }
 
         private InspectableGeminiRuntime CreateRuntime()
@@ -60,6 +62,14 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("gemini-2.5-pro", captured!.Model);
                 AssertEqual(40L, captured.ProviderTotalTokens);
                 AssertEqual(5L, captured.CacheReadTokens);
+            });
+
+            await RunTest("A JSON Error Event Reaches The Mission Log", () =>
+            {
+                InspectableGeminiRuntime runtime = CreateRuntime();
+                string rendered = runtime.TransformLine("{\"type\":\"error\",\"message\":\"quota exceeded\"}");
+                AssertContains("quota exceeded", rendered, "the provider's error text is kept");
+                AssertContains("error", rendered, "the record reads as an error");
             });
 
             await RunTest("BuildArguments Includes Model When Supplied", () =>

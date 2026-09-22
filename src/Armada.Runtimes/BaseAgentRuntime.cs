@@ -136,6 +136,7 @@ namespace Armada.Runtimes
         {
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
+            token.ThrowIfCancellationRequested();
 
             ShowThinking = showThinking;
 
@@ -244,14 +245,21 @@ namespace Armada.Runtimes
             // log path, hits the IOException recovery above (or worse, blocks forever).
             // Ensure logWriter is disposed if the launch fails before the process is
             // running.
+            bool processStarted = false;
             try
             {
-                bool started = process.Start();
-                if (!started)
+                token.ThrowIfCancellationRequested();
+                DateTime launchUtc = DateTime.UtcNow;
+                processStarted = process.Start();
+                if (!processStarted)
                     throw new InvalidOperationException("Failed to start agent process: " + command);
+
+                RecordLaunchIdentity(process, launchUtc);
 
                 try { OnProcessStarted?.Invoke(process.Id); }
                 catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessStarted handler for process " + process.Id + ": " + ex.Message); }
+
+                token.ThrowIfCancellationRequested();
 
                 if (RedirectStdin)
                 {
@@ -259,8 +267,8 @@ namespace Armada.Runtimes
                     {
                         if (UsePromptStdin)
                         {
-                            await process.StandardInput.WriteAsync(prompt).ConfigureAwait(false);
-                            await process.StandardInput.FlushAsync().ConfigureAwait(false);
+                            await process.StandardInput.WriteAsync(prompt.AsMemory(), token).ConfigureAwait(false);
+                            await process.StandardInput.FlushAsync(token).ConfigureAwait(false);
                         }
 
                         // Close stdin after writing any prompt content so the agent doesn't block
@@ -283,6 +291,7 @@ namespace Armada.Runtimes
                     }
                 }
 
+                token.ThrowIfCancellationRequested();
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
@@ -301,9 +310,13 @@ namespace Armada.Runtimes
                 try { readersAttached.Set(); }
                 catch (Exception ex) { WarnSwallowed("releasing the exit handler after a failed launch", ex); }
 
-                // Dispose the writer + process here to release the file/pipe handles. Note the
-                // process MAY be alive or already exited: the earlier assumption that a launch can
-                // only fail before the process starts is not true for a fast-exiting agent.
+                // A launch that fails or is cancelled after the process started must not leave the
+                // agent running unowned: the caller never receives its identifier, so nothing else
+                // would ever stop it.
+                if (processStarted) KillFailedLaunch(process);
+
+                // Dispose the writer + process here to release the file/pipe handles. The process
+                // may already have exited on its own: a fast-exiting agent can fail the launch too.
                 try { logWriter?.Dispose(); }
                 catch (Exception ex) { WarnSwallowed("closing the log after a failed launch", ex); }
                 try { process.Dispose(); }
@@ -391,15 +404,16 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Grace period, in milliseconds, to wait for a stopped agent to exit on its own
-        /// before falling back to a hard kill. The previous 10s value was chosen against
-        /// a hang-model that never materialised and made every captain stop -- and a
-        /// fleet-wide stop -- pay the full timeout serially.
+        /// Grace period, in milliseconds, that <see cref="StopAsync"/> waits for an agent to exit on its own before
+        /// it kills the agent's process tree.
         /// </summary>
         protected const int StopGracePeriodMs = 3000;
 
         /// <summary>
-        /// Stop an agent process gracefully. A synthetic process registered with a stop operation, such as a
+        /// Stop an agent process. No shutdown request is sent: the process gets <see cref="StopGracePeriodMs"/> to
+        /// exit on its own, and its process tree is then killed. Only the process this runtime launched with the
+        /// identifier is acted on; a live process whose start time differs from the recorded launch holds a
+        /// reused identifier and is left alone. A synthetic process registered with a stop operation, such as a
         /// Harbor job, is stopped through that operation.
         /// </summary>
         /// <param name="processId">Process ID to stop.</param>
@@ -426,50 +440,43 @@ namespace Armada.Runtimes
 
             try
             {
-                Process process = Process.GetProcessById(processId);
-                if (process.HasExited) return;
-
-                // Note: process was obtained via Process.GetProcessById, which returns a handle
-                // that does NOT own the child's redirected streams. The previous implementation
-                // closed StandardInput here to "ask the child to exit", but that access is on a
-                // handle with no writer and the access itself can throw; the bare catch was
-                // hiding that. The graceful path on a re-fetched handle is unusable, so we
-                // attempt the exit wait directly. Subclasses that keep the original Process
-                // reference can override StopAsync to perform a real graceful shutdown.
-
-                using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                linkedCts.CancelAfter(StopGracePeriodMs);
-
-                try
+                using (Process? process = ProcessSupervisor.OpenLaunchedProcess(processId, out bool identityVerified))
                 {
-                    await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    _Logging.Warn(_Header + "process " + processId + " did not exit within " + StopGracePeriodMs + "ms, killing");
+                    if (process == null)
+                    {
+                        _Logging.Debug(_Header + "process " + processId + " is not running as the launched agent; nothing to stop");
+                        return;
+                    }
+
+                    if (!identityVerified)
+                        _Logging.Warn(_Header + "process " + processId + " has no recorded launch in this admiral process; stopping it by identifier alone");
+
+                    // A handle from Process.GetProcessById does not own the agent's redirected streams, so no
+                    // shutdown request can be delivered through it. The stop is an exit wait followed by a kill.
+                    using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    linkedCts.CancelAfter(StopGracePeriodMs);
+
                     try
                     {
-                        process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
                     }
-                    catch (Exception killEx)
+                    catch (OperationCanceledException)
                     {
-                        // The process may exit between the timeout and the kill attempt; surface
-                        // the kill failure but do not propagate -- the stop attempt is over.
-                        _Logging.Warn(_Header + "kill of process " + processId + " after grace timeout failed: " + killEx.Message);
+                        _Logging.Warn(_Header + "process " + processId + " did not exit within " + StopGracePeriodMs + "ms, killing");
+                        try
+                        {
+                            process.Kill(entireProcessTree: true);
+                        }
+                        catch (Exception killEx)
+                        {
+                            // The process may exit between the timeout and the kill attempt; surface
+                            // the kill failure but do not propagate -- the stop attempt is over.
+                            _Logging.Warn(_Header + "kill of process " + processId + " after grace timeout failed: " + killEx.Message);
+                        }
                     }
-                }
 
-                _Logging.Info(_Header + "stopped process " + processId);
-            }
-            catch (ArgumentException)
-            {
-                _Logging.Debug(_Header + "process " + processId + " already exited");
-            }
-            catch (InvalidOperationException)
-            {
-                // Process.GetProcessById throws InvalidOperationException on Unix when the
-                // pid is not a current process; treat that as already-exited.
-                _Logging.Debug(_Header + "process " + processId + " not running");
+                    _Logging.Info(_Header + "stopped process " + processId);
+                }
             }
             catch (Exception ex)
             {
@@ -488,8 +495,9 @@ namespace Armada.Runtimes
             Captain? captain);
 
         /// <summary>
-        /// Check if a process is still running. A registered synthetic process, such as a Harbor job, is
-        /// running while its registration lasts.
+        /// Check if the launched agent process is still running. A live process whose start time differs from the
+        /// launch recorded for the identifier is a reused identifier and is not running. A registered synthetic
+        /// process, such as a Harbor job, is running while its registration lasts.
         /// </summary>
         /// <param name="processId">Process ID to check.</param>
         /// <param name="token">Cancellation token.</param>
@@ -503,18 +511,10 @@ namespace Armada.Runtimes
             // on Unix), so screen it here instead of relying on the exception type.
             if (processId <= 0) return Task.FromResult(false);
 
-            try
+            // A live process whose start time differs from the recorded launch holds a reused identifier.
+            using (Process? process = ProcessSupervisor.OpenLaunchedProcess(processId, out bool identityVerified))
             {
-                Process process = Process.GetProcessById(processId);
-                return Task.FromResult(!process.HasExited);
-            }
-            catch (ArgumentException)
-            {
-                return Task.FromResult(false);
-            }
-            catch (InvalidOperationException)
-            {
-                return Task.FromResult(false);
+                return Task.FromResult(process != null);
             }
         }
 
@@ -619,6 +619,47 @@ namespace Armada.Runtimes
             catch (Exception ex) { WarnSwallowed("OnTokenUsageReceived handler for process " + processId, ex); }
             try { OnProviderProgressReceived?.Invoke(processId, usage); }
             catch (Exception ex) { WarnSwallowed("OnProviderProgressReceived handler for process " + processId, ex); }
+        }
+
+        /// <summary>
+        /// Record the launched process's identity so a later stop or liveness check can tell it from a process
+        /// that reuses its identifier. The launch time taken just before the start stands in when the start time
+        /// cannot be read, which happens when the agent has already exited.
+        /// </summary>
+        private void RecordLaunchIdentity(Process process, DateTime launchUtc)
+        {
+            DateTime startedUtc;
+            try
+            {
+                startedUtc = process.StartTime.ToUniversalTime();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception || ex is NotSupportedException)
+            {
+                WarnSwallowed("reading the start time of process " + process.Id + "; recording the launch time instead", ex);
+                startedUtc = launchUtc;
+            }
+
+            ProcessSupervisor.RecordLaunchedProcess(process.Id, startedUtc);
+        }
+
+        /// <summary>
+        /// Kill the process tree of a launch that failed after the process started, and wait briefly for the exit
+        /// so the exit handler reports it before the process object is disposed.
+        /// </summary>
+        private void KillFailedLaunch(Process process)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(5000);
+                }
+            }
+            catch (Exception ex)
+            {
+                WarnSwallowed("killing the agent process of a failed launch", ex);
+            }
         }
 
         /// <summary>

@@ -17,6 +17,48 @@ namespace Armada.Test.Runtimes.Suites
             return logging;
         }
 
+        private static bool WaitForProcessExit(int pid, TimeSpan within)
+        {
+            DateTime deadline = DateTime.UtcNow + within;
+            while (DateTime.UtcNow < deadline)
+            {
+                try
+                {
+                    using (Process process = Process.GetProcessById(pid))
+                    {
+                        if (process.HasExited) return true;
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    return true;
+                }
+                catch (InvalidOperationException)
+                {
+                    return true;
+                }
+
+                Thread.Sleep(100);
+            }
+
+            return false;
+        }
+
+        private static void KillQuietly(int pid)
+        {
+            try
+            {
+                using (Process process = Process.GetProcessById(pid))
+                {
+                    process.Kill();
+                }
+            }
+            catch (Exception)
+            {
+                // Already gone.
+            }
+        }
+
         // Emits `sentinel` on stderr WITHOUT the full sentinel string appearing in the
         // command arguments. StartAsync echoes the joined args into the log-file header,
         // so a literal sentinel in the args would show up regardless of stderr gating.
@@ -130,6 +172,105 @@ namespace Armada.Test.Runtimes.Suites
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
                 await runtime.StopAsync(99999999);
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("Stop And Liveness Refuse A Process Whose Start Time Differs From The Recorded Launch", "the stand-in process is a POSIX sleep");
+            }
+            else await RunTest("Stop And Liveness Refuse A Process Whose Start Time Differs From The Recorded Launch", async () =>
+            {
+                // A recorded launch with this identifier started an hour earlier, so the live process holding the
+                // identifier now is a different one: the operating system reused the number.
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                using (Process stranger = Process.Start(new ProcessStartInfo("sleep", "30") { UseShellExecute = false })!)
+                {
+                    try
+                    {
+                        DateTime actualStartUtc = stranger.StartTime.ToUniversalTime();
+                        Armada.Core.ProcessSupervisor.RecordLaunchedProcess(stranger.Id, actualStartUtc.AddHours(-1));
+
+                        AssertFalse(await runtime.IsRunningAsync(stranger.Id), "a reused identifier does not read as the launched agent");
+                        await runtime.StopAsync(stranger.Id);
+                        AssertFalse(stranger.WaitForExit(500), "stop must not kill a process that is not the recorded launch");
+
+                        Armada.Core.ProcessSupervisor.RecordLaunchedProcess(stranger.Id, actualStartUtc);
+                        AssertTrue(await runtime.IsRunningAsync(stranger.Id), "the recorded launch reads as running");
+                    }
+                    finally
+                    {
+                        try { stranger.Kill(); } catch (InvalidOperationException) { }
+                    }
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("StartAsync With A Cancelled Token Launches Nothing", "the stand-in agent is a POSIX sleep");
+            }
+            else await RunTest("StartAsync With A Cancelled Token Launches Nothing", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CommandOverride = "sleep";
+                runtime.ArgsOverride = new List<string> { "30" };
+                int startedPid = 0;
+                runtime.OnProcessStarted += pid => startedPid = pid;
+
+                using (CancellationTokenSource cancelled = new CancellationTokenSource())
+                {
+                    cancelled.Cancel();
+                    bool threw = false;
+                    int returnedPid = 0;
+                    try
+                    {
+                        returnedPid = await runtime.StartAsync(Path.GetTempPath(), "test prompt", token: cancelled.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        threw = true;
+                    }
+
+                    if (returnedPid > 0) KillQuietly(returnedPid);
+                    AssertTrue(threw, "a cancelled launch reports the cancellation");
+                    AssertEqual(0, startedPid, "no process is started for a cancelled launch");
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("StartAsync Cancelled After The Process Started Kills The Child", "the stand-in agent is a POSIX sleep");
+            }
+            else await RunTest("StartAsync Cancelled After The Process Started Kills The Child", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CommandOverride = "sleep";
+                runtime.ArgsOverride = new List<string> { "30" };
+
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    int startedPid = 0;
+                    runtime.OnProcessStarted += pid =>
+                    {
+                        startedPid = pid;
+                        cancel.Cancel();
+                    };
+
+                    bool threw = false;
+                    try
+                    {
+                        await runtime.StartAsync(Path.GetTempPath(), "test prompt", token: cancel.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        threw = true;
+                    }
+
+                    AssertTrue(startedPid > 0, "the process started before the cancellation");
+                    bool exited = WaitForProcessExit(startedPid, TimeSpan.FromSeconds(10));
+                    if (!exited) KillQuietly(startedPid);
+                    AssertTrue(threw, "a launch cancelled after start reports the cancellation");
+                    AssertTrue(exited, "a launch that fails after start kills the child it started");
+                }
             });
 
             await RunTest("Name Returns Expected", () =>

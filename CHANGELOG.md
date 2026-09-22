@@ -101,6 +101,11 @@ upstream integrations and excludes changes already present at that baseline.
   output while reading instead of after a whole line. `edit_file` and `multi_edit`
   refuse empty search text, observe cancellation, and list at most 20 candidate
   lines; each `multi_edit` step must be unique in the content earlier steps produced.
+- **Agent process identity:** runtime stop and liveness act only on the process the
+  admiral launched, verified by its recorded start time, and dispose the handles
+  they open. Stop sends no shutdown request: a 3-second grace period, then a tree
+  kill. A cancelled launch starts nothing, and a launch that fails after start
+  kills its child. Gemini, Cursor, and Mux keep JSON error events in the mission log.
 - **Indexing:** source chunks follow declaration boundaries, embedding clients use
   configured endpoints, captains search their own vessel, duplicate groups have an
   operator report, and dispatch staleness considers source relevance.

@@ -127,6 +127,10 @@ namespace Armada.Runtimes
             if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, WorkingDirectory, out string activity))
                 return activity;
 
+            // An error event carries no assistant or tool field, and suppressing it would hide the failure.
+            if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, out string error))
+                return error;
+
             return String.Empty;
         }
 

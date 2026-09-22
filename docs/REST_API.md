@@ -2147,7 +2147,11 @@ curl -X PUT http://localhost:7890/api/v1/captains/cpt_abc123 \
 
 #### POST /api/v1/captains/{id}/stop
 
-Stop a running captain agent. Kills its OS process and recalls it to idle state.
+Stop a running captain agent and recall it to idle state. No shutdown request is
+sent: the agent process gets a 3-second grace period to exit, then its process
+tree is killed. Only the process the admiral launched is acted on: a live process
+whose start time differs from the recorded launch holds a reused process ID and
+is left running.
 
 **Path Parameters:**
 | Parameter | Description |

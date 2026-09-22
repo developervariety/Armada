@@ -25,6 +25,8 @@ namespace Armada.Test.Runtimes.Suites
 
             public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
 
+            public string TransformLine(string line) => TransformOutputLine(line);
+
             public string? AppliedEnvironmentValue(Captain captain, string key)
             {
                 ProcessStartInfo startInfo = new ProcessStartInfo();
@@ -149,6 +151,15 @@ namespace Armada.Test.Runtimes.Suites
                 captured = null;
                 runtime.FeedUsage(21, "{\"eventType\":\"run_completed\",\"finalEstimatedTokens\":999}");
                 AssertNull(captured, "Mux estimates must never be recorded as authoritative usage");
+            });
+
+            await RunTest("A JSON Error Event Reaches The Mission Log", () =>
+            {
+                InspectableMuxRuntime runtime = CreateRuntime();
+                string rendered = runtime.TransformLine("{\"type\":\"error\",\"message\":\"quota exceeded\"}");
+                AssertContains("quota exceeded", rendered, "the provider's error text is kept");
+                string nested = runtime.TransformLine("{\"type\":\"error\",\"error\":{\"message\":\"rate limited\"}}");
+                AssertContains("rate limited", nested, "an error object's message is kept");
             });
 
             await RunTest("ApplyEnvironment Maps Config And BaseUrl", () =>

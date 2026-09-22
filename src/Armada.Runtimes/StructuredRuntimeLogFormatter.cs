@@ -49,6 +49,11 @@ namespace Armada.Runtimes
         public const int ShortDetailLimit = 160;
 
         /// <summary>
+        /// Maximum rendered length of the message in an error record.
+        /// </summary>
+        public const int ErrorMessageLimit = 500;
+
+        /// <summary>
         /// Maximum rendered length of a status word in an activity record.
         /// </summary>
         public const int StatusLimit = 40;
@@ -260,6 +265,44 @@ namespace Armada.Runtimes
             }
 
             return builder.ToString().Trim('_');
+        }
+
+        /// <summary>
+        /// Try to render a structured error event, <c>{"type":"error", ...}</c>, as a mission-log record. A runtime
+        /// whose transform has no field for such an event would otherwise suppress it, and the provider failure
+        /// (a quota, an authentication or a model error) would never reach the log or the output subscribers.
+        /// The message is read from <c>message</c>, from <c>error</c> when it is a string, or from
+        /// <c>error.message</c>; it is redacted and bounded.
+        /// </summary>
+        /// <param name="line">Raw structured output line.</param>
+        /// <param name="record">Rendered record, <c>[error] &lt;message&gt;</c>, when the line is an error event.</param>
+        /// <returns>True when the line is an error event.</returns>
+        public static bool TryBuildErrorRecord(string line, out string record)
+        {
+            record = String.Empty;
+            if (String.IsNullOrWhiteSpace(line) || line.IndexOf("error", StringComparison.OrdinalIgnoreCase) < 0) return false;
+
+            string? type = null;
+            string? message = null;
+            ErrorEventWithDetail? withDetail = DeserializeOrNull<ErrorEventWithDetail>(line);
+            if (withDetail != null)
+            {
+                type = withDetail.Type;
+                message = !String.IsNullOrWhiteSpace(withDetail.Message) ? withDetail.Message : withDetail.Error?.Message;
+            }
+            else
+            {
+                ErrorEventWithText? withText = DeserializeOrNull<ErrorEventWithText>(line);
+                if (withText == null) return false;
+                type = withText.Type;
+                message = !String.IsNullOrWhiteSpace(withText.Message) ? withText.Message : withText.Error;
+            }
+
+            if (!String.Equals(type, "error", StringComparison.OrdinalIgnoreCase)) return false;
+
+            string text = String.IsNullOrWhiteSpace(message) ? line.Trim() : message.Trim();
+            record = "[error] " + Truncate(RedactSecretValues(text.Replace('\n', ' ').Replace('\r', ' ')), ErrorMessageLimit);
+            return true;
         }
 
         /// <summary>
@@ -699,6 +742,53 @@ namespace Armada.Runtimes
             return String.IsNullOrEmpty(value) || value.Length <= maximumLength
                 ? value
                 : value.Substring(0, maximumLength) + "...";
+        }
+
+        private static T? DeserializeOrNull<T>(string line) where T : class
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<T>(line);
+            }
+            catch (JsonException)
+            {
+                // Not this shape: the caller tries the next one or treats the line as no error event.
+                return null;
+            }
+        }
+
+        #endregion
+
+        #region Private-Types
+
+        private sealed class ErrorEventWithDetail
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("message")]
+            public string? Message { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("error")]
+            public ErrorDetail? Error { get; set; }
+        }
+
+        private sealed class ErrorEventWithText
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("type")]
+            public string? Type { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("message")]
+            public string? Message { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("error")]
+            public string? Error { get; set; }
+        }
+
+        private sealed class ErrorDetail
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("message")]
+            public string? Message { get; set; }
         }
 
         #endregion
