@@ -96,6 +96,11 @@ upstream integrations and excludes changes already present at that baseline.
   counters. Large output keeps diagnostic content and archives its full form.
   Runtime logs expose command and failure context, and launch configuration delivers
   the correct scoped MCP credential for each supported runtime.
+- **API-endpoint tool bounds:** `run_command` owns a process group and kills it on
+  timeout or cancellation, including children the shell left behind, and caps
+  output while reading instead of after a whole line. `edit_file` and `multi_edit`
+  refuse empty search text, observe cancellation, and list at most 20 candidate
+  lines; each `multi_edit` step must be unique in the content earlier steps produced.
 - **Indexing:** source chunks follow declaration boundaries, embedding clients use
   configured endpoints, captains search their own vessel, duplicate groups have an
   operator report, and dispatch staleness considers source relevance.

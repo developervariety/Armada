@@ -4,6 +4,7 @@ namespace Armada.Runtimes.Tools
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Runtime.InteropServices;
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -24,6 +25,14 @@ namespace Armada.Runtimes.Tools
     /// an output cap that keeps the head and the tail.
     /// </para>
     /// <para>
+    /// Containment and bounds. On Unix the shell starts as the leader of its own session and process group
+    /// (through setsid, or perl where setsid is absent), and a timeout or a cancellation kills that whole group,
+    /// including a background child the shell left behind after it exited. A descendant that starts its own
+    /// session leaves the group and is not reached. Where no launcher exists, and on Windows, only the shell's
+    /// live process tree is killed. Output is read in fixed-size chunks and a line longer than the cap is cut
+    /// while it is read, so a stream with no line terminator does not grow memory.
+    /// </para>
+    /// <para>
     /// It does NOT confine what the command itself touches once it runs: a shell can change directory, read
     /// any file the runtime user can read, and reach the network. That needs kernel isolation, and the
     /// container this runs in permits none (user namespaces are refused and no sandbox binary is installed).
@@ -38,6 +47,14 @@ namespace Armada.Runtimes.Tools
     /// </remarks>
     public class RunCommandTool : IToolExecutor
     {
+        #region Private-Members
+
+        private const int SignalKill = 9;
+        private static readonly TimeSpan KillDrainTimeout = TimeSpan.FromSeconds(2);
+        private static readonly Lazy<IReadOnlyList<string>?> _GroupLauncher = new Lazy<IReadOnlyList<string>?>(ResolveGroupLauncher);
+
+        #endregion
+
         #region Public-Members
 
         /// <summary>Largest timeout a caller may request, in seconds. A full vessel suite can need most of it.</summary>
@@ -59,6 +76,12 @@ namespace Armada.Runtimes.Tools
 
         /// <summary>The unique name of this tool.</summary>
         public string Name => "run_command";
+
+        /// <summary>
+        /// Launcher prefix that makes the shell a process-group leader, or null when the host has none. Resolved
+        /// once per process.
+        /// </summary>
+        internal static IReadOnlyList<string>? GroupLauncher => _GroupLauncher.Value;
 
         /// <summary>A human-readable description of what this tool does.</summary>
         public string Description => "Runs one shell command with bash in the mission workspace and returns its exit code "
@@ -124,18 +147,20 @@ namespace Armada.Runtimes.Tools
             int outputLimit = Math.Clamp(ToolSafetyLimits.MaxProcessOutputBytes, 1024, 16 * 1024 * 1024);
 
             ProcessStartInfo startInfo = BuildStartInfo(request.Command!, runDirectory);
+            bool ownsProcessGroup = GroupLauncher != null;
             BoundedOutput output = new BoundedOutput(outputLimit);
             Stopwatch clock = Stopwatch.StartNew();
 
-            using (Process process = new Process { StartInfo = startInfo, EnableRaisingEvents = true })
+            using (Process process = new Process { StartInfo = startInfo })
+            using (CancellationTokenSource readersStop = new CancellationTokenSource())
             {
-                process.OutputDataReceived += (sender, e) => { if (e.Data != null) output.AppendLine(e.Data); };
-                process.ErrorDataReceived += (sender, e) => { if (e.Data != null) output.AppendLine(e.Data); };
-
                 process.Start();
                 process.StandardInput.Close();
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
+
+                // Chunked readers, not line events: a line reader holds a whole line before any cap applies.
+                Task stdoutPump = BoundedOutputPump.PumpAsync(process.StandardOutput, output, outputLimit, readersStop.Token);
+                Task stderrPump = BoundedOutputPump.PumpAsync(process.StandardError, output, outputLimit, readersStop.Token);
+                Task pumps = Task.WhenAll(stdoutPump, stderrPump);
 
                 bool timedOut = false;
                 using (CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
@@ -143,19 +168,21 @@ namespace Armada.Runtimes.Tools
                     limit.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
                     try
                     {
+                        // The command ends when the shell has exited AND its output is closed: a child that still
+                        // holds the output pipe is still part of the command.
                         await process.WaitForExitAsync(limit.Token).ConfigureAwait(false);
+                        await pumps.WaitAsync(limit.Token).ConfigureAwait(false);
                     }
-                    catch (OperationCanceledException)
+                    catch (OperationCanceledException) when (limit.IsCancellationRequested)
                     {
                         timedOut = !cancellationToken.IsCancellationRequested;
-                        KillTree(process);
+                        KillCommand(process, ownsProcessGroup);
+                        await DrainAfterKillAsync(pumps, readersStop).ConfigureAwait(false);
                         if (cancellationToken.IsCancellationRequested)
                             return ToolExecution.Cancelled(toolCallId, cancellationToken);
                     }
                 }
 
-                // Let the asynchronous readers drain what the process wrote before it exited.
-                if (!timedOut) process.WaitForExit();
                 clock.Stop();
 
                 int? exitCode = timedOut ? null : process.ExitCode;
@@ -213,7 +240,7 @@ namespace Armada.Runtimes.Tools
         {
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                FileName = "bash",
+                FileName = GroupLauncher != null ? GroupLauncher[0] : "bash",
                 WorkingDirectory = runDirectory,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -223,6 +250,11 @@ namespace Armada.Runtimes.Tools
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
+            if (GroupLauncher != null)
+            {
+                for (int i = 1; i < GroupLauncher.Count; i++) startInfo.ArgumentList.Add(GroupLauncher[i]);
+                startInfo.ArgumentList.Add("bash");
+            }
             startInfo.ArgumentList.Add("-c");
             startInfo.ArgumentList.Add(command);
 
@@ -262,8 +294,29 @@ namespace Armada.Runtimes.Tools
 
         #region Private-Methods
 
-        private static void KillTree(Process process)
+        /// <summary>
+        /// Kill everything the command started. With a process group, the whole group is signalled even after the
+        /// shell has exited, so a background child the shell left behind dies with it; the shell's own tree is
+        /// also killed while the shell is alive, which is the only containment available without a group.
+        /// </summary>
+        private static void KillCommand(Process process, bool ownsProcessGroup)
         {
+            if (ownsProcessGroup && !OperatingSystem.IsWindows())
+            {
+                int processGroup;
+                try
+                {
+                    processGroup = process.Id;
+                }
+                catch (InvalidOperationException)
+                {
+                    processGroup = 0;
+                }
+
+                // The launcher made the shell a session and group leader, so its identifier names the group.
+                if (processGroup > 0) SignalProcessGroup(processGroup, SignalKill);
+            }
+
             try
             {
                 if (!process.HasExited) process.Kill(entireProcessTree: true);
@@ -272,6 +325,81 @@ namespace Armada.Runtimes.Tools
             {
                 // Exited between the check and the kill.
             }
+        }
+
+        /// <summary>
+        /// Let the readers take what the killed command wrote, then stop them: a descendant that left the process
+        /// group can hold the output pipe open indefinitely, and the call must still return.
+        /// </summary>
+        private static async Task DrainAfterKillAsync(Task pumps, CancellationTokenSource readersStop)
+        {
+            try
+            {
+                await pumps.WaitAsync(KillDrainTimeout).ConfigureAwait(false);
+                return;
+            }
+            catch (TimeoutException)
+            {
+                readersStop.Cancel();
+            }
+
+            await pumps.ConfigureAwait(false);
+        }
+
+        private static void SignalProcessGroup(int processGroup, int signal)
+        {
+            try
+            {
+                // A negative identifier addresses the whole process group. ESRCH (the group is already gone) is the
+                // expected outcome after a normal exit and needs no handling.
+                kill(-processGroup, signal);
+            }
+            catch (Exception ex) when (ex is DllNotFoundException || ex is EntryPointNotFoundException)
+            {
+                // No libc kill on this host: the tree kill that follows is the remaining containment.
+            }
+        }
+
+        [DllImport("libc", SetLastError = true)]
+        private static extern int kill(int pid, int sig);
+
+        /// <summary>
+        /// Resolve the command that starts bash as the leader of a new session and process group: the util-linux
+        /// setsid, or perl's POSIX::setsid where setsid is not installed. Null when neither exists (Windows, or
+        /// a host with neither), in which case only the shell's live process tree can be killed.
+        /// </summary>
+        private static IReadOnlyList<string>? ResolveGroupLauncher()
+        {
+            if (OperatingSystem.IsWindows()) return null;
+
+            string? setsid = FindOnPath("setsid");
+            if (setsid != null) return new List<string> { setsid };
+
+            string? perl = FindOnPath("perl");
+            if (perl != null)
+            {
+                return new List<string>
+                {
+                    perl,
+                    "-e",
+                    "use POSIX (); POSIX::setsid() or die \"setsid: $!\\n\"; exec { $ARGV[0] } @ARGV or die \"exec: $!\\n\";"
+                };
+            }
+
+            return null;
+        }
+
+        private static string? FindOnPath(string name)
+        {
+            string? path = Environment.GetEnvironmentVariable("PATH");
+            if (String.IsNullOrEmpty(path)) path = "/usr/local/bin:/usr/bin:/bin";
+            foreach (string directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string candidate = Path.Combine(directory, name);
+                if (File.Exists(candidate)) return candidate;
+            }
+
+            return null;
         }
 
         private static string? TryArchive(string workspace, string toolCallId, string fullOutput)

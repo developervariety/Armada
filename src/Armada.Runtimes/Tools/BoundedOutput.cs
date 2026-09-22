@@ -7,7 +7,8 @@ namespace Armada.Runtimes.Tools
     /// <summary>
     /// Collects process output line by line within a byte budget, keeping the beginning and the end and
     /// counting what was dropped between them. Safe to append from the standard-output and standard-error
-    /// readers at once.
+    /// readers at once. <see cref="BoundedOutputPump"/> feeds it from a stream in bounded chunks, so a line
+    /// longer than the budget never has to be held whole.
     /// </summary>
     /// <remarks>
     /// Keeping only the beginning, as a plain truncation does, is the wrong shape for command output: a test
@@ -69,11 +70,22 @@ namespace Armada.Runtimes.Tools
         /// <param name="line">Line text, without its terminator.</param>
         public void AppendLine(string line)
         {
+            AppendLine(line, 0);
+        }
+
+        /// <summary>
+        /// Add one line of output whose beginning the reader already dropped to stay within its own bound.
+        /// </summary>
+        /// <param name="line">Kept end of the line, without its terminator.</param>
+        /// <param name="droppedBytes">UTF-8 bytes of the line dropped before it reached this buffer.</param>
+        public void AppendLine(string line, long droppedBytes)
+        {
             string text = (line ?? String.Empty) + "\n";
             int bytes = Encoding.UTF8.GetByteCount(text);
 
             lock (_Lock)
             {
+                _OmittedBytes += Math.Max(0, droppedBytes);
                 if (!_HeadFull && _HeadBytes + bytes <= _HeadLimit)
                 {
                     _Head.Append(text);

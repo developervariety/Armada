@@ -10,7 +10,8 @@ namespace Armada.Runtimes.Tools
 
     /// <summary>
     /// Performs multiple sequential string replacements in a single file atomically.
-    /// All edits are validated against the original content before any are applied.
+    /// Each edit is validated against the content the previous edits produced, and the file is written only
+    /// when every edit is valid.
     /// </summary>
     public class MultiEditTool : IToolExecutor
     {
@@ -25,7 +26,8 @@ namespace Armada.Runtimes.Tools
         /// A human-readable description of what this tool does.
         /// </summary>
         public string Description => "Performs multiple sequential string replacements in a single file. "
-            + "All edits are validated before any are applied. Each edit modifies the working content for subsequent edits.";
+            + "Each edit applies to the content the previous edits produced, and its old_string must be non-empty and match "
+            + "exactly one location there. The file is written only when every edit is valid.";
 
         /// <summary>
         /// The JSON Schema object describing the tool's input parameters.
@@ -123,74 +125,45 @@ namespace Armada.Runtimes.Tools
 
                 string originalContent = await ToolExecution.ReadTextFileAsync(resolvedPath, operationToken).ConfigureAwait(false);
                 string lineEnding = DetectLineEnding(originalContent);
-                string lfContent = originalContent.Replace("\r\n", "\n").Replace("\r", "\n");
+                string lfContent = ExactTextMatch.NormalizeLineEndings(originalContent);
 
-                // Validate all edits against original content
-                for (int i = 0; i < edits.Count; i++)
-                {
-                    string lfOldString = edits[i].OldString.Replace("\r\n", "\n").Replace("\r", "\n");
-                    int matchCount = CountOccurrences(lfContent, lfOldString);
-
-                    if (matchCount == 0)
-                    {
-                        return new ToolResult
-                        {
-                            ToolCallId = toolCallId,
-                            Success = false,
-                            Content = JsonSerializer.Serialize(new
-                            {
-                                success = false,
-                                error = "old_string_not_found",
-                                edit_index = i,
-                                message = $"Edit at index {i}: old_string was not found in the original file content."
-                            })
-                        };
-                    }
-
-                    if (matchCount > 1)
-                    {
-                        return new ToolResult
-                        {
-                            ToolCallId = toolCallId,
-                            Success = false,
-                            Content = JsonSerializer.Serialize(new
-                            {
-                                success = false,
-                                error = "ambiguous_match",
-                                edit_index = i,
-                                message = $"Edit at index {i}: old_string matches {matchCount} locations. Provide more context to uniquely identify the target."
-                            })
-                        };
-                    }
-                }
-
-                // Apply all edits sequentially
+                // Each edit is checked against the content the edits before it produced, which is the content it
+                // is applied to: an edit unique in the original can be missing or ambiguous after earlier edits.
+                // Nothing is written unless every edit passes.
                 string workingContent = lfContent;
                 for (int i = 0; i < edits.Count; i++)
                 {
-                    string lfOldString = edits[i].OldString.Replace("\r\n", "\n").Replace("\r", "\n");
-                    string lfNewString = edits[i].NewString.Replace("\r\n", "\n").Replace("\r", "\n");
+                    string lfOldString = ExactTextMatch.NormalizeLineEndings(edits[i].OldString);
+                    string lfNewString = ExactTextMatch.NormalizeLineEndings(edits[i].NewString);
 
-                    int pos = workingContent.IndexOf(lfOldString, StringComparison.Ordinal);
-                    if (pos < 0)
+                    if (lfOldString.Length == 0)
                     {
-                        return new ToolResult
-                        {
-                            ToolCallId = toolCallId,
-                            Success = false,
-                            Content = JsonSerializer.Serialize(new
-                            {
-                                success = false,
-                                error = "edit_conflict",
-                                edit_index = i,
-                                message = $"Edit at index {i}: old_string no longer found after applying previous edits."
-                            })
-                        };
+                        return Failure(toolCallId, "empty_old_string", i,
+                            $"Edit at index {i}: old_string must not be empty; include the text to replace.");
                     }
 
-                    workingContent = workingContent.Substring(0, pos)
-                        + lfNewString
-                        + workingContent.Substring(pos + lfOldString.Length);
+                    ExactTextMatch match = ExactTextMatch.Find(workingContent, lfOldString, operationToken);
+
+                    if (match.MatchCount == 0)
+                    {
+                        if (i > 0 && lfContent.Contains(lfOldString, StringComparison.Ordinal))
+                        {
+                            return Failure(toolCallId, "edit_conflict", i,
+                                $"Edit at index {i}: old_string no longer found after applying previous edits.");
+                        }
+
+                        return Failure(toolCallId, "old_string_not_found", i,
+                            $"Edit at index {i}: old_string was not found in the file content.");
+                    }
+
+                    if (!match.IsUnique)
+                    {
+                        string after = i == 0 ? "in the file content" : "after applying previous edits";
+                        return Failure(toolCallId, "ambiguous_match", i,
+                            $"Edit at index {i}: old_string matches {match.MatchCount} locations {after}. Provide more context to uniquely identify the target.");
+                    }
+
+                    workingContent = ExactTextMatch.Replace(workingContent, match.FirstPosition, lfOldString.Length, lfNewString);
                 }
 
                 string outputContent = workingContent.Replace("\n", lineEnding);
@@ -241,20 +214,20 @@ namespace Armada.Runtimes.Tools
 
         #region Private-Methods
 
-        private int CountOccurrences(string content, string search)
+        private static ToolResult Failure(string toolCallId, string error, int editIndex, string message)
         {
-            int count = 0;
-            int index = 0;
-
-            while (index < content.Length)
+            return new ToolResult
             {
-                int found = content.IndexOf(search, index, StringComparison.Ordinal);
-                if (found < 0) break;
-                count++;
-                index = found + 1;
-            }
-
-            return count;
+                ToolCallId = toolCallId,
+                Success = false,
+                Content = JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    error,
+                    edit_index = editIndex,
+                    message
+                })
+            };
         }
 
         private string DetectLineEnding(string content)

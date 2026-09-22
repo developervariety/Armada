@@ -25,7 +25,7 @@ namespace Armada.Runtimes.Tools
         /// A human-readable description of what this tool does.
         /// </summary>
         public string Description => "Performs an exact string replacement in a file. Finds old_string and replaces it with new_string. "
-            + "Returns an error if the old_string is not found or matches multiple locations (ambiguous).";
+            + "Returns an error if old_string is empty, is not found, or matches multiple locations (ambiguous).";
 
         /// <summary>
         /// The JSON Schema object describing the tool's input parameters.
@@ -92,13 +92,28 @@ namespace Armada.Runtimes.Tools
 
                 string originalContent = await ToolExecution.ReadTextFileAsync(resolvedPath, operationToken).ConfigureAwait(false);
                 string lineEnding = DetectLineEnding(originalContent);
-                string lfContent = originalContent.Replace("\r\n", "\n").Replace("\r", "\n");
-                string lfOldString = oldString.Replace("\r\n", "\n").Replace("\r", "\n");
-                string lfNewString = newString.Replace("\r\n", "\n").Replace("\r", "\n");
+                string lfContent = ExactTextMatch.NormalizeLineEndings(originalContent);
+                string lfOldString = ExactTextMatch.NormalizeLineEndings(oldString);
+                string lfNewString = ExactTextMatch.NormalizeLineEndings(newString);
 
-                List<int> matchPositions = FindAllOccurrences(lfContent, lfOldString);
+                if (lfOldString.Length == 0)
+                {
+                    return new ToolResult
+                    {
+                        ToolCallId = toolCallId,
+                        Success = false,
+                        Content = JsonSerializer.Serialize(new
+                        {
+                            success = false,
+                            error = "empty_old_string",
+                            message = "old_string must not be empty; include the text to replace."
+                        })
+                    };
+                }
 
-                if (matchPositions.Count == 0)
+                ExactTextMatch match = ExactTextMatch.Find(lfContent, lfOldString, operationToken);
+
+                if (match.MatchCount == 0)
                 {
                     return new ToolResult
                     {
@@ -114,15 +129,8 @@ namespace Armada.Runtimes.Tools
                     };
                 }
 
-                if (matchPositions.Count > 1)
+                if (!match.IsUnique)
                 {
-                    List<int> lineNumbers = new List<int>();
-                    foreach (int pos in matchPositions)
-                    {
-                        int lineNumber = CountLines(lfContent, pos);
-                        lineNumbers.Add(lineNumber);
-                    }
-
                     return new ToolResult
                     {
                         ToolCallId = toolCallId,
@@ -133,17 +141,16 @@ namespace Armada.Runtimes.Tools
                             error = "ambiguous_match",
                             details = new
                             {
-                                match_count = matchPositions.Count,
-                                candidate_line_numbers = lineNumbers,
+                                match_count = match.MatchCount,
+                                candidate_line_numbers = match.CandidateLineNumbers,
+                                candidates_not_listed = match.MatchCount - match.CandidateLineNumbers.Count,
                                 suggestion = "Provide more surrounding context in old_string to uniquely identify the target location."
                             }
                         })
                     };
                 }
 
-                string lfResult = lfContent.Substring(0, matchPositions[0])
-                    + lfNewString
-                    + lfContent.Substring(matchPositions[0] + lfOldString.Length);
+                string lfResult = ExactTextMatch.Replace(lfContent, match.FirstPosition, lfOldString.Length, lfNewString);
 
                 string outputContent = lfResult.Replace("\n", lineEnding);
                 ToolExecution.EnsureInputSize(outputContent, "result");
@@ -182,36 +189,6 @@ namespace Armada.Runtimes.Tools
         #endregion
 
         #region Private-Methods
-
-        private List<int> FindAllOccurrences(string content, string search)
-        {
-            List<int> positions = new List<int>();
-            int index = 0;
-
-            while (index < content.Length)
-            {
-                int found = content.IndexOf(search, index, StringComparison.Ordinal);
-                if (found < 0) break;
-                positions.Add(found);
-                index = found + 1;
-            }
-
-            return positions;
-        }
-
-        private int CountLines(string content, int upToPosition)
-        {
-            int lineNumber = 1;
-            for (int i = 0; i < upToPosition && i < content.Length; i++)
-            {
-                if (content[i] == '\n')
-                {
-                    lineNumber++;
-                }
-            }
-
-            return lineNumber;
-        }
 
         private string DetectLineEnding(string content)
         {

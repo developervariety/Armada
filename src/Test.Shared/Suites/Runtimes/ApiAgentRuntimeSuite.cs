@@ -700,6 +700,87 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("multi_edit_checks_each_edit_against_the_edited_content", "multi_edit refuses an edit that is ambiguous in the content the earlier edits produced", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                string path = Path.Combine(dir, "pair.txt");
+                try
+                {
+                    File.WriteAllText(path, "A B", new UTF8Encoding(false));
+                    BuiltInToolRegistry registry = new BuiltInToolRegistry(null);
+
+                    // After A -> B the content is "B B", so B -> C has two candidates and must not pick the first.
+                    ToolResult result = await registry.ExecuteAsync("pair", "multi_edit",
+                        ParseArgs("{\"file_path\":\"pair.txt\",\"edits\":[{\"old_string\":\"A\",\"new_string\":\"B\"},{\"old_string\":\"B\",\"new_string\":\"C\"}]}"),
+                        dir, CancellationToken.None).ConfigureAwait(false);
+                    EditToolResponse response = JsonSerializer.Deserialize<EditToolResponse>(result.Content) ?? new EditToolResponse();
+                    AssertFalse(result.Success, "An edit that is ambiguous after the earlier edits must fail: " + result.Content);
+                    AssertEqual("ambiguous_match", response.Error);
+                    AssertEqual(1, response.EditIndex ?? -1, "the second edit is the ambiguous one");
+                    AssertEqual("A B", File.ReadAllText(path), "A refused multi-edit writes nothing");
+
+                    ToolResult chained = await registry.ExecuteAsync("chain", "multi_edit",
+                        ParseArgs("{\"file_path\":\"pair.txt\",\"edits\":[{\"old_string\":\"A\",\"new_string\":\"X\"},{\"old_string\":\"X B\",\"new_string\":\"Y\"}]}"),
+                        dir, CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(chained.Success, "An edit that matches text an earlier edit produced is applied: " + chained.Content);
+                    AssertEqual("Y", File.ReadAllText(path));
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
+            cases.Add(CaseAsync("file_edit_match_work_is_bounded", "File edits refuse empty search text and bound repeated-match work and output", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                string path = Path.Combine(dir, "repeated.txt");
+                int oldTimeout = ToolSafetyLimits.DefaultToolTimeoutMs;
+                try
+                {
+                    string original = new String('a', 50_000);
+                    File.WriteAllText(path, original, new UTF8Encoding(false));
+                    BuiltInToolRegistry registry = new BuiltInToolRegistry(null);
+                    ToolSafetyLimits.DefaultToolTimeoutMs = 100;
+
+                    foreach (string tool in new[] { "edit_file", "multi_edit" })
+                    {
+                        string emptyArgs = tool == "edit_file"
+                            ? "{\"file_path\":\"repeated.txt\",\"old_string\":\"\",\"new_string\":\"b\"}"
+                            : "{\"file_path\":\"repeated.txt\",\"edits\":[{\"old_string\":\"\",\"new_string\":\"b\"}]}";
+                        System.Diagnostics.Stopwatch emptyClock = System.Diagnostics.Stopwatch.StartNew();
+                        ToolResult empty = await registry.ExecuteAsync("empty-" + tool, tool, ParseArgs(emptyArgs), dir, CancellationToken.None).ConfigureAwait(false);
+                        emptyClock.Stop();
+                        EditToolResponse emptyResponse = JsonSerializer.Deserialize<EditToolResponse>(empty.Content) ?? new EditToolResponse();
+                        AssertFalse(empty.Success, tool + " must refuse empty search text");
+                        AssertEqual("empty_old_string", emptyResponse.Error, tool + " names the refusal");
+                        AssertTrue(emptyClock.ElapsedMilliseconds < 1000, tool + " refuses empty search text at once (" + emptyClock.ElapsedMilliseconds + " ms)");
+                    }
+
+                    // Every position matches a one-character search: 50,000 candidates.
+                    System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+                    ToolResult repeated = await registry.ExecuteAsync("repeated", "edit_file",
+                        ParseArgs("{\"file_path\":\"repeated.txt\",\"old_string\":\"a\",\"new_string\":\"b\"}"), dir, CancellationToken.None).ConfigureAwait(false);
+                    clock.Stop();
+                    EditToolResponse response = JsonSerializer.Deserialize<EditToolResponse>(repeated.Content) ?? new EditToolResponse();
+                    AssertFalse(repeated.Success, "A search with many candidates is not applied");
+                    AssertTrue(response.Error == "ambiguous_match" || response.Error == "timed_out", "The result is a bounded ambiguity or a timeout, not " + response.Error);
+                    AssertTrue(clock.ElapsedMilliseconds < 2000, "The edit ends near its time limit (" + clock.ElapsedMilliseconds + " ms)");
+                    AssertTrue(Encoding.UTF8.GetByteCount(repeated.Content) < 4096, "The response is bounded (" + Encoding.UTF8.GetByteCount(repeated.Content) + " bytes)");
+                    if (response.Error == "ambiguous_match")
+                    {
+                        AssertEqual(50_000, response.Details?.MatchCount ?? -1, "The full candidate count is still reported");
+                        AssertTrue((response.Details?.CandidateLineNumbers?.Count ?? 0) <= 20, "Only a bounded number of candidate lines is listed");
+                    }
+                    AssertEqual(original, File.ReadAllText(path), "A refused edit writes nothing");
+                }
+                finally
+                {
+                    ToolSafetyLimits.DefaultToolTimeoutMs = oldTimeout;
+                    Cleanup(dir);
+                }
+            }));
+
             foreach (ModelProviderEnum cloudProvider in new[] { ModelProviderEnum.OpenAI, ModelProviderEnum.Anthropic, ModelProviderEnum.Gemini })
             {
                 ModelProviderEnum provider = cloudProvider;
@@ -1058,6 +1139,31 @@ namespace Test.Shared.Suites.Runtimes
             public override Task<GenerationStreamingResponse> GenerateStreamingAsync(string prompt, GenerationOptions? options = null, CancellationToken token = default) => throw new NotImplementedException();
             public override IAsyncEnumerable<ModelInformation> ListModelsAsync(CancellationToken token = default) => throw new NotImplementedException();
             public override Task<ModelInformation?> GetModelInformationAsync(string model, CancellationToken token = default) => throw new NotImplementedException();
+        }
+
+        #endregion
+
+        #region Response-Types
+
+        private sealed class EditToolResponse
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("error")]
+            public string? Error { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("edit_index")]
+            public int? EditIndex { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("details")]
+            public EditToolResponseDetails? Details { get; set; }
+        }
+
+        private sealed class EditToolResponseDetails
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("match_count")]
+            public int? MatchCount { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("candidate_line_numbers")]
+            public List<int>? CandidateLineNumbers { get; set; }
         }
 
         #endregion

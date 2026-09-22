@@ -179,6 +179,72 @@ namespace Armada.Test.Runtimes.Suites
                 finally { Directory.Delete(workspace, true); }
             });
 
+            await RunTest("A timeout kills a background child the shell left behind", async () =>
+            {
+                string workspace = NewWorkspace();
+                try
+                {
+                    // bash exits at once; the child keeps the output pipe open and outlives it.
+                    RunResult result = await RunAsync(workspace, new { command = "sleep 30 & echo $! > child.pid; echo parent-done", timeout_seconds = 1 }).ConfigureAwait(false);
+                    AssertTrue(result.TimedOut, "the open output pipe holds the call until the timeout");
+                    AssertContains("parent-done", result.Output, "the output written before the timeout is kept");
+
+                    int childPid = Int32.Parse(File.ReadAllText(Path.Combine(workspace, "child.pid")).Trim());
+                    bool exited = WaitForExit(childPid, TimeSpan.FromSeconds(10));
+                    if (!exited) TryKill(childPid);
+                    AssertTrue(exited, "the child " + childPid + " must not survive its exited shell");
+                }
+                finally { Directory.Delete(workspace, true); }
+            });
+
+            await RunTest("Cancellation kills a background child the shell left behind", async () =>
+            {
+                string workspace = NewWorkspace();
+                try
+                {
+                    using (CancellationTokenSource cancel = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
+                    {
+                        RunCommandTool tool = new RunCommandTool();
+                        string arguments = JsonSerializer.Serialize(new { command = "sleep 30 & echo $! > child.pid; echo parent-done", timeout_seconds = 60 });
+                        ToolResult toolResult = await tool.ExecuteAsync("call_cancel", arguments, workspace, cancel.Token).ConfigureAwait(false);
+                        AssertFalse(toolResult.Success, "a cancelled command is not a success");
+                        AssertContains("cancelled", toolResult.Content, "the result names the cancellation");
+                    }
+
+                    int childPid = Int32.Parse(File.ReadAllText(Path.Combine(workspace, "child.pid")).Trim());
+                    bool exited = WaitForExit(childPid, TimeSpan.FromSeconds(10));
+                    if (!exited) TryKill(childPid);
+                    AssertTrue(exited, "the child " + childPid + " must not survive a cancelled call");
+                }
+                finally { Directory.Delete(workspace, true); }
+            });
+
+            await RunTest("A long line without a newline is capped while it is read", async () =>
+            {
+                string workspace = NewWorkspace();
+                try
+                {
+                    // 64 MiB on one line. A line reader holds all of it (twice, as UTF-16) before any cap applies.
+                    const long streamBytes = 64L * 1024 * 1024;
+                    long allocatedBefore = GC.GetTotalAllocatedBytes(true);
+                    RunResult result = await RunAsync(workspace, new
+                    {
+                        command = "head -c " + streamBytes + " /dev/zero | tr '\\0' x; echo; echo TAIL-MARK",
+                        timeout_seconds = 120
+                    }).ConfigureAwait(false);
+                    long allocated = GC.GetTotalAllocatedBytes(true) - allocatedBefore;
+
+                    AssertTrue(result.Success, "the command completes");
+                    AssertTrue(result.Truncated, "the output is truncated");
+                    AssertTrue(result.OmittedBytes > streamBytes - ToolSafetyLimits.MaxProcessOutputBytes, "the omitted bytes are counted (" + result.OmittedBytes + ")");
+                    AssertContains("TAIL-MARK", result.Output, "the end is kept");
+                    int keptBytes = Encoding.UTF8.GetByteCount(result.Output);
+                    AssertTrue(keptBytes < ToolSafetyLimits.MaxProcessOutputBytes + 512, "the kept output stays within the cap (" + keptBytes + " bytes)");
+                    AssertTrue(allocated < streamBytes / 2, "memory stays bounded while reading (" + allocated + " bytes allocated for a " + streamBytes + "-byte line)");
+                }
+                finally { Directory.Delete(workspace, true); }
+            });
+
             await RunTest("Output above the cap keeps its beginning and its end", async () =>
             {
                 string workspace = NewWorkspace();
@@ -294,6 +360,21 @@ namespace Armada.Test.Runtimes.Suites
             }
 
             return false;
+        }
+
+        private static void TryKill(int pid)
+        {
+            try
+            {
+                using (Process process = Process.GetProcessById(pid))
+                {
+                    process.Kill();
+                }
+            }
+            catch (Exception)
+            {
+                // Already gone.
+            }
         }
 
         private sealed class RunResult

@@ -240,12 +240,19 @@ state's hash and byte count — never the state itself. See
 [Typed decisions](docs/TYPED_DECISIONS.md) for the full
 contract.
 
-### API-endpoint compaction
+### API-endpoint tools and compaction
 
-The `ApiEndpoint` runtime holds the conversation in process. Harness captains
-keep their harness's own compaction; Armada ships no harness plugin. This is a
-shape rule, not a typed decision.
+The `ApiEndpoint` runtime runs its workspace tools and holds the conversation in
+process. Harness captains keep their harness's own tools and compaction; Armada
+ships no harness plugin. These are shape rules, not typed decisions.
 
+- `run_command` starts bash as the leader of its own process group (through
+  `setsid`, or `perl` where `setsid` is absent). A timeout or a cancellation kills
+  the whole group, including a background child the shell left behind. Output is
+  read in fixed-size chunks, so a line longer than the cap is cut while it is read.
+- `edit_file` and `multi_edit` refuse empty `old_string`. Each `multi_edit` step
+  must match exactly once in the content the earlier steps produced. An ambiguous
+  match reports its count and at most 20 candidate lines.
 - Large `run_command` output is pruned inbound before it enters the conversation.
   Past about 10,000 estimated tokens, progress-only chunks (download, compile,
   cache, test progress dots) may drop. Diagnostics, test totals, JSON/XML/YAML,

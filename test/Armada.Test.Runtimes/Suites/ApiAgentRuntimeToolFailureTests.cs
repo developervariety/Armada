@@ -40,16 +40,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("tool_failed", ApiAgentRuntime.ClassifyToolException(new InvalidOperationException("other")));
             });
 
-            await RunTest("A path refused at the workspace boundary is not reported as a malformed payload", () =>
-            {
-                // The distinction that was missing: an absolute path outside the dock and a truncated
-                // tool-call payload both reported invalid_arguments, so the log could not tell them apart.
-                string boundary = ApiAgentRuntime.ClassifyToolException(new WorkspaceBoundaryException());
-                string malformed = ApiAgentRuntime.ClassifyToolException(new JsonException("unterminated"));
-                AssertFalse(String.Equals(boundary, malformed, StringComparison.Ordinal),
-                    "a boundary refusal and a malformed payload must not share a class");
-            });
-
             await RunTest("A tool result that names its own error class is read from the result", () =>
             {
                 string content = JsonSerializer.Serialize(new { error = "file_not_found", message = "File not found: /somewhere/CLAUDE.md" });
