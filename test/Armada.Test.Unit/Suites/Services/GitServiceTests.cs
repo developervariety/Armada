@@ -1351,6 +1351,43 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Changed-path read against an unresolvable base is unavailable, never an empty change", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    ChangedPathsRead read = await ((IGitService)service).GetChangedFilePathsAgainstBaseAsync(rootDir, "no-such-base").ConfigureAwait(false);
+
+                    AssertFalse(read.Available, "A failed git read must be reported as unavailable, not as a verified empty change");
+                    AssertEqual(0, read.Paths.Count, "An unavailable read carries no paths");
+                    AssertNotNull(read.FailureReason, "An unavailable read must name why it failed");
+                    AssertContains("no-such-base", read.FailureReason!, "The reason must name the base that could not be read");
+                    AssertContains(ChangedPathsRead.UnavailablePrefix, read.FormatReason(), "The logged reason carries the named prefix");
+
+                    ChangedPathsRead verifiedEmpty = await ((IGitService)service).GetChangedFilePathsAgainstBaseAsync(rootDir, "main").ConfigureAwait(false);
+                    AssertTrue(verifiedEmpty.Available, "A readable branch with no change is available: " + verifiedEmpty.FailureReason);
+                    AssertEqual(0, verifiedEmpty.Paths.Count, "A readable branch with no change reports a verified empty change");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("Changed-path readers report real names for accented, tab, space and renamed files", async () =>
             {
                 GitService service = CreateService();
@@ -1379,7 +1416,9 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunGitAsync(rootDir, "add", "-A").ConfigureAwait(false);
                     await RunGitAsync(rootDir, "commit", "-m", "Add oddly named files").ConfigureAwait(false);
 
-                    IReadOnlyList<string> consumerPaths = await service.GetChangedFilePathsAgainstBaseAsync(rootDir, "main").ConfigureAwait(false);
+                    ChangedPathsRead consumerRead = await ((IGitService)service).GetChangedFilePathsAgainstBaseAsync(rootDir, "main").ConfigureAwait(false);
+                    AssertTrue(consumerRead.Available, "The consumer-test changed-path read must succeed: " + consumerRead.FailureReason);
+                    IReadOnlyList<string> consumerPaths = consumerRead.Paths;
                     IReadOnlyList<string> landingPaths = await service.ReadChangedPathsAgainstBaseAsync(rootDir, "main").ConfigureAwait(false);
                     foreach (string path in expected)
                     {

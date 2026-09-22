@@ -757,24 +757,6 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<IReadOnlyList<string>> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
-        {
-            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
-
-            try
-            {
-                return await ReadChangedPathsAgainstBaseAsync(worktreePath, baseBranch, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // A verification that cannot read the diff reports empty, which the consumer-test
-                // gate treats as "no triggering change".
-                _Logging.Debug(_Header + "could not compute changed paths against " + baseBranch + " in " + worktreePath + ": " + ex.Message);
-                return new List<string>();
-            }
-        }
-
-        /// <inheritdoc />
         public async Task<bool> IsPathTrackedAsync(string worktreePath, string relativePath, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));

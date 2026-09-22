@@ -1130,6 +1130,82 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(producerWorktree);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Consumer tests run when the producer changed-path read reports unavailable", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    // The consumer suite fails if run. An unavailable read must run it rather than pass as no change.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_cu", "vsl_cu_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_cu", "vsl_cu_consumer",
+                        "ExampleConsumer", "vsl_cu_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilePathsAgainstBaseFailure = "injected git failure"
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateWorkerMission("ten_cu", "vsl_cu_producer");
+                    mission.BranchName = "feat/cu";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "An unreadable producer change may reach any trigger, so the failing consumer suite must run and fail the gate");
+                    AssertEqual("consumer_tests_failed: ExampleConsumer", result.CommandLabel,
+                        "The consumer suite must have run; an unreadable change is never treated as no change");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Consumer tests run when reading the producer changed paths throws", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    // The git seam throws. The gate must treat the change as unreadable and run the consumer suite.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_cth", "vsl_cth_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_cth", "vsl_cth_consumer",
+                        "ExampleConsumer", "vsl_cth_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ShouldThrowOnChangedFilePathsAgainstBase = true
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateWorkerMission("ten_cth", "vsl_cth_producer");
+                    mission.BranchName = "feat/cth";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "An unreadable producer change may reach any trigger, so the failing consumer suite must run and fail the gate");
+                    AssertEqual("consumer_tests_failed: ExampleConsumer", result.CommandLabel,
+                        "The consumer suite must have run; an unreadable change is never treated as no change");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods

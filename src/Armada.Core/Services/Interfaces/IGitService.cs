@@ -493,30 +493,41 @@ namespace Armada.Core.Services.Interfaces
 
         /// <summary>
         /// List repository-relative paths that differ between a base branch and the worktree tip
-        /// (base...HEAD). Used by the definition-of-done gate to decide whether a producer change
-        /// can break a consumer, so the consumer's suite runs only on changes that reach a
-        /// triggering path.
+        /// (base...HEAD), for a caller that decides extra work from the change set, such as the
+        /// definition-of-done gate deciding whether a producer change must run a consumer's suite.
+        /// A failed read is reported as unavailable, never as an empty change: an empty
+        /// <see cref="ChangedPathsRead.Paths"/> list is returned only with
+        /// <see cref="ChangedPathsRead.Available"/> true. A caller must treat an unavailable read as
+        /// "every path may have changed" and either do the work or refuse with the named reason.
         /// </summary>
         /// <remarks>
-        /// The default returns an empty list, so a git seam that does not implement this member
-        /// never triggers a consumer-test run. An implementation that cannot answer returns an
-        /// empty list rather than throwing, which the caller treats as "no triggering change".
+        /// This is the one definition: it reads through <see cref="ReadChangedPathsAgainstBaseAsync"/>
+        /// and converts any failure except cancellation into an unavailable read carrying the error.
+        /// Cancellation propagates.
         /// </remarks>
         /// <param name="worktreePath">Path to the worktree.</param>
         /// <param name="baseBranch">Base branch to diff against.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>Normalized changed file paths; empty when none or when unavailable.</returns>
-        Task<IReadOnlyList<string>> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        /// <returns>The changed paths, or an unavailable read naming why it failed.</returns>
+        async Task<ChangedPathsRead> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {
-            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            try
+            {
+                IReadOnlyList<string> paths = await ReadChangedPathsAgainstBaseAsync(worktreePath, baseBranch, token).ConfigureAwait(false);
+                return ChangedPathsRead.FromPaths(paths);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                return ChangedPathsRead.Unavailable(
+                    "could not read changed paths against " + baseBranch + " in " + worktreePath + ": " + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         /// <summary>
         /// Read every path the worktree's HEAD changes against the merge point with the base branch,
         /// for a landing gate that must see the whole change. A rename reports both its old and new
-        /// name and names are read NUL-separated, so no quoting reaches a path rule. Unlike
-        /// <see cref="GetChangedFilePathsAgainstBaseAsync"/>, a failure throws: an unreadable change
-        /// is unavailable evidence, never an empty change.
+        /// name and names are read NUL-separated, so no quoting reaches a path rule. A failure throws:
+        /// an unreadable change is unavailable evidence, never an empty change.
         /// </summary>
         /// <remarks>
         /// The default derives the paths from <see cref="DiffAsync"/> through <see cref="GitDiffPaths"/>,

@@ -376,7 +376,7 @@ namespace Armada.Core.Services
             // The producer's changed paths decide whether each consumer's suite runs. Read them
             // once here rather than per consumer: the diff is a property of the producer's branch,
             // not of any one consumer.
-            IReadOnlyList<string> producerChangedPaths =
+            ChangedPathsRead producerChangedPaths =
                 await ReadProducerChangedPathsAsync(producer, producerWorktreePath, token).ConfigureAwait(false);
 
             foreach (ConsumerDeclaration edge in consumers)
@@ -397,7 +397,7 @@ namespace Armada.Core.Services
             Vessel producer,
             string producerRef,
             ConsumerDeclaration edge,
-            IReadOnlyList<string> producerChangedPaths,
+            ChangedPathsRead producerChangedPaths,
             CancellationToken token)
         {
             Vessel consumer = edge.Consumer;
@@ -491,7 +491,7 @@ namespace Armada.Core.Services
                 // A build proves the consumer still compiles; it cannot prove the consumer still
                 // behaves. When the producer change reaches a triggering path, run the consumer's
                 // own suite against the same provisioned worktree before the branch may land.
-                if (ShouldRunConsumerTests(producerSibling, producerChangedPaths))
+                if (ShouldRunConsumerTests(producerSibling, producerChangedPaths, consumer.Name))
                 {
                     DefinitionOfDoneResult testResult =
                         await RunConsumerTestsAsync(consumer, consumerProfile, consumerWorktree, token).ConfigureAwait(false);
@@ -543,41 +543,38 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Read the producer's changed paths against its default branch, for deciding whether a
-        /// consumer suite must run. Returns empty when no git seam is present or the diff cannot
-        /// be read, which the caller treats as "no triggering change".
+        /// consumer suite must run. A read that fails, including a git seam that throws, is
+        /// returned as unavailable, never as an empty change.
         /// </summary>
-        private async Task<IReadOnlyList<string>> ReadProducerChangedPathsAsync(
+        private async Task<ChangedPathsRead> ReadProducerChangedPathsAsync(
             Vessel producer,
             string producerWorktreePath,
             CancellationToken token)
         {
-            if (_Git == null) return Array.Empty<string>();
+            if (_Git == null) return ChangedPathsRead.Unavailable("no git seam to read the producer change");
             string baseBranch = ResolveDefaultBranch(producer);
             try
             {
-                return await _Git.GetChangedFilePathsAgainstBaseAsync(producerWorktreePath, baseBranch, token).ConfigureAwait(false);
+                ChangedPathsRead read = await _Git.GetChangedFilePathsAgainstBaseAsync(producerWorktreePath, baseBranch, token).ConfigureAwait(false);
+                return read ?? ChangedPathsRead.Unavailable("the git seam returned no changed-path result");
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            catch (Exception ex) when (!token.IsCancellationRequested)
             {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "could not read producer changed paths for consumer-test triggering: " + ex.Message);
-                return Array.Empty<string>();
+                return ChangedPathsRead.Unavailable(ex.GetType().Name + ": " + ex.Message);
             }
         }
 
         /// <summary>
         /// Decide whether a consumer's unit-test suite runs for this producer change. It runs when
-        /// consumer-test verification is enabled and at least one changed producer path is a
-        /// non-test file under a configured trigger prefix. The prefixes come from the producer's
-        /// own sibling declaration when it lists any, otherwise from the gate settings default.
+        /// consumer-test verification is enabled, trigger prefixes are configured, and either at
+        /// least one changed producer path is a non-test file under a trigger prefix or the changed
+        /// paths could not be read. An unreadable change may reach any trigger, so the suite runs
+        /// and the named reason is logged. The prefixes come from the producer's own sibling
+        /// declaration when it lists any, otherwise from the gate settings default.
         /// </summary>
-        private bool ShouldRunConsumerTests(SiblingRepo? producerSibling, IReadOnlyList<string> producerChangedPaths)
+        private bool ShouldRunConsumerTests(SiblingRepo? producerSibling, ChangedPathsRead producerChangedPaths, string consumerName)
         {
             if (!_Settings.RunConsumerTests) return false;
-            if (producerChangedPaths == null || producerChangedPaths.Count == 0) return false;
 
             IReadOnlyList<string>? triggers =
                 producerSibling?.ConsumerTestTriggerPaths != null && producerSibling.ConsumerTestTriggerPaths.Count > 0
@@ -585,7 +582,14 @@ namespace Armada.Core.Services
                     : _Settings.ConsumerTestTriggerPaths;
             if (triggers == null || triggers.Count == 0) return false;
 
-            foreach (string rawPath in producerChangedPaths)
+            if (!producerChangedPaths.Available)
+            {
+                _Logging.Warn(_Header + "running consumer tests for " + consumerName
+                    + " because the producer change could not be read: " + producerChangedPaths.FormatReason());
+                return true;
+            }
+
+            foreach (string rawPath in producerChangedPaths.Paths)
             {
                 if (String.IsNullOrWhiteSpace(rawPath)) continue;
                 string path = rawPath.Replace('\\', '/');

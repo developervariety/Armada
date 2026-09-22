@@ -83,6 +83,10 @@ upstream integrations and excludes changes already present at that baseline.
   conditional push against the inspected head, and merge-queue test commands
   drain both output streams and stop their process tree at
   `MergeQueueTestTimeoutSeconds`.
+- **Consumer-test triggers:** reading a producer's changed paths returns a
+  result that separates an unreadable change from a verified empty one. When the
+  paths cannot be read, the definition-of-done gate runs every consumer suite that
+  has trigger prefixes and logs the named `changed_paths_unavailable` reason.
 - **Recovery and captain lifecycle:** recovery preserves accepted source commits,
   respects dispatch holds, distinguishes provider and test failures, bounds retries,
   and checks rescue effectiveness against the declared deliverable. Terminal

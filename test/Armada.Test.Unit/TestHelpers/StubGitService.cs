@@ -306,8 +306,19 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>Producer changed paths returned by GetChangedFilePathsAgainstBaseAsync.</summary>
         public IReadOnlyList<string> ChangedFilePathsAgainstBaseResult { get; set; } = Array.Empty<string>();
 
-        public Task<IReadOnlyList<string>> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
-            => Task.FromResult(ChangedFilePathsAgainstBaseResult);
+        /// <summary>When set, GetChangedFilePathsAgainstBaseAsync reports the read as unavailable with this reason.</summary>
+        public string? ChangedFilePathsAgainstBaseFailure { get; set; } = null;
+
+        /// <summary>When true, GetChangedFilePathsAgainstBaseAsync throws, as a seam that fails outright.</summary>
+        public bool ShouldThrowOnChangedFilePathsAgainstBase { get; set; } = false;
+
+        public Task<Armada.Core.Models.ChangedPathsRead> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (ShouldThrowOnChangedFilePathsAgainstBase) throw new InvalidOperationException("Simulated producer changed-path read failure");
+            if (ChangedFilePathsAgainstBaseFailure != null)
+                return Task.FromResult(Armada.Core.Models.ChangedPathsRead.Unavailable(ChangedFilePathsAgainstBaseFailure));
+            return Task.FromResult(Armada.Core.Models.ChangedPathsRead.FromPaths(ChangedFilePathsAgainstBaseResult));
+        }
 
         public IReadOnlyList<string> ConflictedFilesResult { get; set; } = Array.Empty<string>();
         public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)

@@ -51,7 +51,11 @@ for the mission tenant, vessel scope, then fleet, then global, with the default
 profile first in each scope. It reports whether commands exist, never the
 command text. It reports consumer settings and the global trigger prefixes.
 Whether consumer tests run for a change is decided from the producer diff at
-evaluation; the report does not read a diff. It does not list declared
+evaluation; the report does not read a diff. When evaluation cannot read the
+producer's changed paths, it treats the change as reaching every trigger: each
+consumer with trigger prefixes runs its suite, and the gate logs the
+`changed_paths_unavailable` reason. An unreadable change is never treated as an
+empty change. It does not list declared
 consumers or per-edge trigger overrides.
 
 `HistoryState` reads the latest two evaluation events for the mission in the
