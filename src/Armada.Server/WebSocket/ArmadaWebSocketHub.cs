@@ -91,6 +91,16 @@ namespace Armada.Server.WebSocket
         #region Public-Methods
 
         /// <summary>
+        /// Use the shared captain stop-all and deletion service for the captain commands, so WebSocket applies
+        /// the same rules as REST and MCP.
+        /// </summary>
+        /// <param name="captainAdministration">Shared captain administration service.</param>
+        public void SetCaptainAdministration(CaptainAdministrationService captainAdministration)
+        {
+            _CommandHandler.CaptainAdministration = captainAdministration ?? throw new ArgumentNullException(nameof(captainAdministration));
+        }
+
+        /// <summary>
         /// Watson7 WebSocket route handler. Registered on the main server at /ws.
         /// Manages the full session lifecycle: connect, read loop, disconnect.
         /// </summary>

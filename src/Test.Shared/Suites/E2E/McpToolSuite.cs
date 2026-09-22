@@ -2209,19 +2209,38 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                // Record every working captain and its mission first: a recall fails that mission, so the
+                // stop can be verified from state even when the call itself loses its connection.
+                JsonElement beforeResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new { entityType = "captains", pageSize = 1000 }).ConfigureAwait(false);
+                EnumerationResult<Captain> before = JsonHelper.Deserialize<EnumerationResult<Captain>>(GetToolResultText(beforeResult));
+                List<Captain> working = before.Objects
+                    .Where(c => c.State == CaptainStateEnum.Working && !String.IsNullOrEmpty(c.CurrentMissionId))
+                    .ToList();
+
                 try
                 {
                     JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_stop_all", new { }).ConfigureAwait(false);
                     AssertToolResultValid(result);
+                    CaptainStopAllResult stopAll = JsonHelper.Deserialize<CaptainStopAllResult>(GetToolResultText(result));
+                    AssertEqual(0, stopAll.Failures.Count, "Stop all reports no captain or session it could not stop");
+                    AssertTrue(stopAll.CaptainsStopped >= working.Count, "Every captain working before the call is counted as stopped");
                 }
                 catch (TaskCanceledException)
                 {
-                    // StopAll may take longer than expected with many active captains - acceptable
+                    // The call may outlast the client timeout; the state checks below still apply.
                 }
                 catch (HttpRequestException)
                 {
-                    // StopAll may terminate connections - acceptable
+                    // The call may drop the connection; the state checks below still apply.
+                }
+
+                foreach (Captain captain in working)
+                {
+                    JsonElement missionResult = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new { missionId = captain.CurrentMissionId }).ConfigureAwait(false);
+                    Mission mission = JsonHelper.Deserialize<Mission>(GetToolResultText(missionResult));
+                    bool stillRunning = mission.CaptainId == captain.Id
+                        && (mission.Status == MissionStatusEnum.Assigned || mission.Status == MissionStatusEnum.InProgress);
+                    AssertFalse(stillRunning, "Mission " + mission.Id + " of captain " + captain.Id + " must not still run after stop all");
                 }
             }));
 

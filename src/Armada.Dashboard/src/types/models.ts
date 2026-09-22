@@ -189,6 +189,27 @@ export interface CaptainQuarantineResult {
   message: string;
 }
 
+/** One captain or session an emergency stop could not stop. */
+export interface CaptainStopFailure {
+  kind: 'Captain' | 'PlanningSession' | 'RefinementSession' | string;
+  id: string;
+  message: string;
+}
+
+/** Emergency stop result, shared by REST, MCP and WebSocket. */
+export interface CaptainStopAllResult {
+  status: 'all_stopped' | 'stopped_with_failures';
+  stopped: number;
+  failed: number;
+  captainsStopped: number;
+  captainsFailed: number;
+  planningSessionsStopped: number;
+  planningSessionsFailed: number;
+  refinementSessionsStopped: number;
+  refinementSessionsFailed: number;
+  failures: CaptainStopFailure[];
+}
+
 export interface CaptainToolSummary {
   name: string;
   description: string;

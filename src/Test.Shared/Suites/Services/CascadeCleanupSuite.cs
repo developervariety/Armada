@@ -108,6 +108,22 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("removes_captain_refinement_sessions", "RemoveDependentsForCaptainAsync deletes the captain's objective refinement sessions", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    await CreateRefinementSessionAsync(db, "cpt_target").ConfigureAwait(false);
+                    await CreateRefinementSessionAsync(db, "cpt_other").ConfigureAwait(false);
+
+                    int removed = await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target").ConfigureAwait(false);
+
+                    AssertEqual(1, removed);
+                    AssertEqual(0, (await db.ObjectiveRefinementSessions.EnumerateByCaptainAsync("cpt_target").ConfigureAwait(false)).Count);
+                    AssertEqual(1, (await db.ObjectiveRefinementSessions.EnumerateByCaptainAsync("cpt_other").ConfigureAwait(false)).Count);
+                }
+            }));
+
             cases.Add(CaseAsync("empty_parent_id_is_a_safe_no_op", "Cleanup with an empty parent id removes nothing", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -163,6 +179,19 @@ namespace Test.Shared.Suites.Services
             };
 
             await db.PlanningSessions.CreateAsync(session).ConfigureAwait(false);
+        }
+
+        private static async Task CreateRefinementSessionAsync(DatabaseDriver db, string captainId)
+        {
+            Objective objective = await db.Objectives.CreateAsync(new Objective { Title = "Objective for " + captainId }).ConfigureAwait(false);
+            ObjectiveRefinementSession session = new ObjectiveRefinementSession
+            {
+                ObjectiveId = objective.Id,
+                CaptainId = captainId,
+                Title = "Refinement for " + captainId
+            };
+
+            await db.ObjectiveRefinementSessions.CreateAsync(session).ConfigureAwait(false);
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)

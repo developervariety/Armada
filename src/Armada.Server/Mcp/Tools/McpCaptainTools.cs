@@ -45,8 +45,12 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="agentLifecycle">Optional lifecycle handler used for model validation.</param>
         /// <param name="logging">Optional logging module for structured warning output.</param>
         /// <param name="captainQuarantine">Optional quarantine service; when supplied the bench and unbench tools are registered.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null)
+        /// <param name="captainAdministration">Shared stop-all and deletion service. When null, one is built that recalls through <paramref name="admiral"/> and has no session coordinators, so it reports active planning and refinement sessions as failed stops.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null, CaptainAdministrationService? captainAdministration = null)
         {
+            CaptainAdministrationService administration = captainAdministration
+                ?? new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
+
             register(
                 "armada_get_captain",
                 "Get details of a specific captain (AI agent)",
@@ -368,17 +372,17 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_stop_all",
-                "Emergency stop all running captains",
+                "Emergency stop of every working captain, active planning session and active objective refinement session. Returns status all_stopped, or stopped_with_failures with stopped and failed counts and each failure named.",
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
-                    await admiral.RecallAllAsync().ConfigureAwait(false);
-                    return (object)new { Status = "all_stopped" };
+                    CaptainStopAllResult stopAll = await administration.StopAllAsync().ConfigureAwait(false);
+                    return (object)stopAll;
                 });
 
             register(
                 "armada_delete_captain",
-                "Delete a captain. If working, the captain is recalled first.",
+                "Delete a captain and the events, planning sessions and objective refinement sessions that reference it. Refused while the captain is Working, Planning or Refining or owns an Assigned or InProgress mission; stop it first.",
                 new
                 {
                     type = "object",
@@ -391,27 +395,15 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
-                    string captainId = request.CaptainId;
-                    Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
-                    if (captain == null) return (object)new { Error = "Captain not found" };
-
-                    // Block deletion of working captains
-                    if (captain.State == CaptainStateEnum.Working)
-                        return (object)new { Error = "Cannot delete captain while state is Working. Stop the captain first." };
-
-                    // Block deletion if captain has active missions
-                    List<Mission> captainMissions = await database.Missions.EnumerateByCaptainAsync(captainId).ConfigureAwait(false);
-                    int activeMissionCount = captainMissions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
-                    if (activeMissionCount > 0)
-                        return (object)new { Error = "Cannot delete captain with " + activeMissionCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
-
-                    await database.Captains.DeleteAsync(captainId).ConfigureAwait(false);
-                    return (object)new { Status = "deleted", CaptainId = captainId };
+                    CaptainDeletionResult deletion = await administration.DeleteAsync(request.CaptainId, null).ConfigureAwait(false);
+                    if (deletion.Outcome != CaptainAdministrationOutcomeEnum.Completed)
+                        return (object)new { Error = deletion.Message };
+                    return (object)new { Status = "deleted", CaptainId = deletion.CaptainId, deletion.DependentsRemoved };
                 });
 
             register(
                 "armada_delete_captains",
-                "Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.",
+                "Permanently delete multiple captains by ID with the same rule and dependent cleanup as armada_delete_captain. Captains that are Working, Planning or Refining or own an Assigned or InProgress mission are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {
                     type = "object",
@@ -427,36 +419,7 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)new { Error = "ids is required and must not be empty" };
 
-                    DeleteMultipleResult result = new DeleteMultipleResult();
-                    foreach (string id in request.Ids)
-                    {
-                        if (String.IsNullOrEmpty(id))
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                            continue;
-                        }
-                        Captain? captain = await database.Captains.ReadAsync(id).ConfigureAwait(false);
-                        if (captain == null)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                            continue;
-                        }
-                        if (captain.State == CaptainStateEnum.Working)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain while state is Working. Stop the captain first."));
-                            continue;
-                        }
-                        List<Mission> captainMissions = await database.Missions.EnumerateByCaptainAsync(id).ConfigureAwait(false);
-                        int activeMissionCount = captainMissions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
-                        if (activeMissionCount > 0)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain with " + activeMissionCount + " active mission(s). Cancel or complete them first."));
-                            continue;
-                        }
-                        await database.Captains.DeleteAsync(id).ConfigureAwait(false);
-                        result.Deleted++;
-                    }
-                    result.ResolveStatus();
+                    DeleteMultipleResult result = await administration.DeleteManyAsync(request.Ids, null).ConfigureAwait(false);
                     return (object)result;
                 });
 

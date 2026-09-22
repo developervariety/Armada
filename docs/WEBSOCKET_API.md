@@ -841,7 +841,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 |---|---|---|---|
 | **Status & Control** | `status` | Get current ArmadaStatus | Ã¢â‚¬â€ |
 | | `stop_captain` | Stop specific captain | `captainId` |
-| | `stop_all` | Emergency stop all captains | Ã¢â‚¬â€ |
+| | `stop_all` | Emergency stop of every working captain and active planning and refinement session; reports stopped and failed counts | Ã¢â‚¬â€ |
 | **Fleet** | `list_fleets` | List/enumerate fleets | optional `query` |
 | | `get_fleet` | Get fleet by ID | `id` |
 | | `create_fleet` | Create fleet | `data` |
@@ -871,7 +871,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `get_captain` | Get captain by ID | `id` |
 | | `create_captain` | Create captain | `data` |
 | | `update_captain` | Update captain (preserves operational fields) | `id`, `data` |
-| | `delete_captain` | Delete captain (auto-recalls if working) | `id` |
+| | `delete_captain` | Delete captain and its events and sessions; refused while Working, Planning or Refining or with an active mission | `id` |
 | **Signal** | `list_signals` | List/enumerate signals | optional `query` |
 | | `send_signal` | Create signal | `data` |
 | **Event** | `list_events` | List/enumerate events | optional `query` |
@@ -1107,7 +1107,12 @@ Stop a specific captain agent.
 
 #### stop_all
 
-Emergency stop all running captains.
+Emergency stop of every working captain, active planning session and active
+objective refinement session. It runs the same service as REST
+`POST /api/v1/captains/stop-all` and MCP `armada_stop_all`, and `data` is the same
+`CaptainStopAllResult`: `status` is `all_stopped` when every stop succeeded and
+`stopped_with_failures` otherwise, with stopped and failed counts per kind and one
+`failures` entry per captain or session that could not be stopped.
 
 **Request:**
 
@@ -1125,7 +1130,16 @@ Emergency stop all running captains.
   "type": "command.result",
   "action": "stop_all",
   "data": {
-    "status": "all_stopped"
+    "status": "all_stopped",
+    "stopped": 2,
+    "failed": 0,
+    "captainsStopped": 1,
+    "captainsFailed": 0,
+    "planningSessionsStopped": 1,
+    "planningSessionsFailed": 0,
+    "refinementSessionsStopped": 0,
+    "refinementSessionsFailed": 0,
+    "failures": []
   }
 }
 ```
@@ -2199,7 +2213,10 @@ field to a different value returns `command.error` starting with
 
 #### delete_captain
 
-Delete a captain. If the captain is currently working, it is automatically recalled before deletion.
+Delete a captain, then remove the events, planning sessions and objective
+refinement sessions that reference it. The rule is shared with REST and MCP: a
+captain that is Working, Planning or Refining, or owns an Assigned or InProgress
+mission, is refused with `command.error` and nothing changes. Stop it first.
 
 **Request:**
 

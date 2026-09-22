@@ -68,9 +68,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Remove dependents that reference the supplied captain: telemetry events and planning sessions.
-        /// Planning sessions store a non-nullable captain id without a foreign key, so they must be removed
-        /// explicitly to avoid dangling sessions that reference a deleted captain.
+        /// Remove dependents that reference the supplied captain: telemetry events, planning sessions and
+        /// objective refinement sessions. Both session tables store a non-nullable captain id without a foreign
+        /// key, so they must be removed explicitly to avoid dangling sessions that reference a deleted captain.
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="captainId">Captain identifier.</param>
@@ -94,14 +94,14 @@ namespace Armada.Core.Services
                 // Skip: an events-deletion failure leaves orphan telemetry, not a blocked delete.
             }
 
-            List<PlanningSession> sessions;
+            List<PlanningSession> sessions = new List<PlanningSession>();
             try
             {
                 sessions = await database.PlanningSessions.EnumerateByCaptainAsync(captainId, token).ConfigureAwait(false);
             }
             catch (Exception)
             {
-                return removed;
+                // Skip: an unreadable planning-session list leaves orphans for a later sweep.
             }
             foreach (PlanningSession session in sessions)
             {
@@ -114,6 +114,28 @@ namespace Armada.Core.Services
                 {
                     // Best-effort: a session that cannot be removed is skipped so one failure does not
                     // block the rest of the cascade. The parent delete still proceeds.
+                }
+            }
+
+            List<ObjectiveRefinementSession> refinementSessions = new List<ObjectiveRefinementSession>();
+            try
+            {
+                refinementSessions = await database.ObjectiveRefinementSessions.EnumerateByCaptainAsync(captainId, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Skip: an unreadable refinement-session list leaves orphans for a later sweep.
+            }
+            foreach (ObjectiveRefinementSession session in refinementSessions)
+            {
+                try
+                {
+                    await database.ObjectiveRefinementSessions.DeleteAsync(session.Id, token).ConfigureAwait(false);
+                    removed++;
+                }
+                catch (Exception)
+                {
+                    // Best-effort, as for planning sessions above.
                 }
             }
 

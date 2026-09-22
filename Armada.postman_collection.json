@@ -5364,7 +5364,28 @@
 								"stop-all"
 							]
 						},
-						"description": "Emergency stop all running captains, recalling them to idle state. Requires a tenant administrator."
+						"description": "Emergency stop of every working captain, active planning session and active objective refinement session. Status is all_stopped when every stop succeeded and stopped_with_failures otherwise; the result counts stopped and failed captains and sessions and names each failure. Requires a global administrator."
+					}
+				},
+				{
+					"name": "Restart Captain",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/restart",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"captains",
+								"{{captainId}}",
+								"restart"
+							]
+						},
+						"description": "Restarts a captain in place. The identifier, configuration, credentials, endpoint, base URL, playbooks, ownership and any quarantine or bench hold are kept; a leftover agent process is stopped and the runtime state is reset. Returns 409 while the captain is Working, Planning or Refining or owns an Assigned or InProgress mission; a refused or failed restart leaves the captain unchanged."
 					}
 				},
 				{

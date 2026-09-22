@@ -76,6 +76,13 @@ upstream integrations and excludes changes already present at that baseline.
   respects dispatch holds, distinguishes provider and test failures, bounds retries,
   and checks rescue effectiveness against the declared deliverable. Terminal
   markers end stages; interrupted and duplicate completions retain launch identity.
+- **Captain administration:** REST, MCP, WebSocket and the dashboard share one
+  service for emergency stop, deletion and restart. Stop all covers working
+  captains, planning sessions and refinement sessions and reports stopped and
+  failed counts with each failure named. Single and batch deletion refuse Working,
+  Planning, Refining and mission-owning captains and remove the captain's events,
+  planning sessions and refinement sessions. Restart resets runtime state in place
+  and keeps the captain's identity, configuration, credentials and holds.
 - **Dock and ref handling:** active owners protect their worktrees; idle orphan
   processes cannot block reclaim indefinitely. Persistent collisions expose the
   holding path and process IDs and fail after a bounded retry. Managed ref deletion

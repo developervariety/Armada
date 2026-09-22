@@ -57,6 +57,17 @@ shows only critical items).
 | Interrupt | `armada_stop_captain`, `armada_stop_all` |
 | Destructive | `armada_delete_captain`, `armada_delete_captains` |
 
+Emergency stop, deletion and restart share one captain administration service
+with REST and WebSocket. `armada_stop_all` stops every working captain, active
+planning session and active objective refinement session and returns
+`all_stopped`, or `stopped_with_failures` with stopped and failed counts and each
+failure named. `armada_delete_captain` and `armada_delete_captains` refuse a
+captain that is Working, Planning or Refining or owns an Assigned or InProgress
+mission, and remove the deleted captain's events, planning sessions and
+refinement sessions. REST `POST /api/v1/captains/{id}/restart` (the dashboard
+**Restart** action) resets a captain's runtime state in place and keeps its
+identifier, configuration, credentials, endpoint, playbooks and any hold.
+
 Manual holds and releases share one quarantine service. REST
 `POST /api/v1/captains/{id}/quarantine` and MCP `armada_bench_captain` hold a
 captain with a required reason and an optional expiry (none is an indefinite

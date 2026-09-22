@@ -598,6 +598,54 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("all_stopped", stopResp.Status);
             });
 
+            await RunTest("Restart Captain Keeps Id And Every Configuration Field", async () =>
+            {
+                string captainName = "restart-keep-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage createResp = await _Client.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new
+                {
+                    Name = captainName,
+                    Runtime = "ClaudeCode",
+                    SystemInstructions = "keep these instructions",
+                    ApiKey = "rk",
+                    ApiBaseUrl = "https://provider.example.test/v1",
+                    AllowedPersonas = "[\"Worker\",\"Judge\"]",
+                    PreferredPersona = "Judge",
+                    Tier = "Premium",
+                    PreferenceRank = 7,
+                    DefaultPlaybooks = "[]"
+                }));
+                AssertEqual(HttpStatusCode.Created, createResp.StatusCode);
+                Captain created = await JsonHelper.DeserializeAsync<Captain>(createResp);
+                _CreatedCaptainIds.Add(created.Id);
+                Captain before = await JsonHelper.DeserializeAsync<Captain>(await _Client.GetAsync("/api/v1/captains/" + created.Id));
+
+                HttpResponseMessage restartResp = await _Client.PostAsync("/api/v1/captains/" + created.Id + "/restart", null);
+                AssertStatusCode(HttpStatusCode.OK, restartResp);
+
+                HttpResponseMessage getResp = await _Client.GetAsync("/api/v1/captains/" + created.Id);
+                AssertEqual(HttpStatusCode.OK, getResp.StatusCode, "The restarted captain keeps its identifier");
+                Captain after = await JsonHelper.DeserializeAsync<Captain>(getResp);
+                foreach (string field in Armada.Core.Services.CaptainInputMapping.CallerSettableFieldNames)
+                {
+                    object? expected = typeof(Captain).GetProperty(field)!.GetValue(before);
+                    object? actual = typeof(Captain).GetProperty(field)!.GetValue(after);
+                    AssertEqual(expected, actual, field + " survives a restart");
+                }
+                AssertEqual(before.TenantId, after.TenantId, "TenantId survives a restart");
+                AssertEqual(before.UserId, after.UserId, "UserId survives a restart");
+                AssertEqual("Idle", after.State.ToString());
+
+                HttpResponseMessage listResp = await _Client.GetAsync("/api/v1/captains?pageSize=1000");
+                EnumerationResult<Captain> list = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(listResp);
+                AssertEqual(1, list.Objects.Count(c => c.Name == captainName), "Restart creates no second captain");
+            });
+
+            await RunTest("Restart Captain Not Found Returns 404", async () =>
+            {
+                HttpResponseMessage response = await _Client.PostAsync("/api/v1/captains/cpt_missing/restart", null);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            });
+
             #endregion
 
             #region List - Empty

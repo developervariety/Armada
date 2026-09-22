@@ -326,7 +326,7 @@ The Admiral tracks captain state and health so a busy fleet remains debuggable:
 - Health checks reclaim stale captains and docks after restarts.
 - Diagnostics report active mission timing, dock git status, uncommitted files, launch/log hints, and code-index freshness.
 - Quarantine and lifecycle controls prevent unhealthy captains — including those hitting provider quota or usage limits — from repeatedly taking work until an operator or reset window intervenes.
-- Stop, recall, stop-all, and emergency controls are exposed through MCP, REST, dashboard, and WebSocket flows.
+- Stop, recall, stop-all, and emergency controls are exposed through MCP, REST, dashboard, and WebSocket flows. Stop-all, deletion, and restart apply one shared rule on every interface: stop-all covers working captains and planning and refinement sessions and reports each failure; deletion refuses busy captains and removes the captain's events and sessions; restart keeps the captain record and resets only its runtime state.
 
 ### Playbooks and Persistent Memory
 

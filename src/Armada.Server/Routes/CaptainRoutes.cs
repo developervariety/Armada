@@ -34,6 +34,7 @@ namespace Armada.Server.Routes
         private readonly ObjectiveRefinementCoordinator? _objectiveRefinementSessions;
         private readonly LoggingModule? _Logging;
         private readonly ICaptainQuarantineService _captainQuarantine;
+        private readonly CaptainAdministrationService _captainAdministration;
         private string _Header = "[CaptainRoutes] ";
 
         /// <summary>
@@ -51,6 +52,7 @@ namespace Armada.Server.Routes
         /// <param name="objectiveRefinementSessions">Optional objective refinement coordinator for captain-refinement ownership handoff.</param>
         /// <param name="logging">Optional logging module for structured warning output.</param>
         /// <param name="captainQuarantine">Shared quarantine service; the server passes the same instance MCP uses.</param>
+        /// <param name="captainAdministration">Shared stop-all, deletion and restart service; the server passes the same instance MCP and WebSocket use.</param>
         public CaptainRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -63,7 +65,8 @@ namespace Armada.Server.Routes
             PlanningSessionCoordinator? planningSessions = null,
             ObjectiveRefinementCoordinator? objectiveRefinementSessions = null,
             LoggingModule? logging = null,
-            ICaptainQuarantineService? captainQuarantine = null)
+            ICaptainQuarantineService? captainQuarantine = null,
+            CaptainAdministrationService? captainAdministration = null)
         {
             _captainQuarantine = captainQuarantine ?? new CaptainQuarantineService(database, settings, logging ?? new LoggingModule());
             _database = database;
@@ -77,6 +80,13 @@ namespace Armada.Server.Routes
             _planningSessions = planningSessions;
             _objectiveRefinementSessions = objectiveRefinementSessions;
             _Logging = logging;
+            if (captainAdministration == null)
+            {
+                captainAdministration = new CaptainAdministrationService(database, admiral.RecallCaptainAsync, logging);
+                captainAdministration.StopProcess = agentLifecycle.HandleStopAgentAsync;
+                captainAdministration.AttachSessionCoordinators(planningSessions, objectiveRefinementSessions);
+            }
+            _captainAdministration = captainAdministration;
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -507,50 +517,48 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                await _admiral.RecallAllAsync().ConfigureAwait(false);
-
-                if (_planningSessions != null)
-                {
-                    List<PlanningSession> planningSessions = await _database.PlanningSessions.EnumerateAsync().ConfigureAwait(false);
-                    foreach (PlanningSession planningSession in planningSessions.Where(s =>
-                        s.Status == PlanningSessionStatusEnum.Active ||
-                        s.Status == PlanningSessionStatusEnum.Responding ||
-                        s.Status == PlanningSessionStatusEnum.Stopping))
-                    {
-                        try
-                        {
-                            await _planningSessions.StopAsync(planningSession).ConfigureAwait(false);
-                        }
-                        catch
-                        {
-                        }
-                    }
-                }
-
-                if (_objectiveRefinementSessions != null)
-                {
-                    List<ObjectiveRefinementSession> refinementSessions = await _database.ObjectiveRefinementSessions.EnumerateAsync().ConfigureAwait(false);
-                    foreach (ObjectiveRefinementSession refinementSession in refinementSessions.Where(s =>
-                        s.Status == ObjectiveRefinementSessionStatusEnum.Active ||
-                        s.Status == ObjectiveRefinementSessionStatusEnum.Responding ||
-                        s.Status == ObjectiveRefinementSessionStatusEnum.Stopping))
-                    {
-                        try
-                        {
-                            await _objectiveRefinementSessions.StopAsync(refinementSession).ConfigureAwait(false);
-                        }
-                        catch
-                        {
-                        }
-                    }
-                }
-
-                return (object)new { Status = "all_stopped" };
+                CaptainStopAllResult stopAll = await _captainAdministration.StopAllAsync().ConfigureAwait(false);
+                return (object)stopAll;
             },
             api => api
                 .WithTag("Captains")
                 .WithSummary("Stop all captains")
-                .WithDescription("Emergency stop all running captains, recalling them to idle state.")
+                .WithDescription("Emergency stop of every working captain, active planning session and active objective refinement session. Each stop is attempted independently. Status is all_stopped when every stop succeeded and stopped_with_failures otherwise; the result counts stopped and failed captains and sessions and names each failure.")
+                .WithResponse(200, OpenApiJson.For<CaptainStopAllResult>("Stopped and failed counts"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/captains/{id}/restart", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                CaptainRestartResult restarted = await _captainAdministration.RestartAsync(req.Parameters["id"], ctx).ConfigureAwait(false);
+                switch (restarted.Outcome)
+                {
+                    case CaptainAdministrationOutcomeEnum.NotFound:
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = restarted.Message };
+                    case CaptainAdministrationOutcomeEnum.Busy:
+                        req.Http.Response.StatusCode = 409;
+                        return (object)new { Error = "Conflict", Message = restarted.Message };
+                    case CaptainAdministrationOutcomeEnum.Failed:
+                        req.Http.Response.StatusCode = 500;
+                        return (object)new { Error = "RestartFailed", Message = restarted.Message };
+                    default:
+                        return (object)restarted.Captain!;
+                }
+            },
+            api => api
+                .WithTag("Captains")
+                .WithSummary("Restart a captain in place")
+                .WithDescription("Resets a captain's runtime state without replacing the record. The identifier, configuration, credentials, endpoint, base URL, playbooks, ownership and any quarantine or bench hold are kept. A leftover agent process is stopped; the mission, dock and process references and the recovery count are cleared; a captain without a hold returns to Idle. Refused with 409 while the captain is Working, Planning or Refining or owns an Assigned or InProgress mission. A refused or failed restart leaves the captain unchanged.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<Captain>("Restarted captain"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<object>("Captain is busy"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/captains/{id}/log", async (ApiRequest req) =>
@@ -638,41 +646,17 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                string id = req.Parameters["id"];
-                Captain? captain = ctx.IsAdmin
-                    ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
-
-                // Block deletion of working captains
-                if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning || captain.State == CaptainStateEnum.Refining)
+                CaptainDeletionResult deletion = await _captainAdministration.DeleteAsync(req.Parameters["id"], ctx).ConfigureAwait(false);
+                if (deletion.Outcome == CaptainAdministrationOutcomeEnum.NotFound)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = deletion.Message };
+                }
+                if (deletion.Outcome == CaptainAdministrationOutcomeEnum.Busy)
                 {
                     req.Http.Response.StatusCode = 409;
-                    return (object)new { Error = "Conflict", Message = "Cannot delete captain while state is Working, Planning, or Refining. Stop the captain first." };
+                    return (object)new { Error = "Conflict", Message = deletion.Message };
                 }
-
-                // Block deletion if captain has active missions
-                List<Mission> captainMissions = ctx.IsAdmin
-                    ? await _database.Missions.EnumerateByCaptainAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.EnumerateByCaptainAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                List<Mission> activeCaptainMissions = captainMissions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
-                if (activeCaptainMissions.Count > 0)
-                {
-                    req.Http.Response.StatusCode = 409;
-                    return (object)new { Error = "Conflict", Message = "Cannot delete captain with " + activeCaptainMissions.Count + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
-                }
-
-                if (ctx.IsAdmin)
-                    await _database.Captains.DeleteAsync(id).ConfigureAwait(false);
-                else if (ctx.IsTenantAdmin)
-                    await _database.Captains.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                else
-                    await _database.Captains.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-
-                // Remove dependents (telemetry events + planning sessions) that referenced this captain.
-                await CascadeCleanup.RemoveDependentsForCaptainAsync(_database, id).ConfigureAwait(false);
 
                 req.Http.Response.StatusCode = 204;
                 return null;
@@ -680,7 +664,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Delete a captain")
-                .WithDescription("Deletes a captain. Blocked if captain is Working or has active missions.")
+                .WithDescription("Deletes a captain and the events, planning sessions and objective refinement sessions that reference it. Refused with 409 while the captain is Working, Planning or Refining or owns an Assigned or InProgress mission.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
@@ -699,57 +683,17 @@ namespace Armada.Server.Routes
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
 
-                DeleteMultipleResult result = new DeleteMultipleResult();
-                foreach (string id in body.Ids)
-                {
-                    if (String.IsNullOrEmpty(id))
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                        continue;
-                    }
-                    Captain? captain = ctx.IsAdmin
-                        ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                        : ctx.IsTenantAdmin
-                            ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                            : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                    if (captain == null)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                        continue;
-                    }
-                    if (captain.State == CaptainStateEnum.Working || captain.State == CaptainStateEnum.Planning || captain.State == CaptainStateEnum.Refining)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain while state is Working, Planning, or Refining. Stop the captain first."));
-                        continue;
-                    }
-                    List<Mission> captainMissions = ctx.IsAdmin
-                        ? await _database.Missions.EnumerateByCaptainAsync(id).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateByCaptainAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                    List<Mission> activeCaptainMissions = captainMissions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
-                    if (activeCaptainMissions.Count > 0)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete captain with " + activeCaptainMissions.Count + " active mission(s). Cancel or complete them first."));
-                        continue;
-                    }
-                    if (ctx.IsAdmin)
-                        await _database.Captains.DeleteAsync(id).ConfigureAwait(false);
-                    else if (ctx.IsTenantAdmin)
-                        await _database.Captains.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                    else
-                        await _database.Captains.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                    result.Deleted++;
-                }
+                DeleteMultipleResult result = await _captainAdministration.DeleteManyAsync(body.Ids, ctx).ConfigureAwait(false);
 
                 await _emitEvent("captain.batch_deleted", "Batch deleted " + result.Deleted + " captains",
                     "captain", null, null, null, null, null).ConfigureAwait(false);
 
-                result.ResolveStatus();
                 return (object)result;
             },
             api => api
                 .WithTag("Captains")
                 .WithSummary("Batch delete multiple captains")
-                .WithDescription("Permanently deletes multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.")
+                .WithDescription("Permanently deletes multiple captains by ID with the same rule and dependent cleanup as a single delete. Captains that are Working, Planning or Refining or own an Assigned or InProgress mission are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.")
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of captain IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));

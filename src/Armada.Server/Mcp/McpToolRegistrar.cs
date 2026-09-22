@@ -60,6 +60,7 @@ namespace Armada.Server.Mcp
         /// <param name="unlandedBranches">Optional unlanded-branch reporting service enabling armada_unlanded_branches.</param>
         /// <param name="objectiveDispatchPreviewService">Optional read-only objective dispatch preview service.</param>
         /// <param name="missionService">Optional mission service enabling armada_review_hold.</param>
+        /// <param name="captainAdministration">Shared captain stop-all and deletion service. When null, one is built from <paramref name="admiral"/> and the supplied session coordinators.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -109,7 +110,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.Interfaces.IFollowUpRouter? changeQualityFollowUpRouter = null,
             Armada.Core.Context.ContextRetrievalService? contextRetrieval = null,
             Func<string?>? contextParticipantKeyProvider = null,
-            Armada.Core.Services.Interfaces.IMissionService? missionService = null)
+            Armada.Core.Services.Interfaces.IMissionService? missionService = null,
+            CaptainAdministrationService? captainAdministration = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -121,7 +123,12 @@ namespace Armada.Server.Mcp
             McpVesselTools.Register(register, database, dockService);
             McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService, dispatchStalenessAdapter);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain, statusTransitions);
-            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
+            if (captainAdministration == null)
+            {
+                captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
+                captainAdministration.AttachSessionCoordinators(planningSessionCoordinator, objectiveRefinementCoordinator);
+            }
+            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);

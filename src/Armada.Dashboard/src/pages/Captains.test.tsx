@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Captains from './Captains';
-import { createCaptain, listCaptains, listModelEndpoints } from '../api/client';
+import { createCaptain, listCaptains, listModelEndpoints, stopAllCaptains } from '../api/client';
+import { useNotifications } from '../context/NotificationContext';
 
 vi.mock('../api/client', () => ({
   listCaptains: vi.fn(),
@@ -178,6 +179,27 @@ describe('Captains', () => {
     auth.current = { isAdmin: true, isTenantAdmin: true, user: { user: { id: 'usr_admin', tenantId: 'default' } } };
     renderCaptains();
     expect(await screen.findByRole('button', { name: 'Stop All' })).toBeInTheDocument();
+  });
+
+  it('reports every captain or session Stop All could not stop instead of announcing success', async () => {
+    vi.mocked(stopAllCaptains).mockResolvedValue({
+      status: 'stopped_with_failures',
+      stopped: 2,
+      failed: 1,
+      captainsStopped: 1,
+      captainsFailed: 0,
+      planningSessionsStopped: 1,
+      planningSessionsFailed: 0,
+      refinementSessionsStopped: 0,
+      refinementSessionsFailed: 1,
+      failures: [{ kind: 'RefinementSession', id: 'ors_stuck', message: 'runtime did not exit' }],
+    });
+    renderCaptains();
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop All' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+
+    expect(await screen.findByText('Stop all stopped 2 and could not stop 1: RefinementSession ors_stuck: runtime did not exit')).toBeInTheDocument();
+    expect(useNotifications().pushToast).not.toHaveBeenCalledWith('warning', 'All captains stopped.');
   });
 
   it('refuses to save a Mux captain without a named Mux endpoint', async () => {

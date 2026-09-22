@@ -327,14 +327,14 @@ export default function Captains() {
     setConfirm({
       open: true,
       title: t('Restart Captain'),
-      message: t('Restart captain "{{name}}"? The captain will be deleted and recreated with the same saved configuration.', { name }),
+      message: t('Restart captain "{{name}}"? Its process and assignment are reset; its configuration, identity and any quarantine are kept.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await restartCaptain(id);
           pushToast('success', t('Captain "{{name}}" restarted.', { name }));
           load();
-        } catch { setError(t('Restart failed.')); }
+        } catch (e) { setError(e instanceof Error ? e.message : t('Restart failed.')); }
       },
     });
   }
@@ -347,9 +347,18 @@ export default function Captains() {
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
-          await stopAllCaptains();
-          pushToast('warning', t('All captains stopped.'));
-          load();
+          const result = await stopAllCaptains();
+          // Reload first: a successful load clears the error banner.
+          await load();
+          if (result && result.failed > 0) {
+            setError(t('Stop all stopped {{stopped}} and could not stop {{failed}}: {{failures}}', {
+              stopped: result.stopped,
+              failed: result.failed,
+              failures: result.failures.map(f => `${f.kind} ${f.id}: ${f.message}`).join('; '),
+            }));
+          } else {
+            pushToast('warning', t('All captains stopped.'));
+          }
         } catch { setError(t('Stop all failed.')); }
       },
     });

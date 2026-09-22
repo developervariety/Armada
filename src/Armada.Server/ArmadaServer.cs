@@ -77,6 +77,7 @@ namespace Armada.Server
         private IAdmiralService _Admiral = null!;
         private IBuildDriftService _BuildDriftService = null!;
         private ICaptainQuarantineService _CaptainQuarantine = null!;
+        private CaptainAdministrationService _CaptainAdministration = null!;
         private AgentRuntimeFactory _RuntimeFactory = null!;
         private AgentRuntimeFactory? _SuppliedRuntimeFactory;
         private SettingsFileWatcher? _SettingsWatcher;
@@ -711,6 +712,12 @@ namespace Armada.Server
                 _RuntimeFactory,
                 EmitEventAsync,
                 _WebSocketHub);
+
+            // REST, MCP and WebSocket share one captain stop-all, deletion and restart service.
+            _CaptainAdministration = new CaptainAdministrationService(_Database, _Admiral.RecallCaptainAsync, _Logging);
+            _CaptainAdministration.StopProcess = _AgentLifecycle.HandleStopAgentAsync;
+            _CaptainAdministration.AttachSessionCoordinators(_PlanningSessions, _ObjectiveRefinementSessions);
+            _WebSocketHub.SetCaptainAdministration(_CaptainAdministration);
 
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
             _CoordinationService.BoardWakeEmitter = async (participantKey, text, token) =>
@@ -1492,7 +1499,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions, _Logging, _CaptainQuarantine)
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions, _Logging, _CaptainQuarantine, _CaptainAdministration)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
@@ -1962,6 +1969,7 @@ namespace Armada.Server
                 incidentService: _IncidentService,
                 objectiveScheduler: _ObjectiveScheduler,
                 captainQuarantine: _CaptainQuarantine,
+                captainAdministration: _CaptainAdministration,
                 unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging, database: _Database), _Logging),
                 terminalVoyageMissions: _TerminalVoyageMissions,
                 diskLifecycle: _DiskLifecycle,

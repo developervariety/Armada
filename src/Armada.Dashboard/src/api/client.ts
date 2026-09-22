@@ -136,6 +136,7 @@ import type {
   CoordinationClaim,
   CaptainQuarantineRequest,
   CaptainQuarantineResult,
+  CaptainStopAllResult,
   AccountLoginHome,
   AccountLoginSession,
   AccountLoginStatus,
@@ -755,28 +756,15 @@ export const quarantineCaptain = (id: string, request: CaptainQuarantineRequest)
   post<CaptainQuarantineResult>(`/api/v1/captains/${id}/quarantine`, request);
 /** Release a quarantine. A captain that is not quarantined is left unchanged with outcome NotQuarantined. */
 export const unquarantineCaptain = (id: string) => post<CaptainQuarantineResult>(`/api/v1/captains/${id}/unquarantine`);
-export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
+/** Emergency stop of every working captain and active planning or refinement session. Read failed before reporting success. */
+export const stopAllCaptains = () => post<CaptainStopAllResult>('/api/v1/captains/stop-all');
 export const listMuxEndpoints = (configDirectory?: string | null) =>
   get<MuxEndpointListResult>(`/api/v1/runtimes/mux/endpoints${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
 export const getMuxEndpoint = (name: string, configDirectory?: string | null) =>
   get<MuxEndpointShowResult>(`/api/v1/runtimes/mux/endpoints/${encodeURIComponent(name)}${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
 
-/** Restart a captain by deleting and recreating it with the same persisted configuration. */
-export async function restartCaptain(id: string): Promise<Captain> {
-  const captain = await getCaptain(id);
-  await deleteCaptain(id);
-  return createCaptain({
-    name: captain.name,
-    runtime: captain.runtime,
-    systemInstructions: captain.systemInstructions,
-    model: captain.model,
-    allowedPersonas: captain.allowedPersonas,
-    preferredPersona: captain.preferredPersona,
-    runtimeOptionsJson: captain.runtimeOptionsJson,
-    tier: captain.tier ?? null,
-    preferenceRank: captain.preferenceRank ?? 0,
-  });
-}
+/** Restart a captain in place. The server keeps the record, its identifier and every configuration field. */
+export const restartCaptain = (id: string) => post<Captain>(`/api/v1/captains/${encodeURIComponent(id)}/restart`);
 
 // ==================== Missions ====================
 export const listMissions = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

@@ -2175,17 +2175,53 @@ is left running.
 
 #### POST /api/v1/captains/stop-all
 
-Emergency stop all running captains, recalling them to idle state. It acts on
-every tenant, so it requires a global administrator; any other caller receives
-`403`.
+Emergency stop of every working captain, active planning session and active
+objective refinement session. Working captains are recalled to Idle; planning and
+refinement sessions are stopped through their coordinators. Each stop is
+attempted independently and a failure is counted and named, never hidden. MCP
+`armada_stop_all` and WebSocket `stop_all` run the same service and return the
+same result. It acts on every tenant, so it requires a global administrator; any
+other caller receives `403`.
 
-**Response:** `200 OK`
+**Response:** `200 OK` - `CaptainStopAllResult`. `Status` is `all_stopped` when
+every stop succeeded and `stopped_with_failures` otherwise.
 
 ```json
 {
-  "Status": "all_stopped"
+  "Status": "stopped_with_failures",
+  "Stopped": 2,
+  "Failed": 1,
+  "CaptainsStopped": 1,
+  "CaptainsFailed": 0,
+  "PlanningSessionsStopped": 1,
+  "PlanningSessionsFailed": 0,
+  "RefinementSessionsStopped": 0,
+  "RefinementSessionsFailed": 1,
+  "Failures": [
+    { "Kind": "RefinementSession", "Id": "ors_abc123", "Message": "runtime did not exit" }
+  ]
 }
 ```
+
+---
+
+#### POST /api/v1/captains/{id}/restart
+
+Restart a captain in place. The record keeps its identifier, configuration,
+credentials, model endpoint, base URL, default playbooks, ownership and any
+quarantine or bench hold. A leftover agent process is stopped; the mission, dock
+and process references, the recovery count and the heartbeat are cleared; a
+captain without a hold returns to Idle. The captain is read in the caller's scope.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Captain ID (`cpt_` prefix) |
+
+**Response:** `200 OK` - [Captain](#captain) as stored after the restart
+**Error:** `404` - Captain not found in the caller's scope
+**Error:** `409 Conflict` - The captain is Working, Planning or Refining, or owns an Assigned or InProgress mission. Nothing changed.
+**Error:** `500` - A leftover process could not be stopped. Nothing changed.
 
 ---
 
@@ -2285,7 +2321,10 @@ curl http://localhost:8080/api/v1/captains/cpt_abc123/log?lines=200 \
 
 #### DELETE /api/v1/captains/{id}
 
-Delete a captain. Blocked if the captain is currently working or has active missions.
+Delete a captain, then remove the events, planning sessions and objective
+refinement sessions that reference it. The rule and cleanup are shared with the
+batch route, MCP `armada_delete_captain` / `armada_delete_captains` and WebSocket
+`delete_captain`.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -2294,14 +2333,14 @@ Delete a captain. Blocked if the captain is currently working or has active miss
 
 **Response:** `204 No Content`
 **Error:** `404` - Captain not found
-**Error:** `409 Conflict` - Cannot delete captain while state is Working. Stop the captain first.
-**Error:** `409 Conflict` - Cannot delete captain with active missions in Assigned or InProgress status. Cancel or complete them first.
+**Error:** `409 Conflict` - Cannot delete captain while state is Working, Planning, or Refining. Stop the captain first.
+**Error:** `409 Conflict` - Cannot delete captain with N active mission(s) in Assigned or InProgress status. Cancel or complete them first.
 
 ---
 
 #### `POST /api/v1/captains/delete/multiple`
 
-Batch delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Batch delete multiple captains by ID with the same rule and dependent cleanup as a single delete. Captains that are Working, Planning or Refining or own an Assigned or InProgress mission are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
 **Request Body:**
 
@@ -2321,7 +2360,7 @@ Batch delete multiple captains from the database by ID. Captains that are Workin
 }
 ```
 
-Skipped entries include the entity ID and the reason (e.g., "Not found", "Cannot delete captain while state is Working", or "Cannot delete captain with N active mission(s)").
+Skipped entries include the entity ID and the reason (e.g., "Not found", "Cannot delete captain while state is Working, Planning, or Refining", or "Cannot delete captain with N active mission(s)").
 
 ---
 
