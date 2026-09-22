@@ -2,6 +2,7 @@ namespace Armada.Test.Automated.Suites
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
@@ -9,7 +10,10 @@ namespace Armada.Test.Automated.Suites
     using System.Text.Json;
     using System.Text.Json.Nodes;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
 
     /// <summary>
@@ -123,10 +127,78 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
         }
 
-        private async Task<Captain> CreateCaptainAsync(string name)
+        private async Task<HttpStatusCode> PostSettingsReloadAsync()
+        {
+            using (StringContent content = new StringContent("{}", Encoding.UTF8, "application/json"))
+            using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/settings/reload", content).ConfigureAwait(false))
+                return response.StatusCode;
+        }
+
+        private async Task<int> ReadRetentionDaysAsync()
+        {
+            return Prop(await ReadSettingsAsync().ConfigureAwait(false), "planningSessionRetentionDays").GetInt32();
+        }
+
+        private async Task<bool> SettingsMentionAsync(string text)
+        {
+            return (await ReadSettingsAsync().ConfigureAwait(false)).GetRawText().Contains(text);
+        }
+
+        /// <summary>
+        /// Send one invalid usage-routing candidate through the settings update, the manual reload and the watched
+        /// reload, and assert that each refuses it and keeps the current settings.
+        /// </summary>
+        private async Task AssertCandidateRefusedByEveryEntryPointAsync(string label, UsageRoutingSettings candidate)
+        {
+            string accountId = candidate.Accounts[0].Id;
+
+            using (StringContent content = JsonHelper.ToJsonContent(new { modelTier = new { usageRouting = candidate } }))
+            using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/settings", content).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, label + ": the settings update refuses the candidate");
+            AssertFalse(await SettingsMentionAsync(accountId).ConfigureAwait(false), label + ": the settings update applies nothing");
+
+            // Bind the file to the live settings before editing it.
+            await PutSettingsJsonAsync("{}").ConfigureAwait(false);
+            string original = await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false);
+            int before = await ReadRetentionDaysAsync().ConfigureAwait(false);
+            int marker = before + 7;
+            try
+            {
+                ArmadaSettings edited = await ArmadaSettings.LoadAsync(_SettingsFilePath).ConfigureAwait(false);
+                edited.PlanningSessionRetentionDays = marker;
+                edited.ModelTier.UsageRouting = candidate;
+                await edited.SaveAsync(_SettingsFilePath).ConfigureAwait(false);
+
+                AssertEqual(HttpStatusCode.BadRequest, await PostSettingsReloadAsync().ConfigureAwait(false), label + ": the manual reload refuses the candidate");
+                AssertEqual(before, await ReadRetentionDaysAsync().ConfigureAwait(false), label + ": the manual reload applies nothing");
+                AssertFalse(await SettingsMentionAsync(accountId).ConfigureAwait(false), label + ": the manual reload applies no account");
+
+                // The same write reached the settings-file watcher; wait past its debounce window.
+                await Task.Delay(2500).ConfigureAwait(false);
+                AssertEqual(before, await ReadRetentionDaysAsync().ConfigureAwait(false), label + ": the watched reload applies nothing");
+                AssertFalse(await SettingsMentionAsync(accountId).ConfigureAwait(false), label + ": the watched reload applies no account");
+
+                // The watcher is live: a valid edit of the same file is applied.
+                await File.WriteAllTextAsync(_SettingsFilePath, original).ConfigureAwait(false);
+                ArmadaSettings valid = await ArmadaSettings.LoadAsync(_SettingsFilePath).ConfigureAwait(false);
+                valid.PlanningSessionRetentionDays = marker;
+                await valid.SaveAsync(_SettingsFilePath).ConfigureAwait(false);
+                DateTime deadline = DateTime.UtcNow.AddSeconds(20);
+                while (DateTime.UtcNow < deadline && await ReadRetentionDaysAsync().ConfigureAwait(false) != marker)
+                    await Task.Delay(250).ConfigureAwait(false);
+                AssertEqual(marker, await ReadRetentionDaysAsync().ConfigureAwait(false), label + ": the watcher applies a valid edit");
+            }
+            finally
+            {
+                await File.WriteAllTextAsync(_SettingsFilePath, original).ConfigureAwait(false);
+                await PostSettingsReloadAsync().ConfigureAwait(false);
+            }
+        }
+
+        private async Task<Captain> CreateCaptainAsync(string name, string runtime = "ClaudeCode")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            StringContent content = JsonHelper.ToJsonContent(new { Name = uniqueName, Runtime = "ClaudeCode" });
+            StringContent content = JsonHelper.ToJsonContent(new { Name = uniqueName, Runtime = runtime });
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/captains", content).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
             return await JsonHelper.DeserializeAsync<Captain>(resp).ConfigureAwait(false);
@@ -459,6 +531,79 @@ namespace Armada.Test.Automated.Suites
                 await PutSettingsJsonAsync("{\"modelTier\":{\"midTierModels\":[\"" + marker + "\"],\"specialistPersonas\":[\"" + marker + "\"]}}").ConfigureAwait(false);
                 JsonElement after = await ReadSettingsAsync().ConfigureAwait(false);
                 AssertFalse(Prop(after, "modelTier").GetRawText().Contains(marker), "a retired tier key sent to the settings API is not stored");
+            }).ConfigureAwait(false);
+
+            // Manual reload reads the settings file the server is bound to, never the default file, and refuses a
+            // missing bound file instead of applying defaults.
+            await RunTest("ReloadSettings_ReadsBoundFileAndRefusesMissingFile", async () =>
+            {
+                string defaultPath = ArmadaSettings.DefaultSettingsPath;
+                AssertFalse(String.Equals(Path.GetFullPath(defaultPath), Path.GetFullPath(_SettingsFilePath), StringComparison.Ordinal), "the harness binds its own settings file");
+                await PutSettingsJsonAsync("{}").ConfigureAwait(false);
+                string original = await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false);
+                bool defaultExisted = File.Exists(defaultPath);
+                string? defaultOriginal = defaultExisted ? await File.ReadAllTextAsync(defaultPath).ConfigureAwait(false) : null;
+                int before = await ReadRetentionDaysAsync().ConfigureAwait(false);
+                int boundValue = before + 11;
+                try
+                {
+                    ArmadaSettings bound = await ArmadaSettings.LoadAsync(_SettingsFilePath).ConfigureAwait(false);
+                    bound.PlanningSessionRetentionDays = boundValue;
+                    await bound.SaveAsync(_SettingsFilePath).ConfigureAwait(false);
+                    ArmadaSettings other = await ArmadaSettings.LoadAsync(_SettingsFilePath).ConfigureAwait(false);
+                    other.PlanningSessionRetentionDays = before + 22;
+                    await other.SaveAsync(defaultPath).ConfigureAwait(false);
+
+                    AssertEqual(HttpStatusCode.OK, await PostSettingsReloadAsync().ConfigureAwait(false), "reload of the bound file");
+                    AssertEqual(boundValue, await ReadRetentionDaysAsync().ConfigureAwait(false), "reload reads the bound file, not the default file");
+
+                    File.Delete(_SettingsFilePath);
+                    AssertEqual(HttpStatusCode.NotFound, await PostSettingsReloadAsync().ConfigureAwait(false), "a missing bound file is refused");
+                    AssertEqual(boundValue, await ReadRetentionDaysAsync().ConfigureAwait(false), "a missing bound file keeps the current settings");
+                }
+                finally
+                {
+                    if (defaultOriginal != null) await File.WriteAllTextAsync(defaultPath, defaultOriginal).ConfigureAwait(false);
+                    else if (File.Exists(defaultPath)) File.Delete(defaultPath);
+                    await File.WriteAllTextAsync(_SettingsFilePath, original).ConfigureAwait(false);
+                    await PostSettingsReloadAsync().ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
+            // The settings update, the manual reload and the watched reload share one candidate validator, so an
+            // account bound to a captain of another runtime, or a key file outside the account folder root, is
+            // refused by all three.
+            await RunTest("SettingsCandidate_InvalidAccount_RefusedByUpdateManualReloadAndWatchedReload", async () =>
+            {
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                Captain codex = await CreateCaptainAsync("reload-codex", "Codex").ConfigureAwait(false);
+                try
+                {
+
+                    UsageRoutingSettings runtimeMismatch = new UsageRoutingSettings();
+                    runtimeMismatch.Accounts.Add(new UsageAccountSettings
+                    {
+                        Id = "reload-claude-" + suffix,
+                        Runtime = AgentRuntimeEnum.ClaudeCode,
+                        HomeDirectory = Path.Combine(Path.GetTempPath(), "reload-claude-" + suffix),
+                        CaptainIds = new List<string> { codex.Id }
+                    });
+                    await AssertCandidateRefusedByEveryEntryPointAsync("Codex captain on a Claude account", runtimeMismatch).ConfigureAwait(false);
+
+                    string cursorId = "reload-cursor-" + suffix;
+                    UsageRoutingSettings foreignKeyFile = new UsageRoutingSettings();
+                    foreignKeyFile.Accounts.Add(new UsageAccountSettings
+                    {
+                        Id = cursorId,
+                        Runtime = AgentRuntimeEnum.Cursor,
+                        LaunchCredentialFile = Path.Combine(Path.GetFullPath(Path.GetTempPath()), "reload-elsewhere-" + suffix, cursorId, AccountLoginPaths.CursorKeyFileName)
+                    });
+                    await AssertCandidateRefusedByEveryEntryPointAsync("key file outside the account folder root", foreignKeyFile).ConfigureAwait(false);
+                }
+                finally
+                {
+                    using (HttpResponseMessage deleted = await _AuthClient.DeleteAsync("/api/v1/captains/" + codex.Id).ConfigureAwait(false)) { }
+                }
             }).ConfigureAwait(false);
 
             #region Status-Endpoint

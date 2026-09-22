@@ -379,6 +379,10 @@ accept billing terms.
   whose collector measures a different runtime, or whose listed captain uses a
   different runtime. It also rejects a login on an account that lists a captain
   carrying its own `apiKey` or `apiBaseUrl`; such captains keep their launch.
+  The same validation, including the check that a Cursor key file sits in the
+  account's own folder under the Admiral's account root, applies to
+  `PUT /api/v1/settings`, `POST /api/v1/settings/reload`, and edits picked up by
+  the settings-file watcher; a refused reload keeps the current policy.
 - A missing home, missing login file, or unset Cursor key variable makes the
   account `Exhausted` with reason `account_home_missing`,
   `account_login_missing`, or `account_launch_credential_unavailable`. This is

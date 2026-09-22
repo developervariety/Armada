@@ -80,6 +80,7 @@ namespace Armada.Server
         private AgentRuntimeFactory _RuntimeFactory = null!;
         private AgentRuntimeFactory? _SuppliedRuntimeFactory;
         private SettingsFileWatcher? _SettingsWatcher;
+        private SettingsReloadService _SettingsReload = null!;
 
         private Webserver _App = null!;
 
@@ -238,6 +239,10 @@ namespace Armada.Server
             _Database = DatabaseDriverFactory.Create(_Settings.Database, _Logging);
             await _Database.InitializeAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "database initialized");
+
+            // One reload path for the manual endpoint and the file watcher: both read the bound
+            // settings file and validate the candidate against the live captain roster.
+            _SettingsReload = new SettingsReloadService(_Settings, token => _Database.Captains.EnumerateAsync(token));
 
             // Background jobs are journalled under the data directory, so an accepted job outlives
             // this process; interrupted jobs are recovered below, before any request is served.
@@ -900,7 +905,7 @@ namespace Armada.Server
             // file is the one these settings are bound to, never a fixed machine-wide path:
             // a second server in the same process or on the same host must not adopt another
             // server's live limits, which is how an unrelated settings write reaches this one.
-            _SettingsWatcher = new SettingsFileWatcher(_Settings, _Logging, _Settings.SettingsFilePath);
+            _SettingsWatcher = new SettingsFileWatcher(_Settings, _SettingsReload, _Logging);
             _SettingsWatcher.Start();
 
             // Initialize MCP server
@@ -1375,7 +1380,7 @@ namespace Armada.Server
 
             // Status, health, doctor, settings, server control
             new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync,
-                () => (_MissionService as MissionService)?.CapacityEscalationAdapter, _TypedDecisionKeys)
+                () => (_MissionService as MissionService)?.CapacityEscalationAdapter, _TypedDecisionKeys, _SettingsReload)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Typed-decision modes and the provider key file (administrator only; never request-history captured)

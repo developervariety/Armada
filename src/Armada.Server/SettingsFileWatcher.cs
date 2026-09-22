@@ -2,11 +2,12 @@ namespace Armada.Server
 {
     using System;
     using System.IO;
-    using System.Security.Cryptography;
-    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -17,8 +18,13 @@ namespace Armada.Server
     ///
     /// Events are debounced because a single logical edit commonly arrives as several
     /// filesystem events (an in-place write, or the write-temp-then-rename that editors
-    /// and sed perform). Content is hashed so a write that does not change the file is
-    /// ignored, which also keeps an API-initiated save from producing a redundant apply.
+    /// and sed perform). Content equal to the content last applied, by this watcher or by
+    /// the manual reload endpoint, is skipped.
+    ///
+    /// The watched file is the one <see cref="SettingsReloadService"/> is bound to, and every
+    /// apply goes through that service, so a watched reload reads, validates and applies
+    /// exactly as the manual reload endpoint does. A missing or invalid candidate is refused
+    /// and the current settings are kept.
     ///
     /// Only <see cref="ArmadaSettings.ApplyHotReloadableFrom"/> values are applied.
     /// Ports, paths, database settings, API keys, agent definitions and remote-control
@@ -29,10 +35,9 @@ namespace Armada.Server
         #region Private-Members
 
         private const int _DebounceMilliseconds = 750;
-        private const int _ReadRetries = 3;
-        private const int _ReadRetryDelayMilliseconds = 120;
 
         private readonly string _Header = "[SettingsFileWatcher] ";
+        private readonly SettingsReloadService _Reload;
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly string _Path;
@@ -40,7 +45,6 @@ namespace Armada.Server
 
         private FileSystemWatcher? _Watcher;
         private Timer? _Debounce;
-        private string? _LastAppliedHash;
         private bool _Disposed;
 
         #endregion
@@ -50,14 +54,15 @@ namespace Armada.Server
         /// <summary>
         /// Instantiate.
         /// </summary>
-        /// <param name="settings">Live settings instance to update in place.</param>
+        /// <param name="settings">Live settings instance the reload service updates in place.</param>
+        /// <param name="reload">Reload service bound to the live settings file; the watcher watches that file.</param>
         /// <param name="logging">Logging module.</param>
-        /// <param name="path">Settings file path. Defaults to the standard settings.json location.</param>
-        public SettingsFileWatcher(ArmadaSettings settings, LoggingModule logging, string? path = null)
+        public SettingsFileWatcher(ArmadaSettings settings, SettingsReloadService reload, LoggingModule logging)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _Reload = reload ?? throw new ArgumentNullException(nameof(reload));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
-            _Path = String.IsNullOrWhiteSpace(path) ? ArmadaSettings.DefaultSettingsPath : path!;
+            _Path = reload.SettingsFilePath;
         }
 
         #endregion
@@ -80,9 +85,9 @@ namespace Armada.Server
                     return;
                 }
 
-                // Seed the hash from the file the server just loaded, so the first
-                // event after startup only applies when the content actually changed.
-                _LastAppliedHash = TryReadHash();
+                // Record the file the server just loaded, so the first event after
+                // startup only applies when the content actually changed.
+                _Reload.RecordCurrentFileAsAppliedAsync().GetAwaiter().GetResult();
 
                 _Debounce = new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -169,38 +174,17 @@ namespace Armada.Server
                     if (_Disposed) return;
                 }
 
-                if (!File.Exists(_Path))
-                {
-                    _Logging.Warn(_Header + "settings file " + _Path + " is missing; keeping current settings");
-                    return;
-                }
-
-                string? hash = TryReadHash();
-                if (hash == null)
-                {
-                    _Logging.Warn(_Header + "could not read " + _Path + " after retries; keeping current settings");
-                    return;
-                }
-
-                if (String.Equals(hash, _LastAppliedHash, StringComparison.Ordinal))
+                SettingsReloadResult result = await _Reload.ReloadAsync(skipIfUnchanged: true).ConfigureAwait(false);
+                if (result.Outcome == SettingsReloadOutcomeEnum.Unchanged)
                     return;
 
-                ArmadaSettings loaded;
-                try
+                if (!result.Applied)
                 {
-                    loaded = await ArmadaSettings.LoadAsync(_Path).ConfigureAwait(false);
-                }
-                catch (Exception e)
-                {
-                    // A half-written or invalid file must never take the server down or
-                    // clobber good in-memory settings. Leave the hash unset so a
-                    // subsequent corrected write is retried.
-                    _Logging.Warn(_Header + "settings file is not valid JSON; keeping current settings: " + e.Message);
+                    // A half-written or invalid file must never take the server down or clobber
+                    // good in-memory settings. A subsequent corrected write is applied.
+                    _Logging.Warn(_Header + "settings file refused (" + result.Outcome + "); keeping current settings: " + result.Reason);
                     return;
                 }
-
-                _Settings.ApplyHotReloadableFrom(loaded);
-                _LastAppliedHash = hash;
 
                 _Logging.Info(_Header + "settings reloaded from file: maxConcurrentCaptainWorkloads="
                     + _Settings.MaxConcurrentCaptainWorkloads
@@ -212,29 +196,6 @@ namespace Armada.Server
             {
                 _Logging.Warn(_Header + "settings reload failed; keeping current settings: " + e.Message);
             }
-        }
-
-        private string? TryReadHash()
-        {
-            for (int attempt = 0; attempt < _ReadRetries; attempt++)
-            {
-                try
-                {
-                    // Share-all so a concurrent writer does not produce a spurious failure.
-                    using (FileStream stream = new FileStream(_Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                    using (SHA256 sha = SHA256.Create())
-                    {
-                        byte[] digest = sha.ComputeHash(stream);
-                        return Convert.ToHexString(digest);
-                    }
-                }
-                catch (Exception)
-                {
-                    if (attempt == _ReadRetries - 1) return null;
-                    Thread.Sleep(_ReadRetryDelayMilliseconds);
-                }
-            }
-            return null;
         }
 
         #endregion

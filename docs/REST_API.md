@@ -115,6 +115,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/status` | GET | Authenticated | Tenant-scoped |
 | `/api/v1/settings` | GET | AdminOnly | Server configuration and remote-control settings |
 | `/api/v1/settings` | PUT | AdminOnly | Partial update of server configuration and remote-control settings |
+| `/api/v1/settings/reload` | POST | AdminOnly | Validate and apply runtime-tunable values from the bound settings file |
 | `/api/v1/fleets` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/vessels` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/captains` | ALL | Authenticated | Tenant-scoped |
@@ -911,6 +912,28 @@ Accepts partial updates to editable server settings. When `RemoteControl` is sup
 **Response:** `200 OK`
 
 Returns the updated settings payload in the same shape as `GET /api/v1/settings`.
+
+A supplied `ModelTier.UsageRouting` is validated before anything is applied: the policy shape and ranges, each
+account's key file path against the Admiral's account folder root, and each account's runtime against the captains
+it lists. A failing policy returns `400 Bad Request` and changes nothing. The manual reload below and the
+settings-file watcher apply the same validation to the settings file.
+
+---
+
+#### POST /api/v1/settings/reload
+
+Re-reads the settings file this server is bound to (the file it loaded at startup and saves to) and applies the
+runtime-tunable values in place, without a restart. The settings-file watcher uses the same reload path, so an edit
+picked up by the watcher and a manual reload read the same file and accept the same content. The file is validated
+as a candidate first, with the same checks as `PUT /api/v1/settings`. Ports, paths, database, API key, agent
+definitions and remote-control settings are not reloaded and still require a restart.
+
+**Permission:** AdminOnly
+
+**Response:** `200 OK` with the settings payload in the same shape as `GET /api/v1/settings`.
+
+**Errors:** `404 Not Found` when the bound settings file does not exist, and `400 Bad Request` when it cannot be
+read, is not valid settings JSON, or fails validation. In both cases the current settings are kept.
 
 ---
 

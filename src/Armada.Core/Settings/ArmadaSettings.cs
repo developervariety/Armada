@@ -1214,6 +1214,18 @@ namespace Armada.Core.Settings
                 return defaults;
             }
             string json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+            return FromJson(json, path);
+        }
+
+        /// <summary>
+        /// Parse settings file content read from <paramref name="path"/>, exactly as <see cref="LoadAsync"/> does.
+        /// </summary>
+        /// <param name="json">Settings file content.</param>
+        /// <param name="path">File the content was read from; the instance is bound to it.</param>
+        /// <returns>Parsed settings.</returns>
+        /// <exception cref="JsonException">The content is not valid settings JSON.</exception>
+        public static ArmadaSettings FromJson(string json, string path)
+        {
             ArmadaSettings? settings = JsonSerializer.Deserialize<ArmadaSettings>(json, _SerializerOptions);
             settings ??= new ArmadaSettings();
             // Bind the instance to the file it came from, so a later save, watch, or migration acts on that

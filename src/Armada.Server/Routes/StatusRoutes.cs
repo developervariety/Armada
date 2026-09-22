@@ -35,6 +35,7 @@ namespace Armada.Server.Routes
         private readonly Func<Task>? _onRemoteControlSettingsChanged;
         private readonly Func<TypedCapacityEscalationAdapter?>? _getCapacityAdapter;
         private readonly TypedDecisionKeyStore? _typedDecisionKeys;
+        private readonly SettingsReloadService _settingsReload;
 
         /// <summary>
         /// Instantiate.
@@ -61,7 +62,8 @@ namespace Armada.Server.Routes
             Func<RemoteTunnelStatus>? getRemoteTunnelStatus = null,
             Func<Task>? onRemoteControlSettingsChanged = null,
             Func<TypedCapacityEscalationAdapter?>? getCapacityAdapter = null,
-            TypedDecisionKeyStore? typedDecisionKeys = null)
+            TypedDecisionKeyStore? typedDecisionKeys = null,
+            SettingsReloadService? settingsReload = null)
         {
             _database = database;
             _settings = settings;
@@ -75,6 +77,7 @@ namespace Armada.Server.Routes
             _onRemoteControlSettingsChanged = onRemoteControlSettingsChanged;
             _getCapacityAdapter = getCapacityAdapter;
             _typedDecisionKeys = typedDecisionKeys;
+            _settingsReload = settingsReload ?? new SettingsReloadService(settings, token => database.Captains.EnumerateAsync(token));
         }
 
         /// <summary>
@@ -495,8 +498,7 @@ namespace Armada.Server.Routes
                     List<Captain> boundCaptains = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
                     try
                     {
-                        UsageRoutingService.Validate(body.ModelTier.UsageRouting, AccountLoginPaths.AccountsRoot(_settings.DataDirectory));
-                        CaptainAccountLaunch.ValidateCaptainBindings(body.ModelTier.UsageRouting, boundCaptains);
+                        SettingsCandidateValidator.ValidateUsageRouting(body.ModelTier.UsageRouting, _settings.DataDirectory, boundCaptains);
                     }
                     catch (ArgumentException ex)
                     {
@@ -611,8 +613,14 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
 
-                ArmadaSettings loaded = await ArmadaSettings.LoadAsync().ConfigureAwait(false);
-                _settings.ApplyHotReloadableFrom(loaded);
+                SettingsReloadResult reload = await _settingsReload.ReloadAsync().ConfigureAwait(false);
+                if (!reload.Applied)
+                {
+                    _logging.Warn(_Header + "settings reload via API refused (" + reload.Outcome + "); keeping current settings: " + reload.Reason);
+                    bool missing = reload.Outcome == SettingsReloadOutcomeEnum.FileMissing;
+                    req.Http.Response.StatusCode = missing ? 404 : 400;
+                    return new ApiErrorResponse { Error = missing ? ApiResultEnum.NotFound : ApiResultEnum.BadRequest, Message = reload.Reason };
+                }
 
                 _logging.Info(_Header + "settings reloaded from file via API: maxConcurrentCaptainWorkloads="
                     + _settings.MaxConcurrentCaptainWorkloads
@@ -624,7 +632,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Settings")
                 .WithSummary("Reload settings from file")
-                .WithDescription("Re-reads settings.json and applies the runtime-tunable values in place, without a restart. Ports, paths, database, API key, agent definitions and remote-control settings are not reloaded and still require a restart.")
+                .WithDescription("Re-reads the settings file the server is bound to, validates it with the same checks as a settings update, and applies the runtime-tunable values in place, without a restart. A missing bound file returns 404 and an unreadable or invalid file returns 400; either way the current settings are kept. Ports, paths, database, API key, agent definitions and remote-control settings are not reloaded and still require a restart.")
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/server/reset", async (ApiRequest req) =>

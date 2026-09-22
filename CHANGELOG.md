@@ -85,6 +85,11 @@ upstream integrations and excludes changes already present at that baseline.
 - **Model selection:** one capability-tier rule drives eligibility and preview.
   Smart Routing filters and orders eligible captains by account usage and persona
   preferences; dead model-list entries have visible diagnostics and fallback.
+- **Settings reload:** the manual reload endpoint and the settings-file watcher share
+  one reload path bound to the server's own settings file. Settings updates and both
+  reloads share one candidate validator for account key paths and captain runtime
+  bindings. A missing, unreadable, or invalid file is refused and the current
+  settings stay live.
 - **Runtime execution:** inference-endpoint captains resolve endpoint credentials;
   API-endpoint missions have bounded command execution and deterministic conversation
   compaction, Anthropic stable-prefix caching, and provider cache/reasoning usage

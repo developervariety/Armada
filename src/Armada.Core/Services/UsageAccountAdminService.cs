@@ -112,8 +112,8 @@ namespace Armada.Core.Services
                 UsageRoutingSettings next = WithoutAccount(current, account.Id, result);
                 try
                 {
-                    UsageRoutingService.Validate(next, AccountLoginPaths.AccountsRoot(_Settings.DataDirectory));
-                    if (_LoadCaptains != null) CaptainAccountLaunch.ValidateCaptainBindings(next, await _LoadCaptains(token).ConfigureAwait(false));
+                    List<Captain> captains = _LoadCaptains != null ? await _LoadCaptains(token).ConfigureAwait(false) : new List<Captain>();
+                    SettingsCandidateValidator.ValidateUsageRouting(next, _Settings.DataDirectory, captains);
                 }
                 catch (ArgumentException ex)
                 {
