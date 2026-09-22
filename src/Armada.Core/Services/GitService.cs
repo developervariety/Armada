@@ -650,25 +650,18 @@ namespace Armada.Core.Services
 
             _Logging.Debug(_Header + "diffing worktree " + worktreePath + " against " + baseBranch);
 
-            // Diff committed changes on the current branch vs the base branch
+            // Diff committed changes on the current branch vs the base branch. Only a missing merge
+            // base has a substitute diff; any other failure surfaces, because a different diff (the
+            // working tree against HEAD) would present unrelated content as the branch's change.
             try
             {
                 return await RunGitAsync(worktreePath, token, "diff", baseBranch + "...HEAD").ConfigureAwait(false);
             }
-            catch (TimeoutException)
-            {
-                throw;
-            }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("no merge base", StringComparison.OrdinalIgnoreCase))
+            catch (InvalidOperationException ex) when (IsNoMergeBase(ex))
             {
                 // Branches with unrelated history still need a stable diff snapshot for landing.
                 // Fall back to a direct tree-to-tree comparison against the base tip.
                 return await RunGitAsync(worktreePath, token, "diff", baseBranch + "..HEAD").ConfigureAwait(false);
-            }
-            catch
-            {
-                // Fallback: diff against working tree (uncommitted changes)
-                return await RunGitAsync(worktreePath, token, "diff", "HEAD").ConfigureAwait(false);
             }
         }
 
@@ -721,15 +714,43 @@ namespace Armada.Core.Services
 
             HashSet<string> changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            string committedOutput = await RunGitAsync(worktreePath, token, "diff", "--name-only", startCommit + "..HEAD").ConfigureAwait(false);
+            string committedOutput = await RunGitAsync(worktreePath, token, "diff", "--name-only", "--no-renames", "-z", startCommit + "..HEAD").ConfigureAwait(false);
             AddChangedPaths(committedOutput, changedFiles);
 
-            string workingTreeOutput = await RunGitAsync(worktreePath, token, "diff", "--name-only", "HEAD").ConfigureAwait(false);
+            string workingTreeOutput = await RunGitAsync(worktreePath, token, "diff", "--name-only", "--no-renames", "-z", "HEAD").ConfigureAwait(false);
             AddChangedPaths(workingTreeOutput, changedFiles);
 
-            string untrackedOutput = await RunGitAsync(worktreePath, token, "ls-files", "--others", "--exclude-standard").ConfigureAwait(false);
+            string untrackedOutput = await RunGitAsync(worktreePath, token, "ls-files", "-z", "--others", "--exclude-standard").ConfigureAwait(false);
             AddChangedPaths(untrackedOutput, changedFiles);
 
+            return changedFiles
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<string>> ReadChangedPathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+
+            string effectiveBase = String.IsNullOrWhiteSpace(baseBranch) ? "main" : baseBranch.Trim();
+            HashSet<string> changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // The symmetric-difference form lists what the tip added over the base's merge point,
+            // which is the change the mission introduced. A merge base is required; a branch with
+            // unrelated history falls back to a direct comparison. Renames are split into a delete
+            // and an add so both the old and the new name are reported.
+            string output;
+            try
+            {
+                output = await RunGitAsync(worktreePath, token, "diff", "--name-only", "--no-renames", "-z", effectiveBase + "...HEAD").ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (IsNoMergeBase(ex))
+            {
+                output = await RunGitAsync(worktreePath, token, "diff", "--name-only", "--no-renames", "-z", effectiveBase + "..HEAD").ConfigureAwait(false);
+            }
+
+            AddChangedPaths(output, changedFiles);
             return changedFiles
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -740,37 +761,17 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
 
-            string effectiveBase = String.IsNullOrWhiteSpace(baseBranch) ? "main" : baseBranch.Trim();
-            HashSet<string> changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
             try
             {
-                // The symmetric-difference form lists what the tip added over the base's merge
-                // point, which is the change the mission introduced. A merge base is required; a
-                // branch with unrelated history falls back to a direct comparison.
-                string output;
-                try
-                {
-                    output = await RunGitAsync(worktreePath, token, "diff", "--name-only", effectiveBase + "...HEAD").ConfigureAwait(false);
-                }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("no merge base", StringComparison.OrdinalIgnoreCase))
-                {
-                    output = await RunGitAsync(worktreePath, token, "diff", "--name-only", effectiveBase + "..HEAD").ConfigureAwait(false);
-                }
-
-                AddChangedPaths(output, changedFiles);
+                return await ReadChangedPathsAgainstBaseAsync(worktreePath, baseBranch, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                // A verification that cannot read the diff must not silently trigger or suppress a
-                // consumer-test run; it reports empty, which the gate treats as "no triggering change".
-                _Logging.Debug(_Header + "could not compute changed paths against " + effectiveBase + " in " + worktreePath + ": " + ex.Message);
+                // A verification that cannot read the diff reports empty, which the consumer-test
+                // gate treats as "no triggering change".
+                _Logging.Debug(_Header + "could not compute changed paths against " + baseBranch + " in " + worktreePath + ": " + ex.Message);
                 return new List<string>();
             }
-
-            return changedFiles
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .ToList();
         }
 
         /// <inheritdoc />
@@ -1646,22 +1647,16 @@ namespace Armada.Core.Services
 
         private static void AddChangedPaths(string gitOutput, HashSet<string> changedFiles)
         {
-            if (String.IsNullOrWhiteSpace(gitOutput))
+            // Output comes from a -z invocation: raw names separated by NUL, never C-quoted.
+            foreach (string path in GitDiffPaths.SplitNulSeparated(gitOutput))
             {
-                return;
+                changedFiles.Add(path.Replace('\\', '/'));
             }
+        }
 
-            string[] lines = gitOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (string line in lines)
-            {
-                string trimmed = line.Trim();
-                if (String.IsNullOrEmpty(trimmed))
-                {
-                    continue;
-                }
-
-                changedFiles.Add(trimmed.Replace('\\', '/'));
-            }
+        private static bool IsNoMergeBase(InvalidOperationException ex)
+        {
+            return ex.Message.Contains("no merge base", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<string> ResolveCommitAsync(string workingDirectory, string gitRef)

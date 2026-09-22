@@ -151,6 +151,60 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             });
+
+            await RunTest("Evaluate_DeletionOnlyPatch_DenyPathAndFileCountSeeDeletedFile", () =>
+            {
+                AutoLandEvaluator sut = CreateSut();
+                string diff =
+                    "diff --git a/secrets/key.pem b/secrets/key.pem\n" +
+                    "deleted file mode 100644\n" +
+                    "index 1111111..0000000\n" +
+                    "--- a/secrets/key.pem\n" +
+                    "+++ /dev/null\n" +
+                    "@@ -1 +0,0 @@\n" +
+                    "-key material\n";
+
+                EvaluationResult denied = sut.Evaluate(diff, new AutoLandPredicate { DenyPaths = new List<string> { "secrets/**" } });
+                AssertTrue(denied is EvaluationResult.Fail, "Deleting a denied path must not auto-land");
+                AssertEqual("denyPath:secrets/key.pem", ((EvaluationResult.Fail)denied).Reason, "The deleted path is the denied one");
+
+                EvaluationResult capped = sut.Evaluate(diff, new AutoLandPredicate { MaxFiles = 0 });
+                AssertTrue(capped is EvaluationResult.Fail, "A deletion counts as a changed file");
+                AssertEqual("maxFiles:1>0", ((EvaluationResult.Fail)capped).Reason, "One deleted file");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Evaluate_PureRename_AllowPathsCheckBothNames", () =>
+            {
+                AutoLandEvaluator sut = CreateSut();
+                string diff =
+                    "diff --git a/src/Widget.cs b/tools/Widget.cs\n" +
+                    "similarity index 100%\n" +
+                    "rename from src/Widget.cs\n" +
+                    "rename to tools/Widget.cs\n";
+
+                EvaluationResult r = sut.Evaluate(diff, new AutoLandPredicate { AllowPaths = new List<string> { "src/**" }, MaxFiles = 1 });
+                AssertTrue(r is EvaluationResult.Fail, "Moving a file out of the allowed tree must not auto-land");
+                AssertEqual("allowPaths:violated:tools/Widget.cs", ((EvaluationResult.Fail)r).Reason, "The rename target is outside AllowPaths");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Evaluate_QuotedAccentedPath_DenyPathMatchesDecodedName", () =>
+            {
+                AutoLandEvaluator sut = CreateSut();
+                string diff =
+                    "diff --git \"a/docs/r\\303\\251sum\\303\\251.md\" \"b/docs/r\\303\\251sum\\303\\251.md\"\n" +
+                    "new file mode 100644\n" +
+                    "--- /dev/null\n" +
+                    "+++ \"b/docs/r\\303\\251sum\\303\\251.md\"\n" +
+                    "@@ -0,0 +1 @@\n" +
+                    "+hello\n";
+
+                EvaluationResult r = sut.Evaluate(diff, new AutoLandPredicate { DenyPaths = new List<string> { "docs/r\u00e9sum\u00e9.md" } });
+                AssertTrue(r is EvaluationResult.Fail, "A Git-quoted name must match its real file name");
+                AssertEqual("denyPath:docs/r\u00e9sum\u00e9.md", ((EvaluationResult.Fail)r).Reason, "Decoded path");
+                return Task.CompletedTask;
+            });
         }
     }
 }

@@ -1311,6 +1311,93 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DiffAsync with an unresolvable base surfaces the error instead of diffing the working tree", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\nuncommitted edit\n").ConfigureAwait(false);
+
+                    string? diff = null;
+                    Exception? error = null;
+                    try
+                    {
+                        diff = await service.DiffAsync(rootDir, "no-such-base").ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        error = ex;
+                    }
+
+                    AssertNull(diff, "An unresolvable base must not produce a working-tree diff as the branch change");
+                    AssertNotNull(error, "The branch-diff failure must surface to the caller");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("Changed-path readers report real names for accented, tab, space and renamed files", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, "old-name.md"), "stable content for rename detection\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "-A").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "checkout", "-b", "armada/feature").ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.Combine(rootDir, "docs"));
+                    List<string> expected = new List<string> { "docs/r\u00e9sum\u00e9.md", "docs/my notes.md", "old-name.md", "new-name.md" };
+                    if (!OperatingSystem.IsWindows()) expected.Add("docs/tab\tname.md");
+                    foreach (string path in expected)
+                    {
+                        if (path == "old-name.md" || path == "new-name.md") continue;
+                        await File.WriteAllTextAsync(Path.Combine(rootDir, path), "content\n").ConfigureAwait(false);
+                    }
+                    await RunGitAsync(rootDir, "mv", "old-name.md", "new-name.md").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "-A").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "Add oddly named files").ConfigureAwait(false);
+
+                    IReadOnlyList<string> consumerPaths = await service.GetChangedFilePathsAgainstBaseAsync(rootDir, "main").ConfigureAwait(false);
+                    IReadOnlyList<string> landingPaths = await service.ReadChangedPathsAgainstBaseAsync(rootDir, "main").ConfigureAwait(false);
+                    foreach (string path in expected)
+                    {
+                        AssertTrue(consumerPaths.Contains(path), "Consumer-test trigger paths must contain '" + path + "'; got: " + String.Join(" | ", consumerPaths));
+                        AssertTrue(landingPaths.Contains(path), "Landing evidence paths must contain '" + path + "'; got: " + String.Join(" | ", landingPaths));
+                    }
+                    AssertEqual(expected.Count, landingPaths.Count, "No quoted or partial names are reported");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("MergeBranchLocalAsync Cleans Conflict State After Failure", async () =>
             {
                 GitService service = CreateService();

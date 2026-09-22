@@ -72,7 +72,15 @@ upstream integrations and excludes changes already present at that baseline.
 - **Review and landing:** Judge PASS requires distinct evidence for every criterion
   and matching immutable Check results. Brief trimming retains the full contract.
   Landing verifies ancestry, preserves a diverged working checkout, and reports
-  failed synchronization without discarding its commits.
+  failed synchronization without discarding its commits. Direct landing and the
+  merge queue read the vessel, changed paths and diff through one evidence
+  collector and refuse with a named `landing_evidence_unavailable` reason when a
+  read fails. Changed paths are read NUL-separated, and one diff-path reader
+  decodes Git quoting and keeps the old path of deletions and both paths of
+  renames for protected paths, auto-land predicates, critical triggers and
+  consumer-test triggers. Branch diffs surface unexpected Git errors instead of
+  substituting a working-tree diff. Rollback after a failed landing is a
+  conditional push against the inspected head.
 - **Recovery and captain lifecycle:** recovery preserves accepted source commits,
   respects dispatch holds, distinguishes provider and test failures, bounds retries,
   and checks rescue effectiveness against the declared deliverable. Terminal

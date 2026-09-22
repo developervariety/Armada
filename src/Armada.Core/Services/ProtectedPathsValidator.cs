@@ -101,9 +101,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Parse repository-relative file paths out of a unified git-diff snapshot.
-        /// Handles standard "diff --git a/path b/path" headers and is tolerant of
-        /// quoted paths and renames. Returns an empty list on null/empty input.
+        /// Parse repository-relative file paths out of a unified git-diff snapshot through
+        /// <see cref="GitDiffPaths"/>: the old path of a deletion, both paths of a rename or copy,
+        /// the header paths of a binary entry, with Git C-quoting decoded. Returns an empty list on
+        /// null/empty input.
         /// </summary>
         /// <param name="diffSnapshot">Captured unified diff text, or null.</param>
         /// <returns>Distinct repository-relative paths referenced by the diff.</returns>
@@ -113,30 +114,11 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(diffSnapshot)) return results;
 
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Walk lines and collect both sides of each "diff --git" header. Using both
-            // sides catches renames where the a/ and b/ paths differ.
-            string[] lines = diffSnapshot.Split('\n');
-            foreach (string rawLine in lines)
+            foreach (string path in GitDiffPaths.ExtractPaths(diffSnapshot))
             {
-                string line = rawLine.TrimEnd('\r');
-                if (!line.StartsWith("diff --git ", StringComparison.Ordinal)) continue;
-
-                string remainder = line.Substring("diff --git ".Length).Trim();
-                if (String.IsNullOrEmpty(remainder)) continue;
-
-                // Split into the two path tokens. Handle quoted paths with spaces.
-                List<string> tokens = SplitDiffHeaderPaths(remainder);
-                foreach (string token in tokens)
-                {
-                    string stripped = StripDiffPrefix(token);
-                    string normalized = NormalizePath(stripped);
-                    if (String.IsNullOrEmpty(normalized)) continue;
-                    if (seen.Add(normalized))
-                    {
-                        results.Add(normalized);
-                    }
-                }
+                string normalized = NormalizePath(path);
+                if (String.IsNullOrEmpty(normalized)) continue;
+                if (seen.Add(normalized)) results.Add(normalized);
             }
 
             return results;
@@ -188,53 +170,6 @@ namespace Armada.Core.Services
             while (trimmed.StartsWith("./", StringComparison.Ordinal)) trimmed = trimmed.Substring(2);
             while (trimmed.StartsWith("/", StringComparison.Ordinal)) trimmed = trimmed.Substring(1);
             return trimmed;
-        }
-
-        private static List<string> SplitDiffHeaderPaths(string remainder)
-        {
-            // Header forms:
-            //   diff --git a/foo b/bar
-            //   diff --git "a/foo bar" "b/baz qux"
-            // Split on whitespace but respect double-quoted segments.
-            List<string> tokens = new List<string>();
-            int i = 0;
-            int len = remainder.Length;
-            while (i < len)
-            {
-                while (i < len && Char.IsWhiteSpace(remainder[i])) i++;
-                if (i >= len) break;
-
-                int start = i;
-                if (remainder[i] == '"')
-                {
-                    i++;
-                    while (i < len && remainder[i] != '"')
-                    {
-                        if (remainder[i] == '\\' && i + 1 < len) i++;
-                        i++;
-                    }
-                    if (i < len) i++; // consume closing quote
-                    string quoted = remainder.Substring(start, i - start).Trim('"');
-                    tokens.Add(quoted);
-                }
-                else
-                {
-                    while (i < len && !Char.IsWhiteSpace(remainder[i])) i++;
-                    tokens.Add(remainder.Substring(start, i - start));
-                }
-            }
-            return tokens;
-        }
-
-        private static string StripDiffPrefix(string token)
-        {
-            if (String.IsNullOrEmpty(token)) return "";
-            if (token.StartsWith("a/", StringComparison.Ordinal) ||
-                token.StartsWith("b/", StringComparison.Ordinal))
-            {
-                return token.Substring(2);
-            }
-            return token;
         }
 
         #endregion

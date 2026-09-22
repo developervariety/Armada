@@ -324,29 +324,6 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("MergeQueue landing refuses no-op branch before enqueue", () =>
-            {
-                string source = ReadRepositoryFile("src", "Armada.Server", "MissionLandingHandler.cs");
-                string method = ExtractBetween(
-                    source,
-                    "else if (landingModeIsMergeQueue)",
-                    "// Mission stays as WorkProduced; merge queue processing will land it");
-
-                AssertContains(
-                    "DetectMergeQueueNoOpAsync(mission, dock, vessel, targetBranch)",
-                    method,
-                    "MergeQueue landing must check for no-op branch identity before enqueue.");
-                AssertContains(
-                    "landingAttempted = true;",
-                    method,
-                    "No-op refusal should drive the landing result block.");
-                AssertContains(
-                    "_MergeQueue.EnqueueAsync(entry)",
-                    method,
-                    "The normal non-no-op path should still enqueue.");
-                return Task.CompletedTask;
-            });
-
             // === Dock Reclaim Idempotency ===
 
             await RunTest("Double ReclaimAsync is safe (idempotent)", async () =>
@@ -533,6 +510,109 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Direct landing refuses without landing when the change diff cannot be read", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    git.ShouldThrowOnDiff = true;
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
+                        testDb.Driver,
+                        LandingModeEnum.LocalMerge,
+                        BranchCleanupPolicyEnum.LocalAndRemote);
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    entities.Mission.Status = MissionStatusEnum.WorkProduced;
+                    entities.Mission.DiffSnapshot = "diff --git a/app/routes_ops.py b/app/routes_ops.py";
+                    await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.LandingFailed, updated!.Status, "Unreadable evidence refuses the landing");
+                    AssertContains(LandingEvidence.RefusalPrefix + ": diff_unreadable", updated.FailureReason ?? "", "The refusal names the unreadable diff");
+                    AssertEqual(0, git.MergeBranchCalls.Count, "No merge runs without evidence");
+                    AssertEqual(0, git.PushCalls.Count, "Nothing is pushed without evidence");
+                }
+            });
+
+            await RunTest("Direct landing refuses without landing when the vessel cannot be read", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
+                        testDb.Driver,
+                        LandingModeEnum.LocalMerge,
+                        BranchCleanupPolicyEnum.LocalAndRemote);
+                    entities.Vessel.ProtectedPaths = new List<string> { "app/**" };
+                    await testDb.Driver.Vessels.UpdateAsync(entities.Vessel).ConfigureAwait(false);
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    git.DiffResult = "diff --git a/app/routes_ops.py b/app/routes_ops.py\n--- a/app/routes_ops.py\n+++ b/app/routes_ops.py\n@@ -1 +1 @@\n-a\n+b\n";
+                    entities.Mission.Status = MissionStatusEnum.WorkProduced;
+                    await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+
+                    FaultingVesselMethods faulting = FaultingVesselMethods.Install(testDb.Driver, typeof(LandingEvidenceCollector));
+                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Mission should still exist");
+                    AssertTrue(faulting.FailedReads > 0, "The landing gate read the vessel and the read failed");
+                    AssertEqual(MissionStatusEnum.LandingFailed, updated!.Status, "A landing whose vessel rules cannot be read is refused");
+                    AssertContains(LandingEvidence.RefusalPrefix + ": vessel_unreadable", updated.FailureReason ?? "", "The refusal names the unreadable vessel");
+                    AssertEqual(0, git.MergeBranchCalls.Count, "No merge runs without the vessel's protected paths");
+                    AssertEqual(0, git.PushCalls.Count, "Nothing is pushed without the vessel's protected paths");
+                }
+            });
+
+            await RunTest("Direct landing blocks a Git-quoted file name that matches a protected path", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
+                        testDb.Driver,
+                        LandingModeEnum.LocalMerge,
+                        BranchCleanupPolicyEnum.LocalAndRemote);
+                    entities.Vessel.ProtectedPaths = new List<string> { "docs/résumé.md" };
+                    await testDb.Driver.Vessels.UpdateAsync(entities.Vessel).ConfigureAwait(false);
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+
+                    string quotedDiff =
+                        "diff --git \"a/docs/r\\303\\251sum\\303\\251.md\" \"b/docs/r\\303\\251sum\\303\\251.md\"\n" +
+                        "new file mode 100644\n" +
+                        "--- /dev/null\n" +
+                        "+++ \"b/docs/r\\303\\251sum\\303\\251.md\"\n" +
+                        "@@ -0,0 +1 @@\n" +
+                        "+private\n";
+                    git.DiffResult = quotedDiff;
+                    entities.Mission.Status = MissionStatusEnum.WorkProduced;
+                    entities.Mission.DiffSnapshot = quotedDiff;
+                    await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Failed, updated!.Status, "A quoted protected file name must be blocked");
+                    AssertContains("docs/résumé.md", updated.FailureReason ?? "", "The failure names the decoded path");
+                    AssertEqual(0, git.MergeBranchCalls.Count, "A protected mission is not merged");
+                    AssertEqual(0, git.PushCalls.Count, "A protected mission is not pushed");
+                }
+            });
+
             // === Status Transition Validation ===
 
             await RunTest("PullRequestOpen allows transition to Complete", () =>
@@ -669,7 +749,7 @@ namespace Armada.Test.Unit.Suites.Services
                         testDb.Driver,
                         settings,
                         git,
-                        new StubMergeQueueService(),
+                        new PersistingMergeQueueService(testDb.Driver),
                         landingService,
                         new AutoLandEvaluator(),
                         new ConventionChecker(),
@@ -721,6 +801,10 @@ namespace Armada.Test.Unit.Suites.Services
                         Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id);
                         AssertNotNull(updated, "Mission should still exist");
                         AssertEqual(MissionStatusEnum.Complete, updated!.Status, "A non-rescue already-integrated mission must reconcile to Complete");
+
+                        EnumerationResult<MergeEntry> queued = await testDb.Driver.MergeEntries.EnumerateAsync(
+                            new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                        AssertEqual(0, queued.Objects.Count, "A branch already at the target head is refused before enqueue, so no merge entry exists");
                         AssertNotEqual("rescue_produced_no_commits", updated.FailureReason ?? "", "Non-rescue path must not borrow the rescue failure reason");
 
                         List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100);

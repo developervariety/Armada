@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
+    using System.Linq;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Test.Common;
@@ -191,6 +192,62 @@ namespace Armada.Test.Unit.Suites.Services
                 IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
                 string? offending = ProtectedPathsValidator.FindFirstBuiltInOrConfiguredViolation(changed, null);
                 AssertNotNull(offending, "Built-in paths must block nested CODEX.md via **/CODEX.md");
+            });
+
+            await RunTest("Git-quoted accented path is decoded before protected-path matching", () =>
+            {
+                string diff =
+                    "diff --git \"a/docs/r\\303\\251sum\\303\\251.md\" \"b/docs/r\\303\\251sum\\303\\251.md\"\n" +
+                    "new file mode 100644\n" +
+                    "--- /dev/null\n" +
+                    "+++ \"b/docs/r\\303\\251sum\\303\\251.md\"\n" +
+                    "@@ -0,0 +1 @@\n" +
+                    "+hello\n";
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                string? offending = ProtectedPathsValidator.FindFirstViolation(
+                    changed, new List<string> { "docs/r\u00e9sum\u00e9.md" });
+                AssertEqual("docs/r\u00e9sum\u00e9.md", offending, "An exact rule for the real file name must match its quoted form");
+            });
+
+            await RunTest("Tab and space in file names are read exactly from diff headers", () =>
+            {
+                string diff =
+                    "diff --git \"a/docs/tab\\tname.md\" \"b/docs/tab\\tname.md\"\n" +
+                    "--- \"a/docs/tab\\tname.md\"\n" +
+                    "+++ \"b/docs/tab\\tname.md\"\n" +
+                    "@@ -1 +1 @@\n" +
+                    "-old\n" +
+                    "+new\n" +
+                    "diff --git a/docs/my notes.md b/docs/my notes.md\n" +
+                    "--- a/docs/my notes.md\t\n" +
+                    "+++ b/docs/my notes.md\t\n" +
+                    "@@ -1 +1 @@\n" +
+                    "-old\n" +
+                    "+new\n";
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                AssertEqual(2, changed.Count, "One path per file");
+                AssertEqual("docs/tab\tname.md", changed[0], "Quoted tab is decoded");
+                AssertEqual("docs/my notes.md", changed[1], "Unquoted space is kept");
+                AssertEqual("docs/my notes.md", ProtectedPathsValidator.FindFirstViolation(changed, new List<string> { "docs/my notes.md" }), "Exact rule matches");
+            });
+
+            await RunTest("Deleted and renamed protected files are reported under their old names", () =>
+            {
+                string diff =
+                    "diff --git a/AGENTS.md b/AGENTS.md\n" +
+                    "deleted file mode 100644\n" +
+                    "--- a/AGENTS.md\n" +
+                    "+++ /dev/null\n" +
+                    "@@ -1 +0,0 @@\n" +
+                    "-rules\n" +
+                    "diff --git a/CLAUDE.md b/docs/notes.md\n" +
+                    "similarity index 100%\n" +
+                    "rename from CLAUDE.md\n" +
+                    "rename to docs/notes.md\n";
+                IReadOnlyList<string> changed = ProtectedPathsValidator.ExtractChangedFilesFromDiff(diff);
+                AssertTrue(changed.Contains("AGENTS.md"), "Deleted file keeps its path");
+                AssertTrue(changed.Contains("CLAUDE.md"), "Rename source is reported");
+                AssertTrue(changed.Contains("docs/notes.md"), "Rename target is reported");
             });
 
             await RunTest("BuiltInProtectedPaths includes all five runtime instruction file patterns", () =>

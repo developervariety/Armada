@@ -19,10 +19,10 @@ namespace Armada.Core.Services
             if (predicate is null) throw new ArgumentNullException(nameof(predicate));
             if (!predicate.Enabled) return new EvaluationResult.Fail("disabled");
 
-            ParseDiff(unifiedDiff, out HashSet<string> paths, out int addedLines);
+            ParseDiff(unifiedDiff, out HashSet<string> paths, out int fileCount, out int addedLines);
 
-            if (predicate.MaxFiles is int maxFiles && paths.Count > maxFiles)
-                return new EvaluationResult.Fail($"maxFiles:{paths.Count}>{maxFiles}");
+            if (predicate.MaxFiles is int maxFiles && fileCount > maxFiles)
+                return new EvaluationResult.Fail($"maxFiles:{fileCount}>{maxFiles}");
 
             if (predicate.MaxAddedLines is int maxLines && addedLines > maxLines)
                 return new EvaluationResult.Fail($"maxAddedLines:{addedLines}>{maxLines}");
@@ -52,21 +52,29 @@ namespace Armada.Core.Services
             return new EvaluationResult.Pass();
         }
 
-        private static void ParseDiff(string diff, out HashSet<string> paths, out int addedLines)
+        private static void ParseDiff(string diff, out HashSet<string> paths, out int fileCount, out int addedLines)
         {
+            // Paths come from the shared diff reader: a deletion counts under its old path and a
+            // rename under both, so a path rule cannot be evaded by deleting or moving a file.
             paths = new HashSet<string>(StringComparer.Ordinal);
+            fileCount = 0;
             addedLines = 0;
             if (string.IsNullOrEmpty(diff)) return;
+
+            HashSet<string> files = new HashSet<string>(StringComparer.Ordinal);
+            foreach (GitDiffFileChange change in GitDiffPaths.ParseFiles(diff))
+            {
+                files.Add(change.NewPath ?? change.OldPath ?? String.Empty);
+                foreach (string path in GitDiffPaths.PathsOf(change)) paths.Add(path);
+            }
+
+            fileCount = files.Count;
 
             foreach (string rawLine in diff.Split('\n'))
             {
                 string line = rawLine.TrimEnd('\r');
-                if (line.StartsWith("+++ b/", StringComparison.Ordinal))
-                {
-                    paths.Add(line.Substring("+++ b/".Length));
-                }
-                else if (line.Length > 0 && line[0] == '+'
-                         && !line.StartsWith("+++", StringComparison.Ordinal))
+                if (line.Length > 0 && line[0] == '+'
+                    && !line.StartsWith("+++", StringComparison.Ordinal))
                 {
                     addedLines++;
                 }

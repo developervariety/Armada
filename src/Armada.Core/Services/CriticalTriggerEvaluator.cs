@@ -65,7 +65,7 @@ namespace Armada.Core.Services
             CriticalTriggerResult result = new CriticalTriggerResult();
             if (string.IsNullOrEmpty(unifiedDiff)) return result;
 
-            ParseDiff(unifiedDiff, out HashSet<string> paths, out int addedLines);
+            ParseDiff(unifiedDiff, out HashSet<string> paths, out int fileCount, out int addedLines);
 
             // Path patterns
             foreach (string path in paths)
@@ -99,7 +99,7 @@ namespace Armada.Core.Services
             }
 
             // Diff size threshold
-            if (addedLines > SizeThresholdAddedLines || paths.Count > SizeThresholdFiles)
+            if (addedLines > SizeThresholdAddedLines || fileCount > SizeThresholdFiles)
             {
                 result.TriggeredCriteria.Add("size");
             }
@@ -108,20 +108,27 @@ namespace Armada.Core.Services
             return result;
         }
 
-        private static void ParseDiff(string diff, out HashSet<string> paths, out int addedLines)
+        private static void ParseDiff(string diff, out HashSet<string> paths, out int fileCount, out int addedLines)
         {
+            // Paths come from the shared diff reader: a deletion counts under its old path and a
+            // rename under both, so a deleted or moved sensitive file still fires the path trigger.
             paths = new HashSet<string>(StringComparer.Ordinal);
             addedLines = 0;
+
+            HashSet<string> files = new HashSet<string>(StringComparer.Ordinal);
+            foreach (GitDiffFileChange change in GitDiffPaths.ParseFiles(diff))
+            {
+                files.Add(change.NewPath ?? change.OldPath ?? String.Empty);
+                foreach (string path in GitDiffPaths.PathsOf(change)) paths.Add(path);
+            }
+
+            fileCount = files.Count;
 
             foreach (string rawLine in diff.Split('\n'))
             {
                 string line = rawLine.TrimEnd('\r');
-                if (line.StartsWith("+++ b/", StringComparison.Ordinal))
-                {
-                    paths.Add(line.Substring("+++ b/".Length));
-                }
-                else if (line.Length > 0 && line[0] == '+'
-                         && !line.StartsWith("+++", StringComparison.Ordinal))
+                if (line.Length > 0 && line[0] == '+'
+                    && !line.StartsWith("+++", StringComparison.Ordinal))
                 {
                     addedLines++;
                 }

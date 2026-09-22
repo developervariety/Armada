@@ -40,6 +40,7 @@ namespace Armada.Server
         private IRemoteTriggerService _RemoteTriggerService;
         private ICodeIndexService? _CodeIndexService;
         private LeakHunkAdapter? _LeakHunkAdapter;
+        private LandingEvidenceCollector _LandingEvidence;
 
         #endregion
 
@@ -95,6 +96,7 @@ namespace Armada.Server
             _RemoteTriggerService = remoteTriggerService ?? throw new ArgumentNullException(nameof(remoteTriggerService));
             _WebSocketHub = webSocketHub;
             _CodeIndexService = codeIndexService;
+            _LandingEvidence = new LandingEvidenceCollector(_Database, _Git);
         }
 
         #endregion
@@ -196,20 +198,41 @@ namespace Armada.Server
 
             _Logging.Info(_Header + "handling landing for mission " + mission.Id);
 
-            // Look up the vessel and voyage for settings resolution
-            Vessel? vessel = null;
-            if (!String.IsNullOrEmpty(mission.VesselId))
+            // Landing evidence: the change, its paths and the vessel's rules, read from the dock before
+            // any merge / push / merge-queue enqueue. Evidence that cannot be read refuses the landing;
+            // an unreadable change is never treated as an empty one.
+            LandingEvidence evidence = await _LandingEvidence.CollectAsync(
+                mission.VesselId,
+                null,
+                dock.WorktreePath,
+                null).ConfigureAwait(false);
+            if (!evidence.Available)
             {
-                vessel = await _Database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
+                string refusal = evidence.FormatRefusal();
+                _Logging.Warn(_Header + "mission " + mission.Id + " landing refused: " + refusal);
+                await RefuseLandingAsync(mission, MissionStatusEnum.LandingFailed, refusal).ConfigureAwait(false);
+                return;
             }
 
+            Vessel? vessel = evidence.Vessel;
+
+            // The gate scans the change read now together with the diff captured at completion, so a
+            // finding in either blocks the landing.
+            string boundaryDiff = evidence.UnifiedDiff;
+            if (!String.IsNullOrEmpty(mission.DiffSnapshot) &&
+                !String.Equals(mission.DiffSnapshot, boundaryDiff, StringComparison.Ordinal))
+            {
+                boundaryDiff = String.IsNullOrEmpty(boundaryDiff)
+                    ? mission.DiffSnapshot
+                    : boundaryDiff + "\n" + mission.DiffSnapshot;
+            }
 
             // Dock-boundary gate: runs before any merge / push / merge-queue enqueue
             // so a violation never produces a merge entry, never opens a PR, and never
             // pushes the captain's branch.
             DockBoundaryScanResult boundaryResult = new DockBoundaryScanner().Scan(
-                mission.DiffSnapshot,
-                null,
+                boundaryDiff,
+                evidence.ChangedFiles,
                 vessel?.Id ?? mission.VesselId,
                 vessel?.Name,
                 vessel?.RepoUrl,
@@ -219,36 +242,13 @@ namespace Armada.Server
             // The D7 advisory pass reads the same added text after the deterministic scan. It can only
             // append advisory flags, so the gate below still reflects the deterministic findings alone:
             // a flagged mission whose scan is clean still lands, and a finding still blocks it.
-            await AttachLeakHunkFlagsAsync(mission, vessel, boundaryResult).ConfigureAwait(false);
+            await AttachLeakHunkFlagsAsync(mission, vessel, boundaryResult, boundaryDiff).ConfigureAwait(false);
 
             if (!boundaryResult.Passed)
             {
                 string failureReason = FormatDockBoundaryFailureReason(boundaryResult, vessel?.Name ?? "unknown");
                 _Logging.Warn(_Header + "mission " + mission.Id + " blocked by dock-boundary gate: " + failureReason);
-
-                mission.Status = MissionStatusEnum.Failed;
-                mission.FailureReason = failureReason;
-                mission.CompletedUtc = DateTime.UtcNow;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                try
-                {
-                    await _RemoteTriggerService.FireDrainerAsync(
-                        mission.VesselId ?? string.Empty,
-                        "MissionFailed: mission " + mission.Id + " (" + mission.Title + ") :: " + (mission.FailureReason ?? "no reason"),
-                        default).ConfigureAwait(false);
-                }
-                catch (Exception firEx)
-                {
-                    _Logging.Warn(_Header + "FireDrainerAsync failed for MissionFailed event: " + firEx.Message);
-                }
-
-                if (_WebSocketHub != null)
-                {
-                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title, mission.VoyageId,
-                        WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
-                }
+                await RefuseLandingAsync(mission, MissionStatusEnum.Failed, failureReason).ConfigureAwait(false);
                 return;
             }
 
@@ -889,7 +889,34 @@ namespace Armada.Server
             // to prevent duplicate reclaim calls from racing.
         }
 
-        private async Task AttachLeakHunkFlagsAsync(Mission mission, Vessel? vessel, DockBoundaryScanResult boundaryResult)
+        private async Task RefuseLandingAsync(Mission mission, MissionStatusEnum status, string reason)
+        {
+            mission.Status = status;
+            mission.FailureReason = reason;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+            try
+            {
+                await _RemoteTriggerService.FireDrainerAsync(
+                    mission.VesselId ?? string.Empty,
+                    "MissionFailed: mission " + mission.Id + " (" + mission.Title + ") :: " + (mission.FailureReason ?? "no reason"),
+                    default).ConfigureAwait(false);
+            }
+            catch (Exception firEx)
+            {
+                _Logging.Warn(_Header + "FireDrainerAsync failed for MissionFailed event: " + firEx.Message);
+            }
+
+            if (_WebSocketHub != null)
+            {
+                _WebSocketHub.BroadcastMissionChange(mission.Id, status.ToString(), mission.Title, mission.VoyageId,
+                    WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
+            }
+        }
+
+        private async Task AttachLeakHunkFlagsAsync(Mission mission, Vessel? vessel, DockBoundaryScanResult boundaryResult, string? unifiedDiff)
         {
             LeakHunkAdapter? adapter = _LeakHunkAdapter;
             if (adapter == null) return;
@@ -897,7 +924,7 @@ namespace Armada.Server
             // The landing gate has no caller token, so the client applies its own settings timeout: a
             // slow decision returns unavailable and the deterministic verdict stands.
             IReadOnlyList<DockBoundaryAdvisoryFlag> flags = await adapter
-                .EvaluateAsync(mission.DiffSnapshot, vessel?.Name, mission, boundaryResult, CancellationToken.None)
+                .EvaluateAsync(unifiedDiff, vessel?.Name, mission, boundaryResult, CancellationToken.None)
                 .ConfigureAwait(false);
 
             foreach (DockBoundaryAdvisoryFlag flag in flags)

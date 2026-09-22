@@ -35,6 +35,7 @@ namespace Armada.Core.Services
         private ISelfDeployService? _SelfDeployService;
         private LeakHunkAdapter? _LeakHunkAdapter;
         private JudgeFollowUpService _JudgeFollowUps;
+        private LandingEvidenceCollector _LandingEvidence;
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
@@ -75,6 +76,7 @@ namespace Armada.Core.Services
             _PullRequestServiceFactory = pullRequestServiceFactory;
             _CodeIndexService = codeIndexService;
             _JudgeFollowUps = new JudgeFollowUpService(_Database, _Logging);
+            _LandingEvidence = new LandingEvidenceCollector(_Database, _Git);
         }
 
         /// <summary>
@@ -1158,13 +1160,27 @@ namespace Armada.Core.Services
         {
             string integrationPath = GetIntegrationPath(entry);
             string entryTag = entry.Id + " branch " + entry.BranchName;
-            DockBoundaryScanResult boundaryResult = await ScanDockBoundaryAsync(entry, integrationPath, token).ConfigureAwait(false);
+            LandingEvidence evidence = await _LandingEvidence.CollectAsync(
+                entry.VesselId,
+                entry.TenantId,
+                integrationPath,
+                entry.TargetBranch,
+                token).ConfigureAwait(false);
+            if (!evidence.Available)
+            {
+                string refusal = evidence.FormatRefusal();
+                _Logging.Warn(_Header + "landing refused for " + entryTag + ": " + refusal);
+                await TransitionEntryToFailureAsync(entry, refusal, token, fireRecovery: false).ConfigureAwait(false);
+                await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                return;
+            }
+
+            DockBoundaryScanResult boundaryResult = await ScanDockBoundaryAsync(entry, evidence, token).ConfigureAwait(false);
             if (!boundaryResult.Passed)
             {
-                Vessel? violationVessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
                 string failureReason = FormatDockBoundaryFailureReason(
                     boundaryResult,
-                    violationVessel?.Name ?? entry.VesselId ?? "unknown");
+                    evidence.Vessel?.Name ?? entry.VesselId ?? "unknown");
                 _Logging.Warn(_Header + "dock-boundary violation for " + entryTag + ": " + failureReason);
                 await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
                 await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
@@ -1674,26 +1690,14 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<DockBoundaryScanResult> ScanDockBoundaryAsync(MergeEntry entry, string worktreePath, CancellationToken token)
+        private async Task<DockBoundaryScanResult> ScanDockBoundaryAsync(MergeEntry entry, LandingEvidence evidence, CancellationToken token)
         {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
-            if (String.IsNullOrEmpty(worktreePath)) return new DockBoundaryScanResult();
+            if (evidence == null) throw new ArgumentNullException(nameof(evidence));
 
-            List<string> changedFiles = await CollectChangedFilesAgainstTargetAsync(
-                worktreePath,
-                entry.TargetBranch,
-                token).ConfigureAwait(false);
-
-            Vessel? vessel = await ReadEntryVesselAsync(entry, token).ConfigureAwait(false);
-            string unifiedDiff = "";
-            try
-            {
-                unifiedDiff = await _Git.DiffAsync(worktreePath, entry.TargetBranch, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "dock-boundary validation could not collect unified diff in " + worktreePath + ": " + ex.Message);
-            }
+            Vessel? vessel = evidence.Vessel;
+            string unifiedDiff = evidence.UnifiedDiff;
+            List<string> changedFiles = evidence.ChangedFiles;
 
             // The deterministic scan runs first and unconditionally, and decides the block on its own.
             DockBoundaryScanResult result = new DockBoundaryScanner().Scan(
@@ -1730,54 +1734,6 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "advisory leak flag (" + flag.Kind + ") on '" + flag.Path
                     + "'; the landing is not held, review the hunk");
             }
-        }
-
-        private async Task<Vessel?> ReadEntryVesselAsync(MergeEntry entry, CancellationToken token)
-        {
-            if (entry == null) throw new ArgumentNullException(nameof(entry));
-            if (String.IsNullOrEmpty(entry.VesselId)) return null;
-
-            try
-            {
-                return !String.IsNullOrEmpty(entry.TenantId)
-                    ? await _Database.Vessels.ReadAsync(entry.TenantId, entry.VesselId, token).ConfigureAwait(false)
-                    : await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "could not read vessel " + entry.VesselId + " for protected-path validation: " + ex.Message);
-                return null;
-            }
-        }
-
-        private async Task<List<string>> CollectChangedFilesAgainstTargetAsync(string worktreePath, string targetBranch, CancellationToken token)
-        {
-            List<string> results = new List<string>();
-            if (String.IsNullOrEmpty(worktreePath) || String.IsNullOrEmpty(targetBranch)) return results;
-
-            try
-            {
-                GitProcessResult diff = await RunGitCapturingAsync(
-                    worktreePath,
-                    token,
-                    "diff",
-                    "--name-only",
-                    targetBranch + "...HEAD").ConfigureAwait(false);
-                if (String.IsNullOrEmpty(diff.StandardOutput)) return results;
-
-                string[] lines = diff.StandardOutput.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (string line in lines)
-                {
-                    string trimmed = line.Trim();
-                    if (!String.IsNullOrEmpty(trimmed)) results.Add(trimmed);
-                }
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "protected-path validation could not collect changed files in " + worktreePath + ": " + ex.Message);
-            }
-
-            return results;
         }
 
         private async Task TransitionEntryToFailureAsync(MergeEntry entry, string reason, CancellationToken token, bool fireRecovery = true)
@@ -2042,7 +1998,16 @@ namespace Armada.Core.Services
             string rollbackResult = "";
             try
             {
-                await RunGitAsync(repoPath, token, "push", "origin", "--force", preLandRemoteTargetHead + ":refs/heads/" + entry.TargetBranch).ConfigureAwait(false);
+                // Conditional update: the remote moves back only while it still holds the head this
+                // rollback inspected. A writer that advanced the branch after the inspection makes
+                // the push fail instead of having its commit overwritten.
+                await RunGitAsync(
+                    repoPath,
+                    token,
+                    "push",
+                    "origin",
+                    "--force-with-lease=refs/heads/" + entry.TargetBranch + ":" + currentHead,
+                    preLandRemoteTargetHead + ":refs/heads/" + entry.TargetBranch).ConfigureAwait(false);
                 await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
 
                 if (!await IsBranchCheckedOutInWorktreeAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false))

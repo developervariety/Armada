@@ -512,6 +512,28 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Read every path the worktree's HEAD changes against the merge point with the base branch,
+        /// for a landing gate that must see the whole change. A rename reports both its old and new
+        /// name and names are read NUL-separated, so no quoting reaches a path rule. Unlike
+        /// <see cref="GetChangedFilePathsAgainstBaseAsync"/>, a failure throws: an unreadable change
+        /// is unavailable evidence, never an empty change.
+        /// </summary>
+        /// <remarks>
+        /// The default derives the paths from <see cref="DiffAsync"/> through <see cref="GitDiffPaths"/>,
+        /// so a git seam that does not implement this member reports the paths of its diff and fails
+        /// when its diff fails.
+        /// </remarks>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="baseBranch">Base branch to diff against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Changed file paths; empty only when the change is verified empty.</returns>
+        async Task<IReadOnlyList<string>> ReadChangedPathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            string diff = await DiffAsync(worktreePath, baseBranch, token).ConfigureAwait(false);
+            return GitDiffPaths.ExtractPaths(diff);
+        }
+
+        /// <summary>
         /// Check if a pull request has been merged using the gh CLI.
         /// </summary>
         /// <param name="workingDirectory">Path to a repo for gh context.</param>

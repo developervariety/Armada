@@ -370,6 +370,238 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProcessEntryByIdAsync_GitQuotedProtectedFileNames_FailBeforeLanding", async () =>
+            {
+                // Git prints non-ASCII and control characters in C-quoted form ("r\303\251sum\303\251.md",
+                // "tab\tname.md"); a space is printed as-is. Each name must reach the protected-path rule
+                // exactly as it is on disk.
+                List<string> names = new List<string> { "docs/résumé.md", "docs/my notes.md" };
+                if (!OperatingSystem.IsWindows()) names.Add("docs/tab\tname.md");
+
+                foreach (string name in names)
+                {
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_quoted_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        Directory.CreateDirectory(rootDir);
+                        GitRepoSetup repos = await CreateGitSetupAsync(rootDir, name).ConfigureAwait(false);
+
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                        {
+                            LoggingModule logging = CreateLogging();
+                            ArmadaSettings settings = CreateSettings();
+                            GitService git = new GitService(logging);
+
+                            Vessel vessel = new Vessel("quoted-protected-vessel", repos.RemoteDir);
+                            vessel.LocalPath = repos.BareDir;
+                            vessel.WorkingDirectory = repos.WorkingDir;
+                            vessel.DefaultBranch = "main";
+                            vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                            vessel.ProtectedPaths = new List<string> { name };
+                            await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                            MergeEntry entry = new MergeEntry();
+                            entry.VesselId = vessel.Id;
+                            entry.BranchName = repos.CaptainBranch;
+                            entry.TargetBranch = "main";
+                            entry.Status = MergeStatusEnum.Queued;
+                            entry.CreatedUtc = DateTime.UtcNow;
+                            entry.LastUpdateUtc = DateTime.UtcNow;
+                            await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                            string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+
+                            MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                            await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                            MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                            AssertNotNull(updated, "Entry should still exist");
+                            AssertEqual(MergeStatusEnum.Failed, updated!.Status, "A protected file named '" + name + "' must fail before landing");
+                            AssertContains(name, updated.TestOutput ?? "", "Failure should name the real file name");
+                            AssertEqual(preRemoteHead, await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false),
+                                "Remote target must not move for a protected file named '" + name + "'");
+                        }
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(rootDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("ProcessEntryByIdAsync_DiffUnreadable_RefusesWithoutLanding", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_nodiff_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        FaultInjectingGitService git = new FaultInjectingGitService(new GitService(logging), throwOnGetCurrentBranch: false, throwOnIsClean: false);
+                        git.ThrowOnDiff = true;
+
+                        Vessel vessel = new Vessel("nodiff-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "A change whose diff cannot be read must not land");
+                        AssertContains(LandingEvidence.RefusalPrefix + ": diff_unreadable", updated.TestOutput ?? "", "The refusal names the unreadable diff");
+                        AssertEqual(preRemoteHead, await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false),
+                            "Nothing is pushed without evidence");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntryByIdAsync_VesselUnreadableAtGate_RefusesWithoutLanding", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_novessel_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "config/vessel-only.json").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        // The vessel's own rule is the only one that protects the captain's file, so a
+                        // gate that drops the vessel on a read error would pass it.
+                        Vessel vessel = new Vessel("novessel-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        vessel.ProtectedPaths = new List<string> { "config/**" };
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+
+                        FaultingVesselMethods faulting = FaultingVesselMethods.Install(testDb.Driver, typeof(LandingEvidenceCollector));
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertTrue(faulting.FailedReads > 0, "The landing gate read the vessel and the read failed");
+                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "A change whose vessel rules cannot be read must not land");
+                        AssertContains(LandingEvidence.RefusalPrefix + ": vessel_unreadable", updated.TestOutput ?? "", "The refusal names the unreadable vessel");
+                        AssertEqual(preRemoteHead, await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false),
+                            "Nothing is pushed without the vessel's protected paths");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("LandEntryAsync_RollbackAfterAnotherWriterAdvancedTarget_RefusesToOverwrite", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_rollback_lease_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        FaultInjectingGitService git = new FaultInjectingGitService(new GitService(logging), throwOnGetCurrentBranch: false, throwOnIsClean: false);
+
+                        // After the land push, two transient fetch failures make the landing fail and
+                        // skip the already-landed check, so the rollback runs. The fetch the rollback
+                        // inspects succeeds, and another writer then advances the remote before the
+                        // rollback pushes.
+                        string writerCommit = "";
+                        git.FailingFetchesAfterLandPush = 2;
+                        git.AfterRecoveredFetch = async () =>
+                        {
+                            string landedHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                            writerCommit = (await RunGitAsync(
+                                repos.RemoteDir,
+                                "-c", "user.name=Other Writer",
+                                "-c", "user.email=other-writer@example.com",
+                                "commit-tree", landedHead + "^{tree}", "-p", landedHead, "-m", "Another writer's commit").ConfigureAwait(false)).Trim();
+                            await RunGitAsync(repos.RemoteDir, "update-ref", "refs/heads/main", writerCommit, landedHead).ConfigureAwait(false);
+                        };
+
+                        Vessel vessel = new Vessel("rollback-lease-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        AssertFalse(String.IsNullOrEmpty(writerCommit), "The other writer advanced the remote after the rollback inspected it");
+                        string remoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        AssertEqual(writerCommit, remoteHead, "The rollback must not overwrite another writer's commit");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "The failed landing that advanced the target is audited");
+                        FailedTargetAdvancedPayload? payload = System.Text.Json.JsonSerializer.Deserialize<FailedTargetAdvancedPayload>(
+                            events[0].Payload ?? "{}",
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        AssertNotNull(payload, "Audit payload");
+                        AssertStartsWith("rollback_failed", payload!.RollbackResult ?? "", "The refused rollback is reported as failed, not rolled back");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("ProcessEntryByIdAsync_BranchOnlyRemoteTracking_LandsInsteadOfReportingConflict", async () =>
             {
                 // Regression: in a bare vessel repo a mission branch commonly exists only as
@@ -2616,12 +2848,56 @@ namespace Armada.Test.Unit.Suites.Services
             private readonly IGitService _Inner;
             private readonly bool _ThrowOnGetCurrentBranch;
             private readonly bool _ThrowOnIsClean;
+            private bool _LandPushed;
+            private int _FetchesAfterLandPush;
 
             public FaultInjectingGitService(IGitService inner, bool throwOnGetCurrentBranch, bool throwOnIsClean)
             {
                 _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
                 _ThrowOnGetCurrentBranch = throwOnGetCurrentBranch;
                 _ThrowOnIsClean = throwOnIsClean;
+            }
+
+            /// <summary>When true, DiffAsync throws while the changed-path read still succeeds.</summary>
+            public bool ThrowOnDiff { get; set; }
+
+            /// <summary>
+            /// Number of fetches after the land push that fail as a transient error before fetches
+            /// succeed again.
+            /// </summary>
+            public int FailingFetchesAfterLandPush { get; set; }
+
+            /// <summary>Runs after the first successful fetch that follows the failing ones.</summary>
+            public Func<Task>? AfterRecoveredFetch { get; set; }
+
+            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+            {
+                if (ThrowOnDiff) throw new InvalidOperationException("injected diff failure");
+                return _Inner.DiffAsync(worktreePath, baseBranch, token);
+            }
+
+            public Task<IReadOnlyList<string>> ReadChangedPathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+                => _Inner.ReadChangedPathsAgainstBaseAsync(worktreePath, baseBranch, token);
+
+            public async Task FetchAsync(string repoPath, CancellationToken token = default)
+            {
+                if (_LandPushed)
+                {
+                    _FetchesAfterLandPush++;
+                    if (_FetchesAfterLandPush <= FailingFetchesAfterLandPush)
+                        throw new InvalidOperationException("injected transient fetch failure");
+                }
+
+                await _Inner.FetchAsync(repoPath, token).ConfigureAwait(false);
+
+                if (_LandPushed && _FetchesAfterLandPush == FailingFetchesAfterLandPush + 1 && AfterRecoveredFetch != null)
+                    await AfterRecoveredFetch().ConfigureAwait(false);
+            }
+
+            public async Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+            {
+                await _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token).ConfigureAwait(false);
+                _LandPushed = true;
             }
 
             public Task<string?> GetCurrentBranchAsync(string workingDirectory, CancellationToken token = default)
@@ -2645,8 +2921,6 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => _Inner.RemoveWorktreeAsync(worktreePath, token);
 
-            public Task FetchAsync(string repoPath, CancellationToken token = default) => _Inner.FetchAsync(repoPath, token);
-
             public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default) => _Inner.PushBranchAsync(worktreePath, remoteName, token);
 
             public Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default) => _Inner.CreatePullRequestAsync(worktreePath, title, body, token);
@@ -2658,8 +2932,6 @@ namespace Armada.Test.Unit.Suites.Services
             public Task DeleteLocalBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") => _Inner.DeleteLocalBranchAsync(repoPath, branchName, token);
 
             public Task DeleteRemoteBranchAsync(string repoPath, string branchName, CancellationToken token = default, [System.Runtime.CompilerServices.CallerMemberName] string caller = "") => _Inner.DeleteRemoteBranchAsync(repoPath, branchName, token);
-
-            public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default) => _Inner.PushRefSpecAsync(repoPath, srcRef, destRef, token);
 
             public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
                 => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
@@ -2678,8 +2950,6 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PullAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullAsync(workingDirectory, token);
 
             public Task PullFastForwardOnlyAsync(string workingDirectory, CancellationToken token = default) => _Inner.PullFastForwardOnlyAsync(workingDirectory, token);
-
-            public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => _Inner.DiffAsync(worktreePath, baseBranch, token);
 
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => _Inner.GetHeadCommitHashAsync(worktreePath, token);
 

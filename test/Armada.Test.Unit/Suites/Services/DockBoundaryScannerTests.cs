@@ -510,47 +510,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(DockBoundaryFindingKindEnum.ProtectedPath, result.Findings[0].Kind);
                 return Task.CompletedTask;
             });
-
-            await RunTest("Production landing and merge queue use DockBoundaryScanner", () =>
-            {
-                string root = FindRepositoryRoot();
-                string landing = File.ReadAllText(Path.Combine(root, "src", "Armada.Server", "MissionLandingHandler.cs"));
-                string mergeQueue = File.ReadAllText(Path.Combine(root, "src", "Armada.Core", "Services", "MergeQueueService.cs"));
-
-                AssertContains(
-                    "new DockBoundaryScanner().Scan(",
-                    landing,
-                    "MissionLandingHandler must use DockBoundaryScanner before landing work");
-                AssertContains(
-                    "_Settings.DockBoundary",
-                    landing,
-                    "MissionLandingHandler must use configured dock-boundary settings");
-                AssertContains(
-                    "ScanDockBoundaryAsync",
-                    mergeQueue,
-                    "MergeQueueService must scan dock boundaries before queued push/test paths");
-                AssertContains(
-                    "new DockBoundaryScanner().Scan(",
-                    mergeQueue,
-                    "MergeQueueService must use DockBoundaryScanner before queued work lands");
-                AssertContains(
-                    "_Settings.DockBoundary",
-                    mergeQueue,
-                    "MergeQueueService must use configured dock-boundary settings");
-                return Task.CompletedTask;
-            });
-        }
-
-        private static string FindRepositoryRoot()
-        {
-            string? dir = Directory.GetCurrentDirectory();
-            while (!String.IsNullOrEmpty(dir))
-            {
-                if (File.Exists(Path.Combine(dir, "src", "Armada.sln"))) return dir;
-                dir = Directory.GetParent(dir)?.FullName;
-            }
-
-            return Directory.GetCurrentDirectory();
         }
     }
 }

@@ -291,6 +291,18 @@ namespace Armada.Test.Unit.TestHelpers
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
             => Task.FromResult(ChangedFilesSinceResult);
 
+        /// <summary>When true, ReadChangedPathsAgainstBaseAsync throws, as an unreadable change does.</summary>
+        public bool ShouldThrowOnReadChangedPaths { get; set; } = false;
+
+        /// <summary>Paths returned by ReadChangedPathsAgainstBaseAsync; null derives them from DiffResult.</summary>
+        public IReadOnlyList<string>? ChangedPathsResult { get; set; } = null;
+
+        public Task<IReadOnlyList<string>> ReadChangedPathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (ShouldThrowOnReadChangedPaths) throw new InvalidOperationException("Simulated changed-path read failure");
+            return Task.FromResult(ChangedPathsResult ?? Armada.Core.Services.GitDiffPaths.ExtractPaths(DiffResult));
+        }
+
         /// <summary>Producer changed paths returned by GetChangedFilePathsAgainstBaseAsync.</summary>
         public IReadOnlyList<string> ChangedFilePathsAgainstBaseResult { get; set; } = Array.Empty<string>();
 

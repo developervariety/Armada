@@ -117,6 +117,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(r.Fired, "Should match 'Auth' substring case-insensitively");
                 return Task.CompletedTask;
             });
+
+            await RunTest("Evaluate_DeletionOnlyPatchOfSensitivePath_FiresPath", () =>
+            {
+                CriticalTriggerEvaluator sut = new CriticalTriggerEvaluator();
+                string diff =
+                    "diff --git a/src/Security/TokenValidator.cs b/src/Security/TokenValidator.cs\n" +
+                    "deleted file mode 100644\n" +
+                    "index 1111111..0000000\n" +
+                    "--- a/src/Security/TokenValidator.cs\n" +
+                    "+++ /dev/null\n" +
+                    "@@ -1,2 +0,0 @@\n" +
+                    "-public class TokenValidator\n" +
+                    "-{ }\n";
+                CriticalTriggerResult r = sut.Evaluate(diff, new ConventionCheckResult { Passed = true });
+                AssertTrue(r.Fired, "Deleting a sensitive file must escalate");
+                AssertContains("path", string.Join(",", r.TriggeredCriteria), "The deleted path fires the path trigger");
+                return Task.CompletedTask;
+            });
         }
     }
 }

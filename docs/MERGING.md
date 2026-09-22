@@ -48,10 +48,19 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
    3. Create a temporary worktree from the current target branch.
    4. Merge the entry's branch into the worktree (`git merge --no-ff`).
    5. If the merge conflicts, mark the entry `Failed` and move on.
-   6. Run the configured test command (if any). If tests fail, mark `Failed`.
-   7. Push the integration branch to update the target (`git push origin integration:target`).
-   8. Mark the entry `Landed`.
-   9. Clean up the temporary worktree.
+   6. Read the landing evidence: the vessel record, every changed path
+      (`git diff --name-only --no-renames -z`, so a rename reports both names and no
+      name arrives C-quoted), and the unified diff. If any read fails, mark the entry
+      `Failed` with a `landing_evidence_unavailable: <part>: <error>` reason; nothing
+      is tested, landed or pushed. An empty change is a verified empty read, never a
+      substitute for a failed one. Direct landing reads its evidence through the same
+      collector.
+   7. Run the dock-boundary scan (protected paths, secrets, private identifiers) on
+      that evidence. A finding marks the entry `Failed`.
+   8. Run the configured test command (if any). If tests fail, mark `Failed`.
+   9. Push the integration branch to update the target (`git push origin integration:target`).
+   10. Mark the entry `Landed`.
+   11. Clean up the temporary worktree.
 
 Because each entry is landed immediately, the next entry in the same group always merges against the up-to-date target branch. This eliminates the cascade failures that occur with batch-style merge queues.
 
@@ -72,7 +81,9 @@ Because each entry is landed immediately, the next entry in the same group alway
 |---|---|
 | **Merge conflict** | Entry marked `Failed` with message. Worktree cleaned up. Next entry in the same group continues. |
 | **Test failure** | Entry marked `Failed` with exit code and truncated output. Worktree cleaned up. Next entry continues. |
+| **Landing evidence unavailable** | Entry marked `Failed` with `landing_evidence_unavailable: vessel_unreadable`, `vessel_not_found`, `changed_files_unreadable`, or `diff_unreadable` and the underlying error. Nothing is pushed. |
 | **Push failure** | Entry marked `Failed` with error message. Typically means the remote rejected the push (force-push protection, etc.). |
+| **Failure after the push advanced the target** | The queue rolls the target back to its pre-land head with `git push --force-with-lease=refs/heads/<target>:<inspected-head>`. If another writer moved the target after the rollback inspected it, the push is refused and that writer's commit stays. The `merge_queue.failed_target_advanced` event records `rolled_back`, `partial_rollback: ...`, or `rollback_failed: ...`. |
 | **Vessel not found** | All entries in the group are marked `Failed` with a message indicating the vessel could not be resolved. |
 | **Unexpected exception** | Entry marked `Failed` with error message. Best-effort worktree cleanup. Processing continues to the next entry. Group-level exceptions are caught by `ProcessGroupSafeAsync` and logged as warnings. |
 
