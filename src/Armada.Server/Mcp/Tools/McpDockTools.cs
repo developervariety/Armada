@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -143,7 +144,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_delete_docks",
-                "Permanently delete multiple docks and their git worktrees from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
+                "Permanently delete multiple docks and their git worktrees from the database by ID. A dock that is active with a captain is skipped and reported, exactly as armada_delete_dock refuses it; use armada_purge_dock to force-remove one. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {
                     type = "object",
@@ -160,24 +161,7 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)new { Error = "ids is required and must not be empty" };
 
-                    DeleteMultipleResult result = new DeleteMultipleResult();
-                    foreach (string id in request.Ids)
-                    {
-                        if (String.IsNullOrEmpty(id))
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                            continue;
-                        }
-                        Dock? dock = await database.Docks.ReadAsync(id).ConfigureAwait(false);
-                        if (dock == null)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                            continue;
-                        }
-                        await dockService.PurgeAsync(id).ConfigureAwait(false);
-                        result.Deleted++;
-                    }
-                    result.ResolveStatus();
+                    DeleteMultipleResult result = await DockBatchDelete.DeleteAsync(database, dockService, request.Ids, null).ConfigureAwait(false);
                     return (object)result;
                 });
         }

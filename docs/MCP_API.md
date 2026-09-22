@@ -495,7 +495,9 @@ server-control actions outside mission scope.
 
 **Local stdio.** `armada mcp stdio` runs the tools in-process with the local
 settings file and database credentials. It sets an explicit local operator
-identity; it does not fall back to a default context.
+identity; it does not fall back to a default context. It builds its own mission
+status transition service, so `armada_transition_mission_status` applies the
+same validation, completion gates and landing as the admiral's endpoint.
 
 **SSH stdio bridge.** `scripts/mcp-ssh-http-bridge.mjs` requires
 `ARMADA_MCP_AUTH_HEADER_FILE`, an absolute path on the server to a file that

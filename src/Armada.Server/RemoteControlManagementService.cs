@@ -717,38 +717,16 @@ namespace Armada.Server
                 return NotFound("Voyage not found.");
             }
 
-            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
-            int cancelledCount = 0;
-
-            foreach (Mission mission in missions)
-            {
-                if (IsMissionActiveForCancellation(mission.Status) && !String.IsNullOrWhiteSpace(mission.CaptainId))
-                {
-                    try
-                    {
-                        await _Admiral.RecallCaptainAsync(mission.CaptainId, token).ConfigureAwait(false);
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                if (IsMissionActiveForCancellation(mission.Status))
-                {
-                    mission.Status = MissionStatusEnum.Cancelled;
-                    mission.FailureReason = "Cancelled from proxy";
-                    mission.ProcessId = null;
-                    mission.CompletedUtc = _UtcNow();
-                    mission.LastUpdateUtc = _UtcNow();
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                    cancelledCount++;
-                }
-            }
-
-            voyage.Status = VoyageStatusEnum.Cancelled;
-            voyage.CompletedUtc = _UtcNow();
-            voyage.LastUpdateUtc = _UtcNow();
-            voyage = await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            // The shared cancel stops the agent process of every running mission before it marks
+            // the voyage and its missions Cancelled.
+            VoyageCancellationResult cancellation = await VoyageCancellation.CancelAsync(
+                _Database,
+                voyage,
+                "Cancelled from proxy",
+                _Admiral.RecallCaptainAsync,
+                token).ConfigureAwait(false);
+            voyage = cancellation.Voyage;
+            int cancelledCount = cancellation.CancelledMissions.Count;
 
             await _EmitEventAsync("voyage.cancelled", "Voyage cancelled from proxy: " + voyage.Title, "voyage", voyage.Id, null, null, null, voyage.Id).ConfigureAwait(false);
             return Ok(new

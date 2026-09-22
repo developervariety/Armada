@@ -286,7 +286,7 @@ All error responses use a consistent JSON format with `Error`, `Description`, `M
 |---|---|---|
 | `BadRequest` | 400 | Invalid input, missing required fields, malformed request body, invalid state transition |
 | `DeserializationError` | 400 | Request body could not be parsed as valid JSON or does not match the expected type |
-| `Unauthorized` | 401 | Missing or invalid API key / bearer token |
+| `NotAuthorized` | 401 | Missing or invalid API key / bearer token |
 | `Forbidden` | 403 | Authenticated but not authorized for this operation |
 | `NotFound` | 404 | Entity not found by the given ID |
 | `Conflict` | 409 | Operation conflicts with current state (e.g., deleting an active voyage, retry landing failed) |
@@ -297,6 +297,9 @@ All error responses use a consistent JSON format with `Error`, `Description`, `M
 - The `Error` field always contains one of the error codes listed above.
 - The `Message` field provides a specific, actionable description of what went wrong.
 - HTTP status codes are set on the response and match the error code mapping above.
+- Merge-queue routes build their authentication and authorization refusals through one shared mapping, so a
+  `401` body carries `NotAuthorized` and a `403` body carries `Forbidden`. Other routes set the same `401`/`403`
+  status but still return `BadRequest` in the body; rely on the status code for those.
 - Clients should check the HTTP status code first, then parse the response body for details.
 
 ---
@@ -1536,7 +1539,7 @@ or invisible voyage.
 
 #### DELETE /api/v1/voyages/{id}
 
-Cancel a voyage. Sets the voyage status to `Cancelled` and cancels all `Pending` or `Assigned` missions. In-progress missions are not affected.
+Cancel a voyage. Sets the voyage status to `Cancelled` and cancels every `Pending`, `Assigned`, or `InProgress` mission in it. The captain of each `Assigned` or `InProgress` mission is recalled first, which stops its agent process; if a recall fails, the voyage stays active and the request fails. A voyage that is already `Cancelled` or `Complete` is returned unchanged with `CancelledMissions: 0`. The REST route, the WebSocket `cancel_voyage` command, the MCP `armada_cancel_voyage` tool, and the remote-control cancel all use this one operation.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -2677,7 +2680,7 @@ worktree so it stops pinning capacity. Committed branch history is preserved.
 
 #### `POST /api/v1/docks/delete/multiple`
 
-Batch delete multiple docks and their git worktrees from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Batch delete multiple docks and their git worktrees from the database by ID. Each ID follows the single-dock delete rule: a dock that is active with a captain is not deleted and is reported in `Skipped` with the reason `Dock is active with a captain; force purge it individually to remove it`. To remove such a dock anyway, use `DELETE /api/v1/docks/{id}/purge`. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
 **Request Body:**
 
@@ -2697,7 +2700,7 @@ Batch delete multiple docks and their git worktrees from the database by ID. Ret
 }
 ```
 
-Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empty ID").
+Skipped entries include the entity ID and the reason (`Not found`, `Empty ID`, or the active-dock refusal).
 
 ---
 
@@ -2821,7 +2824,7 @@ Permanently delete a single terminal merge queue entry from the database. Only e
 
 #### `POST /api/v1/merge-queue/purge`
 
-Batch purge multiple terminal merge queue entries from the database by ID. Returns a summary of purged and skipped entries. **This cannot be undone.**
+Batch purge multiple terminal merge queue entries from the database by ID. A tenant administrator purges only entries its own tenant owns; an ID owned by another tenant is reported as `Not found`. A system administrator can purge any tenant's entries. Returns a summary of purged and skipped entries. **This cannot be undone.**
 
 **Request Body:**
 

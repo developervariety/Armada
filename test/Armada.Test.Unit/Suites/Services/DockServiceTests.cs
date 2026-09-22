@@ -1293,6 +1293,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Batch dock delete refuses an active dock with a captain and reports it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    LockingGitService git = new LockingGitService();
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("batch-delete-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("batch-delete-captain")).ConfigureAwait(false);
+
+                    string activeWorktree = Path.Combine(settings.DocksDirectory, "active-mission", "Vessel");
+                    Directory.CreateDirectory(activeWorktree);
+                    await File.WriteAllTextAsync(Path.Combine(activeWorktree, "work.txt"), "the captain is writing here").ConfigureAwait(false);
+                    Dock activeDock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        WorktreePath = activeWorktree,
+                        BranchName = "armada/active",
+                        CaptainId = captain.Id,
+                        Active = true
+                    }).ConfigureAwait(false);
+                    Dock idleDock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        WorktreePath = Path.Combine(settings.DocksDirectory, "idle-mission", "Vessel"),
+                        BranchName = "armada/idle",
+                        Active = false
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? batchDelete = null;
+                    Armada.Server.Mcp.Tools.McpDockTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_delete_docks") batchDelete = handler; },
+                        testDb.Driver,
+                        service);
+                    AssertNotNull(batchDelete, "armada_delete_docks is registered");
+
+                    object raw = await batchDelete!(JsonSerializer.SerializeToElement(new { ids = new[] { activeDock.Id, idleDock.Id } })).ConfigureAwait(false);
+                    DeleteMultipleResult result = (DeleteMultipleResult)raw;
+
+                    AssertEqual(1, result.Deleted, "Only the idle dock is deleted");
+                    AssertTrue(result.Skipped.Any(skip => skip.Id == activeDock.Id && skip.Reason == DockBatchDelete.ActiveDockReason),
+                        "The active dock is reported with the refusal reason");
+                    AssertNotNull(await testDb.Driver.Docks.ReadAsync(activeDock.Id).ConfigureAwait(false), "The active dock record survives");
+                    AssertTrue(File.Exists(Path.Combine(activeWorktree, "work.txt")), "The active dock's worktree survives");
+                    AssertNull(await testDb.Driver.Docks.ReadAsync(idleDock.Id).ConfigureAwait(false), "The idle dock is deleted");
+                }
+            });
+
             await RunTest("ReclaimAsync defers while a definition-of-done gate holds the dock lease", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

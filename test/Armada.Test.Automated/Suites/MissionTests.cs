@@ -127,6 +127,41 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(MissionModeEnum.Audit, stored.Mode, "The mode sent on create is stored and returned");
             });
 
+            await RunTest("CreateMission_VesselDefaultPlaybooks_AreMergedIntoMission", async () =>
+            {
+                string playbookFile = "mission-default-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".md";
+                HttpResponseMessage playbookResp = await _AuthClient.PostAsync("/api/v1/playbooks",
+                    JsonHelper.ToJsonContent(new { FileName = playbookFile, Content = "# Vessel default\nApply on every mission." }));
+                string playbookBody = await playbookResp.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.Created, playbookResp.StatusCode, playbookBody);
+                Playbook playbook = JsonHelper.Deserialize<Playbook>(playbookBody);
+
+                string fleetId = await CreateFleetAsync();
+                StringContent vesselContent = JsonHelper.ToJsonContent(new
+                {
+                    Name = "MissionDefaultsVessel-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    RepoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
+                    FleetId = fleetId,
+                    DefaultPlaybooks = "[{\"playbookId\":\"" + playbook.Id + "\",\"deliveryMode\":\"InlineFullContent\"}]"
+                });
+                HttpResponseMessage vesselResp = await _AuthClient.PostAsync("/api/v1/vessels", vesselContent);
+                string vesselBody = await vesselResp.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.Created, vesselResp.StatusCode, vesselBody);
+                Vessel vessel = JsonHelper.Deserialize<Vessel>(vesselBody);
+                _CreatedVesselIds.Add(vessel.Id);
+                AssertContains(playbook.Id, vessel.DefaultPlaybooks ?? "", "The vessel stores its default playbook");
+
+                Mission created = await CreateMissionAsync(vessel.Id, "Defaults Merge Check");
+
+                HttpResponseMessage read = await _AuthClient.GetAsync("/api/v1/missions/" + created.Id);
+                AssertEqual(HttpStatusCode.OK, read.StatusCode);
+                Mission stored = await JsonHelper.DeserializeAsync<Mission>(read);
+                AssertTrue(stored.PlaybookSnapshots.Any(snapshot => snapshot.PlaybookId == playbook.Id),
+                    "A mission created over REST carries the vessel's default playbook");
+
+                await _AuthClient.DeleteAsync("/api/v1/playbooks/" + playbook.Id);
+            });
+
             await RunTest("CreateMission_WithAllOptionalFields", async () =>
             {
                 string vesselId = await SetupVesselAsync();

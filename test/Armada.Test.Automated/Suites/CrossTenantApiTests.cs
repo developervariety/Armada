@@ -1300,6 +1300,54 @@ using System.IO;
                 AssertEqual(mergeEntryAId, entry.Id);
             }).ConfigureAwait(false);
 
+            await RunTest("MergeQueue_BatchPurgeFromTenantBAdmin_DoesNotPurgeTenantATerminalEntry", async () =>
+            {
+                // Tenant A cancels its own entry, which makes it terminal and so purgeable.
+                HttpResponseMessage cancel = await _ClientA!.DeleteAsync("/api/v1/merge-queue/" + mergeEntryAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NoContent, cancel.StatusCode);
+                MergeEntry cancelled = await JsonHelper.DeserializeAsync<MergeEntry>(
+                    await _ClientA!.GetAsync("/api/v1/merge-queue/" + mergeEntryAId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(Armada.Core.Enums.MergeStatusEnum.Cancelled, cancelled.Status, "Tenant A's entry is terminal before the purge attempt");
+
+                HttpResponseMessage purge = await _ClientB!.PostAsync("/api/v1/merge-queue/purge",
+                    JsonHelper.ToJsonContent(new { EntryIds = new[] { mergeEntryAId } })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, purge.StatusCode);
+                MergeQueuePurgeResult result = await JsonHelper.DeserializeAsync<MergeQueuePurgeResult>(purge).ConfigureAwait(false);
+                AssertEqual(0, result.EntriesPurged, "A tenant administrator must not purge another tenant's entry");
+                AssertTrue(result.Skipped.Any(s => s.EntryId == mergeEntryAId && s.Reason == "Not found"),
+                    "Another tenant's entry is reported as not found");
+
+                HttpResponseMessage stillThere = await _ClientA!.GetAsync("/api/v1/merge-queue/" + mergeEntryAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, stillThere.StatusCode, "Tenant A's entry survives tenant B's batch purge");
+            }).ConfigureAwait(false);
+
+            await RunTest("MergeQueue_BatchPurgeFromSystemAdmin_PurgesAnyTenantEntry", async () =>
+            {
+                HttpResponseMessage purge = await _AdminClient.PostAsync("/api/v1/merge-queue/purge",
+                    JsonHelper.ToJsonContent(new { EntryIds = new[] { mergeEntryAId } })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, purge.StatusCode);
+                MergeQueuePurgeResult result = await JsonHelper.DeserializeAsync<MergeQueuePurgeResult>(purge).ConfigureAwait(false);
+                AssertEqual(1, result.EntriesPurged, "A system administrator purges a terminal entry of any tenant");
+
+                HttpResponseMessage gone = await _ClientA!.GetAsync("/api/v1/merge-queue/" + mergeEntryAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, gone.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("MergeQueue_AuthRefusals_BodyErrorMatchesStatus", async () =>
+            {
+                HttpResponseMessage unauthenticated = await _UnauthClient.PostAsync("/api/v1/merge-queue/purge",
+                    JsonHelper.ToJsonContent(new { EntryIds = new[] { "mrg_example" } })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+                ArmadaErrorResponse unauthenticatedBody = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(unauthenticated).ConfigureAwait(false);
+                AssertEqual("NotAuthorized", unauthenticatedBody.Error, "401 body names NotAuthorized");
+
+                HttpResponseMessage forbidden = await _ClientA3!.PostAsync("/api/v1/merge-queue/purge",
+                    JsonHelper.ToJsonContent(new { EntryIds = new[] { "mrg_example" } })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, forbidden.StatusCode);
+                ArmadaErrorResponse forbiddenBody = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(forbidden).ConfigureAwait(false);
+                AssertEqual("Forbidden", forbiddenBody.Error, "403 body names Forbidden");
+            }).ConfigureAwait(false);
+
             #endregion
 
             #region Event-Isolation

@@ -1,11 +1,21 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Text;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Settings;
+    using Armada.Helm.Commands;
+    using Armada.Server;
     using Armada.Server.Mcp;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
 
     /// <summary>
     /// Tests for the Armada-owned MCP stdio transport.
@@ -212,6 +222,45 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("EnsureTomlMcpServerStartupTimeoutAsync", helper, "Codex native CLI install should patch startup_timeout_sec after adding the server");
                 AssertContains("claude mcp add --transport http --scope user armada", helper, "Claude default install should remain HTTP");
                 AssertContains("claude mcp add --scope user armada -- armada mcp stdio", helper, "Claude stdio alternative should use the fixed Armada stdio path");
+            }).ConfigureAwait(false);
+
+            await RunTest("StdioHost_TransitionMissionStatusTool_AppliesTransition", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    string root = Path.Combine(Path.GetTempPath(), "armada_stdio_host_" + Guid.NewGuid().ToString("N"));
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(root, "docks");
+                    settings.ReposDirectory = Path.Combine(root, "repos");
+                    settings.LogDirectory = Path.Combine(root, "logs");
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> tools = new Dictionary<string, Func<JsonElement?, Task<object>>>(StringComparer.Ordinal);
+                    McpStdioCommand.RegisterTools(
+                        (name, _, _, handler) => tools[name] = handler,
+                        testDb.Driver,
+                        settings,
+                        logging,
+                        new GitService(logging, database: testDb.Driver),
+                        null);
+                    AssertTrue(tools.ContainsKey("armada_transition_mission_status"), "the stdio host registers the transition tool");
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("stdio-transition-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("stdio transition", "")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>> transition = McpTestCaller.Wrap(tools["armada_transition_mission_status"]);
+                    object result = await transition(JsonSerializer.SerializeToElement(new { missionId = mission.Id, status = "Cancelled" })).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains(MissionStatusTransitionService.UnavailableMessage), "the stdio host supplies the transition service: " + resultJson);
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Cancelled, stored!.Status, "the transition is applied through the stdio host: " + resultJson);
+                }
             }).ConfigureAwait(false);
         }
 

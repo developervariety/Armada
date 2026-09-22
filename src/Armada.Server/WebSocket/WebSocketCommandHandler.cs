@@ -633,55 +633,22 @@ namespace Armada.Server.WebSocket
             Voyage? cvVoyage = await _Database.Voyages.ReadAsync(cvId).ConfigureAwait(false);
             if (cvVoyage == null)
                 return new { type = "command.error", action = "cancel_voyage", error = "Voyage not found" };
-            else
-            {
-                cvVoyage.Status = VoyageStatusEnum.Cancelled;
-                cvVoyage.CompletedUtc = DateTime.UtcNow;
-                cvVoyage.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Voyages.UpdateAsync(cvVoyage).ConfigureAwait(false);
-                List<Mission> cvMissions = await _Database.Missions.EnumerateByVoyageAsync(cvId).ConfigureAwait(false);
-                foreach (Mission m in cvMissions)
-                {
-                    if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned)
-                    {
-                        if (!String.IsNullOrEmpty(m.CaptainId))
-                        {
-                            Captain? captain = await _Database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
-                            if (captain != null && captain.CurrentMissionId == m.Id)
-                            {
-                                List<Mission> otherMissions = (await _Database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                                    .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                if (otherMissions.Count == 0)
-                                {
-                                    captain.State = CaptainStateEnum.Idle;
-                                    captain.CurrentMissionId = null;
-                                    captain.CurrentDockId = null;
-                                    captain.ProcessId = null;
-                                    captain.RecoveryAttempts = 0;
-                                    captain.LastUpdateUtc = DateTime.UtcNow;
-                                    await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                                }
-                            }
-                        }
 
-                        m.Status = MissionStatusEnum.Cancelled;
-                        m.CompletedUtc = DateTime.UtcNow;
-                        m.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Missions.UpdateAsync(m).ConfigureAwait(false);
-                    }
-                }
-                int cvCancelled = cvMissions.Count(m => m.Status == MissionStatusEnum.Cancelled);
-                // Command events follow the changed record's owner, like the same change made through REST.
-                _BroadcastVoyageChange(cvVoyage);
-                foreach (Mission cvCm in cvMissions)
-                {
-                    if (cvCm.Status == MissionStatusEnum.Cancelled)
-                    {
-                        _BroadcastMissionChange(cvCm);
-                    }
-                }
-                return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled } };
+            // The shared cancel stops the agent process of every running mission before it marks
+            // the voyage and its missions Cancelled.
+            VoyageCancellationResult cancellation = await VoyageCancellation.CancelAsync(
+                _Database,
+                cvVoyage,
+                VoyageCancellation.OperatorCancelReason,
+                _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+
+            // Command events follow the changed record's owner, like the same change made through REST.
+            _BroadcastVoyageChange(cancellation.Voyage);
+            foreach (Mission cvCm in cancellation.CancelledMissions)
+            {
+                _BroadcastMissionChange(cvCm);
             }
+            return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cancellation.Voyage, CancelledMissions = cancellation.CancelledMissions.Count } };
         }
 
         /// <summary>

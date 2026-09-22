@@ -462,6 +462,36 @@ namespace Armada.Test.Automated.Suites
                 }
             });
 
+            await RunTest("CancelVoyage_InProgressMission_IsCancelled", async () =>
+            {
+                PrerequisiteResult prereqs = await CreatePrerequisitesAsync();
+                Voyage created = await CreateVoyageAsync(prereqs.VesselId, "Cancel Running Voyage", missionCount: 1);
+
+                HttpResponseMessage detailResp = await _AuthClient.GetAsync("/api/v1/voyages/" + created.Id);
+                VoyageDetailResponse before = await JsonHelper.DeserializeAsync<VoyageDetailResponse>(detailResp);
+                string missionId = before.Missions![0].Id;
+                // Walk the mission forward to InProgress from wherever dispatch left it.
+                foreach (MissionStatusEnum from in new[] { MissionStatusEnum.Pending, MissionStatusEnum.Assigned })
+                {
+                    Mission current = await JsonHelper.DeserializeAsync<Mission>(await _AuthClient.GetAsync("/api/v1/missions/" + missionId));
+                    if (current.Status != from) continue;
+                    string next = from == MissionStatusEnum.Pending ? "Assigned" : "InProgress";
+                    HttpResponseMessage transition = await _AuthClient.PutAsync("/api/v1/missions/" + missionId + "/status",
+                        JsonHelper.ToJsonContent(new { Status = next }));
+                    AssertEqual(HttpStatusCode.OK, transition.StatusCode, await transition.Content.ReadAsStringAsync());
+                }
+                Mission running = await JsonHelper.DeserializeAsync<Mission>(await _AuthClient.GetAsync("/api/v1/missions/" + missionId));
+                AssertEqual(MissionStatusEnum.InProgress, running.Status, "The mission is running before the cancel");
+
+                HttpResponseMessage cancel = await _AuthClient.DeleteAsync("/api/v1/voyages/" + created.Id);
+                AssertEqual(HttpStatusCode.OK, cancel.StatusCode);
+                CancelVoyageResponse cancelResp = await JsonHelper.DeserializeAsync<CancelVoyageResponse>(cancel);
+                AssertEqual(1, cancelResp.CancelledMissions, "The running mission is counted as cancelled");
+
+                Mission stored = await JsonHelper.DeserializeAsync<Mission>(await _AuthClient.GetAsync("/api/v1/missions/" + missionId));
+                AssertEqual(MissionStatusEnum.Cancelled, stored.Status, "Cancelling a voyage cancels its InProgress mission");
+            });
+
             await RunTest("CancelVoyage_NotFound_ReturnsError", async () =>
             {
                 HttpResponseMessage response = await _AuthClient.DeleteAsync("/api/v1/voyages/vyg_nonexistent");

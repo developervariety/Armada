@@ -314,7 +314,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_cancel_voyage",
-                "Cancel an entire voyage and all its pending missions",
+                "Cancel an entire voyage and every Pending, Assigned, or InProgress mission in it. The agent process of each running mission is stopped first.",
                 new
                 {
                     type = "object",
@@ -331,75 +331,27 @@ namespace Armada.Server.Mcp.Tools
                     Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
                     if (voyage == null) return (object)new { Error = "Voyage not found" };
 
-                    // Cancel pending/assigned/in-progress missions. In-progress missions have a
-                    // running captain process that must be killed; otherwise the captain stays
-                    // Working forever and blocks the dispatcher from assigning new missions to
-                    // that captain or that single-captain pool. The same teardown applies to
-                    // Assigned-with-captain missions whose process started but didn't yet flip
-                    // the mission to InProgress.
-                    List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
-                    int cancelledCount = 0;
-                    foreach (Mission m in missions)
-                    {
-                        bool isCancellable = m.Status == MissionStatusEnum.Pending
-                            || m.Status == MissionStatusEnum.Assigned
-                            || m.Status == MissionStatusEnum.InProgress;
-                        if (!isCancellable) continue;
-
-                        // Release the captain if this mission was assigned to one. Only kill the
-                        // process when the captain is currently running THIS mission; if the
-                        // captain has moved on, leave it alone.
-                        if (!String.IsNullOrEmpty(m.CaptainId))
+                    // The shared cancel stops the agent process of every running mission before it
+                    // marks the voyage and its missions Cancelled, so no captain stays Working under a
+                    // cancelled voyage and blocks the dispatcher.
+                    VoyageCancellationResult cancellation = await VoyageCancellation.CancelAsync(
+                        database,
+                        voyage,
+                        VoyageCancellation.OperatorCancelReason,
+                        async (captainId, token) =>
                         {
-                            Captain? captain = await database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
-                            if (captain != null && captain.CurrentMissionId == m.Id)
+                            if (onStopCaptain != null)
                             {
-                                List<Mission> otherMissions = (await database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                                    .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                if (otherMissions.Count == 0)
+                                try { await onStopCaptain(captainId).ConfigureAwait(false); }
+                                catch (Exception stopEx)
                                 {
-                                    // Kill the running agent process FIRST so it doesn't try to
-                                    // commit / push / mutate state under the cancelled mission.
-                                    // RecallCaptainAsync resets DB state to Idle.
-                                    if (onStopCaptain != null)
-                                    {
-                                        try { await onStopCaptain(captain.Id).ConfigureAwait(false); }
-                                        catch (Exception stopEx)
-                                        {
-                                            // The DB state is still reset below; the process may outlive the cancel.
-                                            logging?.Warn("[McpVoyageTools] could not stop captain " + captain.Id + " while cancelling mission " + m.Id + "; its process may still be running: " + stopEx.Message);
-                                        }
-                                    }
-                                    try { await admiral.RecallCaptainAsync(captain.Id).ConfigureAwait(false); }
-                                    catch (Exception recallEx)
-                                    {
-                                        logging?.Warn("[McpVoyageTools] recall of captain " + captain.Id + " failed while cancelling mission " + m.Id + "; resetting its state directly: " + recallEx.Message);
-                                        // Fall back to direct DB reset if Admiral recall blew up.
-                                        captain.State = CaptainStateEnum.Idle;
-                                        captain.CurrentMissionId = null;
-                                        captain.CurrentDockId = null;
-                                        captain.ProcessId = null;
-                                        captain.RecoveryAttempts = 0;
-                                        captain.LastUpdateUtc = DateTime.UtcNow;
-                                        await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                                    }
+                                    // The recall below stops the process again and resets the captain.
+                                    logging?.Warn("[McpVoyageTools] could not stop captain " + captainId + " while cancelling voyage " + voyageId + ": " + stopEx.Message);
                                 }
                             }
-                        }
-
-                        m.Status = MissionStatusEnum.Cancelled;
-                        m.ProcessId = null;
-                        m.CompletedUtc = DateTime.UtcNow;
-                        m.LastUpdateUtc = DateTime.UtcNow;
-                        await database.Missions.UpdateAsync(m).ConfigureAwait(false);
-                        cancelledCount++;
-                    }
-
-                    voyage.Status = VoyageStatusEnum.Cancelled;
-                    voyage.CompletedUtc = DateTime.UtcNow;
-                    voyage.LastUpdateUtc = DateTime.UtcNow;
-                    voyage = await database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
-                    return (object)new { Voyage = voyage, CancelledMissions = cancelledCount };
+                            await admiral.RecallCaptainAsync(captainId, token).ConfigureAwait(false);
+                        }).ConfigureAwait(false);
+                    return (object)new { Voyage = cancellation.Voyage, CancelledMissions = cancellation.CancelledMissions.Count };
                 });
 
             register(

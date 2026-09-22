@@ -9,12 +9,17 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
 
     /// <summary>
-    /// Cancels a voyage and its active missions. The scheduler and the operator dispatch
-    /// service both retire the duplicate voyage a dispatch race produces, so the retirement
-    /// lives here once instead of in each caller.
+    /// Cancels a voyage and its active missions. Every voyage cancel goes through this one
+    /// operation: the operator entry points (REST, WebSocket, MCP, remote control) and the
+    /// internal retirement of a voyage a dispatch race or a failed dispatch leaves behind.
     /// </summary>
     public static class VoyageCancellation
     {
+        /// <summary>
+        /// Failure reason recorded on missions an operator cancels by cancelling their voyage.
+        /// </summary>
+        public const string OperatorCancelReason = "Voyage cancelled by operator.";
+
         /// <summary>
         /// Mark the voyage Cancelled and cancel every mission that is Pending, Assigned, or InProgress.
         /// This helper is used to retire a newly created voyage that cannot be admitted or linked, so
@@ -32,11 +37,39 @@ namespace Armada.Core.Services
             CancellationToken token = default,
             Func<string, CancellationToken, Task>? recallCaptain = null)
         {
+            await CancelAsync(database, voyage, reason, recallCaptain, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Cancel a voyage and every mission in it that is Pending, Assigned, or InProgress, and report
+        /// what changed.
+        /// <para>
+        /// When <paramref name="recallCaptain"/> is supplied, every captain holding an Assigned or
+        /// InProgress mission of the voyage is recalled first, which stops its agent process, and the
+        /// voyage stays active if a recall throws. Without it, running agent processes are not stopped,
+        /// so an operator cancel always supplies it. A voyage that is already Cancelled or Complete is
+        /// returned unchanged with no cancelled missions.
+        /// </para>
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="voyage">Voyage to cancel, already read under the caller's authorization scope.</param>
+        /// <param name="reason">Failure reason recorded on each cancelled mission.</param>
+        /// <param name="recallCaptain">Process-stop and dock-reclaim action for a captain id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stored voyage and the missions this call cancelled.</returns>
+        public static async Task<VoyageCancellationResult> CancelAsync(
+            DatabaseDriver database,
+            Voyage voyage,
+            string? reason,
+            Func<string, CancellationToken, Task>? recallCaptain,
+            CancellationToken token = default)
+        {
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (voyage == null) throw new ArgumentNullException(nameof(voyage));
 
+            VoyageCancellationResult result = new VoyageCancellationResult { Voyage = voyage };
             if (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Complete)
-                return;
+                return result;
 
             List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
             if (recallCaptain != null)
@@ -59,7 +92,7 @@ namespace Armada.Core.Services
             voyage.Status = VoyageStatusEnum.Cancelled;
             voyage.CompletedUtc = DateTime.UtcNow;
             voyage.LastUpdateUtc = DateTime.UtcNow;
-            await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            result.Voyage = await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 
             // A cancelled voyage never runs its armed Checks; leaving them Pending counts them as required forever.
             await VoyageCheckDiscard.DiscardPendingAsync(database, voyage.Id, VoyageCheckDiscard.VoyageCancelledReason, token).ConfigureAwait(false);
@@ -98,8 +131,11 @@ namespace Armada.Core.Services
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    result.CancelledMissions.Add(mission);
                 }
             }
+
+            return result;
         }
     }
 }

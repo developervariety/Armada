@@ -120,6 +120,13 @@ upstream integrations and excludes changes already present at that baseline.
 - **Dashboard and clients:** responsive navigation, scoped controls, complete entity
   forms, structured mission evidence, routing and account controls, endpoint health,
   tool activity, and consistent REST/MCP/WebSocket contracts.
+- **Operator entry-point parity:** voyage cancel on REST, WebSocket, MCP and remote
+  control runs one operation that stops running missions' agent processes and
+  cancels InProgress missions. Batch dock delete refuses active docks per ID like
+  single delete. REST mission create merges vessel default playbooks like MCP.
+  Batch merge-queue purge is limited to a tenant administrator's own tenant, and
+  merge-queue auth refusals name `NotAuthorized` or `Forbidden` to match the status.
+  The Helm stdio MCP host supplies mission status transitions.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

@@ -1650,7 +1650,7 @@ Create a new voyage. Optionally include a `vesselId` and `missions[]` array for 
 
 #### cancel_voyage
 
-Cancel a voyage. All pending and assigned missions are also cancelled.
+Cancel a voyage. Every `Pending`, `Assigned`, or `InProgress` mission is also cancelled, and the agent process of each running mission is stopped first. This is the same operation as `DELETE /api/v1/voyages/{id}`.
 
 **Request:**
 

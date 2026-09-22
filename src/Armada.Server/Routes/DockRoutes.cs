@@ -9,6 +9,7 @@ namespace Armada.Server.Routes
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -277,38 +278,17 @@ namespace Armada.Server.Routes
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
 
-                DeleteMultipleResult result = new DeleteMultipleResult();
-                foreach (string id in body.Ids)
-                {
-                    if (String.IsNullOrEmpty(id))
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                        continue;
-                    }
-                    Dock? dock = ctx.IsAdmin
-                        ? await _database.Docks.ReadAsync(id).ConfigureAwait(false)
-                        : ctx.IsTenantAdmin
-                            ? await _database.Docks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                    if (dock == null)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                        continue;
-                    }
-                    await _dockService.PurgeAsync(id).ConfigureAwait(false);
-                    result.Deleted++;
-                }
+                DeleteMultipleResult result = await DockBatchDelete.DeleteAsync(_database, _dockService, body.Ids, ctx).ConfigureAwait(false);
 
                 await _emitEvent("dock.batch_deleted", "Batch deleted " + result.Deleted + " docks",
                     "dock", null, null, null, null, null).ConfigureAwait(false);
 
-                result.ResolveStatus();
                 return (object)result;
             },
             api => api
                 .WithTag("Docks")
                 .WithSummary("Batch delete multiple docks")
-                .WithDescription("Permanently deletes multiple docks and their git worktrees from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.")
+                .WithDescription("Permanently deletes multiple docks and their git worktrees from the database by ID, applying the single-dock delete rule to each: a dock that is active with a captain is skipped and reported, not deleted. Force purge such a dock individually. Returns a summary of deleted and skipped entries. This cannot be undone.")
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of dock IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));

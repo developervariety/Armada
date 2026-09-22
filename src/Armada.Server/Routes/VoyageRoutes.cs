@@ -483,69 +483,33 @@ namespace Armada.Server.Routes
                         ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
-                voyage.Status = VoyageStatusEnum.Cancelled;
-                voyage.CompletedUtc = DateTime.UtcNow;
-                voyage.LastUpdateUtc = DateTime.UtcNow;
-                voyage = await _database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
-                // Cancel all pending/assigned missions in the voyage
-                List<Mission> missions = ctx.IsAdmin
-                    ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                int cancelledCount = 0;
-                foreach (Mission m in missions)
-                {
-                    if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned)
-                    {
-                        // Release the captain if this mission was assigned to one
-                        if (!String.IsNullOrEmpty(m.CaptainId))
-                        {
-                            Captain? captain = await _database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
-                            if (captain != null && captain.CurrentMissionId == m.Id)
-                            {
-                                List<Mission> otherMissions = (ctx.IsAdmin
-                                    ? await _database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false)
-                                    : await _database.Missions.EnumerateByCaptainAsync(ctx.TenantId!, captain.Id).ConfigureAwait(false))
-                                    .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                if (otherMissions.Count == 0)
-                                {
-                                    captain.State = CaptainStateEnum.Idle;
-                                    captain.CurrentMissionId = null;
-                                    captain.CurrentDockId = null;
-                                    captain.ProcessId = null;
-                                    captain.RecoveryAttempts = 0;
-                                    captain.LastUpdateUtc = DateTime.UtcNow;
-                                    await _database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                                }
-                            }
-                        }
 
-                        m.Status = MissionStatusEnum.Cancelled;
-                        m.CompletedUtc = DateTime.UtcNow;
-                        m.LastUpdateUtc = DateTime.UtcNow;
-                        await _database.Missions.UpdateAsync(m).ConfigureAwait(false);
-                        cancelledCount++;
-                    }
-                }
+                // The shared cancel stops the agent process of every running mission before it marks
+                // the voyage and its missions Cancelled.
+                VoyageCancellationResult cancellation = await VoyageCancellation.CancelAsync(
+                    _database,
+                    voyage,
+                    VoyageCancellation.OperatorCancelReason,
+                    _admiral.RecallCaptainAsync).ConfigureAwait(false);
+                voyage = cancellation.Voyage;
+
                 // Broadcast voyage and mission cancellations for dashboard toast notifications
                 if (_webSocketHub != null)
                 {
-                    _webSocketHub.BroadcastVoyageChange(id, VoyageStatusEnum.Cancelled.ToString(), voyage.Title,
+                    _webSocketHub.BroadcastVoyageChange(id, voyage.Status.ToString(), voyage.Title,
                         WebSocketDeliveryScope.ForOwner(voyage.TenantId, voyage.UserId));
-                    foreach (Mission cm in missions)
+                    foreach (Mission cm in cancellation.CancelledMissions)
                     {
-                        if (cm.Status == MissionStatusEnum.Cancelled)
-                        {
-                            _webSocketHub.BroadcastMissionChange(cm);
-                        }
+                        _webSocketHub.BroadcastMissionChange(cm);
                     }
                 }
 
-                return (object)new { Voyage = voyage, CancelledMissions = cancelledCount };
+                return (object)new { Voyage = voyage, CancelledMissions = cancellation.CancelledMissions.Count };
             },
             api => api
                 .WithTag("Voyages")
                 .WithSummary("Cancel a voyage")
-                .WithDescription("Cancels a voyage and all its pending/assigned missions.")
+                .WithDescription("Cancels a voyage and every Pending, Assigned, or InProgress mission in it. The agent process of each running mission is stopped first. A voyage that is already Cancelled or Complete is returned unchanged.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Voyage ID (vyg_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));

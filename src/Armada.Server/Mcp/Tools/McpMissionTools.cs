@@ -203,10 +203,8 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new { Error = "dependsOnMissionId not found: " + request.DependsOnMissionId };
                         mission.DependsOnMissionId = request.DependsOnMissionId;
                     }
-                    // Merge vessel DefaultPlaybooks with caller-supplied selectedPlaybooks.
-                    Vessel? dispatchVessel = await database.Vessels.ReadAsync(request.VesselId).ConfigureAwait(false);
-                    List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
-                    mission.SelectedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
+                    mission.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    await MissionDefaultPlaybooks.MergeVesselDefaultsAsync(database, mission).ConfigureAwait(false);
                     try
                     {
                         mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);

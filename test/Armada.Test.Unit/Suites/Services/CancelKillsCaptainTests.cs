@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp.Tools;
+    using Armada.Server.WebSocket;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -130,6 +131,60 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission? readMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Cancelled, readMission!.Status);
+                }
+            });
+
+            await RunTest("CancelVoyage_WebSocket_InProgressMission_RecallsCaptainAndCancels", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("cancel-ws-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Captain captain = new Captain("captain-cancel-ws");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.ProcessId = 9999;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("ws-voyage", "")).ConfigureAwait(false);
+
+                    Mission running = new Mission("running mission", "");
+                    running.VesselId = vessel.Id;
+                    running.VoyageId = voyage.Id;
+                    running.CaptainId = captain.Id;
+                    running.Status = MissionStatusEnum.InProgress;
+                    running = await testDb.Driver.Missions.CreateAsync(running).ConfigureAwait(false);
+
+                    Mission pending = new Mission("pending mission", "");
+                    pending.VesselId = vessel.Id;
+                    pending.VoyageId = voyage.Id;
+                    pending.Status = MissionStatusEnum.Pending;
+                    pending = await testDb.Driver.Missions.CreateAsync(pending).ConfigureAwait(false);
+
+                    captain.CurrentMissionId = running.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    RecordingRecallAdmiralDouble admiralDouble = new RecordingRecallAdmiralDouble(testDb.Driver);
+                    WebSocketCommandHandler handler = new WebSocketCommandHandler(
+                        admiralDouble, testDb.Driver, null!, null, null, null, new JsonSerializerOptions(), mission => { }, cancelled => { });
+
+                    object result = await handler.HandleCommandAsync(
+                        "cancel_voyage",
+                        new WebSocketCommand { Action = "cancel_voyage", Id = voyage.Id },
+                        "",
+                        McpTestCaller.Operator).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+                    AssertContains("command.result", resultJson, "Cancel should succeed: " + resultJson);
+
+                    AssertTrue(admiralDouble.RecalledCaptainIds.Contains(captain.Id),
+                        "The running mission's captain must be recalled so its agent process stops");
+                    Mission? storedRunning = await testDb.Driver.Missions.ReadAsync(running.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Cancelled, storedRunning!.Status, "InProgress mission must be cancelled");
+                    AssertNull(storedRunning.ProcessId, "Mission ProcessId must be cleared");
+                    Mission? storedPending = await testDb.Driver.Missions.ReadAsync(pending.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Cancelled, storedPending!.Status, "Pending mission must be cancelled");
+                    Voyage? storedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Cancelled, storedVoyage!.Status);
                 }
             });
 

@@ -413,6 +413,7 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Mission.");
                 mission.TenantId = ctx.TenantId;
                 mission.UserId = ctx.UserId;
+                await MissionDefaultPlaybooks.MergeVesselDefaultsAsync(_database, mission).ConfigureAwait(false);
                 try
                 {
                     mission = await _admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
