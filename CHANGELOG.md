@@ -131,6 +131,15 @@ upstream integrations and excludes changes already present at that baseline.
 - **Indexing:** source chunks follow declaration boundaries, embedding clients use
   configured endpoints, captains search their own vessel, duplicate groups have an
   operator report, and dispatch staleness considers source relevance.
+- **Index validity and enrollment:** semantic vectors belong to one embedding
+  provider (model, endpoint and vector length); a provider change replaces every
+  vector, including those on unchanged files. Index status reports embedding
+  completeness apart from lexical freshness, and an update on the same commit
+  retries missing vectors while it reuses valid ones. Every automatic refresh
+  (landing, merge queue, stale dispatch, staleness sweep) shares one enrollment
+  check and never indexes a vessel for the first time; only an explicit update
+  does. The Admiral and the stdio MCP host select the inference client through one
+  factory.
 - **Persistence and operations:** all database providers preserve delivery and
   ownership fields, validate migration prerequisites, and support expiry and backup
   evidence. Restore checks provider compatibility and retains local secrets.

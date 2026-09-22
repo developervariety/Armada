@@ -193,8 +193,7 @@ namespace Armada.Core.Services
 
         private bool ShouldRun()
         {
-            string client = _Settings.CodeIndex.InferenceClient;
-            if (!string.Equals(client, "OpenCodeServer", StringComparison.OrdinalIgnoreCase))
+            if (!CodeIndexInferenceClientFactory.IsOpenCodeServerMode(_Settings.CodeIndex.InferenceClient))
                 return false;
             if (!_Settings.CodeIndex.OpenCodeServer.AutoLaunch)
                 return false;

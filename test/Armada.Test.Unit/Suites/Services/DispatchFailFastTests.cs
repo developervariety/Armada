@@ -323,6 +323,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             public int UpdateInvocations => System.Threading.Volatile.Read(ref _Refreshed);
 
+            public Task<bool> IsIndexedAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(true);
+
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
             {
                 bool fresh = System.Threading.Volatile.Read(ref _Refreshed) > 0;

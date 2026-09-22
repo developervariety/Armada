@@ -118,6 +118,30 @@ namespace Armada.Core.Models
         public string? EmbeddingModel { get; set; } = null;
 
         /// <summary>
+        /// Completeness of the semantic vectors, tracked separately from <see cref="Freshness"/>,
+        /// which describes only the lexical index. Disabled: semantic search is off. Unavailable:
+        /// semantic search is on but no embedding client is configured. Complete: every chunk has a
+        /// vector from the current provider. Incomplete: some chunks have no vector; the next update,
+        /// including one on the same commit, retries them and reuses the valid vectors.
+        /// </summary>
+        public string? EmbeddingState { get; set; } = null;
+
+        /// <summary>
+        /// Number of chunks that carry a semantic vector.
+        /// </summary>
+        public int EmbeddedChunkCount { get; set; } = 0;
+
+        /// <summary>
+        /// Number of chunks with no semantic vector while semantic search is on.
+        /// </summary>
+        public int MissingEmbeddingCount { get; set; } = 0;
+
+        /// <summary>
+        /// Length of every semantic vector in the index, when any exist.
+        /// </summary>
+        public int? EmbeddingDimensions { get; set; } = null;
+
+        /// <summary>
         /// Absolute path to the Admiral-owned index directory for this vessel.
         /// </summary>
         public string IndexDirectory { get; set; } = "";

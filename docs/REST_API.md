@@ -2900,7 +2900,7 @@ Vessel-scoped repository search and symbol graph endpoints. All routes are authe
 
 #### GET /api/v1/vessels/{vesselId}/code-index/status
 
-Return persisted code-index status for one vessel. When a refresh is active, the response includes `UpdateStartedUtc`, `UpdateHeartbeatUtc`, `UpdateStage`, `UpdateProgressDone`, `UpdateProgressTotal`, and `UpdateProgressPercent` in addition to `UpdateInProgress` so clients can show live progress without waiting on the update call.
+Return persisted code-index status for one vessel. `Freshness` describes the lexical index against the default branch. `EmbeddingState` describes the semantic vectors separately: `Disabled` (semantic search off), `Unavailable` (no embedding client), `Complete` (every chunk has a vector from the current provider), or `Incomplete` (`MissingEmbeddingCount` chunks have no vector; the next update retries them). `EmbeddedChunkCount` and `EmbeddingDimensions` give the vector count and length. When a refresh is active, the response includes `UpdateStartedUtc`, `UpdateHeartbeatUtc`, `UpdateStage`, `UpdateProgressDone`, `UpdateProgressTotal`, and `UpdateProgressPercent` in addition to `UpdateInProgress` so clients can show live progress without waiting on the update call.
 
 **Response:** `200 OK` - `CodeIndexStatus`
 
@@ -2908,7 +2908,7 @@ Return persisted code-index status for one vessel. When a refresh is active, the
 
 #### POST /api/v1/vessels/{vesselId}/code-index/update
 
-Refresh chunks and supported-language graph sidecars for the vessel default branch.
+Refresh chunks and supported-language graph sidecars for the vessel default branch. This explicit update is the only operation that indexes a vessel for the first time; automatic refresh after a landing, a stale-index dispatch or the staleness sweep skips a vessel that has never been indexed. On the indexed commit it returns at once unless the embedding provider changed or some chunks lack a vector; then it embeds only what is missing or incompatible.
 
 **Response:** `200 OK` - `CodeIndexStatus`
 

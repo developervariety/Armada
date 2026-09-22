@@ -294,7 +294,8 @@ Armada owns a repository code index for dispatch-time retrieval:
 - Graph tools search symbols, callers, callees, impact, and affected tests from sidecar files.
 - Hybrid search can combine lexical and semantic ranking when semantic search is enabled. Semantic embeddings use a Voyage AI client (`voyage-code-3`); supply the embedding key from the environment to enable live indexing.
 - Context packs can be attached automatically during MCP dispatch and architect decomposition.
-- Merge landing can refresh the index in the background so later missions see newly landed code.
+- Only an explicit index update (`armada_index_update` or the REST update route) indexes a vessel for the first time. Automatic refresh (after a landing, from the merge queue, from a stale-index dispatch, and from the staleness sweep) refreshes an already-indexed vessel in the background and never indexes a new one.
+- Index status reports lexical freshness (`Freshness`) and semantic completeness (`EmbeddingState`, `EmbeddedChunkCount`, `MissingEmbeddingCount`, `EmbeddingDimensions`) separately. Vectors belong to one embedding provider (model, endpoint and vector length): a provider change replaces every vector, including those on unchanged files, and an update on the same commit retries chunks whose embedding failed while it reuses the valid vectors.
 
 ### Merge Queue and Automated Landing
 

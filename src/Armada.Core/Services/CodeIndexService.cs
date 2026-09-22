@@ -41,6 +41,10 @@ namespace Armada.Core.Services
         private readonly TimeProvider _TimeProvider;
         private PolyglotSymbolExtractor _SymbolExtractor = new PolyglotSymbolExtractor();
         private static readonly ConcurrentDictionary<string, CodeIndexActiveUpdate> _ActiveUpdates = new ConcurrentDictionary<string, CodeIndexActiveUpdate>(StringComparer.OrdinalIgnoreCase);
+        private const string _EmbeddingStateDisabled = "Disabled";
+        private const string _EmbeddingStateUnavailable = "Unavailable";
+        private const string _EmbeddingStateComplete = "Complete";
+        private const string _EmbeddingStateIncomplete = "Incomplete";
         private const int _DefaultGraphSearchLimit = 20;
         private const int _DefaultGraphNeighborLimit = 25;
         private const int _DefaultImpactDepth = 3;
@@ -167,6 +171,13 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public Task<bool> IsIndexedAsync(string vesselId, CancellationToken token = default)
+        {
+            if (!_Settings.CodeIndex.Enabled || String.IsNullOrWhiteSpace(vesselId)) return Task.FromResult(false);
+            return Task.FromResult(HasIndexStatus(vesselId.Trim()));
+        }
+
+        /// <inheritdoc />
         public async Task<int> SweepStalenessAsync(CancellationToken token = default)
         {
             if (!_Settings.CodeIndex.Enabled)
@@ -181,6 +192,12 @@ namespace Armada.Core.Services
                 if (token.IsCancellationRequested)
                 {
                     break;
+                }
+
+                // Automatic refresh never indexes a vessel for the first time.
+                if (!HasIndexStatus(vessel.Id))
+                {
+                    continue;
                 }
 
                 CodeIndexStatus? persisted = await ReadPersistedStatusAsync(vessel).ConfigureAwait(false);
@@ -279,7 +296,8 @@ namespace Armada.Core.Services
                 string embeddingSettingsFingerprint = BuildEmbeddingSettingsFingerprint();
                 CodeIndexStatus? previousStatus = await ReadPersistedStatusAsync(vessel).ConfigureAwait(false);
 
-                if (CanReusePersistedIndex(previousStatus, commitSha, indexSettingsFingerprint, embeddingSettingsFingerprint))
+                if (CanReusePersistedIndex(previousStatus, commitSha, indexSettingsFingerprint, embeddingSettingsFingerprint)
+                    && !NeedsEmbeddingRetry(previousStatus!))
                 {
                     previousStatus!.CurrentCommitSha = commitSha;
                     previousStatus.Freshness = "Fresh";
@@ -308,9 +326,11 @@ namespace Armada.Core.Services
                     if (canReuseFileRecords && changedPaths != null)
                     {
                         DateTime reusedAtUtc = DateTime.UtcNow;
+                        // A kept record keeps its vector only when that vector came from the current
+                        // embedding provider; otherwise the vector is dropped and embedded again.
                         records = previousRecords
                             .Where(r => !changedPaths.Contains(NormalizeRepoPath(r.Path)))
-                            .Select(r => CloneRecordForCommit(r, commitSha, reusedAtUtc))
+                            .Select(r => CloneRecordForCommit(r, commitSha, reusedAtUtc, canReuseEmbeddings))
                             .ToList();
                         records.AddRange(BuildRecordsFromDirectory(vessel, commitSha, tempDirectory, changedPaths));
                         records = records
@@ -323,12 +343,13 @@ namespace Armada.Core.Services
                         records = BuildRecordsFromDirectory(vessel, commitSha, tempDirectory);
                     }
 
+                    int? embeddingDimensions = null;
                     if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
                     {
                         SetActiveUpdateProgress(vessel.Id, "embedding chunks", 0, records.Count);
                         Dictionary<string, float[]> reusableVectors = BuildReusableVectors(canReuseEmbeddings ? previousRecords : null);
                         previousRecords = null!;
-                        await PopulateEmbeddingsAsync(vessel.Id, records, reusableVectors, token).ConfigureAwait(false);
+                        embeddingDimensions = await PopulateEmbeddingsAsync(vessel.Id, records, reusableVectors, token).ConfigureAwait(false);
                     }
 
                     // Release the previous index generation on ALL paths. The semantic block above
@@ -414,8 +435,14 @@ namespace Armada.Core.Services
                         IndexSettingsFingerprint = indexSettingsFingerprint,
                         EmbeddingSettingsFingerprint = embeddingSettingsFingerprint,
                         UseSemanticSearch = _Settings.CodeIndex.UseSemanticSearch,
-                        EmbeddingModel = _Settings.CodeIndex.UseSemanticSearch ? _Settings.CodeIndex.EmbeddingModel : null
+                        EmbeddingModel = _Settings.CodeIndex.UseSemanticSearch ? ResolveEffectiveEmbeddingModel() : null
                     };
+                    ApplyEmbeddingCompleteness(status, records, embeddingDimensions);
+                    if (String.Equals(status.EmbeddingState, _EmbeddingStateIncomplete, StringComparison.Ordinal))
+                    {
+                        _Logging.Warn(_Header + status.MissingEmbeddingCount + " of " + status.ChunkCount + " chunks for vessel " + vessel.Id
+                            + " have no embedding; the next index update retries them");
+                    }
 
                     SetActiveUpdateProgress(vessel.Id, "writing index", null, null);
                     await WriteIndexAsync(vesselIndexDirectory, status, records, token).ConfigureAwait(false);
@@ -2723,13 +2750,20 @@ namespace Armada.Core.Services
             return records;
         }
 
-        private async Task PopulateEmbeddingsAsync(
+        /// <summary>
+        /// Give every record a vector from the current provider. Reusable vectors fill unchanged
+        /// content, and the provider embeds the rest. All vectors in one index must have the same
+        /// length: a kept or reused vector whose length differs from the provider's current output is
+        /// dropped and embedded again. Returns the vector length of the index, or null when no record
+        /// has a vector.
+        /// </summary>
+        private async Task<int?> PopulateEmbeddingsAsync(
             string vesselId,
             List<CodeIndexRecord> records,
             Dictionary<string, float[]> reusableVectors,
             CancellationToken token)
         {
-            if (_EmbeddingClient == null) return;
+            if (_EmbeddingClient == null) return null;
 
             List<CodeIndexRecord> missing = new List<CodeIndexRecord>();
             foreach (CodeIndexRecord record in records)
@@ -2746,6 +2780,39 @@ namespace Armada.Core.Services
                 missing.Add(record);
             }
 
+            int? providerDimensions = await EmbedRecordsAsync(vesselId, missing, token).ConfigureAwait(false);
+            int? expectedDimensions = providerDimensions ?? MostCommonVectorLength(records);
+            if (expectedDimensions == null) return null;
+
+            List<CodeIndexRecord> mismatched = records
+                .Where(r => r.EmbeddingVector != null && r.EmbeddingVector.Length > 0 && r.EmbeddingVector.Length != expectedDimensions.Value)
+                .ToList();
+            if (mismatched.Count > 0)
+            {
+                _Logging.Warn(_Header + mismatched.Count + " chunk vectors for vessel " + vesselId + " do not have length "
+                    + expectedDimensions.Value + "; embedding them again");
+                foreach (CodeIndexRecord record in mismatched) record.EmbeddingVector = null;
+                await EmbedRecordsAsync(vesselId, mismatched, token).ConfigureAwait(false);
+                foreach (CodeIndexRecord record in mismatched)
+                {
+                    if (record.EmbeddingVector != null && record.EmbeddingVector.Length != expectedDimensions.Value)
+                        record.EmbeddingVector = null;
+                }
+            }
+
+            return expectedDimensions;
+        }
+
+        /// <summary>
+        /// Embed each record through the provider, in batches with a per-record fallback. A record
+        /// the provider fails to embed keeps no vector. Returns the length of the first vector the
+        /// provider produced, or null when it produced none.
+        /// </summary>
+        private async Task<int?> EmbedRecordsAsync(string vesselId, List<CodeIndexRecord> missing, CancellationToken token)
+        {
+            if (_EmbeddingClient == null || missing.Count == 0) return null;
+
+            int? producedLength = null;
             int batchSize = Math.Max(1, _Settings.CodeIndex.EmbeddingBatchSize);
             int embedded = 0;
             for (int start = 0; start < missing.Count; start += batchSize)
@@ -2771,6 +2838,7 @@ namespace Armada.Core.Services
                         if (vector != null && vector.Length > 0)
                         {
                             batch[i].EmbeddingVector = vector;
+                            producedLength ??= vector.Length;
                         }
                     }
 
@@ -2786,7 +2854,10 @@ namespace Armada.Core.Services
                     {
                         float[] vector = await _EmbeddingClient.EmbedAsync(record.Content ?? "", token).ConfigureAwait(false);
                         if (vector != null && vector.Length > 0)
+                        {
                             record.EmbeddingVector = vector;
+                            producedLength ??= vector.Length;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -2799,6 +2870,56 @@ namespace Armada.Core.Services
                     }
                 }
             }
+
+            return producedLength;
+        }
+
+        private static int? MostCommonVectorLength(List<CodeIndexRecord> records)
+        {
+            List<IGrouping<int, CodeIndexRecord>> groups = records
+                .Where(r => r.EmbeddingVector != null && r.EmbeddingVector.Length > 0)
+                .GroupBy(r => r.EmbeddingVector!.Length)
+                .OrderByDescending(g => g.Count())
+                .ThenByDescending(g => g.Key)
+                .ToList();
+            return groups.Count == 0 ? null : groups[0].Key;
+        }
+
+        /// <summary>
+        /// Record embedding completeness on a status, separately from lexical freshness.
+        /// </summary>
+        private void ApplyEmbeddingCompleteness(CodeIndexStatus status, List<CodeIndexRecord> records, int? embeddingDimensions)
+        {
+            int embedded = records.Count(r => r.EmbeddingVector != null && r.EmbeddingVector.Length > 0);
+            status.EmbeddedChunkCount = embedded;
+            status.EmbeddingDimensions = embedded > 0 ? embeddingDimensions : null;
+            if (!_Settings.CodeIndex.UseSemanticSearch)
+            {
+                status.EmbeddingState = _EmbeddingStateDisabled;
+                status.MissingEmbeddingCount = 0;
+                return;
+            }
+
+            if (_EmbeddingClient == null)
+            {
+                status.EmbeddingState = _EmbeddingStateUnavailable;
+                status.MissingEmbeddingCount = records.Count - embedded;
+                return;
+            }
+
+            status.MissingEmbeddingCount = records.Count - embedded;
+            status.EmbeddingState = status.MissingEmbeddingCount == 0 ? _EmbeddingStateComplete : _EmbeddingStateIncomplete;
+        }
+
+        /// <summary>
+        /// True when a persisted index on the current commit must still be updated because the
+        /// provider can fill vectors it lacks. A status written before completeness was tracked
+        /// counts as unknown and is checked once.
+        /// </summary>
+        private bool NeedsEmbeddingRetry(CodeIndexStatus previousStatus)
+        {
+            if (!_Settings.CodeIndex.UseSemanticSearch || _EmbeddingClient == null) return false;
+            return !String.Equals(previousStatus.EmbeddingState, _EmbeddingStateComplete, StringComparison.Ordinal);
         }
 
         private void LogEmbeddingProgress(int done, int total, string vesselId, string label)
@@ -2859,7 +2980,7 @@ namespace Armada.Core.Services
                 && String.Equals(previousStatus.EmbeddingSettingsFingerprint, embeddingSettingsFingerprint, StringComparison.Ordinal);
         }
 
-        private static CodeIndexRecord CloneRecordForCommit(CodeIndexRecord source, string commitSha, DateTime indexedAtUtc)
+        private static CodeIndexRecord CloneRecordForCommit(CodeIndexRecord source, string commitSha, DateTime indexedAtUtc, bool keepEmbeddingVector)
         {
             return new CodeIndexRecord
             {
@@ -2877,7 +2998,7 @@ namespace Armada.Core.Services
                 // EmbeddingVector is treated as immutable post-assignment (callers only
                 // overwrite the reference, never mutate in place). Share the reference
                 // instead of allocating a fresh 1024-float copy per cloned record.
-                EmbeddingVector = source.EmbeddingVector
+                EmbeddingVector = keepEmbeddingVector ? source.EmbeddingVector : null
             };
         }
 
@@ -3110,10 +3231,26 @@ namespace Armada.Core.Services
             object payload = new
             {
                 _Settings.CodeIndex.UseSemanticSearch,
-                Model = _Settings.CodeIndex.UseSemanticSearch ? _Settings.CodeIndex.EmbeddingModel : "",
-                BaseUrl = _Settings.CodeIndex.UseSemanticSearch ? _Settings.CodeIndex.EmbeddingApiBaseUrl : ""
+                Model = _Settings.CodeIndex.UseSemanticSearch ? ResolveEffectiveEmbeddingModel() : "",
+                BaseUrl = _Settings.CodeIndex.UseSemanticSearch ? ResolveEffectiveEmbeddingBaseUrl() : ""
             };
             return ComputeSha256(JsonSerializer.Serialize(payload, _JsonOptions));
+        }
+
+        /// <summary>
+        /// The model the embedding client actually calls: the client's own model (a registered
+        /// endpoint can override the settings), else the settings model.
+        /// </summary>
+        private string ResolveEffectiveEmbeddingModel()
+        {
+            string? model = _EmbeddingClient?.EffectiveModel;
+            return String.IsNullOrWhiteSpace(model) ? _Settings.CodeIndex.EmbeddingModel : model;
+        }
+
+        private string ResolveEffectiveEmbeddingBaseUrl()
+        {
+            string? baseUrl = _EmbeddingClient?.EffectiveBaseUrl;
+            return String.IsNullOrWhiteSpace(baseUrl) ? _Settings.CodeIndex.EmbeddingApiBaseUrl : baseUrl;
         }
 
         private static List<string> NormalizeList(List<string> values)
@@ -3917,6 +4054,15 @@ namespace Armada.Core.Services
         private string GetStatusPath(string vesselId)
         {
             return Path.Combine(GetVesselIndexDirectory(vesselId), "metadata.json");
+        }
+
+        /// <summary>
+        /// The one enrollment rule for automatic refresh: an index update has run for the vessel,
+        /// so its persisted status exists.
+        /// </summary>
+        private bool HasIndexStatus(string vesselId)
+        {
+            return File.Exists(GetStatusPath(vesselId));
         }
 
         private string GetChunksPath(string vesselId)

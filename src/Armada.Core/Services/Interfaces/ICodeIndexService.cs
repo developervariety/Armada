@@ -37,7 +37,19 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
-        /// Refresh the index for a vessel.
+        /// True when the vessel is enrolled for automatic refresh: an index update has already run
+        /// for it, so a persisted index status exists. Automatic triggers refresh only an enrolled
+        /// vessel; a vessel is enrolled only by an explicit index update. Defaults to false so
+        /// doubles and minimal implementations never auto-index unless they override it.
+        /// </summary>
+        Task<bool> IsIndexedAsync(string vesselId, CancellationToken token = default)
+        {
+            return Task.FromResult(false);
+        }
+
+        /// <summary>
+        /// Refresh the index for a vessel. This is the explicit update, and it indexes a vessel that
+        /// has never been indexed.
         /// </summary>
         Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default);
 

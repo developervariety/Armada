@@ -379,6 +379,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new OpenCodeServerLauncherTests());
             runner.AddSuite(new OpenCodeServerLauncherNegativePathTests());
             runner.AddSuite(new CodeIndexProductionWiringTests());
+            runner.AddSuite(new CodeIndexRefreshSchedulerTests());
             runner.AddSuite(new McpCodeIndexToolsTests());
             runner.AddSuite(new StructuralChunkerTests());
             runner.AddSuite(new CodeDuplicateFinderTests());

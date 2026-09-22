@@ -8,6 +8,19 @@ namespace Armada.Core.Services.Interfaces
     public interface IEmbeddingClient
     {
         /// <summary>
+        /// Model name this client sends to its provider, when the client knows it. Null means the
+        /// code-index settings describe the provider. Part of the vector provenance fingerprint, so a
+        /// provider change invalidates vectors produced by the previous provider.
+        /// </summary>
+        string? EffectiveModel => null;
+
+        /// <summary>
+        /// Provider base URL this client sends to, when the client knows it. Null means the
+        /// code-index settings describe the provider.
+        /// </summary>
+        string? EffectiveBaseUrl => null;
+
+        /// <summary>
         /// Generate an embedding vector for the supplied text.
         /// </summary>
         Task<float[]> EmbedAsync(string text, CancellationToken token = default);

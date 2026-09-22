@@ -73,6 +73,27 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.FromResult(0);
         }
 
+        /// <summary>
+        /// Answer to <see cref="IsIndexedAsync"/>. True by default so automatic refresh proceeds;
+        /// set false to model a vessel that has never been indexed.
+        /// </summary>
+        public bool Indexed { get; set; } = true;
+
+        /// <summary>
+        /// Vessel ids passed to <see cref="IsIndexedAsync"/>, in call order.
+        /// </summary>
+        public List<string> IsIndexedVesselIds { get; } = new List<string>();
+
+        /// <inheritdoc />
+        public Task<bool> IsIndexedAsync(string vesselId, CancellationToken token = default)
+        {
+            lock (_Gate)
+            {
+                IsIndexedVesselIds.Add(vesselId ?? "");
+            }
+            return Task.FromResult(Indexed);
+        }
+
         /// <inheritdoc />
         public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
         {

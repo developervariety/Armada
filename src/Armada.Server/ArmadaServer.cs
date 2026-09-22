@@ -289,9 +289,7 @@ namespace Armada.Server
 
             IEmbeddingClient embeddingClient = await EmbeddingClientFactory.CreateAsync(_Settings, _Database, _Logging, codeIndexHttpClient).ConfigureAwait(false);
             _OpenCodeServerLauncher = new OpenCodeServerLauncher(_Settings, _Logging, codeIndexHttpClient);
-            IInferenceClient inferenceClient = string.Equals(_Settings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
-                ? new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)
-                : new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
+            IInferenceClient inferenceClient = CodeIndexInferenceClientFactory.Create(_Settings, _Logging, codeIndexHttpClient);
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
 
             // Typed-decision foundation. Every decision point holds one switchable client: it calls the

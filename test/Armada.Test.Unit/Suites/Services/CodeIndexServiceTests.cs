@@ -1326,6 +1326,171 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("UpdateAsync_EmbeddingModelChange_SameCommit_ReplacesEveryVector", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient first = new RecordingEmbeddingClient(new float[] { 0.5F, 0.25F, -0.125F });
+                        CodeIndexService firstService = CreateService(testDb, dataRoot, first,
+                            ci => { ci.UseSemanticSearch = true; ci.EmbeddingModel = "model-a"; });
+                        CodeIndexStatus firstStatus = await firstService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(firstStatus.ChunkCount > 1, "fixture should produce more than one chunk");
+
+                        RecordingEmbeddingClient second = new RecordingEmbeddingClient(new float[] { 0.75F, 0.125F, -0.5F });
+                        CodeIndexService secondService = CreateService(testDb, dataRoot, second,
+                            ci => { ci.UseSemanticSearch = true; ci.EmbeddingModel = "model-b"; });
+                        CodeIndexStatus secondStatus = await secondService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertEqual(firstStatus.IndexedCommitSha, secondStatus.IndexedCommitSha, "the model switch must happen on the same commit");
+                        AssertEqual(secondStatus.ChunkCount, second.CallCount,
+                            "every chunk must be embedded again by the new model");
+                        string chunksJson = await File.ReadAllTextAsync(Path.Combine(secondStatus.IndexDirectory, "chunks.jsonl")).ConfigureAwait(false);
+                        AssertFalse(chunksJson.Contains("[0.5,0.25,-0.125]", StringComparison.Ordinal),
+                            "no vector from the previous model may remain in the index");
+                        AssertEqual("model-b", secondStatus.EmbeddingModel);
+                        AssertEqual("Complete", secondStatus.EmbeddingState);
+                        AssertEqual(secondStatus.ChunkCount, secondStatus.EmbeddedChunkCount);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_EmbeddingModelChange_OneChangedFile_ReplacesUnchangedFileVectors", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient first = new RecordingEmbeddingClient(new float[] { 0.5F, 0.25F, -0.125F });
+                        CodeIndexService firstService = CreateService(testDb, dataRoot, first,
+                            ci => { ci.UseSemanticSearch = true; ci.EmbeddingModel = "model-a"; });
+                        await firstService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        await File.WriteAllTextAsync(
+                            Path.Combine(repository.Path, "docs", "usage.md"),
+                            "# Usage\n\nThis document mentions context packs for mission briefs.\n\nOne changed file.\n").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "add", ".").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "commit", "-m", "Change one indexed file").ConfigureAwait(false);
+
+                        RecordingEmbeddingClient second = new RecordingEmbeddingClient(new float[] { 0.75F, 0.125F, -0.5F });
+                        CodeIndexService secondService = CreateService(testDb, dataRoot, second,
+                            ci => { ci.UseSemanticSearch = true; ci.EmbeddingModel = "model-b"; });
+                        CodeIndexStatus secondStatus = await secondService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertTrue(second.Inputs.Any(i => i.Contains("SearchKeyword", StringComparison.Ordinal)),
+                            "the unchanged file must be embedded again by the new model");
+                        AssertEqual(secondStatus.ChunkCount, second.CallCount, "every chunk must be embedded by the new model");
+                        string chunksJson = await File.ReadAllTextAsync(Path.Combine(secondStatus.IndexDirectory, "chunks.jsonl")).ConfigureAwait(false);
+                        AssertFalse(chunksJson.Contains("[0.5,0.25,-0.125]", StringComparison.Ordinal),
+                            "no vector from the previous model may remain on an unchanged file");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_EmbeddingDimensionChange_ReplacesVectorsOfTheOldLength", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient first = new RecordingEmbeddingClient(new float[] { 0.5F, 0.25F, -0.125F });
+                        CodeIndexService firstService = CreateService(testDb, dataRoot, first, ci => { ci.UseSemanticSearch = true; });
+                        await firstService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        await File.WriteAllTextAsync(
+                            Path.Combine(repository.Path, "docs", "usage.md"),
+                            "# Usage\n\nThis document mentions context packs for mission briefs.\n\nDimension change.\n").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "add", ".").ConfigureAwait(false);
+                        await RunGitAsync(repository.Path, "commit", "-m", "Change one indexed file").ConfigureAwait(false);
+
+                        RecordingEmbeddingClient second = new RecordingEmbeddingClient(new float[] { 0.75F, 0.125F, -0.5F, 0.25F });
+                        CodeIndexService secondService = CreateService(testDb, dataRoot, second, ci => { ci.UseSemanticSearch = true; });
+                        CodeIndexStatus secondStatus = await secondService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        string chunksJson = await File.ReadAllTextAsync(Path.Combine(secondStatus.IndexDirectory, "chunks.jsonl")).ConfigureAwait(false);
+                        AssertFalse(chunksJson.Contains("[0.5,0.25,-0.125]", StringComparison.Ordinal),
+                            "a vector of the old length must not stay beside vectors of the new length");
+                        AssertEqual(4, secondStatus.EmbeddingDimensions);
+                        AssertEqual("Complete", secondStatus.EmbeddingState);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("UpdateAsync_EmbeddingFailureThenRecovery_SameCommit_RetriesOnlyMissingVectors", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        SelectiveFailingEmbeddingClient failing = new SelectiveFailingEmbeddingClient(
+                            new float[] { 0.5F, 0.25F, -0.125F }, "context packs");
+                        CodeIndexService firstService = CreateService(testDb, dataRoot, failing, ci => { ci.UseSemanticSearch = true; });
+                        CodeIndexStatus firstStatus = await firstService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertEqual("Fresh", firstStatus.Freshness, "lexical freshness is independent of embedding completeness");
+                        AssertEqual("Incomplete", firstStatus.EmbeddingState, "a failed chunk must not be reported as a complete embedding set");
+                        AssertTrue(firstStatus.MissingEmbeddingCount > 0, "the failed chunk must be counted as missing");
+                        CodeIndexStatus reported = await firstService.GetStatusAsync(vessel.Id).ConfigureAwait(false);
+                        AssertEqual("Incomplete", reported.EmbeddingState, "status reads must report the missing vectors");
+                        AssertEqual(firstStatus.MissingEmbeddingCount, reported.MissingEmbeddingCount);
+
+                        RecordingEmbeddingClient recovered = new RecordingEmbeddingClient(new float[] { 0.75F, 0.125F, -0.5F });
+                        CodeIndexService secondService = CreateService(testDb, dataRoot, recovered, ci => { ci.UseSemanticSearch = true; });
+                        CodeIndexStatus secondStatus = await secondService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        AssertEqual(firstStatus.IndexedCommitSha, secondStatus.IndexedCommitSha, "the retry must happen on the same commit");
+                        AssertEqual(firstStatus.MissingEmbeddingCount, recovered.CallCount, "only the missing chunks may be embedded again");
+                        AssertTrue(recovered.Inputs.All(i => i.Contains("context packs", StringComparison.Ordinal)),
+                            "valid vectors must be reused, not embedded again");
+                        AssertEqual("Complete", secondStatus.EmbeddingState);
+                        AssertEqual(0, secondStatus.MissingEmbeddingCount);
+                        AssertEqual(secondStatus.ChunkCount, secondStatus.EmbeddedChunkCount);
+
+                        RecordingEmbeddingClient idle = new RecordingEmbeddingClient(new float[] { 0.75F, 0.125F, -0.5F });
+                        CodeIndexService thirdService = CreateService(testDb, dataRoot, idle, ci => { ci.UseSemanticSearch = true; });
+                        await thirdService.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        AssertEqual(0, idle.CallCount, "a complete index on the same commit must not call the provider again");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("UpdateAsync_SemanticSearchOn_PerChunkEmbeddingFailureDoesNotAbortUpdate", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
@@ -2192,6 +2357,25 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 CallCount++;
                 throw _Exception;
+            }
+        }
+
+        private sealed class SelectiveFailingEmbeddingClient : IEmbeddingClient
+        {
+            private readonly float[] _Vector;
+            private readonly string _FailWhenContains;
+
+            public SelectiveFailingEmbeddingClient(float[] vector, string failWhenContains)
+            {
+                _Vector = vector ?? throw new ArgumentNullException(nameof(vector));
+                _FailWhenContains = failWhenContains ?? throw new ArgumentNullException(nameof(failWhenContains));
+            }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                if ((text ?? String.Empty).Contains(_FailWhenContains, StringComparison.Ordinal))
+                    throw new InvalidOperationException("provider rejected the chunk");
+                return Task.FromResult(_Vector);
             }
         }
 

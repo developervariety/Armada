@@ -52,9 +52,7 @@ namespace Armada.Helm.Commands
             HttpClient codeIndexHttpClient = new HttpClient();
             IEmbeddingClient embeddingClient = await EmbeddingClientFactory.CreateAsync(armadaSettings, database, logging, codeIndexHttpClient, cancellationToken).ConfigureAwait(false);
             OpenCodeServerLauncher openCodeServerLauncher = new OpenCodeServerLauncher(armadaSettings, logging, codeIndexHttpClient);
-            IInferenceClient inferenceClient = string.Equals(armadaSettings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
-                ? new OpenCodeServerInferenceClient(armadaSettings, logging, codeIndexHttpClient)
-                : new DeepSeekInferenceClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
+            IInferenceClient inferenceClient = CodeIndexInferenceClientFactory.Create(armadaSettings, logging, codeIndexHttpClient);
             try
             {
                 await openCodeServerLauncher.StartAsync(cancellationToken).ConfigureAwait(false);

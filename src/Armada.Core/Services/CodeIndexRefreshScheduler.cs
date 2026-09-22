@@ -8,7 +8,10 @@ namespace Armada.Core.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Coalesces post-landing code-index refresh requests per vessel.
+    /// Coalesces automatic code-index refresh requests per vessel. Every automatic trigger
+    /// (post-landing, merge queue, dispatch staleness, and the staleness sweep) goes through this
+    /// scheduler, and the scheduler refreshes only a vessel the index service reports as already
+    /// indexed. A vessel is indexed for the first time only by an explicit index update.
     /// </summary>
     public static class CodeIndexRefreshScheduler
     {
@@ -61,6 +64,15 @@ namespace Armada.Core.Services
             });
         }
 
+        /// <summary>
+        /// True while a refresh for the vessel is queued, debouncing, or running.
+        /// </summary>
+        public static bool IsPending(string? vesselId)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) return false;
+            return _States.ContainsKey(vesselId.Trim());
+        }
+
         private static async Task RunWorkerAsync(
             string vesselId,
             RefreshState state,
@@ -99,24 +111,43 @@ namespace Armada.Core.Services
                     }
                 }
 
+                bool indexed;
                 try
                 {
-                    logging.Info(logHeader + "auto-refreshing code index for vessel " + vesselId + " after " + reason);
-                    await service.UpdateAsync(vesselId).ConfigureAwait(false);
-                    logging.Info(logHeader + "code index refresh complete for vessel " + vesselId);
+                    indexed = await service.IsIndexedAsync(vesselId).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    logging.Warn(logHeader + "code index refresh failed for vessel " + vesselId + ": " + ex.Message);
+                    indexed = false;
+                    logging.Warn(logHeader + "could not read code index enrollment for vessel " + vesselId + ": " + ex.Message);
                 }
 
-                try
+                if (!indexed)
                 {
-                    await service.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
+                    logging.Info(logHeader + "automatic code index refresh after " + reason + " skipped for vessel " + vesselId
+                        + ": the vessel has never been indexed, and only an explicit index update indexes a vessel first");
                 }
-                catch (Exception ex)
+                else
                 {
-                    logging.Warn(logHeader + "baseline cache warm-up failed for vessel " + vesselId + ": " + ex.Message);
+                    try
+                    {
+                        logging.Info(logHeader + "auto-refreshing code index for vessel " + vesselId + " after " + reason);
+                        await service.UpdateAsync(vesselId).ConfigureAwait(false);
+                        logging.Info(logHeader + "code index refresh complete for vessel " + vesselId);
+                    }
+                    catch (Exception ex)
+                    {
+                        logging.Warn(logHeader + "code index refresh failed for vessel " + vesselId + ": " + ex.Message);
+                    }
+
+                    try
+                    {
+                        await service.WarmBaselineCacheAsync(vesselId).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logging.Warn(logHeader + "baseline cache warm-up failed for vessel " + vesselId + ": " + ex.Message);
+                    }
                 }
 
                 lock (state.Gate)

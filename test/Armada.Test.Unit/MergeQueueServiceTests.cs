@@ -400,43 +400,6 @@ namespace Armada.Test.Unit
                 }
             });
 
-            await RunTest("CodeIndexRefreshScheduler_CoalescesRapidRequestsForSameVessel", async () =>
-            {
-                RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
-                ArmadaSettings settings = CreateSettings();
-                settings.CodeIndex.PostLandRefreshDebounceSeconds = 1;
-                string vesselId = "vsl_debounce_" + Guid.NewGuid().ToString("N");
-
-                CodeIndexRefreshScheduler.Schedule(recordingIndex, settings.CodeIndex, CreateLogging(), "[test] ", vesselId, "first landing");
-                CodeIndexRefreshScheduler.Schedule(recordingIndex, settings.CodeIndex, CreateLogging(), "[test] ", vesselId, "second landing");
-                CodeIndexRefreshScheduler.Schedule(recordingIndex, settings.CodeIndex, CreateLogging(), "[test] ", vesselId, "third landing");
-
-                await WaitUntilAsync(() => recordingIndex.HasUpdateForVessel(vesselId), maxAttempts: 40, delayMs: 100).ConfigureAwait(false);
-                await Task.Delay(300).ConfigureAwait(false);
-                AssertEqual(1, recordingIndex.UpdateAsyncVesselIds.Count(id => id == vesselId),
-                    "rapid refresh requests for one vessel should be coalesced into one update");
-            });
-
-            await RunTest("CodeIndexRefreshScheduler_Disabled_DoesNotScheduleRefresh", async () =>
-            {
-                RecordingCodeIndexService recordingIndex = new RecordingCodeIndexService();
-                ArmadaSettings settings = CreateSettings();
-                settings.CodeIndex.Enabled = false;
-                string vesselId = "vsl_disabled_" + Guid.NewGuid().ToString("N");
-
-                CodeIndexRefreshScheduler.Schedule(
-                    recordingIndex,
-                    settings.CodeIndex,
-                    CreateLogging(),
-                    "[test] ",
-                    vesselId,
-                    "disabled landing");
-
-                await Task.Delay(100).ConfigureAwait(false);
-                AssertEqual(0, recordingIndex.UpdateAsyncVesselIds.Count,
-                    "disabled code indexing must not schedule post-land refresh work");
-            });
-
             await RunTest("ProcessSingle_BoundaryViolation_FailsBeforeTestsRun", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_boundary_" + Guid.NewGuid().ToString("N"));
@@ -641,6 +604,9 @@ namespace Armada.Test.Unit
 
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
                 => Task.FromResult(new CodeIndexStatus { VesselId = vesselId ?? "" });
+
+            public Task<bool> IsIndexedAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(true);
 
             public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
             {

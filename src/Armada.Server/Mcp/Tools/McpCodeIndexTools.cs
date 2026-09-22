@@ -53,7 +53,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_index_status",
-                "Get code index status for a vessel, including indexed commit, current commit, chunk counts, and freshness.",
+                "Get code index status for a vessel, including indexed commit, current commit, chunk counts, lexical freshness, and semantic embedding completeness (EmbeddingState, MissingEmbeddingCount).",
                 new
                 {
                     type = "object",
@@ -74,8 +74,8 @@ namespace Armada.Server.Mcp.Tools
             register(
                 "armada_index_update",
                 jobs == null
-                    ? "Refresh the Admiral-owned code index for a vessel's default branch."
-                    : "Start a background refresh of the Admiral-owned code index and immediately return an accepted job handle. Use armada_job_status to retrieve completion or failure.",
+                    ? "Refresh the Admiral-owned code index for a vessel's default branch. This explicit update is the only way a vessel is indexed for the first time; it also retries missing embeddings on the same commit."
+                    : "Start a background refresh of the Admiral-owned code index and immediately return an accepted job handle. This explicit update is the only way a vessel is indexed for the first time; it also retries missing embeddings on the same commit. Use armada_job_status to retrieve completion or failure.",
                 new
                 {
                     type = "object",

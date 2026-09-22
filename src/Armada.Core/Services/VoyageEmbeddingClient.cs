@@ -61,6 +61,16 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Public-Members
+
+        /// <inheritdoc />
+        public string? EffectiveModel => _Settings.EmbeddingModel;
+
+        /// <inheritdoc />
+        public string? EffectiveBaseUrl => _Settings.EmbeddingApiBaseUrl;
+
+        #endregion
+
         #region Public-Methods
 
         /// <inheritdoc />

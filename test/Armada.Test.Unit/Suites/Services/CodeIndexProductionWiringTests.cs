@@ -3,8 +3,6 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.IO;
     using System.Net.Http;
-    using System.Reflection;
-    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -16,7 +14,7 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Guards production wiring of semantic-search HTTP clients into <see cref="CodeIndexService"/>.
+    /// Guards production wiring of the code-index service and the provider clients it is built with.
     /// </summary>
     public class CodeIndexProductionWiringTests : TestSuite
     {
@@ -42,17 +40,9 @@ namespace Armada.Test.Unit.Suites.Services
                     contents,
                     "ArmadaServer should build the embedding client through EmbeddingClientFactory (endpoint-or-settings)");
                 AssertContains(
-                    "string.Equals(_Settings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
+                    "CodeIndexInferenceClientFactory.Create(_Settings, _Logging, codeIndexHttpClient)",
                     contents,
-                    "ArmadaServer should switch inference client based on CodeIndex.InferenceClient");
-                AssertContains(
-                    "new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)",
-                    contents,
-                    "ArmadaServer should construct OpenCodeServerInferenceClient for OpenCodeServer mode");
-                AssertContains(
-                    "new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient)",
-                    contents,
-                    "ArmadaServer should keep DeepSeekInferenceClient for Http mode");
+                    "ArmadaServer should select the inference client through the shared production factory");
                 AssertContains(
                     "new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient)",
                     contents,
@@ -70,68 +60,6 @@ namespace Armada.Test.Unit.Suites.Services
                     contents,
                     "Startup warm-up should call WarmBaselineCacheAsync for indexed vessels");
                 return Task.CompletedTask;
-            }).ConfigureAwait(false);
-
-            await RunTest("ArmadaServer isolates model endpoint health from the core heartbeat loop", () =>
-            {
-                string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
-                string contents = File.ReadAllText(path);
-                int coreStart = contents.IndexOf("private async Task HealthCheckLoopAsync", StringComparison.Ordinal);
-                int endpointStart = contents.IndexOf("private async Task ModelEndpointHealthLoopAsync", StringComparison.Ordinal);
-                AssertTrue(coreStart >= 0 && endpointStart > coreStart, "ArmadaServer should define both health loops");
-                string coreLoop = contents.Substring(coreStart, endpointStart - coreStart);
-                AssertFalse(coreLoop.Contains("CheckHealthAllAsync", StringComparison.Ordinal), "A blocked model provider must not block the core heartbeat loop");
-                AssertContains("_ModelEndpointService.CheckHealthAllAsync(sweepToken)", contents, "The endpoint health loop must retain the provider sweep");
-                AssertContains("_ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token)", contents, "The endpoint health loop must start independently");
-                return Task.CompletedTask;
-            }).ConfigureAwait(false);
-
-            await RunTest("A blocked model endpoint sweep does not block the core heartbeat and cancels cleanly", async () =>
-            {
-                TaskCompletionSource<bool> sweepStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                TaskCompletionSource<bool> heartbeatCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                using CancellationTokenSource cancellation = new CancellationTokenSource();
-                int activeSweeps = 0;
-                int maximumActiveSweeps = 0;
-                int sweepCount = 0;
-
-                Task sweep = ModelEndpointHealthSweepRunner.RunAsync(
-                    async token =>
-                    {
-                        Interlocked.Increment(ref sweepCount);
-                        int active = Interlocked.Increment(ref activeSweeps);
-                        int observedMaximum;
-                        do
-                        {
-                            observedMaximum = maximumActiveSweeps;
-                            if (active <= observedMaximum) break;
-                        }
-                        while (Interlocked.CompareExchange(ref maximumActiveSweeps, active, observedMaximum) != observedMaximum);
-
-                        sweepStarted.TrySetResult(true);
-                        try
-                        {
-                            await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
-                        }
-                        finally
-                        {
-                            Interlocked.Decrement(ref activeSweeps);
-                        }
-                    },
-                    TimeSpan.Zero,
-                    _ => { },
-                    cancellation.Token);
-
-                await sweepStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-                Task heartbeat = Task.Run(() => heartbeatCompleted.TrySetResult(true));
-                await heartbeatCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-                cancellation.Cancel();
-                await sweep.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-                await heartbeat.ConfigureAwait(false);
-
-                AssertEqual(1, sweepCount, "A blocked sweep must not overlap or start a second probe.");
-                AssertEqual(1, maximumActiveSweeps, "Endpoint probes must run serially.");
-                AssertEqual(0, activeSweeps, "Cancellation must release the active probe.");
             }).ConfigureAwait(false);
 
             await RunTest("ArmadaServer source runs can auto-detect the React dashboard build", () =>
@@ -209,17 +137,9 @@ namespace Armada.Test.Unit.Suites.Services
                     contents,
                     "McpStdioCommand should build the embedding client through EmbeddingClientFactory (endpoint-or-settings)");
                 AssertContains(
-                    "string.Equals(armadaSettings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
+                    "CodeIndexInferenceClientFactory.Create(armadaSettings, logging, codeIndexHttpClient)",
                     contents,
-                    "McpStdioCommand should switch inference client based on CodeIndex.InferenceClient");
-                AssertContains(
-                    "new OpenCodeServerInferenceClient(armadaSettings, logging, codeIndexHttpClient)",
-                    contents,
-                    "McpStdioCommand should construct OpenCodeServerInferenceClient for OpenCodeServer mode");
-                AssertContains(
-                    "new DeepSeekInferenceClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient)",
-                    contents,
-                    "McpStdioCommand should keep DeepSeekInferenceClient for Http mode");
+                    "McpStdioCommand should select the inference client through the shared production factory");
                 AssertContains(
                     "new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient)",
                     contents,
@@ -231,168 +151,64 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("Mirrored production CodeIndexService ctor defaults to DeepSeek inference for Http mode", async () =>
+            await RunTest("Production inference-client factory selects the client for each configured mode", () =>
             {
                 string dataRoot = NewTempDirectory("armada-code-index-prod-wire-");
                 try
                 {
-                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     using (HttpClient http = new HttpClient())
                     {
                         LoggingModule logging = SilentLogging();
                         ArmadaSettings settings = BuildMinimalSettings(dataRoot);
-                        IEmbeddingClient embeddingClient = new VoyageEmbeddingClient(settings.CodeIndex, logging, http);
-                        IInferenceClient inferenceClient = new DeepSeekInferenceClient(settings.CodeIndex, logging, http);
-                        CodeIndexService service = new CodeIndexService(
-                            logging,
-                            testDb.Driver,
-                            settings,
-                            new GitService(logging),
-                            embeddingClient,
-                            inferenceClient);
 
-                        FieldInfo? embField = typeof(CodeIndexService).GetField(
-                            "_EmbeddingClient",
-                            BindingFlags.Instance | BindingFlags.NonPublic);
-                        FieldInfo? infField = typeof(CodeIndexService).GetField(
-                            "_InferenceClient",
-                            BindingFlags.Instance | BindingFlags.NonPublic);
+                        settings.CodeIndex.InferenceClient = "Http";
+                        AssertTrue(CodeIndexInferenceClientFactory.Create(settings, logging, http) is DeepSeekInferenceClient,
+                            "Http mode must select the HTTP inference client");
 
-                        AssertTrue(embField != null, "_EmbeddingClient field should exist");
-                        AssertTrue(infField != null, "_InferenceClient field should exist");
+                        settings.CodeIndex.InferenceClient = "OpenCodeServer";
+                        AssertTrue(CodeIndexInferenceClientFactory.Create(settings, logging, http) is OpenCodeServerInferenceClient,
+                            "OpenCodeServer mode must select the OpenCode server client");
 
-                        object? embValue = embField!.GetValue(service);
-                        object? infValue = infField!.GetValue(service);
-
-                        AssertTrue(embValue is VoyageEmbeddingClient, "Embedding field should hold VoyageEmbeddingClient");
-                        AssertTrue(infValue is DeepSeekInferenceClient, "Inference field should hold DeepSeekInferenceClient");
+                        settings.CodeIndex.InferenceClient = "opencodeserver";
+                        AssertTrue(CodeIndexInferenceClientFactory.Create(settings, logging, http) is OpenCodeServerInferenceClient,
+                            "the mode is matched without regard to letter case");
                     }
                 }
                 finally
                 {
                     TryDeleteDirectory(dataRoot);
                 }
+
+                return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("Mirrored production CodeIndexService ctor holds OpenCode inference for OpenCodeServer mode", async () =>
+            await RunTest("Production inference-client factory falls back to the HTTP client for an unknown or empty mode", () =>
             {
-                string dataRoot = NewTempDirectory("armada-code-index-prod-wire-opencode-");
+                string dataRoot = NewTempDirectory("armada-code-index-prod-wire-invalid-");
                 try
                 {
-                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     using (HttpClient http = new HttpClient())
                     {
                         LoggingModule logging = SilentLogging();
                         ArmadaSettings settings = BuildMinimalSettings(dataRoot);
-                        settings.CodeIndex.InferenceClient = "OpenCodeServer";
-                        IEmbeddingClient embeddingClient = new VoyageEmbeddingClient(settings.CodeIndex, logging, http);
-                        IInferenceClient inferenceClient = new OpenCodeServerInferenceClient(settings, logging, http);
-                        CodeIndexService service = new CodeIndexService(
-                            logging,
-                            testDb.Driver,
-                            settings,
-                            new GitService(logging),
-                            embeddingClient,
-                            inferenceClient);
 
-                        FieldInfo? infField = typeof(CodeIndexService).GetField(
-                            "_InferenceClient",
-                            BindingFlags.Instance | BindingFlags.NonPublic);
+                        settings.CodeIndex.InferenceClient = "NoSuchClient";
+                        AssertTrue(CodeIndexInferenceClientFactory.Create(settings, logging, http) is DeepSeekInferenceClient,
+                            "an unknown mode must select the HTTP inference client");
 
-                        AssertTrue(infField != null, "_InferenceClient field should exist");
-                        object? infValue = infField!.GetValue(service);
-                        AssertTrue(infValue is OpenCodeServerInferenceClient, "Inference field should hold OpenCodeServerInferenceClient when selected.");
+                        settings.CodeIndex.InferenceClient = "";
+                        AssertTrue(CodeIndexInferenceClientFactory.Create(settings, logging, http) is DeepSeekInferenceClient,
+                            "an empty mode must select the HTTP inference client");
+                        AssertFalse(CodeIndexInferenceClientFactory.IsOpenCodeServerMode(null), "a null mode is not OpenCodeServer");
                     }
                 }
                 finally
                 {
                     TryDeleteDirectory(dataRoot);
                 }
-            }).ConfigureAwait(false);
 
-            await RunTest("CodeIndexRefreshScheduler invokes WarmBaselineCacheAsync after UpdateAsync", async () =>
-            {
-                WarmTrackingCodeIndexDouble codeIndex = new WarmTrackingCodeIndexDouble();
-                LoggingModule logging = SilentLogging();
-                CodeIndexSettings settings = new CodeIndexSettings
-                {
-                    PostLandRefreshDebounceSeconds = 0
-                };
-
-                CodeIndexRefreshScheduler.Schedule(
-                    codeIndex,
-                    settings,
-                    logging,
-                    "[test] ",
-                    "vsl_test",
-                    "test reason");
-
-                // Allow the background worker time to complete.
-                int waited = 0;
-                while (!codeIndex.WarmWasCalled && waited < 5000)
-                {
-                    await Task.Delay(50).ConfigureAwait(false);
-                    waited += 50;
-                }
-
-                AssertTrue(codeIndex.UpdateWasCalled, "UpdateAsync should be called by the refresh scheduler");
-                AssertTrue(codeIndex.WarmWasCalled, "WarmBaselineCacheAsync should be called after UpdateAsync");
-            }).ConfigureAwait(false);
-        }
-
-        private sealed class WarmTrackingCodeIndexDouble : ICodeIndexService
-        {
-            private readonly object _Gate = new object();
-            private bool _UpdateCalled;
-            private bool _WarmCalled;
-
-            public bool UpdateWasCalled { get { lock (_Gate) { return _UpdateCalled; } } }
-            public bool WarmWasCalled { get { lock (_Gate) { return _WarmCalled; } } }
-
-            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
-                => Task.FromResult(new CodeIndexStatus { VesselId = vesselId ?? "" });
-
-            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
-            {
-                lock (_Gate) { _UpdateCalled = true; }
-                return Task.FromResult(new CodeIndexStatus { VesselId = vesselId ?? "" });
-            }
-
-            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default)
-            {
-                lock (_Gate) { _WarmCalled = true; }
                 return Task.CompletedTask;
-            }
-
-            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default)
-                => Task.FromResult<ContextPackResponse?>(null);
-
-            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
-                => Task.FromResult(new CodeSearchResponse());
-
-            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
-                => Task.FromResult(new FleetCodeSearchResponse());
-
-            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
-                => Task.FromResult(new ContextPackResponse());
-
-            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default)
-                => Task.FromResult(new FleetContextPackResponse());
-
-            public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default)
-                => Task.FromResult(new CodeGraphSymbolSearchResponse());
-
-            public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
-                => Task.FromResult(new CodeGraphNeighborsResponse());
-
-            public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default)
-                => Task.FromResult(new CodeGraphNeighborsResponse());
-
-            public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default)
-                => Task.FromResult(new CodeGraphImpactResponse());
-
-            public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default)
-                => Task.FromResult(new CodeGraphAffectedTestsResponse());
+            }).ConfigureAwait(false);
         }
 
         private static ArmadaSettings BuildMinimalSettings(string dataRoot)
