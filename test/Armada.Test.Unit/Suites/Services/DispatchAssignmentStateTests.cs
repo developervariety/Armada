@@ -388,6 +388,82 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_DockProvisioningFailsWhileAnotherMissionHoldsTheCaptain_LeavesTheCaptainWorkingOnIt", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("provision-fail-rival-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = new Captain("provision-fail-rival-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Provisioning fails") { VesselId = vessel.Id, Status = MissionStatusEnum.Pending }).ConfigureAwait(false);
+
+                    const string rivalMissionId = "msn_rival_during_provision";
+                    RivalClaimDockService dock = new RivalClaimDockService(realDock, () => ClaimForRivalAsync(testDb.Driver, captain.Id, rivalMissionId));
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dock);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "a mission whose dock provisioning failed is not assigned");
+                    AssertTrue(dock.RivalClaimed, "the rival claim landed while the dock was provisioning");
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionAssignmentStateEnum.Failed, stored!.AssignmentState, "the provisioning failure is recorded");
+                    AssertNull(stored.CaptainId, "the failed mission holds no captain");
+                    Captain? rivalCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Working, rivalCaptain!.State, "the captain stays Working on the other mission");
+                    AssertEqual(rivalMissionId, rivalCaptain.CurrentMissionId, "the failed pass must not release another mission's captain");
+                }
+            });
+
+            await RunTest("TryAssign_StartRefFailsWhileAnotherMissionHoldsTheCaptain_LeavesTheCaptainWorkingOnIt", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("start-ref-rival-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = new Captain("start-ref-rival-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Start ref does not resolve")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.Pending,
+                        StartFromRef = "refs/heads/missing"
+                    }).ConfigureAwait(false);
+
+                    const string rivalMissionId = "msn_rival_during_start_ref";
+                    RivalClaimDockService dock = new RivalClaimDockService(realDock, () => ClaimForRivalAsync(testDb.Driver, captain.Id, rivalMissionId));
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dock);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "a mission whose start ref does not resolve is not assigned");
+                    AssertTrue(dock.RivalClaimed, "the rival claim landed while the start ref was resolving");
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, stored!.Status, "the unresolved start ref fails the mission");
+                    Captain? rivalCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Working, rivalCaptain!.State, "the captain stays Working on the other mission");
+                    AssertEqual(rivalMissionId, rivalCaptain.CurrentMissionId, "the failed pass must not release another mission's captain");
+                }
+            });
+
             await RunTest("TryAssign_MissionCancelledAfterProvisioning_StaysCancelledReleasesTheCaptainAndDeletesTheDock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1975,6 +2051,56 @@ namespace Armada.Test.Unit.Suites.Services
             public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.UnstickAsync(dockId, tenantId, token);
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.DeleteAsync(dockId, tenantId, token);
             public Task PurgeAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.PurgeAsync(dockId, tenantId, token);
+        }
+
+        /// <summary>
+        /// Lets another mission claim the captain while the start ref resolves or the dock provisions, then fails
+        /// that step: the start ref does not resolve and provisioning throws.
+        /// </summary>
+        private sealed class RivalClaimDockService : IDockService
+        {
+            private readonly IDockService _Inner;
+            private readonly Func<Task> _ClaimForRival;
+
+            public bool RivalClaimed { get; private set; }
+
+            public RivalClaimDockService(IDockService inner, Func<Task> claimForRival)
+            {
+                _Inner = inner;
+                _ClaimForRival = claimForRival;
+            }
+
+            public async Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default)
+            {
+                await ClaimOnceAsync().ConfigureAwait(false);
+                return null;
+            }
+
+            public async Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
+            {
+                await ClaimOnceAsync().ConfigureAwait(false);
+                throw new InvalidOperationException("Simulated dock provisioning failure after another mission claimed the captain");
+            }
+
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.RepairAsync(dockId, tenantId, token);
+            public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.UnstickAsync(dockId, tenantId, token);
+            public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.DeleteAsync(dockId, tenantId, token);
+            public Task PurgeAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.PurgeAsync(dockId, tenantId, token);
+
+            private async Task ClaimOnceAsync()
+            {
+                if (RivalClaimed) return;
+                await _ClaimForRival().ConfigureAwait(false);
+                RivalClaimed = true;
+            }
+        }
+
+        /// <summary>Claim a captain for another mission through the same compare-and-set assignment uses.</summary>
+        private static async Task ClaimForRivalAsync(Armada.Core.Database.DatabaseDriver database, string captainId, string rivalMissionId)
+        {
+            bool claimed = await database.Captains.TryClaimAsync(Constants.DefaultTenantId, captainId, rivalMissionId, "dck_" + rivalMissionId).ConfigureAwait(false);
+            if (!claimed) throw new InvalidOperationException("The rival claim did not land.");
         }
 
         /// <summary>Cancel a mission the way the voyage cancel route does: read it and write Cancelled.</summary>

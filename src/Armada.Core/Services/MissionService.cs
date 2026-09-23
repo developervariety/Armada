@@ -938,7 +938,7 @@ namespace Armada.Core.Services
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
                     return false;
                 }
 
@@ -1631,7 +1631,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Release a captain only while it still records this mission, so undoing one pass never
-        /// frees a captain another mission has since claimed.
+        /// frees a captain another mission has since claimed. Every assignment failure path uses this
+        /// one release: before the claim commits, the pass does not hold the captain at all.
         /// </summary>
         private async Task ReleaseClaimIfHeldAsync(string captainId, string missionId)
         {
@@ -1702,8 +1703,7 @@ namespace Armada.Core.Services
                     + (heldNow ? " (dock_worktree_held)" : String.Empty));
             }
 
-            try { await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false); }
-            catch (Exception releaseEx) { _Logging.Warn(_Header + "error releasing captain " + captain.Id + " after dock provision failure: " + releaseEx.Message); }
+            await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1757,7 +1757,7 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not reclaim dock " + dock.Id + " after start-ref verification failed: " + ex.Message);
             }
-            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+            await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
             return false;
         }
 
@@ -1824,7 +1824,7 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 await AppendMissionActivityAsync(mission.Id, "validation failed: " + reason, token).ConfigureAwait(false);
 
-                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
                 return false;
             }
 

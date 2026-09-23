@@ -95,8 +95,10 @@ upstream integrations and excludes changes already present at that baseline.
   is still Assigned. A lost claim returns the stored mission to Pending with no
   captain, dock or new branch (`WaitingForIdleCaptain`, logged as
   `captain_claim_lost`) and deletes the provisioned dock. A mission that changed
-  status keeps that status and releases the captain only while it still records
-  that mission. The database drivers carry no transaction wrapper.
+  status keeps that status. Every assignment failure path, including an unresolved
+  start ref, a failed dock provision and a failed base check, releases the captain
+  only while it still records that mission, so a captain another mission claimed
+  meanwhile stays Working. The database drivers carry no transaction wrapper.
 - **Review and landing:** Judge PASS requires distinct evidence for every criterion
   and matching immutable Check results. Brief trimming retains the full contract.
   Landing verifies ancestry, preserves a diverged working checkout, and reports
