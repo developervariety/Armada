@@ -323,6 +323,11 @@ upstream integrations and excludes changes already present at that baseline.
   stored on the voyage and routes the persona's missions, and the code-index gate,
   code-context preparation and dispatch hold apply as on REST. A refusal returns the
   shared code, the REST status and the full refusal body.
+- **Harbor owner lookup:** the runner session registry awaits the durable owner
+  lookup for the handshake, heartbeats, launches, stops and runner events, so a slow
+  database never blocks a thread. One lookup is bounded by
+  `Harbor.OwnerLookupTimeoutSeconds` (default 5); a lookup past the bound is refused
+  as `runner_owner_lookup_timeout`, and a failed lookup as `runner_owner_unavailable`.
 - **MCP tool results:** one rule decides that a tool result is an error: an
   explicit `isError: true` result, or a top-level non-empty `Error` string. HTTP
   returns such a result with `isError: true` and audits it as `Failed` with its

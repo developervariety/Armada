@@ -1343,7 +1343,8 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "Harbor runner link not registered: Harbor requires WebSocketEnabled");
                 return;
             }
-            Armada.Core.Services.HarborRunnerEnrollmentService enrollments = new Armada.Core.Services.HarborRunnerEnrollmentService(_Database);
+            Armada.Core.Services.HarborRunnerEnrollmentService enrollments = new Armada.Core.Services.HarborRunnerEnrollmentService(
+                _Database, TimeSpan.FromSeconds(_Settings.Harbor.OwnerLookupTimeoutSeconds));
             Armada.Core.Services.HarborRunnerSessionRegistry registry = new Armada.Core.Services.HarborRunnerSessionRegistry(true, enrollments);
             Armada.Core.Harbor.HarborJobCoordinator coordinator = new Armada.Core.Harbor.HarborJobCoordinator(registry, enrollments, _Database.HarborJobs, _Logging);
             Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(_Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging);

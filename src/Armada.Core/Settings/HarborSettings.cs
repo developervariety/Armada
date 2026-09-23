@@ -57,6 +57,21 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Seconds one runner owner lookup may take. Every handshake, heartbeat, launch, stop and runner event
+        /// re-reads the runner's durable enrollment, principal and credential; a lookup that does not finish in time
+        /// is refused as <c>runner_owner_lookup_timeout</c>.
+        /// </summary>
+        public int OwnerLookupTimeoutSeconds
+        {
+            get => _OwnerLookupTimeoutSeconds;
+            set
+            {
+                if (value < 1 || value > 60) throw new ArgumentOutOfRangeException(nameof(OwnerLookupTimeoutSeconds), "Must be in range [1, 60]");
+                _OwnerLookupTimeoutSeconds = value;
+            }
+        }
+
+        /// <summary>
         /// Routes that opt a captain or a vessel into running missions on a named runner. Empty by default, so every
         /// mission runs locally until a route is added, and routes have no effect while Harbor is disabled.
         /// </summary>
@@ -87,6 +102,7 @@ namespace Armada.Core.Settings
         private string _LinkPath = "/harbor/link";
         private int _HandshakeTimeoutSeconds = 15;
         private int _IdleTimeoutSeconds = 90;
+        private int _OwnerLookupTimeoutSeconds = 5;
         private System.Collections.Generic.List<HarborMissionRoute> _MissionRoutes = new System.Collections.Generic.List<HarborMissionRoute>();
         private int _DisconnectedJobGraceSeconds = 180;
 

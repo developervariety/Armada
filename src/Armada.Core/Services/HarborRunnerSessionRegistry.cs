@@ -3,6 +3,8 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
 
@@ -10,7 +12,8 @@ namespace Armada.Core.Services
     /// Fail-closed registry for authenticated Harbor runner sessions and their typed pending responses.
     /// This core has no network or process-launch behavior; transport adapters must present the session
     /// lease returned here for every request, response, and disconnect. Enabled use also requires an
-    /// authoritative owner resolver backed by durable runner enrollment.
+    /// authoritative owner resolver backed by durable runner enrollment. Owner resolution is awaited before the
+    /// registry lock is taken, so a slow durable lookup never blocks a thread or the lock.
     /// </summary>
     public sealed class HarborRunnerSessionRegistry
     {
@@ -45,27 +48,15 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="runnerId">Runner identifier.</param>
         /// <param name="auth">Verified authentication context.</param>
-        /// <param name="session">New session lease when accepted.</param>
-        /// <param name="failureReason">Stable denial reason when rejected.</param>
-        /// <returns>True when registered.</returns>
-        public bool TryRegister(
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The new session lease, or the stable denial reason.</returns>
+        public async Task<HarborRunnerRegistration> RegisterAsync(
             string runnerId,
             AuthContext auth,
-            out HarborRunnerSession? session,
-            out string failureReason)
+            CancellationToken token = default)
         {
-            session = null;
-            failureReason = String.Empty;
-            if (!Enabled)
-            {
-                failureReason = "runner_registration_disabled";
-                return false;
-            }
-            if (auth == null)
-            {
-                failureReason = "runner_identity_unverified";
-                return false;
-            }
+            if (!Enabled) return HarborRunnerRegistration.Refuse("runner_registration_disabled");
+            if (auth == null) return HarborRunnerRegistration.Refuse("runner_identity_unverified");
 
             HarborRunnerIdentity identity;
             try
@@ -74,50 +65,24 @@ namespace Armada.Core.Services
             }
             catch (UnauthorizedAccessException)
             {
-                failureReason = "runner_identity_unverified";
-                return false;
+                return HarborRunnerRegistration.Refuse("runner_identity_unverified");
             }
             catch (ArgumentException)
             {
-                failureReason = "runner_id_invalid";
-                return false;
+                return HarborRunnerRegistration.Refuse("runner_id_invalid");
             }
 
-            if (_OwnerResolver == null)
-            {
-                failureReason = "runner_owner_unconfigured";
-                return false;
-            }
+            if (_OwnerResolver == null) return HarborRunnerRegistration.Refuse("runner_owner_unconfigured");
 
-            AuthContext? ownerAuth;
-            long enrollmentGeneration;
-            try
-            {
-                if (!TryResolveOwner(identity.RunnerId, out ownerAuth, out enrollmentGeneration, out string resolution) || ownerAuth == null)
-                {
-                    failureReason = String.IsNullOrWhiteSpace(resolution) ? "runner_owner_unknown" : resolution;
-                    return false;
-                }
-            }
-            catch
-            {
-                failureReason = "runner_owner_unavailable";
-                return false;
-            }
-
-            if (!identity.Matches(ownerAuth))
-            {
-                failureReason = "runner_owner_mismatch";
-                return false;
-            }
+            HarborRunnerOwnerResolution resolution = await ResolveOwnerAsync(identity.RunnerId, "runner_owner_unknown", token).ConfigureAwait(false);
+            if (!resolution.Resolved || resolution.Owner == null) return HarborRunnerRegistration.Refuse(resolution.FailureReason);
+            if (!identity.Matches(resolution.Owner)) return HarborRunnerRegistration.Refuse("runner_owner_mismatch");
+            long enrollmentGeneration = resolution.Generation;
 
             lock (_Gate)
             {
                 if (IsEnrollmentGenerationStale(identity.RunnerId, enrollmentGeneration))
-                {
-                    failureReason = "runner_enrollment_generation_stale";
-                    return false;
-                }
+                    return HarborRunnerRegistration.Refuse("runner_enrollment_generation_stale");
                 _Sessions.TryGetValue(identity.RunnerId, out HarborRunnerSession? existing);
                 if (existing != null && existing.EnrollmentGeneration < enrollmentGeneration)
                 {
@@ -134,15 +99,13 @@ namespace Armada.Core.Services
                         || !String.Equals(existing.Identity.AuthMethod, identity.AuthMethod, StringComparison.Ordinal)
                         || !String.Equals(existing.Identity.CredentialId, identity.CredentialId, StringComparison.Ordinal)))
                 {
-                    failureReason = "runner_identity_conflict";
-                    return false;
+                    return HarborRunnerRegistration.Refuse("runner_identity_conflict");
                 }
 
                 if (existing != null) InvalidatePendingForSession(existing);
                 HarborRunnerSession replacement = new HarborRunnerSession(identity, ++_NextGeneration, enrollmentGeneration);
                 _Sessions[identity.RunnerId] = replacement;
-                session = replacement;
-                return true;
+                return HarborRunnerRegistration.Accept(replacement);
             }
         }
 
@@ -172,40 +135,34 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Revalidate a live session against the durable owner and enrollment generation. Durable resolution
-        /// runs before the registry lock is taken. A session that fails revalidation is removed when it is
+        /// is awaited before the registry lock is taken. A session that fails revalidation is removed when it is
         /// still current, and its pending work is canceled, so revocation reaches connected runners even
         /// when it happened on another instance.
         /// </summary>
         /// <param name="session">Session lease to revalidate.</param>
-        /// <param name="failureReason">Stable denial reason.</param>
-        /// <returns>True only when the session remains authorized and current.</returns>
-        public bool TryRevalidate(HarborRunnerSession session, out string failureReason)
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Accepted only when the session remains authorized and current; otherwise the stable denial reason.</returns>
+        public async Task<HarborRunnerCheck> RevalidateAsync(HarborRunnerSession session, CancellationToken token = default)
         {
-            failureReason = String.Empty;
-            if (session == null)
-            {
-                failureReason = "runner_session_missing";
-                return false;
-            }
-            bool ownerCurrent = SessionOwnerIsCurrent(session, out failureReason);
+            if (session == null) return HarborRunnerCheck.Refuse("runner_session_missing");
+            HarborRunnerCheck owner = await CheckSessionOwnerAsync(session, token).ConfigureAwait(false);
+            string failureReason = owner.FailureReason;
+            bool ownerCurrent = owner.Accepted;
             lock (_Gate)
             {
                 bool isCurrent = _Sessions.TryGetValue(session.Identity.RunnerId, out HarborRunnerSession? current)
                     && Object.ReferenceEquals(current, session);
                 if (!isCurrent)
-                {
-                    if (String.IsNullOrEmpty(failureReason)) failureReason = "runner_session_stale";
-                    return false;
-                }
+                    return HarborRunnerCheck.Refuse(String.IsNullOrEmpty(failureReason) ? "runner_session_stale" : failureReason);
                 if (ownerCurrent && IsEnrollmentGenerationStale(session.Identity.RunnerId, session.EnrollmentGeneration))
                 {
                     ownerCurrent = false;
                     failureReason = "runner_enrollment_generation_stale";
                 }
-                if (ownerCurrent) return true;
+                if (ownerCurrent) return HarborRunnerCheck.Pass;
                 _Sessions.Remove(session.Identity.RunnerId);
                 InvalidatePendingForSession(session);
-                return false;
+                return HarborRunnerCheck.Refuse(failureReason);
             }
         }
 
@@ -234,54 +191,32 @@ namespace Armada.Core.Services
         /// reuse an identifier.
         /// </summary>
         /// <param name="session">Current session lease.</param>
-        /// <param name="pending">Pending response when accepted.</param>
-        /// <param name="failureReason">Stable denial reason when rejected.</param>
-        /// <returns>True when registered.</returns>
-        public bool TryRegisterPending<T>(
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The accepted pending request, or the stable denial reason.</returns>
+        public async Task<HarborPendingRegistration<T>> RegisterPendingAsync<T>(
             HarborRunnerSession session,
-            out HarborPendingRequest<T>? pending,
-            out string failureReason)
+            CancellationToken token = default)
         {
-            pending = null;
-            failureReason = String.Empty;
-            if (session == null)
-            {
-                failureReason = "runner_session_missing";
-                return false;
-            }
+            if (session == null) return HarborPendingRegistration<T>.Refuse("runner_session_missing");
 
-            if (!SessionOwnerIsCurrent(session, out failureReason)) return false;
+            HarborRunnerCheck owner = await CheckSessionOwnerAsync(session, token).ConfigureAwait(false);
+            if (!owner.Accepted) return HarborPendingRegistration<T>.Refuse(owner.FailureReason);
 
             lock (_Gate)
             {
                 if (!_Sessions.TryGetValue(session.Identity.RunnerId, out HarborRunnerSession? current)
                     || !Object.ReferenceEquals(current, session))
-                {
-                    failureReason = "runner_session_stale";
-                    return false;
-                }
+                    return HarborPendingRegistration<T>.Refuse("runner_session_stale");
                 if (IsEnrollmentGenerationStale(session.Identity.RunnerId, session.EnrollmentGeneration))
-                {
-                    failureReason = "runner_enrollment_generation_stale";
-                    return false;
-                }
+                    return HarborPendingRegistration<T>.Refuse("runner_enrollment_generation_stale");
                 string requestId = "g" + session.Generation.ToString(CultureInfo.InvariantCulture)
                     + "-r" + (++_NextRequestSequence).ToString(CultureInfo.InvariantCulture);
-                if (_Pending.ContainsKey(requestId))
-                {
-                    failureReason = "request_id_duplicate";
-                    return false;
-                }
-                if (_ReplayIds.Contains(requestId))
-                {
-                    failureReason = "request_id_replayed";
-                    return false;
-                }
+                if (_Pending.ContainsKey(requestId)) return HarborPendingRegistration<T>.Refuse("request_id_duplicate");
+                if (_ReplayIds.Contains(requestId)) return HarborPendingRegistration<T>.Refuse("request_id_replayed");
 
                 HarborPendingRequest<T> accepted = new HarborPendingRequest<T>(requestId, session.Identity.RunnerId, session.Generation);
                 _Pending[requestId] = new PendingRequest<T>(accepted, session.Identity.RunnerId, session.Generation);
-                pending = accepted;
-                return true;
+                return HarborPendingRegistration<T>.Accept(accepted);
             }
         }
 
@@ -292,11 +227,13 @@ namespace Armada.Core.Services
         /// <param name="session">Session that delivered the response.</param>
         /// <param name="requestId">Correlation identifier.</param>
         /// <param name="response">Typed response.</param>
+        /// <param name="token">Cancellation token.</param>
         /// <returns>True when the response completed its owner.</returns>
-        public bool TryCompletePending<T>(HarborRunnerSession session, string requestId, T response)
+        public async Task<bool> CompletePendingAsync<T>(HarborRunnerSession session, string requestId, T response, CancellationToken token = default)
         {
             if (session == null || String.IsNullOrWhiteSpace(requestId)) return false;
-            if (!SessionOwnerIsCurrent(session, out _))
+            HarborRunnerCheck owner = await CheckSessionOwnerAsync(session, token).ConfigureAwait(false);
+            if (!owner.Accepted)
             {
                 lock (_Gate)
                 {
@@ -367,46 +304,36 @@ namespace Armada.Core.Services
             }
         }
 
-        private bool TryResolveOwner(string runnerId, out AuthContext? owner, out long enrollmentGeneration, out string failureReason)
+        private async Task<HarborRunnerOwnerResolution> ResolveOwnerAsync(string runnerId, string unnamedFailure, CancellationToken token)
         {
-            enrollmentGeneration = 0;
-            failureReason = String.Empty;
-            if (_OwnerResolver is IHarborRunnerOwnerGenerationResolver versioned)
-                return versioned.TryGetOwner(runnerId, out owner, out enrollmentGeneration, out failureReason);
-            return _OwnerResolver!.TryGetOwner(runnerId, out owner);
-        }
-
-        private bool SessionOwnerIsCurrent(HarborRunnerSession session, out string failureReason)
-        {
-            failureReason = String.Empty;
-            AuthContext? owner;
-            long enrollmentGeneration;
+            HarborRunnerOwnerResolution resolution;
             try
             {
-                if (!TryResolveOwner(session.Identity.RunnerId, out owner, out enrollmentGeneration, out string resolution) || owner == null)
-                {
-                    // The durable enrollment names why the owner no longer resolves, for example a revocation.
-                    failureReason = String.IsNullOrWhiteSpace(resolution) ? "runner_owner_unavailable" : resolution;
-                    return false;
-                }
+                resolution = await _OwnerResolver!.ResolveOwnerAsync(runnerId, token).ConfigureAwait(false);
             }
-            catch
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                failureReason = "runner_owner_unavailable";
-                return false;
+                throw;
             }
-            if (!session.Identity.Matches(owner))
+            catch (Exception)
             {
-                failureReason = "runner_owner_mismatch";
-                return false;
+                return HarborRunnerOwnerResolution.Failure("runner_owner_unavailable");
             }
-            if (_OwnerResolver is IHarborRunnerOwnerGenerationResolver
-                && enrollmentGeneration != session.EnrollmentGeneration)
-            {
-                failureReason = "runner_enrollment_generation_stale";
-                return false;
-            }
-            return true;
+            if (resolution == null) return HarborRunnerOwnerResolution.Failure("runner_owner_unavailable");
+            if (!resolution.Resolved || resolution.Owner == null)
+                return HarborRunnerOwnerResolution.Failure(String.IsNullOrWhiteSpace(resolution.FailureReason) ? unnamedFailure : resolution.FailureReason);
+            return resolution;
+        }
+
+        private async Task<HarborRunnerCheck> CheckSessionOwnerAsync(HarborRunnerSession session, CancellationToken token)
+        {
+            if (_OwnerResolver == null) return HarborRunnerCheck.Refuse("runner_owner_unconfigured");
+            // The durable enrollment names why the owner no longer resolves, for example a revocation.
+            HarborRunnerOwnerResolution resolution = await ResolveOwnerAsync(session.Identity.RunnerId, "runner_owner_unavailable", token).ConfigureAwait(false);
+            if (!resolution.Resolved || resolution.Owner == null) return HarborRunnerCheck.Refuse(resolution.FailureReason);
+            if (!session.Identity.Matches(resolution.Owner)) return HarborRunnerCheck.Refuse("runner_owner_mismatch");
+            if (resolution.Generation != session.EnrollmentGeneration) return HarborRunnerCheck.Refuse("runner_enrollment_generation_stale");
+            return HarborRunnerCheck.Pass;
         }
 
         private void HandleOwnerChanged(string runnerId, long generation)

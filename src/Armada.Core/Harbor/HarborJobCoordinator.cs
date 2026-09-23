@@ -185,7 +185,9 @@ namespace Armada.Core.Harbor
 
             if (!_Registry.TryGetCurrent(runnerId, out HarborRunnerSession? session) || session == null)
                 return await ReleaseAsync(jobId, ReasonReleasedRunnerUnavailable).ConfigureAwait(false);
-            if (!_Registry.TryRevalidate(session, out string revalidation))
+            HarborRunnerCheck revalidated = await _Registry.RevalidateAsync(session, token).ConfigureAwait(false);
+            string revalidation = revalidated.FailureReason;
+            if (!revalidated.Accepted)
             {
                 await MarkSessionEndedAsync(session, revalidation).ConfigureAwait(false);
                 return HarborCommandResult.Reject(revalidation);
@@ -230,7 +232,9 @@ namespace Armada.Core.Harbor
 
             // A claim or a result from a runner whose enrollment was revoked or re-issued on any Admiral instance is
             // refused by name before it changes a job.
-            if (!_Registry.TryRevalidate(session, out string revalidation))
+            HarborRunnerCheck revalidated = await _Registry.RevalidateAsync(session, CancellationToken.None).ConfigureAwait(false);
+            string revalidation = revalidated.FailureReason;
+            if (!revalidated.Accepted)
             {
                 await MarkSessionEndedAsync(session, revalidation).ConfigureAwait(false);
                 return HarborCommandResult.EndSession(revalidation);
@@ -425,7 +429,9 @@ namespace Armada.Core.Harbor
                 return HarborLaunchResult.Reject("harbor_command_unauthorized");
             if (!_Registry.TryGetCurrent(runnerId.Trim(), out HarborRunnerSession? session) || session == null)
                 return HarborLaunchResult.Reject("harbor_runner_unavailable");
-            if (!_Registry.TryRevalidate(session, out string revalidation))
+            HarborRunnerCheck revalidated = await _Registry.RevalidateAsync(session, token).ConfigureAwait(false);
+            string revalidation = revalidated.FailureReason;
+            if (!revalidated.Accepted)
             {
                 await MarkSessionEndedAsync(session, revalidation).ConfigureAwait(false);
                 return HarborLaunchResult.Reject(revalidation);

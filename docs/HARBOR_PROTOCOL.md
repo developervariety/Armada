@@ -75,7 +75,14 @@ Admiral -> handshakeAck { accepted: true }
 
 Stable rejection reasons include `harbor_handshake_required`, `harbor_protocol_version_unsupported`,
 `harbor_id_invalid`, `harbor_capacity_invalid` (1-1024), `runner_owner_unknown`, `runner_owner_mismatch`,
-`runner_owner_unavailable` and `runner_registration_disabled`. Every rejection closes the link.
+`runner_owner_lookup_timeout`, `runner_owner_unavailable` and `runner_registration_disabled`. Every rejection
+closes the link.
+
+The handshake, every heartbeat, and every launch, stop and runner event resolve the runner's owner again from its
+durable enrollment, principal and credential. The lookup is awaited and never blocks a thread. One lookup is
+bounded by `Harbor.OwnerLookupTimeoutSeconds` (default 5, range 1-60): a lookup that does not finish in time is
+refused as `runner_owner_lookup_timeout`, and a lookup that fails with a database error is refused as
+`runner_owner_unavailable`.
 
 Each accepted handshake gets a new connection generation. A second link for the same runner and principal
 replaces the first; the old link's next frame is refused with `harbor_session_stale` and the Admiral closes it.

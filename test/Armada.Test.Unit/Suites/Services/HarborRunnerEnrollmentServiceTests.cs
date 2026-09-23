@@ -38,10 +38,14 @@ namespace Armada.Test.Unit.Suites.Services
 
                 HarborRunnerEnrollment first = await service.CreateAsync("hbr_one", owner, administrator).ConfigureAwait(false);
                 AssertEqual(1L, first.Generation, "initial generation");
-                AssertTrue(service.TryGetOwner("hbr_one", out AuthContext? resolved), "active enrollment resolves");
+                HarborRunnerOwnerResolution resolvedResolution = await service.ResolveOwnerAsync("hbr_one").ConfigureAwait(false);
+                AuthContext? resolved = resolvedResolution.Owner;
+                AssertTrue(resolvedResolution.Resolved, "active enrollment resolves");
                 AssertEqual("ten_one", resolved!.TenantId, "resolved tenant");
                 AssertEqual("usr_one", resolved.UserId, "resolved user");
-                AssertFalse(service.TryGetOwner("hbr_unknown", out AuthContext? unknown), "unknown runner rejected");
+                HarborRunnerOwnerResolution unknownResolution = await service.ResolveOwnerAsync("hbr_unknown").ConfigureAwait(false);
+                AuthContext? unknown = unknownResolution.Owner;
+                AssertFalse(unknownResolution.Resolved, "unknown runner rejected");
                 AssertNull(unknown, "unknown owner");
                 await AssertThrowsAsync<InvalidOperationException>(() => service.CreateAsync(
                     "hbr_one",
@@ -79,23 +83,31 @@ namespace Armada.Test.Unit.Suites.Services
                 HarborRunnerEnrollment first = await service.CreateAsync("hbr_one", owner, administrator).ConfigureAwait(false);
                 long firstGeneration = first.Generation;
                 credentials.SetActive("crd_one", false);
-                AssertFalse(service.TryGetOwner("hbr_one", out AuthContext? revokedCredential), "inactive credential rejected");
+                HarborRunnerOwnerResolution revokedCredentialResolution = await service.ResolveOwnerAsync("hbr_one").ConfigureAwait(false);
+                AuthContext? revokedCredential = revokedCredentialResolution.Owner;
+                AssertFalse(revokedCredentialResolution.Resolved, "inactive credential rejected");
                 AssertNull(revokedCredential, "inactive credential owner");
                 AssertEqual("credential_revoked_or_mismatched", service.LastResolutionFailure, "credential failure is named");
                 credentials.SetActive("crd_one", true);
                 principals.SetUserActive("ten_one", "usr_one", false);
-                AssertFalse(service.TryGetOwner("hbr_one", out AuthContext? inactiveUser), "inactive user rejected");
+                HarborRunnerOwnerResolution inactiveUserResolution = await service.ResolveOwnerAsync("hbr_one").ConfigureAwait(false);
+                AuthContext? inactiveUser = inactiveUserResolution.Owner;
+                AssertFalse(inactiveUserResolution.Resolved, "inactive user rejected");
                 AssertNull(inactiveUser, "inactive user owner");
                 AssertEqual("runner_principal_inactive", service.LastResolutionFailure, "principal failure is named");
                 principals.SetUserActive("ten_one", "usr_one", true);
                 AssertTrue(await service.RevokeAsync("hbr_one", administrator).ConfigureAwait(false), "administrator revokes active enrollment");
-                AssertFalse(service.TryGetOwner("hbr_one", out AuthContext? revokedEnrollment), "revoked enrollment rejected");
+                HarborRunnerOwnerResolution revokedEnrollmentResolution = await service.ResolveOwnerAsync("hbr_one").ConfigureAwait(false);
+                AuthContext? revokedEnrollment = revokedEnrollmentResolution.Owner;
+                AssertFalse(revokedEnrollmentResolution.Resolved, "revoked enrollment rejected");
                 AssertNull(revokedEnrollment, "revoked enrollment owner");
                 AssertEqual("runner_enrollment_revoked", service.LastResolutionFailure, "revocation failure is named");
 
                 HarborRunnerEnrollment replacement = await service.CreateAsync("hbr_one", owner, administrator).ConfigureAwait(false);
                 AssertEqual(firstGeneration + 2, replacement.Generation, "revocation and re-enrollment advance generation");
-                AssertTrue(service.TryGetOwner("hbr_one", out AuthContext? current), "new generation resolves");
+                HarborRunnerOwnerResolution currentResolution = await service.ResolveOwnerAsync("hbr_one").ConfigureAwait(false);
+                AuthContext? current = currentResolution.Owner;
+                AssertTrue(currentResolution.Resolved, "new generation resolves");
                 AssertEqual("usr_one", current!.UserId, "new generation owner");
             });
 
@@ -125,17 +137,32 @@ namespace Armada.Test.Unit.Suites.Services
                 AuthContext administrator = Authenticated("ten_one", "admin", null, false, true);
                 await service.CreateAsync("hbr_one", owner, administrator).ConfigureAwait(false);
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, service);
-                AssertTrue(registry.TryRegister("hbr_one", owner, out HarborRunnerSession? session, out string registerReason), registerReason);
-                AssertTrue(registry.TryRegisterPending(session!, out HarborPendingRequest<string>? pending, out string pendingReason), pendingReason);
+                HarborRunnerRegistration sessionRegistration = await registry.RegisterAsync("hbr_one", owner).ConfigureAwait(false);
+                HarborRunnerSession? session = sessionRegistration.Session;
+                string registerReason = sessionRegistration.FailureReason;
+                AssertTrue(sessionRegistration.Accepted, registerReason);
+                HarborPendingRegistration<string> pendingRegistration = await registry.RegisterPendingAsync<string>(session!).ConfigureAwait(false);
+                HarborPendingRequest<string>? pending = pendingRegistration.Pending;
+                string pendingReason = pendingRegistration.FailureReason;
+                AssertTrue(pendingRegistration.Accepted, pendingReason);
                 AssertTrue(await service.RevokeAsync("hbr_one", administrator).ConfigureAwait(false), "revoke invalidates durable generation");
-                AssertFalse(registry.TryCompletePending(session!, pending!.RequestId, "late"), "revoked session response rejected");
+                AssertFalse(await registry.CompletePendingAsync(session!, pending!.RequestId, "late").ConfigureAwait(false), "revoked session response rejected");
                 AssertTrue(pending.Completion.IsCanceled, "revoked pending work is canceled");
-                AssertFalse(registry.TryRegisterPending(session!, out HarborPendingRequest<string>? rejected, out string rejectedReason), "revoked session cannot create new work");
+                HarborPendingRegistration<string> rejectedRegistration = await registry.RegisterPendingAsync<string>(session!).ConfigureAwait(false);
+                HarborPendingRequest<string>? rejected = rejectedRegistration.Pending;
+                string rejectedReason = rejectedRegistration.FailureReason;
+                AssertFalse(rejectedRegistration.Accepted, "revoked session cannot create new work");
                 AssertNull(rejected, "revoked session pending request");
                 await service.CreateAsync("hbr_one", owner, administrator).ConfigureAwait(false);
-                AssertTrue(registry.TryRegister("hbr_one", owner, out HarborRunnerSession? replacement, out string replacementReason), replacementReason);
-                AssertTrue(registry.TryRegisterPending(replacement!, out HarborPendingRequest<string>? fresh, out string freshReason), freshReason);
-                AssertTrue(registry.TryCompletePending(replacement!, fresh!.RequestId, "new generation"), "new generation response accepted");
+                HarborRunnerRegistration replacementRegistration = await registry.RegisterAsync("hbr_one", owner).ConfigureAwait(false);
+                HarborRunnerSession? replacement = replacementRegistration.Session;
+                string replacementReason = replacementRegistration.FailureReason;
+                AssertTrue(replacementRegistration.Accepted, replacementReason);
+                HarborPendingRegistration<string> freshRegistration = await registry.RegisterPendingAsync<string>(replacement!).ConfigureAwait(false);
+                HarborPendingRequest<string>? fresh = freshRegistration.Pending;
+                string freshReason = freshRegistration.FailureReason;
+                AssertTrue(freshRegistration.Accepted, freshReason);
+                AssertTrue(await registry.CompletePendingAsync(replacement!, fresh!.RequestId, "new generation").ConfigureAwait(false), "new generation response accepted");
             });
 
             await RunTest("RegistryAcceptsNewGenerationFromSeparateResolverInstance", async () =>
@@ -151,14 +178,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AuthContext administrator = Authenticated("ten_one", "admin", null, false, true);
                 await firstService.CreateAsync("hbr_shared", owner, administrator).ConfigureAwait(false);
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, firstService);
-                AssertTrue(registry.TryRegister("hbr_shared", owner, out HarborRunnerSession? oldSession, out string registerReason), registerReason);
-                AssertTrue(registry.TryRegisterPending(oldSession!, out HarborPendingRequest<string>? pending, out string pendingReason), pendingReason);
+                HarborRunnerRegistration oldSessionRegistration = await registry.RegisterAsync("hbr_shared", owner).ConfigureAwait(false);
+                HarborRunnerSession? oldSession = oldSessionRegistration.Session;
+                string registerReason = oldSessionRegistration.FailureReason;
+                AssertTrue(oldSessionRegistration.Accepted, registerReason);
+                HarborPendingRegistration<string> pendingRegistration = await registry.RegisterPendingAsync<string>(oldSession!).ConfigureAwait(false);
+                HarborPendingRequest<string>? pending = pendingRegistration.Pending;
+                string pendingReason = pendingRegistration.FailureReason;
+                AssertTrue(pendingRegistration.Accepted, pendingReason);
 
                 AssertTrue(await secondService.RevokeAsync("hbr_shared", administrator).ConfigureAwait(false), "second service revokes old generation");
                 await secondService.CreateAsync("hbr_shared", owner, administrator).ConfigureAwait(false);
-                AssertFalse(registry.TryCompletePending(oldSession!, pending!.RequestId, "old generation"), "old generation response is rejected after external change");
+                AssertFalse(await registry.CompletePendingAsync(oldSession!, pending!.RequestId, "old generation").ConfigureAwait(false), "old generation response is rejected after external change");
                 AssertTrue(pending.Completion.IsCanceled, "external generation change cancels old pending work");
-                AssertTrue(registry.TryRegister("hbr_shared", owner, out HarborRunnerSession? newSession, out string newReason), newReason);
+                HarborRunnerRegistration newSessionRegistration = await registry.RegisterAsync("hbr_shared", owner).ConfigureAwait(false);
+                HarborRunnerSession? newSession = newSessionRegistration.Session;
+                string newReason = newSessionRegistration.FailureReason;
+                AssertTrue(newSessionRegistration.Accepted, newReason);
                 AssertTrue(newSession!.EnrollmentGeneration > oldSession!.EnrollmentGeneration, "registry accepts newer durable generation");
             });
 
@@ -209,16 +245,29 @@ namespace Armada.Test.Unit.Suites.Services
                 AuthContext administrator = Authenticated("ten_one", "admin", null, false, true);
                 await firstService.CreateAsync("hbr_moved", oldOwner, administrator).ConfigureAwait(false);
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, firstService);
-                AssertTrue(registry.TryRegister("hbr_moved", oldOwner, out HarborRunnerSession? oldSession, out string oldReason), oldReason);
-                AssertTrue(registry.TryRegisterPending(oldSession!, out HarborPendingRequest<string>? oldPending, out string pendingReason), pendingReason);
+                HarborRunnerRegistration oldSessionRegistration = await registry.RegisterAsync("hbr_moved", oldOwner).ConfigureAwait(false);
+                HarborRunnerSession? oldSession = oldSessionRegistration.Session;
+                string oldReason = oldSessionRegistration.FailureReason;
+                AssertTrue(oldSessionRegistration.Accepted, oldReason);
+                HarborPendingRegistration<string> oldPendingRegistration = await registry.RegisterPendingAsync<string>(oldSession!).ConfigureAwait(false);
+                HarborPendingRequest<string>? oldPending = oldPendingRegistration.Pending;
+                string pendingReason = oldPendingRegistration.FailureReason;
+                AssertTrue(oldPendingRegistration.Accepted, pendingReason);
 
                 AssertTrue(await secondService.RevokeAsync("hbr_moved", administrator).ConfigureAwait(false), "second instance revokes");
                 await secondService.CreateAsync("hbr_moved", newOwner, administrator).ConfigureAwait(false);
 
-                AssertTrue(registry.TryRegister("hbr_moved", newOwner, out HarborRunnerSession? newSession, out string newReason),
-                    "new owner accepted after external rebind: " + newReason);
+                HarborRunnerRegistration newSessionRegistration = await registry.RegisterAsync("hbr_moved", newOwner).ConfigureAwait(false);
+
+                HarborRunnerSession? newSession = newSessionRegistration.Session;
+
+                string newReason = newSessionRegistration.FailureReason;
+
+                AssertTrue(newSessionRegistration.Accepted, "new owner accepted after external rebind: " + newReason);
                 AssertTrue(oldPending!.Completion.IsCanceled, "stale owner pending work is canceled");
-                AssertFalse(registry.TryRegisterPending(oldSession!, out HarborPendingRequest<string>? stale, out string _), "stale owner cannot create work");
+                HarborPendingRegistration<string> staleRegistration = await registry.RegisterPendingAsync<string>(oldSession!).ConfigureAwait(false);
+                HarborPendingRequest<string>? stale = staleRegistration.Pending;
+                AssertFalse(staleRegistration.Accepted, "stale owner cannot create work");
                 AssertNull(stale, "stale owner pending request");
                 AssertFalse(registry.TryDisconnect(oldSession!), "stale owner cannot disconnect the new owner");
                 AssertTrue(registry.IsCurrent(newSession!), "new owner remains current");
@@ -237,23 +286,89 @@ namespace Armada.Test.Unit.Suites.Services
                 AuthContext administrator = Authenticated("ten_one", "admin", null, false, true);
                 await firstService.CreateAsync("hbr_live", owner, administrator).ConfigureAwait(false);
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, firstService);
-                AssertTrue(registry.TryRegister("hbr_live", owner, out HarborRunnerSession? session, out string registerReason), registerReason);
-                AssertTrue(registry.TryRegisterPending(session!, out HarborPendingRequest<string>? pending, out string pendingReason), pendingReason);
-                AssertTrue(registry.TryRevalidate(session!, out string liveReason), "active session revalidates: " + liveReason);
+                HarborRunnerRegistration sessionRegistration = await registry.RegisterAsync("hbr_live", owner).ConfigureAwait(false);
+                HarborRunnerSession? session = sessionRegistration.Session;
+                string registerReason = sessionRegistration.FailureReason;
+                AssertTrue(sessionRegistration.Accepted, registerReason);
+                HarborPendingRegistration<string> pendingRegistration = await registry.RegisterPendingAsync<string>(session!).ConfigureAwait(false);
+                HarborPendingRequest<string>? pending = pendingRegistration.Pending;
+                string pendingReason = pendingRegistration.FailureReason;
+                AssertTrue(pendingRegistration.Accepted, pendingReason);
+                HarborRunnerCheck liveReasonCheck = await registry.RevalidateAsync(session!).ConfigureAwait(false);
+                string liveReason = liveReasonCheck.FailureReason;
+                AssertTrue(liveReasonCheck.Accepted, "active session revalidates: " + liveReason);
 
                 AssertTrue(await secondService.RevokeAsync("hbr_live", administrator).ConfigureAwait(false), "second instance revokes");
-                AssertFalse(registry.TryRevalidate(session!, out string revokedReason), "revoked session fails revalidation");
+                HarborRunnerCheck revokedReasonCheck = await registry.RevalidateAsync(session!).ConfigureAwait(false);
+                string revokedReason = revokedReasonCheck.FailureReason;
+                AssertFalse(revokedReasonCheck.Accepted, "revoked session fails revalidation");
                 AssertFalse(String.IsNullOrEmpty(revokedReason), "revocation failure is named");
                 AssertFalse(registry.IsCurrent(session!), "revoked session is removed from the registry");
                 AssertTrue(pending!.Completion.IsCanceled, "revoked session pending work is canceled");
                 AssertEqual(0, registry.SessionCount, "no live session remains");
 
                 HarborRunnerEnrollment reenrolled = await secondService.CreateAsync("hbr_live", owner, administrator).ConfigureAwait(false);
-                AssertFalse(registry.TryRevalidate(session!, out string _), "re-enrollment does not revive the old session");
-                AssertFalse(registry.TryRegisterPending(session!, out HarborPendingRequest<string>? revived, out string _), "old session cannot create work after re-enrollment");
+                HarborRunnerCheck revalidation1Check = await registry.RevalidateAsync(session!).ConfigureAwait(false);
+                string revalidation1 = revalidation1Check.FailureReason;
+                AssertFalse(revalidation1Check.Accepted, "re-enrollment does not revive the old session");
+                HarborPendingRegistration<string> revivedRegistration = await registry.RegisterPendingAsync<string>(session!).ConfigureAwait(false);
+                HarborPendingRequest<string>? revived = revivedRegistration.Pending;
+                AssertFalse(revivedRegistration.Accepted, "old session cannot create work after re-enrollment");
                 AssertNull(revived, "old session pending request");
-                AssertTrue(registry.TryRegister("hbr_live", owner, out HarborRunnerSession? fresh, out string freshReason), freshReason);
+                HarborRunnerRegistration freshRegistration = await registry.RegisterAsync("hbr_live", owner).ConfigureAwait(false);
+                HarborRunnerSession? fresh = freshRegistration.Session;
+                string freshReason = freshRegistration.FailureReason;
+                AssertTrue(freshRegistration.Accepted, freshReason);
                 AssertEqual(reenrolled.Generation, fresh!.EnrollmentGeneration, "new session binds the re-enrolled generation");
+            });
+
+            await RunTest("SlowOwnerLookup_WithinBound_AcceptsRunnerWithoutBlockingCaller", async () =>
+            {
+                EnrollmentStore enrollments = new EnrollmentStore();
+                CredentialStore credentials = new CredentialStore();
+                PrincipalStore principals = new PrincipalStore();
+                principals.Add("ten_one", "usr_one");
+                credentials.Add("crd_one", "ten_one", "usr_one");
+                HarborRunnerEnrollmentService service = new HarborRunnerEnrollmentService(
+                    enrollments, credentials, principals, principals, TimeSpan.FromSeconds(10));
+                AuthContext owner = Authenticated("ten_one", "usr_one", "crd_one");
+                await service.CreateAsync("hbr_slow", owner, Authenticated("ten_one", "admin", null, false, true)).ConfigureAwait(false);
+                HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, service);
+                enrollments.ReadDelay = TimeSpan.FromMilliseconds(2500);
+
+                System.Diagnostics.Stopwatch blocked = System.Diagnostics.Stopwatch.StartNew();
+                Task<HarborRunnerRegistration> pending = registry.RegisterAsync("hbr_slow", owner);
+                blocked.Stop();
+                AssertFalse(pending.IsCompleted, "the registration is still waiting on the slow lookup when the call returns");
+                AssertTrue(blocked.ElapsedMilliseconds < 1000, "the caller thread is not blocked by the lookup; blocked " + blocked.ElapsedMilliseconds + " ms");
+                HarborRunnerRegistration registration = await pending.ConfigureAwait(false);
+                AssertTrue(registration.Accepted, "a valid runner whose owner lookup completes within the bound is accepted: " + registration.FailureReason);
+            });
+
+            await RunTest("SlowOwnerLookup_BeyondBound_IsRefusedAsLookupTimeout", async () =>
+            {
+                EnrollmentStore enrollments = new EnrollmentStore();
+                CredentialStore credentials = new CredentialStore();
+                PrincipalStore principals = new PrincipalStore();
+                principals.Add("ten_one", "usr_one");
+                credentials.Add("crd_one", "ten_one", "usr_one");
+                HarborRunnerEnrollmentService service = new HarborRunnerEnrollmentService(
+                    enrollments, credentials, principals, principals, TimeSpan.FromMilliseconds(100));
+                AssertEqual(TimeSpan.FromMilliseconds(100), service.OwnerLookupTimeout, "the configured bound is the one in force");
+                AuthContext owner = Authenticated("ten_one", "usr_one", "crd_one");
+                await service.CreateAsync("hbr_slow", owner, Authenticated("ten_one", "admin", null, false, true)).ConfigureAwait(false);
+                HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, service);
+                enrollments.ReadDelay = TimeSpan.FromSeconds(5);
+
+                System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+                HarborRunnerRegistration registration = await registry.RegisterAsync("hbr_slow", owner).ConfigureAwait(false);
+                elapsed.Stop();
+                AssertFalse(registration.Accepted, "a lookup beyond the bound refuses the runner");
+                AssertEqual(HarborRunnerEnrollmentService.OwnerLookupTimeoutReason, registration.FailureReason, "the refusal names the lookup timeout");
+                AssertTrue(elapsed.ElapsedMilliseconds < 3000, "the refusal arrives at the bound, not when the slow read ends; took " + elapsed.ElapsedMilliseconds + " ms");
+                AssertEqual(0, registry.SessionCount, "no session is registered");
+                AssertEqual(TimeSpan.FromSeconds(5), new HarborRunnerEnrollmentService(enrollments, credentials, principals, principals).OwnerLookupTimeout,
+                    "the default bound is five seconds");
             });
 
             await RunTest("SqliteEnrollment_PersistsAcrossReopenAndCASRace", async () =>
@@ -302,12 +417,16 @@ namespace Armada.Test.Unit.Suites.Services
         {
             private readonly Dictionary<string, HarborRunnerEnrollment> _Rows = new Dictionary<string, HarborRunnerEnrollment>(StringComparer.Ordinal);
 
-            public Task<HarborRunnerEnrollment?> ReadAsync(string runnerId, CancellationToken token = default)
+            /// <summary>How long each read waits before it answers, as a slow database would.</summary>
+            public TimeSpan ReadDelay { get; set; } = TimeSpan.Zero;
+
+            public async Task<HarborRunnerEnrollment?> ReadAsync(string runnerId, CancellationToken token = default)
             {
+                if (ReadDelay > TimeSpan.Zero) await Task.Delay(ReadDelay, token).ConfigureAwait(false);
                 lock (_Rows)
                 {
                     _Rows.TryGetValue(runnerId, out HarborRunnerEnrollment? value);
-                    return Task.FromResult(value);
+                    return value;
                 }
             }
 

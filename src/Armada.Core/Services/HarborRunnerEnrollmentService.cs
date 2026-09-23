@@ -12,7 +12,7 @@ namespace Armada.Core.Services
     /// Manages durable Harbor runner enrollment and resolves its live owner. Harbor remains disabled
     /// until a transport explicitly enables the session registry with this resolver.
     /// </summary>
-    public sealed class HarborRunnerEnrollmentService : IHarborRunnerOwnerResolver, IHarborRunnerOwnerGenerationResolver, IHarborRunnerOwnerChangeNotifier, IHarborRunnerAuthority
+    public sealed class HarborRunnerEnrollmentService : IHarborRunnerOwnerResolver, IHarborRunnerOwnerChangeNotifier, IHarborRunnerAuthority
     {
         #region Private-Members
 
@@ -20,6 +20,7 @@ namespace Armada.Core.Services
         private readonly ICredentialMethods _Credentials;
         private readonly IUserMethods _Users;
         private readonly ITenantMethods _Tenants;
+        private readonly TimeSpan _OwnerLookupTimeout;
         private string _LastResolutionFailure = "not_resolved";
 
         #endregion
@@ -28,13 +29,15 @@ namespace Armada.Core.Services
 
         /// <summary>Instantiate the enrollment service.</summary>
         /// <param name="database">Durable database driver.</param>
-        public HarborRunnerEnrollmentService(DatabaseDriver database)
+        /// <param name="ownerLookupTimeout">Bound on one owner lookup; null uses <see cref="DefaultOwnerLookupTimeout"/>.</param>
+        public HarborRunnerEnrollmentService(DatabaseDriver database, TimeSpan? ownerLookupTimeout = null)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
             _Enrollments = database.HarborRunnerEnrollments;
             _Credentials = database.Credentials;
             _Users = database.Users;
             _Tenants = database.Tenants;
+            _OwnerLookupTimeout = ValidateTimeout(ownerLookupTimeout);
         }
 
         /// <summary>Instantiate with durable enrollment and credential stores.</summary>
@@ -42,21 +45,39 @@ namespace Armada.Core.Services
         /// <param name="credentials">Durable credential store.</param>
         /// <param name="users">Durable user store.</param>
         /// <param name="tenants">Durable tenant store.</param>
+        /// <param name="ownerLookupTimeout">Bound on one owner lookup; null uses <see cref="DefaultOwnerLookupTimeout"/>.</param>
         public HarborRunnerEnrollmentService(
             IHarborRunnerEnrollmentMethods enrollments,
             ICredentialMethods credentials,
             IUserMethods users,
-            ITenantMethods tenants)
+            ITenantMethods tenants,
+            TimeSpan? ownerLookupTimeout = null)
         {
             _Enrollments = enrollments ?? throw new ArgumentNullException(nameof(enrollments));
             _Credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
             _Users = users ?? throw new ArgumentNullException(nameof(users));
             _Tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
+            _OwnerLookupTimeout = ValidateTimeout(ownerLookupTimeout);
         }
 
         #endregion
 
         #region Public-Members
+
+        /// <summary>Owner lookup bound used when none is configured.</summary>
+        public static readonly TimeSpan DefaultOwnerLookupTimeout = TimeSpan.FromSeconds(5);
+
+        /// <summary>Refusal reason when an owner lookup does not finish within <see cref="OwnerLookupTimeout"/>.</summary>
+        public const string OwnerLookupTimeoutReason = "runner_owner_lookup_timeout";
+
+        /// <summary>Refusal reason when an owner lookup fails with an error.</summary>
+        public const string OwnerUnavailableReason = "runner_owner_unavailable";
+
+        /// <summary>Bound on one owner lookup, covering every durable read it makes.</summary>
+        public TimeSpan OwnerLookupTimeout
+        {
+            get { return _OwnerLookupTimeout; }
+        }
 
         /// <summary>Stable reason for the most recent failed owner resolution, or empty after success.</summary>
         public string LastResolutionFailure
@@ -188,78 +209,41 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Resolve a runner's current owner. This method re-reads durable enrollment and the bound
-        /// credential on every call, so revocation is visible without a process restart or cache flush.
+        /// Resolve a runner's current owner and durable enrollment generation. Every call re-reads durable enrollment,
+        /// the principal and the bound credential, so revocation is visible without a process restart or cache flush.
+        /// The whole lookup is bounded by <see cref="OwnerLookupTimeout"/>: a lookup that does not finish in time is
+        /// refused as <c>runner_owner_lookup_timeout</c>, and a lookup that fails is refused as
+        /// <c>runner_owner_unavailable</c>. Cancelling <paramref name="token"/> throws.
         /// </summary>
         /// <param name="runnerId">Runner identifier.</param>
-        /// <param name="owner">Current owner context when valid.</param>
-        /// <returns>True only when the runner and its credential are active.</returns>
-        public bool TryGetOwner(string runnerId, out AuthContext? owner)
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The resolved owner and generation, or the named failure.</returns>
+        public async Task<HarborRunnerOwnerResolution> ResolveOwnerAsync(string runnerId, CancellationToken token = default)
         {
-            return TryGetOwner(runnerId, out owner, out _);
-        }
+            if (String.IsNullOrWhiteSpace(runnerId)) return Fail("runner_id_invalid");
 
-        /// <summary>Resolve an owner and its current durable enrollment generation.</summary>
-        /// <param name="runnerId">Runner identifier.</param>
-        /// <param name="owner">Current owner context when valid.</param>
-        /// <param name="generation">Durable enrollment generation when valid.</param>
-        /// <returns>True only when the runner and its binding are active.</returns>
-        public bool TryGetOwner(string runnerId, out AuthContext? owner, out long generation)
-        {
-            return TryGetOwner(runnerId, out owner, out generation, out _);
-        }
-
-        /// <summary>Resolve an owner and its durable enrollment generation, naming the reason when resolution fails.</summary>
-        /// <param name="runnerId">Runner identifier.</param>
-        /// <param name="owner">Current owner context when valid.</param>
-        /// <param name="generation">Durable enrollment generation when valid.</param>
-        /// <param name="failureReason">Stable reason when resolution fails, for example <c>runner_enrollment_revoked</c>.</param>
-        /// <returns>True only when the runner and its binding are active.</returns>
-        public bool TryGetOwner(string runnerId, out AuthContext? owner, out long generation, out string failureReason)
-        {
-            owner = null;
-            generation = 0;
-            failureReason = String.Empty;
-            if (String.IsNullOrWhiteSpace(runnerId)) return Fail("runner_id_invalid", out failureReason);
-
-            HarborRunnerEnrollment? enrollment;
-            using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
-            try
+            using (CancellationTokenSource lookup = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
-                enrollment = _Enrollments.ReadAsync(runnerId.Trim(), timeout.Token)
-                    .ConfigureAwait(false).GetAwaiter().GetResult();
-                if (enrollment == null) return Fail("runner_owner_unknown", out failureReason);
-                if (!enrollment.Active) return Fail("runner_enrollment_revoked", out failureReason);
-                if (enrollment.Generation <= 0) return Fail("runner_enrollment_generation_invalid", out failureReason);
-                TenantMetadata? tenant = _Tenants.ReadAsync(enrollment.TenantId, timeout.Token).ConfigureAwait(false).GetAwaiter().GetResult();
-                UserMaster? user = _Users.ReadAsync(enrollment.TenantId, enrollment.UserId, timeout.Token).ConfigureAwait(false).GetAwaiter().GetResult();
-                if (tenant == null || !tenant.Active || user == null || !user.Active) return Fail("runner_principal_inactive", out failureReason);
-                if (!String.IsNullOrWhiteSpace(enrollment.CredentialId))
+                Task<HarborRunnerOwnerResolution> resolution = ResolveOwnerCoreAsync(runnerId.Trim(), lookup.Token);
+                try
                 {
-                    Credential? credential = _Credentials.ReadByIdAsync(
-                        enrollment.CredentialId,
-                        timeout.Token).ConfigureAwait(false).GetAwaiter().GetResult();
-                    if (credential == null || !credential.Active
-                        || !String.Equals(credential.TenantId, enrollment.TenantId, StringComparison.Ordinal)
-                        || !String.Equals(credential.UserId, enrollment.UserId, StringComparison.Ordinal)) return Fail("credential_revoked_or_mismatched", out failureReason);
+                    return await resolution.WaitAsync(_OwnerLookupTimeout, token).ConfigureAwait(false);
                 }
-                else if (RequiresCredential(enrollment.AuthMethod)) return Fail("credential_binding_missing", out failureReason);
-
-                owner = AuthContext.Authenticated(
-                    enrollment.TenantId,
-                    enrollment.UserId,
-                    false,
-                    false,
-                    enrollment.AuthMethod,
-                    enrollment.CredentialId);
-                generation = enrollment.Generation;
-                SetResolutionFailure(String.Empty);
-                return true;
-            }
-            catch (Exception)
-            {
-                owner = null;
-                return Fail("runner_owner_unavailable", out failureReason);
+                catch (TimeoutException)
+                {
+                    lookup.Cancel();
+                    ObserveAbandoned(resolution);
+                    return Fail(OwnerLookupTimeoutReason);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    ObserveAbandoned(resolution);
+                    throw;
+                }
+                catch (Exception)
+                {
+                    return Fail(OwnerUnavailableReason);
+                }
             }
         }
 
@@ -334,11 +318,56 @@ namespace Armada.Core.Services
                 throw new UnauthorizedAccessException("principal_inactive");
         }
 
-        private bool Fail(string reason, out string failureReason)
+        private async Task<HarborRunnerOwnerResolution> ResolveOwnerCoreAsync(string runnerId, CancellationToken token)
         {
-            failureReason = reason;
+            HarborRunnerEnrollment? enrollment = await _Enrollments.ReadAsync(runnerId, token).ConfigureAwait(false);
+            if (enrollment == null) return Fail("runner_owner_unknown");
+            if (!enrollment.Active) return Fail("runner_enrollment_revoked");
+            if (enrollment.Generation <= 0) return Fail("runner_enrollment_generation_invalid");
+            TenantMetadata? tenant = await _Tenants.ReadAsync(enrollment.TenantId, token).ConfigureAwait(false);
+            UserMaster? user = await _Users.ReadAsync(enrollment.TenantId, enrollment.UserId, token).ConfigureAwait(false);
+            if (tenant == null || !tenant.Active || user == null || !user.Active) return Fail("runner_principal_inactive");
+            if (!String.IsNullOrWhiteSpace(enrollment.CredentialId))
+            {
+                Credential? credential = await _Credentials.ReadByIdAsync(enrollment.CredentialId, token).ConfigureAwait(false);
+                if (credential == null || !credential.Active
+                    || !String.Equals(credential.TenantId, enrollment.TenantId, StringComparison.Ordinal)
+                    || !String.Equals(credential.UserId, enrollment.UserId, StringComparison.Ordinal)) return Fail("credential_revoked_or_mismatched");
+            }
+            else if (RequiresCredential(enrollment.AuthMethod)) return Fail("credential_binding_missing");
+
+            AuthContext owner = AuthContext.Authenticated(
+                enrollment.TenantId,
+                enrollment.UserId,
+                false,
+                false,
+                enrollment.AuthMethod,
+                enrollment.CredentialId);
+            SetResolutionFailure(String.Empty);
+            return HarborRunnerOwnerResolution.Success(owner, enrollment.Generation);
+        }
+
+        private static void ObserveAbandoned(Task<HarborRunnerOwnerResolution> resolution)
+        {
+            // The caller has already been answered; observe the abandoned lookup's fault so it is not rethrown later.
+            resolution.ContinueWith(
+                abandoned => { _ = abandoned.Exception; },
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        private HarborRunnerOwnerResolution Fail(string reason)
+        {
             SetResolutionFailure(reason);
-            return false;
+            return HarborRunnerOwnerResolution.Failure(reason);
+        }
+
+        private static TimeSpan ValidateTimeout(TimeSpan? ownerLookupTimeout)
+        {
+            TimeSpan value = ownerLookupTimeout ?? DefaultOwnerLookupTimeout;
+            if (value <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(ownerLookupTimeout), "The owner lookup timeout must be positive.");
+            return value;
         }
 
         private void SetResolutionFailure(string reason)

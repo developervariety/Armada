@@ -162,9 +162,10 @@ namespace Armada.Server.Harbor
                     await RejectAsync(session, send, parsed.CorrelationId, "harbor_handshake_required", false).ConfigureAwait(false);
                     return false;
                 }
-                if (!connection.TryAcceptHandshake(handshake, auth, out string handshakeReason) || connection.Session == null)
+                HarborRunnerCheck handshakeCheck = await connection.AcceptHandshakeAsync(handshake, auth, token).ConfigureAwait(false);
+                if (!handshakeCheck.Accepted || connection.Session == null)
                 {
-                    await RejectAsync(session, send, handshake.CorrelationId, handshakeReason, false).ConfigureAwait(false);
+                    await RejectAsync(session, send, handshake.CorrelationId, handshakeCheck.FailureReason, false).ConfigureAwait(false);
                     return false;
                 }
                 _Coordinator.Attach(connection.Session, handshake.MaxConcurrentJobs, send);
@@ -185,7 +186,9 @@ namespace Armada.Server.Harbor
 
             if (parsed is HarborHeartbeat heartbeat)
             {
-                if (!connection.TryAcceptHeartbeat(heartbeat, out string heartbeatReason))
+                HarborRunnerCheck heartbeatCheck = await connection.AcceptHeartbeatAsync(heartbeat, token).ConfigureAwait(false);
+                string heartbeatReason = heartbeatCheck.FailureReason;
+                if (!heartbeatCheck.Accepted)
                 {
                     await _Coordinator.MarkSessionEndedAsync(current, heartbeatReason).ConfigureAwait(false);
                     await RejectAsync(session, send, heartbeat.CorrelationId, heartbeatReason, true).ConfigureAwait(false);
