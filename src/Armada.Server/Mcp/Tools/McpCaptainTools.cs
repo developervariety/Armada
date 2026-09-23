@@ -45,11 +45,13 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="agentLifecycle">Optional lifecycle handler used for model validation.</param>
         /// <param name="logging">Optional logging module for structured warning output.</param>
         /// <param name="captainQuarantine">Optional quarantine service; when supplied the bench and unbench tools are registered.</param>
-        /// <param name="captainAdministration">Shared stop-all and deletion service. When null, one is built that recalls through <paramref name="admiral"/> and has no session coordinators, so it reports active planning and refinement sessions as failed stops.</param>
+        /// <param name="captainAdministration">Shared stop, stop-all and deletion service. When null, one is built that recalls through <paramref name="admiral"/>, stops processes through <paramref name="onStopCaptain"/>, and has no session coordinators, so it refuses to stop a Planning or Refining captain and reports active planning and refinement sessions as failed stops.</param>
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null, CaptainAdministrationService? captainAdministration = null)
         {
             CaptainAdministrationService administration = captainAdministration
                 ?? new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
+            if (captainAdministration == null && onStopCaptain != null)
+                administration.StopProcess = captain => onStopCaptain(captain.Id);
 
             register(
                 "armada_get_captain",
@@ -264,7 +266,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_stop_captain",
-                "Stop a specific captain agent, killing its process and recalling it to idle state",
+                "Stop a specific captain. A Planning or Refining captain is stopped through its active planning or objective refinement session; any other captain has its process stopped and is recalled to Idle, failing its active mission.",
                 new
                 {
                     type = "object",
@@ -277,11 +279,10 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
-                    string captainId = request.CaptainId;
-                    if (onStopCaptain != null)
-                        await onStopCaptain(captainId).ConfigureAwait(false);
-                    await admiral.RecallCaptainAsync(captainId).ConfigureAwait(false);
-                    return (object)new { Status = "stopped", CaptainId = captainId };
+                    CaptainStopResult stopped = await administration.StopAsync(request.CaptainId, null).ConfigureAwait(false);
+                    if (stopped.Outcome != CaptainAdministrationOutcomeEnum.Completed)
+                        return (object)new { Error = stopped.Message, stopped.Outcome, stopped.CaptainId };
+                    return (object)stopped;
                 });
 
             if (captainQuarantine != null)
@@ -398,7 +399,7 @@ namespace Armada.Server.Mcp.Tools
                     CaptainDeletionResult deletion = await administration.DeleteAsync(request.CaptainId, null).ConfigureAwait(false);
                     if (deletion.Outcome != CaptainAdministrationOutcomeEnum.Completed)
                         return (object)new { Error = deletion.Message };
-                    return (object)new { Status = "deleted", CaptainId = deletion.CaptainId, deletion.DependentsRemoved };
+                    return (object)new { Status = "deleted", CaptainId = deletion.CaptainId, deletion.DependentsRemoved, deletion.DependentsSkipped };
                 });
 
             register(

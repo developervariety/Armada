@@ -1,14 +1,11 @@
 namespace Armada.Helm.Commands
 {
-    using System.Collections.Generic;
     using System.ComponentModel;
     using System.Threading;
     using Spectre.Console;
     using Spectre.Console.Cli;
-    using Armada.Core.Enums;
+    using Armada.Core.Client;
     using Armada.Core.Models;
-    using Armada.Core.Services;
-    using Armada.Helm.Rendering;
 
     /// <summary>
     /// Stop all captains.
@@ -16,41 +13,72 @@ namespace Armada.Helm.Commands
     [Description("Stop all captains")]
     public class CaptainStopAllCommand : BaseCommand<CaptainStopAllSettings>
     {
+        #region Public-Methods
+
+        /// <summary>
+        /// Run the server's single stop-all operation and report its counts and every failure it names.
+        /// </summary>
+        /// <param name="client">API client for the Admiral.</param>
+        /// <param name="console">Console to report to.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>0 when every captain and session stopped, 1 when any stop failed or the request failed.</returns>
+        public static async Task<int> StopAllAsync(ArmadaApiClient client, IAnsiConsole console, CancellationToken token = default)
+        {
+            if (client == null) throw new ArgumentNullException(nameof(client));
+            if (console == null) throw new ArgumentNullException(nameof(console));
+
+            CaptainStopAllResult? result;
+            try
+            {
+                result = await client.StopAllCaptainsAsync(token).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex)
+            {
+                console.MarkupLine("[red]Stop all failed:[/] " + Markup.Escape(ex.Message));
+                return 1;
+            }
+
+            if (result == null)
+            {
+                console.MarkupLine("[red]Stop all failed:[/] the Admiral returned no result.");
+                return 1;
+            }
+
+            console.MarkupLine($"Captains stopped: [bold]{result.CaptainsStopped}[/], failed: [bold]{result.CaptainsFailed}[/]");
+            console.MarkupLine($"Planning sessions stopped: [bold]{result.PlanningSessionsStopped}[/], failed: [bold]{result.PlanningSessionsFailed}[/]");
+            console.MarkupLine($"Refinement sessions stopped: [bold]{result.RefinementSessionsStopped}[/], failed: [bold]{result.RefinementSessionsFailed}[/]");
+            foreach (CaptainStopFailure failure in result.Failures)
+            {
+                console.MarkupLine($"  [red]Failed:[/] {Markup.Escape(failure.Kind)} {Markup.Escape(failure.Id)} -- {Markup.Escape(failure.Message)}");
+            }
+
+            if (result.Failed > 0)
+            {
+                console.MarkupLine($"\n[red]{result.Failed} captain(s) or session(s) could not be stopped ({Markup.Escape(result.Status)}).[/]");
+                return 1;
+            }
+
+            console.MarkupLine($"\n[green]Stopped {result.Stopped} captain(s) and session(s) ({Markup.Escape(result.Status)}).[/]");
+            return 0;
+        }
+
+        #endregion
+
+        #region Protected-Methods
+
         /// <inheritdoc />
         protected override async Task<int> ExecuteAsync(CommandContext context, CaptainStopAllSettings settings, CancellationToken cancellationToken)
         {
-            if (!AnsiConsole.Confirm("[bold red]RECALL ALL CAPTAINS?[/] This will stop all active agents.", defaultValue: false))
+            if (!AnsiConsole.Confirm("[bold red]RECALL ALL CAPTAINS?[/] This will stop all active agents and planning and refinement sessions.", defaultValue: false))
             {
                 AnsiConsole.MarkupLine("[dodgerblue1]Cancelled. Fleet remains operational.[/]");
                 return 0;
             }
 
-            EnumerationResult<Captain>? captainResult = await GetAsync<EnumerationResult<Captain>>("/api/v1/captains").ConfigureAwait(false);
-            List<Captain>? captains = captainResult?.Objects;
-
-            if (captains == null || captains.Count == 0)
-            {
-                AnsiConsole.MarkupLine("[gold1]No captains to recall.[/]");
-                return 0;
-            }
-
-            int stopped = 0;
-            foreach (Captain captain in captains)
-            {
-                try
-                {
-                    await PostAsync($"/api/v1/captains/{captain.Id}/stop").ConfigureAwait(false);
-                    AnsiConsole.MarkupLine($"  [gold1]Recalled:[/] [bold]{Markup.Escape(captain.Name)}[/] [dim]({Markup.Escape(captain.Id)})[/]");
-                    stopped++;
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine($"  [red]Failed:[/] {Markup.Escape(captain.Id)} -- {Markup.Escape(ex.Message)}");
-                }
-            }
-
-            AnsiConsole.MarkupLine($"\n[green]Recall signal sent to {stopped} captain(s).[/]");
-            return 0;
+            await EnsureServerAsync().ConfigureAwait(false);
+            return await StopAllAsync(GetApiClient(), AnsiConsole.Console, cancellationToken).ConfigureAwait(false);
         }
+
+        #endregion
     }
 }

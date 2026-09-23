@@ -296,6 +296,17 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
+        /// Stop every working captain and every active planning and objective refinement session with the server's
+        /// single stop-all operation, and return its stopped and failed counts.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stop-all result, or null when the server returned no body.</returns>
+        public async Task<CaptainStopAllResult?> StopAllCaptainsAsync(CancellationToken token = default)
+        {
+            return await PostAsync<CaptainStopAllResult>("/api/v1/captains/stop-all", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Delete a captain.
         /// </summary>
         /// <summary>Calls the corresponding fork REST API contract.</summary>

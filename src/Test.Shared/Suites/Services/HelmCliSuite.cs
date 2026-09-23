@@ -297,6 +297,39 @@ namespace Test.Shared.Suites.Services
                     AssertEqual("Bearer reset-bearer", refused.LastStopAuthorization, "The stop request must carry the Helm bearer credential.");
                     AssertEqual(0, absent.StopRequests, "No stop request is sent when nothing answers.");
                 }),
+                CaseAsync("captain_stop_all_calls_shared_route_and_reports_counts", "Helm captain stop-all calls the server's stop-all once and reports its counts and failures", TestTags.Positive, async () =>
+                {
+                    ScriptedCaptainAdmiral partial = new ScriptedCaptainAdmiral
+                    {
+                        StopAllBody = "{\"CaptainsStopped\":2,\"CaptainsFailed\":0,\"PlanningSessionsStopped\":1,\"PlanningSessionsFailed\":0,\"RefinementSessionsStopped\":0,\"RefinementSessionsFailed\":1,\"Failures\":[{\"Kind\":\"RefinementSession\",\"Id\":\"ors_stuck\",\"Message\":\"refinement runtime did not exit\"}]}"
+                    };
+                    StringWriter partialOutput = new StringWriter();
+                    int partialExit;
+                    using (HttpClient client = new HttpClient(partial))
+                    using (Armada.Core.Client.ArmadaApiClient api = new Armada.Core.Client.ArmadaApiClient(client, "http://127.0.0.1:1"))
+                    {
+                        partialExit = await CaptainStopAllCommand.StopAllAsync(api, CreateConsole(partialOutput), CancellationToken.None);
+                    }
+
+                    AssertTrue(partial.Requests.SequenceEqual(new[] { "POST /api/v1/captains/stop-all" }),
+                        "Stop-all must make exactly one request to the shared stop-all route: " + String.Join(", ", partial.Requests));
+                    string text = partialOutput.ToString();
+                    AssertTrue(text.Contains("Captains stopped: 2, failed: 0", StringComparison.Ordinal), "The captain counts are reported: " + text);
+                    AssertTrue(text.Contains("Planning sessions stopped: 1, failed: 0", StringComparison.Ordinal), "The planning session counts are reported: " + text);
+                    AssertTrue(text.Contains("Refinement sessions stopped: 0, failed: 1", StringComparison.Ordinal), "The refinement session counts are reported: " + text);
+                    AssertTrue(text.Contains("ors_stuck", StringComparison.Ordinal) && text.Contains("refinement runtime did not exit", StringComparison.Ordinal), "Each failure is named: " + text);
+                    AssertEqual(1, partialExit, "A stop-all that left anything running exits non-zero.");
+
+                    ScriptedCaptainAdmiral complete = new ScriptedCaptainAdmiral
+                    {
+                        StopAllBody = "{\"CaptainsStopped\":1,\"CaptainsFailed\":0,\"PlanningSessionsStopped\":0,\"PlanningSessionsFailed\":0,\"RefinementSessionsStopped\":0,\"RefinementSessionsFailed\":0,\"Failures\":[]}"
+                    };
+                    using (HttpClient client = new HttpClient(complete))
+                    using (Armada.Core.Client.ArmadaApiClient api = new Armada.Core.Client.ArmadaApiClient(client, "http://127.0.0.1:1"))
+                    {
+                        AssertEqual(0, await CaptainStopAllCommand.StopAllAsync(api, CreateConsole(new StringWriter()), CancellationToken.None), "A stop-all that stopped everything exits zero.");
+                    }
+                }),
                 CaseAsync("server_restart_does_not_start_beside_a_running_admiral", "Helm server restart refuses to start while the old Admiral keeps running", TestTags.Negative, async () =>
                 {
                     ScriptedAdmiral refused = new ScriptedAdmiral { StopStatus = HttpStatusCode.Forbidden };
@@ -509,6 +542,30 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Classes
+
+        /// <summary>
+        /// In-process stand-in for an Admiral's captain routes: it records every request, answers the stop-all route
+        /// with a scripted result, lists two captains, and accepts a per-captain stop.
+        /// </summary>
+        private sealed class ScriptedCaptainAdmiral : HttpMessageHandler
+        {
+            public string StopAllBody { get; set; } = "{}";
+
+            public List<string> Requests { get; } = new List<string>();
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                string path = request.RequestUri!.AbsolutePath;
+                Requests.Add(request.Method + " " + path);
+                if (request.Method == HttpMethod.Post && path == "/api/v1/captains/stop-all")
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(StopAllBody, Encoding.UTF8, "application/json") });
+                if (request.Method == HttpMethod.Get && path == "/api/v1/captains")
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"Objects\":[{\"Id\":\"cpt_one\",\"Name\":\"one\"},{\"Id\":\"cpt_two\",\"Name\":\"two\"}]}", Encoding.UTF8, "application/json") });
+                if (request.Method == HttpMethod.Post && path.StartsWith("/api/v1/captains/", StringComparison.Ordinal) && path.EndsWith("/stop", StringComparison.Ordinal))
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"Status\":\"stopped\"}", Encoding.UTF8, "application/json") });
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+        }
 
         /// <summary>
         /// In-process stand-in for an Admiral: its health route answers while it is alive, its stop route answers

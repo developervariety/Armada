@@ -6,6 +6,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Database.Interfaces;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -48,7 +49,7 @@ namespace Test.Shared.Suites.Services
                     await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_other").ConfigureAwait(false);
 
-                    int removed = await CascadeCleanup.RemoveEventsForVesselAsync(db, "vsl_target").ConfigureAwait(false);
+                    int removed = (await CascadeCleanup.RemoveEventsForVesselAsync(db, "vsl_target").ConfigureAwait(false)).Removed;
 
                     AssertEqual(2, removed);
                     AssertEqual(0, (await db.Events.EnumerateByVesselAsync("vsl_target", 500).ConfigureAwait(false)).Count);
@@ -64,7 +65,7 @@ namespace Test.Shared.Suites.Services
                     await CreateEventAsync(db, "mission.progress", missionId: "msn_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "mission.progress", missionId: "msn_other").ConfigureAwait(false);
 
-                    int removed = await CascadeCleanup.RemoveEventsForMissionAsync(db, "msn_target").ConfigureAwait(false);
+                    int removed = (await CascadeCleanup.RemoveEventsForMissionAsync(db, "msn_target").ConfigureAwait(false)).Removed;
 
                     AssertEqual(1, removed);
                     AssertEqual(0, (await db.Events.EnumerateByMissionAsync("msn_target", 500).ConfigureAwait(false)).Count);
@@ -80,7 +81,7 @@ namespace Test.Shared.Suites.Services
                     await CreateEventAsync(db, "voyage.updated", voyageId: "vyg_target").ConfigureAwait(false);
                     await CreateEventAsync(db, "voyage.updated", voyageId: "vyg_other").ConfigureAwait(false);
 
-                    int removed = await CascadeCleanup.RemoveEventsForVoyageAsync(db, "vyg_target").ConfigureAwait(false);
+                    int removed = (await CascadeCleanup.RemoveEventsForVoyageAsync(db, "vyg_target").ConfigureAwait(false)).Removed;
 
                     AssertEqual(1, removed);
                     AssertEqual(0, (await db.Events.EnumerateByVoyageAsync("vyg_target", 500).ConfigureAwait(false)).Count);
@@ -99,7 +100,7 @@ namespace Test.Shared.Suites.Services
                     await CreatePlanningSessionAsync(db, "cpt_target").ConfigureAwait(false);
                     await CreatePlanningSessionAsync(db, "cpt_other").ConfigureAwait(false);
 
-                    int removed = await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target").ConfigureAwait(false);
+                    int removed = (await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target").ConfigureAwait(false)).Removed;
 
                     // 1 event + 2 planning sessions.
                     AssertEqual(3, removed);
@@ -118,7 +119,7 @@ namespace Test.Shared.Suites.Services
                     await CreateRefinementSessionAsync(db, "cpt_target").ConfigureAwait(false);
                     await CreateRefinementSessionAsync(db, "cpt_other").ConfigureAwait(false);
 
-                    int removed = await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target").ConfigureAwait(false);
+                    int removed = (await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target").ConfigureAwait(false)).Removed;
 
                     AssertEqual(1, removed);
                     AssertEqual(0, (await db.ObjectiveRefinementSessions.EnumerateByCaptainAsync("cpt_target").ConfigureAwait(false)).Count);
@@ -148,7 +149,7 @@ namespace Test.Shared.Suites.Services
                     int removed;
                     try
                     {
-                        removed = await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target", logging: logging).ConfigureAwait(false);
+                        removed = (await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target", logging: logging).ConfigureAwait(false)).Removed;
                     }
                     finally
                     {
@@ -164,6 +165,82 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("reports_each_dependent_it_could_not_remove", "RemoveDependentsForCaptainAsync counts and names each dependent it skips and still removes the rest", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    await CreateEventAsync(db, "captain.assigned", captainId: "cpt_target").ConfigureAwait(false);
+                    await CreatePlanningSessionAsync(db, "cpt_target").ConfigureAwait(false);
+                    await CreateRefinementSessionAsync(db, "cpt_target").ConfigureAwait(false);
+                    List<PlanningSession> planning = await db.PlanningSessions.EnumerateByCaptainAsync("cpt_target").ConfigureAwait(false);
+
+                    PropertyInfo planningProperty = typeof(DatabaseDriver).GetProperty(nameof(DatabaseDriver.PlanningSessions))!;
+                    IPlanningSessionMethods original = db.PlanningSessions;
+                    planningProperty.SetValue(db, FailingDeleteProxy<IPlanningSessionMethods>.Wrap(original, "planning store is read-only"));
+                    CascadeCleanupResult result;
+                    try
+                    {
+                        result = await CascadeCleanup.RemoveDependentsForCaptainAsync(db, "cpt_target").ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        planningProperty.SetValue(db, original);
+                    }
+
+                    AssertEqual(2, result.Removed, "The event and the refinement session are still removed");
+                    AssertEqual(1, result.Skipped, "The planning session that could not be deleted is counted");
+                    AssertEqual("PlanningSession", result.Skips[0].Kind, "The skip names its kind");
+                    AssertEqual(planning[0].Id, result.Skips[0].Id, "The skip names the row");
+                    AssertTrue(result.Skips[0].Reason.Contains("planning store is read-only", StringComparison.Ordinal), "The skip carries the reason: " + result.Skips[0].Reason);
+                    AssertEqual(1, (await db.PlanningSessions.EnumerateByCaptainAsync("cpt_target").ConfigureAwait(false)).Count, "The skipped row is left in place");
+                    AssertEqual(0, (await db.Events.EnumerateByCaptainAsync("cpt_target", 500).ConfigureAwait(false)).Count);
+                    AssertEqual(0, (await db.ObjectiveRefinementSessions.EnumerateByCaptainAsync("cpt_target").ConfigureAwait(false)).Count);
+                }
+            }));
+
+            cases.Add(CaseAsync("reports_and_logs_each_event_it_could_not_remove", "RemoveEventsForVesselAsync counts, names and logs each event it could not delete", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_target").ConfigureAwait(false);
+                    List<ArmadaEvent> events = await db.Events.EnumerateByVesselAsync("vsl_target", 500).ConfigureAwait(false);
+
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    List<string> messages = new List<string>();
+                    object gate = new object();
+                    logging.MessageLogged += entry =>
+                    {
+                        lock (gate) messages.Add(entry.Message ?? String.Empty);
+                    };
+
+                    PropertyInfo eventsProperty = typeof(DatabaseDriver).GetProperty(nameof(DatabaseDriver.Events))!;
+                    IEventMethods original = db.Events;
+                    eventsProperty.SetValue(db, FailingDeleteProxy<IEventMethods>.Wrap(original, "event store is read-only"));
+                    CascadeCleanupResult result;
+                    try
+                    {
+                        result = await CascadeCleanup.RemoveEventsForVesselAsync(db, "vsl_target", logging: logging).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        eventsProperty.SetValue(db, original);
+                    }
+
+                    AssertEqual(0, result.Removed, "Nothing is removed");
+                    AssertEqual(1, result.Skipped, "The event that could not be deleted is counted once");
+                    AssertEqual("Event", result.Skips[0].Kind, "The skip names its kind");
+                    AssertEqual(events[0].Id, result.Skips[0].Id, "The skip names the event");
+                    List<string> logged;
+                    lock (gate) logged = new List<string>(messages);
+                    AssertTrue(
+                        logged.Exists(message => message.Contains(events[0].Id, StringComparison.Ordinal) && message.Contains("event store is read-only", StringComparison.Ordinal)),
+                        "The skipped event is logged with its reason: " + String.Join(" | ", logged));
+                }
+            }));
+
             cases.Add(CaseAsync("empty_parent_id_is_a_safe_no_op", "Cleanup with an empty parent id removes nothing", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -171,7 +248,7 @@ namespace Test.Shared.Suites.Services
                     DatabaseDriver db = testDb.Driver;
                     await CreateEventAsync(db, "vessel.updated", vesselId: "vsl_keep").ConfigureAwait(false);
 
-                    int removed = await CascadeCleanup.RemoveEventsForVesselAsync(db, String.Empty).ConfigureAwait(false);
+                    int removed = (await CascadeCleanup.RemoveEventsForVesselAsync(db, String.Empty).ConfigureAwait(false)).Removed;
 
                     AssertEqual(0, removed);
                     AssertEqual(1, (await db.Events.EnumerateByVesselAsync("vsl_keep", 500).ConfigureAwait(false)).Count);
@@ -232,6 +309,39 @@ namespace Test.Shared.Suites.Services
             };
 
             await db.ObjectiveRefinementSessions.CreateAsync(session).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Delegates every call to the wrapped store except <c>DeleteAsync</c>, which fails with a fixed reason.
+        /// </summary>
+        /// <typeparam name="T">Store interface.</typeparam>
+        public class FailingDeleteProxy<T> : DispatchProxy where T : class
+        {
+            private T _Target = null!;
+            private string _Reason = "";
+
+            /// <summary>
+            /// Wrap a store.
+            /// </summary>
+            /// <param name="target">Store to delegate to.</param>
+            /// <param name="reason">Message of the exception every delete throws.</param>
+            /// <returns>The wrapped store.</returns>
+            public static T Wrap(T target, string reason)
+            {
+                T proxy = DispatchProxy.Create<T, FailingDeleteProxy<T>>();
+                FailingDeleteProxy<T> self = (FailingDeleteProxy<T>)(object)proxy;
+                self._Target = target;
+                self._Reason = reason;
+                return proxy;
+            }
+
+            /// <inheritdoc />
+            protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            {
+                if (targetMethod == null) throw new ArgumentNullException(nameof(targetMethod));
+                if (targetMethod.Name == "DeleteAsync") throw new InvalidOperationException(_Reason);
+                return targetMethod.Invoke(_Target, args);
+            }
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)

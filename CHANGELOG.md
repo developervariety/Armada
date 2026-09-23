@@ -104,11 +104,14 @@ upstream integrations and excludes changes already present at that baseline.
   and terminal states always pass the completion and landing checks. Interrupted
   and duplicate completions retain launch identity.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
-  service for emergency stop, deletion and restart. Stop all covers working
-  captains, planning sessions and refinement sessions and reports stopped and
-  failed counts with each failure named. Single and batch deletion refuse Working,
+  service for single stop, emergency stop, deletion and restart. A single stop ends
+  a Planning or Refining captain's session and stops and recalls any other captain.
+  Stop all covers working captains, planning sessions and refinement sessions and
+  reports stopped and failed counts with each failure named; Helm `captain stop-all`
+  calls it once and prints those counts. Single and batch deletion refuse Working,
   Planning, Refining and mission-owning captains and remove the captain's events,
-  planning sessions and refinement sessions. Restart resets runtime state in place
+  planning sessions and refinement sessions; a dependent that cannot be removed is
+  logged, counted and named in the result. Restart resets runtime state in place
   and keeps the captain's identity, configuration, credentials and holds.
 - **Dock and ref handling:** active owners protect their worktrees; idle orphan
   processes cannot block reclaim indefinitely. Persistent collisions expose the

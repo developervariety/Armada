@@ -13,16 +13,17 @@ namespace Armada.Server
 
     /// <summary>
     /// The one definition of the captain administration rules that REST, MCP, WebSocket and the dashboard share:
-    /// emergency stop of every captain and session, whether a captain may be deleted or restarted, the dependent
-    /// cleanup that follows a deletion, and an in-place restart that keeps the captain record.
+    /// stopping one captain, emergency stop of every captain and session, whether a captain may be deleted or
+    /// restarted, the dependent cleanup that follows a deletion, and an in-place restart that keeps the captain record.
     /// </summary>
     public class CaptainAdministrationService
     {
         #region Public-Members
 
         /// <summary>
-        /// Stops a captain's agent process. Restart calls it for a captain that still records a process.
-        /// When null, a restart of a captain that records a process fails and leaves the captain unchanged.
+        /// Stops a captain's agent process. Restart calls it for a captain that still records a process, and a
+        /// single-captain stop calls it before the recall. When null, a restart of a captain that records a process
+        /// fails and leaves the captain unchanged, and a single-captain stop leaves the process stop to the recall.
         /// </summary>
         public Func<Captain, Task>? StopProcess { get; set; } = null;
 
@@ -78,6 +79,75 @@ namespace Armada.Server
                 StopPlanningSession = (session, token) => planningSessions.StopAsync(session, token);
             if (refinementSessions != null)
                 StopRefinementSession = (session, token) => refinementSessions.StopAsync(session, token);
+        }
+
+        /// <summary>
+        /// Stop one captain. A Planning captain is stopped through its active planning session and a Refining captain
+        /// through its active objective refinement session, so the session ends and releases the captain; a captain
+        /// reserved by a session that cannot be resolved is refused with <see cref="CaptainAdministrationOutcomeEnum.Conflict"/>.
+        /// Any other captain has its agent process stopped and is recalled, which fails its active mission and
+        /// returns it to Idle.
+        /// </summary>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="scope">Caller scope, or null for an unscoped operator call.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stop outcome.</returns>
+        public async Task<CaptainStopResult> StopAsync(string captainId, AuthContext? scope, CancellationToken token = default)
+        {
+            Captain? captain = await ReadAsync(captainId, scope, token).ConfigureAwait(false);
+            if (captain == null)
+                return new CaptainStopResult(CaptainAdministrationOutcomeEnum.NotFound, captainId ?? "", "Captain not found");
+
+            if (captain.State == CaptainStateEnum.Planning)
+            {
+                PlanningSession? session = (await _Database.PlanningSessions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false))
+                    .Where(IsActive)
+                    .OrderByDescending(s => s.LastUpdateUtc)
+                    .FirstOrDefault();
+                if (session == null || StopPlanningSession == null)
+                    return new CaptainStopResult(CaptainAdministrationOutcomeEnum.Conflict, captain.Id,
+                        "Captain is currently reserved by a planning session, but Armada could not resolve that session for coordinated stop.");
+
+                await StopPlanningSession(session, token).ConfigureAwait(false);
+                _Logging?.Info(_Header + "stopped captain " + captain.Id + " through planning session " + session.Id);
+                CaptainStopResult planningStopped = new CaptainStopResult(CaptainAdministrationOutcomeEnum.Completed, captain.Id, "Planning session stopped");
+                planningStopped.PlanningSessionId = session.Id;
+                return planningStopped;
+            }
+
+            if (captain.State == CaptainStateEnum.Refining)
+            {
+                ObjectiveRefinementSession? session = (await _Database.ObjectiveRefinementSessions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false))
+                    .Where(IsActive)
+                    .OrderByDescending(s => s.LastUpdateUtc)
+                    .FirstOrDefault();
+                if (session == null || StopRefinementSession == null)
+                    return new CaptainStopResult(CaptainAdministrationOutcomeEnum.Conflict, captain.Id,
+                        "Captain is currently reserved by an objective refinement session, but Armada could not resolve that session for coordinated stop.");
+
+                await StopRefinementSession(session, token).ConfigureAwait(false);
+                _Logging?.Info(_Header + "stopped captain " + captain.Id + " through objective refinement session " + session.Id);
+                CaptainStopResult refinementStopped = new CaptainStopResult(CaptainAdministrationOutcomeEnum.Completed, captain.Id, "Objective refinement session stopped");
+                refinementStopped.ObjectiveRefinementSessionId = session.Id;
+                return refinementStopped;
+            }
+
+            if (captain.ProcessId.HasValue && StopProcess != null)
+            {
+                try
+                {
+                    await StopProcess(captain).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging?.Warn(_Header + "could not stop process " + captain.ProcessId.Value + " of captain " + captain.Id + ": " + ex.Message);
+                    return new CaptainStopResult(CaptainAdministrationOutcomeEnum.Failed, captain.Id,
+                        "Could not stop process " + captain.ProcessId.Value + ": " + ex.Message + ". The captain was not recalled.");
+                }
+            }
+
+            await _RecallCaptain(captain.Id, token).ConfigureAwait(false);
+            return new CaptainStopResult(CaptainAdministrationOutcomeEnum.Completed, captain.Id, "Captain stopped");
         }
 
         /// <summary>
@@ -232,7 +302,9 @@ namespace Armada.Server
                 await _Database.Captains.DeleteAsync(scope.TenantId!, scope.UserId!, captain.Id, token).ConfigureAwait(false);
 
             CaptainDeletionResult result = new CaptainDeletionResult(CaptainAdministrationOutcomeEnum.Completed, captain.Id, "Captain deleted");
-            result.DependentsRemoved = await CascadeCleanup.RemoveDependentsForCaptainAsync(_Database, captain.Id, token, _Logging).ConfigureAwait(false);
+            CascadeCleanupResult cleanup = await CascadeCleanup.RemoveDependentsForCaptainAsync(_Database, captain.Id, token, _Logging).ConfigureAwait(false);
+            result.DependentsRemoved = cleanup.Removed;
+            result.DependentsSkipped = cleanup.Skips;
             return result;
         }
 

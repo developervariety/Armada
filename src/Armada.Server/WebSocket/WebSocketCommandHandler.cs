@@ -152,9 +152,9 @@ namespace Armada.Server.WebSocket
         public IReadOnlyCollection<string> CommandNames => _Commands.Keys;
 
         /// <summary>
-        /// Shared captain stop-all and deletion service. The server sets the instance REST and MCP use; when unset,
+        /// Shared captain stop, stop-all and deletion service. The server sets the instance REST and MCP use; when unset,
         /// one is built that recalls through the admiral and has no session coordinators, so it reports active
-        /// planning and refinement sessions as failed stops.
+        /// planning and refinement sessions as failed stops and refuses to stop a Planning or Refining captain.
         /// </summary>
         public CaptainAdministrationService CaptainAdministration
         {
@@ -299,9 +299,10 @@ namespace Armada.Server.WebSocket
         /// </summary>
         private async Task<object> StopCaptainCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            string captainId = command.CaptainId ?? "";
-            await _Admiral.RecallCaptainAsync(captainId).ConfigureAwait(false);
-            return new { type = "command.result", action = "stop_captain", data = (object)new { status = "stopped", captainId = captainId } };
+            CaptainStopResult stopped = await CaptainAdministration.StopAsync(command.CaptainId ?? "", null).ConfigureAwait(false);
+            if (stopped.Outcome != CaptainAdministrationOutcomeEnum.Completed)
+                return new { type = "command.error", action = "stop_captain", error = stopped.Message, outcome = stopped.Outcome.ToString() };
+            return new { type = "command.result", action = "stop_captain", data = (object)stopped };
         }
 
         /// <summary>
@@ -1181,7 +1182,7 @@ namespace Armada.Server.WebSocket
             CaptainDeletionResult deletion = await CaptainAdministration.DeleteAsync(command.Id ?? "", null).ConfigureAwait(false);
             if (deletion.Outcome != CaptainAdministrationOutcomeEnum.Completed)
                 return new { type = "command.error", action = "delete_captain", error = deletion.Message };
-            return new { type = "command.result", action = "delete_captain", data = (object)new { status = "deleted", dependentsRemoved = deletion.DependentsRemoved } };
+            return new { type = "command.result", action = "delete_captain", data = (object)new { status = "deleted", dependentsRemoved = deletion.DependentsRemoved, dependentsSkipped = deletion.DependentsSkipped } };
         }
 
         /// <summary>

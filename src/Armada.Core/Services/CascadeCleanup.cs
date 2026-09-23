@@ -15,6 +15,11 @@ namespace Armada.Core.Services
     /// rows would otherwise dangle and later fail to resolve -- for example an event whose linked entity
     /// is gone renders a "could not be loaded" error when opened. Every hard-delete path routes through
     /// this class so the rules live in exactly one place and stay consistent across entities.
+    /// <para>
+    /// Cleanup is best-effort: the parent row is already deleted, so a dependent that cannot be removed must not
+    /// fail the delete. Each such dependent is skipped with a named reason, logged as a warning when a logging
+    /// module is supplied, and counted in the returned <see cref="CascadeCleanupResult"/>.
+    /// </para>
     /// </summary>
     public static class CascadeCleanup
     {
@@ -33,12 +38,15 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="vesselId">Vessel identifier.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The number of events removed.</returns>
-        public static Task<int> RemoveEventsForVesselAsync(DatabaseDriver database, string vesselId, CancellationToken token = default)
+        /// <param name="logging">Optional logging module; each skipped event is logged as a warning.</param>
+        /// <returns>The events removed and each event skipped with its reason.</returns>
+        public static async Task<CascadeCleanupResult> RemoveEventsForVesselAsync(DatabaseDriver database, string vesselId, CancellationToken token = default, LoggingModule? logging = null)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
-            if (String.IsNullOrEmpty(vesselId)) return Task.FromResult(0);
-            return _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByVesselAsync(vesselId, limit, token), token);
+            CascadeCleanupResult result = new CascadeCleanupResult();
+            if (String.IsNullOrEmpty(vesselId)) return result;
+            await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByVesselAsync(vesselId, limit, token), result, logging, token).ConfigureAwait(false);
+            return result;
         }
 
         /// <summary>
@@ -47,12 +55,15 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="missionId">Mission identifier.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The number of events removed.</returns>
-        public static Task<int> RemoveEventsForMissionAsync(DatabaseDriver database, string missionId, CancellationToken token = default)
+        /// <param name="logging">Optional logging module; each skipped event is logged as a warning.</param>
+        /// <returns>The events removed and each event skipped with its reason.</returns>
+        public static async Task<CascadeCleanupResult> RemoveEventsForMissionAsync(DatabaseDriver database, string missionId, CancellationToken token = default, LoggingModule? logging = null)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
-            if (String.IsNullOrEmpty(missionId)) return Task.FromResult(0);
-            return _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByMissionAsync(missionId, limit, token), token);
+            CascadeCleanupResult result = new CascadeCleanupResult();
+            if (String.IsNullOrEmpty(missionId)) return result;
+            await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByMissionAsync(missionId, limit, token), result, logging, token).ConfigureAwait(false);
+            return result;
         }
 
         /// <summary>
@@ -61,12 +72,15 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="voyageId">Voyage identifier.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The number of events removed.</returns>
-        public static Task<int> RemoveEventsForVoyageAsync(DatabaseDriver database, string voyageId, CancellationToken token = default)
+        /// <param name="logging">Optional logging module; each skipped event is logged as a warning.</param>
+        /// <returns>The events removed and each event skipped with its reason.</returns>
+        public static async Task<CascadeCleanupResult> RemoveEventsForVoyageAsync(DatabaseDriver database, string voyageId, CancellationToken token = default, LoggingModule? logging = null)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
-            if (String.IsNullOrEmpty(voyageId)) return Task.FromResult(0);
-            return _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByVoyageAsync(voyageId, limit, token), token);
+            CascadeCleanupResult result = new CascadeCleanupResult();
+            if (String.IsNullOrEmpty(voyageId)) return result;
+            await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByVoyageAsync(voyageId, limit, token), result, logging, token).ConfigureAwait(false);
+            return result;
         }
 
         /// <summary>
@@ -77,25 +91,22 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="captainId">Captain identifier.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <param name="logging">Logging module; each dependent that is not removed is logged here with its reason.</param>
-        /// <returns>The number of dependent rows removed.</returns>
-        public static async Task<int> RemoveDependentsForCaptainAsync(DatabaseDriver database, string captainId, CancellationToken token = default, LoggingModule? logging = null)
+        /// <param name="logging">Optional logging module; each skipped dependent is logged as a warning.</param>
+        /// <returns>The dependent rows removed and each row or list skipped with its reason.</returns>
+        public static async Task<CascadeCleanupResult> RemoveDependentsForCaptainAsync(DatabaseDriver database, string captainId, CancellationToken token = default, LoggingModule? logging = null)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
-            if (String.IsNullOrEmpty(captainId)) return 0;
+            CascadeCleanupResult result = new CascadeCleanupResult();
+            if (String.IsNullOrEmpty(captainId)) return result;
 
-            // Best-effort throughout: the parent captain row is already deleted by the caller, so a
-            // dependent-cleanup failure must not surface as a failed delete. Each step is guarded and
-            // a failure leaves an orphan for a later sweep rather than throwing.
-            int removed = 0;
             try
             {
-                removed = await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByCaptainAsync(captainId, limit, token), token).ConfigureAwait(false);
+                await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByCaptainAsync(captainId, limit, token), result, logging, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 // An events-deletion failure leaves orphan telemetry, not a blocked delete.
-                logging?.Warn(_Header + "events of deleted captain " + captainId + " were not removed: " + ex.Message);
+                _Skip(result, logging, "EventList", captainId, "events of deleted captain " + captainId + " were not removed: " + ex.Message);
             }
 
             List<PlanningSession> sessions = new List<PlanningSession>();
@@ -105,26 +116,26 @@ namespace Armada.Core.Services
             }
             catch (NotSupportedException ex)
             {
-                // The provider stores no planning sessions, so there are none to remove.
+                // The provider stores no planning sessions, so there are none to remove and nothing is skipped.
                 logging?.Info(_Header + "planning-session cleanup skipped for deleted captain " + captainId + ": " + ex.Message);
             }
             catch (Exception ex)
             {
                 // An unreadable planning-session list leaves orphans for a later sweep.
-                logging?.Warn(_Header + "planning sessions of deleted captain " + captainId + " were not listed and are left in place: " + ex.Message);
+                _Skip(result, logging, "PlanningSessionList", captainId, "planning sessions of deleted captain " + captainId + " were not listed and are left in place: " + ex.Message);
             }
             foreach (PlanningSession session in sessions)
             {
                 try
                 {
                     await database.PlanningSessions.DeleteAsync(session.Id, token).ConfigureAwait(false);
-                    removed++;
+                    result.Removed++;
                 }
                 catch (Exception ex)
                 {
                     // A session that cannot be removed is skipped so one failure does not block the rest
                     // of the cascade. The parent delete still proceeds.
-                    logging?.Warn(_Header + "planning session " + session.Id + " of deleted captain " + captainId + " was not removed: " + ex.Message);
+                    _Skip(result, logging, "PlanningSession", session.Id, "planning session " + session.Id + " of deleted captain " + captainId + " was not removed: " + ex.Message);
                 }
             }
 
@@ -136,32 +147,32 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 // An unreadable refinement-session list leaves orphans for a later sweep.
-                logging?.Warn(_Header + "refinement sessions of deleted captain " + captainId + " were not listed and are left in place: " + ex.Message);
+                _Skip(result, logging, "RefinementSessionList", captainId, "refinement sessions of deleted captain " + captainId + " were not listed and are left in place: " + ex.Message);
             }
             foreach (ObjectiveRefinementSession session in refinementSessions)
             {
                 try
                 {
                     await database.ObjectiveRefinementSessions.DeleteAsync(session.Id, token).ConfigureAwait(false);
-                    removed++;
+                    result.Removed++;
                 }
                 catch (Exception ex)
                 {
                     // Skipped as for planning sessions above.
-                    logging?.Warn(_Header + "refinement session " + session.Id + " of deleted captain " + captainId + " was not removed: " + ex.Message);
+                    _Skip(result, logging, "RefinementSession", session.Id, "refinement session " + session.Id + " of deleted captain " + captainId + " was not removed: " + ex.Message);
                 }
             }
 
-            return removed;
+            return result;
         }
 
         #endregion
 
         #region Private-Methods
 
-        private static async Task<int> _DeleteEventsAsync(DatabaseDriver database, Func<int, Task<List<ArmadaEvent>>> fetch, CancellationToken token)
+        private static async Task _DeleteEventsAsync(DatabaseDriver database, Func<int, Task<List<ArmadaEvent>>> fetch, CascadeCleanupResult result, LoggingModule? logging, CancellationToken token)
         {
-            int removed = 0;
+            HashSet<string> skipped = new HashSet<string>(StringComparer.Ordinal);
 
             while (true)
             {
@@ -176,20 +187,26 @@ namespace Armada.Core.Services
                     try
                     {
                         await database.Events.DeleteAsync(evt.Id, token).ConfigureAwait(false);
-                        removed++;
+                        result.Removed++;
                         removedThisPass++;
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
-                        // Best-effort per row; continue with the rest of the batch.
+                        // A row that fails again on a later pass is reported once.
+                        if (skipped.Add(evt.Id))
+                            _Skip(result, logging, "Event", evt.Id, "event " + evt.Id + " was not removed: " + ex.Message);
                     }
                 }
 
                 // If nothing in this pass could be deleted, stop to avoid re-fetching the same rows forever.
                 if (removedThisPass == 0) break;
             }
+        }
 
-            return removed;
+        private static void _Skip(CascadeCleanupResult result, LoggingModule? logging, string kind, string id, string reason)
+        {
+            result.Skips.Add(new CascadeCleanupSkip(kind, id, reason));
+            logging?.Warn(_Header + reason);
         }
 
         #endregion

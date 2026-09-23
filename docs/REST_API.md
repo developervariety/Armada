@@ -2157,26 +2157,37 @@ curl -X PUT http://localhost:7890/api/v1/captains/cpt_abc123 \
 
 #### POST /api/v1/captains/{id}/stop
 
-Stop a running captain agent and recall it to idle state. No shutdown request is
-sent: the agent process gets a 3-second grace period to exit, then its process
-tree is killed. Only the process the admiral launched is acted on: a live process
-whose start time differs from the recorded launch holds a reused process ID and
-is left running.
+Stop one captain. MCP `armada_stop_captain` and WebSocket `stop_captain` run the
+same service and apply the same rule. A Planning captain is stopped through its
+active planning session and a Refining captain through its active objective
+refinement session; the response names the stopped session. Any other captain
+has its agent process stopped and is recalled to Idle, which fails its active
+mission. No shutdown request is sent: the agent process gets a 3-second grace
+period to exit, then its process tree is killed. Only the process the admiral
+launched is acted on: a live process whose start time differs from the recorded
+launch holds a reused process ID and is left running.
 
 **Path Parameters:**
 | Parameter | Description |
 |---|---|
 | `id` | Captain ID (`cpt_` prefix) |
 
-**Response:** `200 OK`
+**Response:** `200 OK` - `CaptainStopResult`
 
 ```json
 {
-  "Status": "stopped"
+  "Outcome": "Completed",
+  "Status": "stopped",
+  "CaptainId": "cpt_abc123",
+  "PlanningSessionId": null,
+  "ObjectiveRefinementSessionId": null,
+  "Message": "Captain stopped"
 }
 ```
 
-**Error:** `404` - Captain not found
+**Error:** `404` - Captain not found; `409` - the captain is Planning or Refining
+and its session could not be resolved for a coordinated stop; `500` - the agent
+process could not be stopped, so the captain was not recalled.
 
 ---
 

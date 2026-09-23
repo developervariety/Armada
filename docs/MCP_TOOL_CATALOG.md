@@ -57,8 +57,11 @@ shows only critical items).
 | Interrupt | `armada_stop_captain`, `armada_stop_all` |
 | Destructive | `armada_delete_captain`, `armada_delete_captains` |
 
-Emergency stop, deletion and restart share one captain administration service
-with REST and WebSocket. `armada_stop_all` stops every working captain, active
+Single stop, emergency stop, deletion and restart share one captain
+administration service with REST and WebSocket. `armada_stop_captain` stops a
+Planning or Refining captain through its active planning or objective refinement
+session, and stops the process of any other captain and recalls it to Idle.
+`armada_stop_all` stops every working captain, active
 planning session and active objective refinement session and returns
 `all_stopped`, or `stopped_with_failures` with stopped and failed counts and each
 failure named. `armada_delete_captain` and `armada_delete_captains` refuse a

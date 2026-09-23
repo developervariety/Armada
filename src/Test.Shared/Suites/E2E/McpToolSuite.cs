@@ -761,12 +761,10 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement response = await SendRawMcpRequestAsync(mcpClient, sessionId, "tools/call", new
-                {
-                    name = "stop_captain",
-                    arguments = new { captainId = "cpt_nonexistent" }
-                }).ConfigureAwait(false);
-                Assert(response.TryGetProperty("error", out _), "Should return error for non-existent captain");
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_stop_captain", new { captainId = "cpt_nonexistent" }).ConfigureAwait(false);
+                AssertToolResultValid(result);
+                Assert(result.TryGetProperty("isError", out JsonElement isError) && isError.GetBoolean(), "A non-existent captain is an error result");
+                AssertContains("Captain not found", GetToolResultText(result));
             }));
 
             cases.Add(CaseAsync("armada_stop_all_with_no_captains_returns_all_stopped", "ArmadaStopAll_WithNoCaptains_ReturnsAllStopped", TestTags.Positive, async () =>

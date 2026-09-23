@@ -531,12 +531,10 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaStopCaptain_NotFound_ReturnsError", async () =>
             {
-                JsonElement response = await SendRawMcpRequestAsync("tools/call", new
-                {
-                    name = "armada_stop_captain",
-                    arguments = new { captainId = "cpt_nonexistent" }
-                }).ConfigureAwait(false);
-                Assert(response.TryGetProperty("error", out _), "Should return error for non-existent captain");
+                JsonElement result = await CallToolAsync("armada_stop_captain", new { captainId = "cpt_nonexistent" }).ConfigureAwait(false);
+                AssertToolResultValid(result);
+                Assert(result.TryGetProperty("isError", out JsonElement isError) && isError.GetBoolean(), "A non-existent captain is an error result");
+                AssertContains("Captain not found", GetToolResultText(result));
             }).ConfigureAwait(false);
 
             // ArmadaStopAll

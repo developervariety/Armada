@@ -1,5 +1,6 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -28,6 +29,11 @@ namespace Armada.Core.Models
         /// Number of dependent rows (events, planning sessions, refinement sessions) removed with the captain.
         /// </summary>
         public int DependentsRemoved { get; set; } = 0;
+
+        /// <summary>
+        /// Each dependent row or list the cleanup could not remove, with its reason. The captain is deleted either way.
+        /// </summary>
+        public List<CascadeCleanupSkip> DependentsSkipped { get; set; } = new List<CascadeCleanupSkip>();
 
         #endregion
 

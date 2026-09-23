@@ -3,7 +3,7 @@ namespace Armada.Core.Enums
     using System.Text.Json.Serialization;
 
     /// <summary>
-    /// Outcome of a captain deletion or restart request, shared by REST, MCP, WebSocket and the dashboard.
+    /// Outcome of a captain stop, deletion or restart request, shared by REST, MCP, WebSocket and the dashboard.
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum CaptainAdministrationOutcomeEnum
@@ -26,6 +26,12 @@ namespace Armada.Core.Enums
         /// <summary>
         /// The operation failed before it wrote anything, so the captain record is unchanged.
         /// </summary>
-        Failed
+        Failed,
+
+        /// <summary>
+        /// The captain is reserved by a planning or objective refinement session that could not be resolved for a
+        /// coordinated stop. Nothing changed.
+        /// </summary>
+        Conflict
     }
 }

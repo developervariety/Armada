@@ -362,69 +362,21 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string id = req.Parameters["id"];
-                Captain? captain = ctx.IsAdmin
-                    ? await _database.Captains.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
-
-                if (captain.State == CaptainStateEnum.Planning)
+                CaptainStopResult stopped = await _captainAdministration.StopAsync(req.Parameters["id"], ctx).ConfigureAwait(false);
+                switch (stopped.Outcome)
                 {
-                    PlanningSession? planningSession = (await _database.PlanningSessions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                        .Where(s =>
-                            s.Status == PlanningSessionStatusEnum.Active ||
-                            s.Status == PlanningSessionStatusEnum.Responding ||
-                            s.Status == PlanningSessionStatusEnum.Stopping)
-                        .OrderByDescending(s => s.LastUpdateUtc)
-                        .FirstOrDefault();
-
-                    if (planningSession == null || _planningSessions == null)
-                    {
+                    case CaptainAdministrationOutcomeEnum.NotFound:
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = stopped.Message };
+                    case CaptainAdministrationOutcomeEnum.Conflict:
                         req.Http.Response.StatusCode = 409;
-                        return (object)new { Error = "Conflict", Message = "Captain is currently reserved by a planning session, but Armada could not resolve that session for coordinated stop." };
-                    }
-
-                    PlanningSession stopped = await _planningSessions.StopAsync(planningSession).ConfigureAwait(false);
-                    return new { Status = "stopped", PlanningSessionId = stopped.Id };
+                        return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = stopped.Message };
+                    case CaptainAdministrationOutcomeEnum.Failed:
+                        req.Http.Response.StatusCode = 500;
+                        return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = stopped.Message };
+                    default:
+                        return stopped;
                 }
-                else if (captain.State == CaptainStateEnum.Refining)
-                {
-                    ObjectiveRefinementSession? refinementSession = (await _database.ObjectiveRefinementSessions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                        .Where(s =>
-                            s.Status == ObjectiveRefinementSessionStatusEnum.Active ||
-                            s.Status == ObjectiveRefinementSessionStatusEnum.Responding ||
-                            s.Status == ObjectiveRefinementSessionStatusEnum.Stopping)
-                        .OrderByDescending(s => s.LastUpdateUtc)
-                        .FirstOrDefault();
-
-                    if (refinementSession == null || _objectiveRefinementSessions == null)
-                    {
-                        req.Http.Response.StatusCode = 409;
-                        return (object)new { Error = "Conflict", Message = "Captain is currently reserved by an objective refinement session, but Armada could not resolve that session for coordinated stop." };
-                    }
-
-                    ObjectiveRefinementSession stopped = await _objectiveRefinementSessions.StopAsync(refinementSession).ConfigureAwait(false);
-                    return new { Status = "stopped", ObjectiveRefinementSessionId = stopped.Id };
-                }
-
-                // Kill the process if running
-                if (captain.ProcessId.HasValue)
-                {
-                    if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
-                    {
-                        ApiAgentRuntime.CancelTracked(captain.ProcessId.Value);
-                    }
-                    else
-                    {
-                        Armada.Runtimes.Interfaces.IAgentRuntime runtime = _runtimeFactory.Create(captain.Runtime);
-                        await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
-                    }
-                }
-
-                await _admiral.RecallCaptainAsync(id).ConfigureAwait(false);
-                return new { Status = "stopped" };
             },
             api => api
                 .WithTag("Captains")

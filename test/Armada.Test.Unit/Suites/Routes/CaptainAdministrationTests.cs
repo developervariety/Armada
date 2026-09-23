@@ -22,7 +22,8 @@ namespace Armada.Test.Unit.Suites.Routes
     using SyslogLogging;
 
     /// <summary>
-    /// Captain emergency stop, deletion and restart follow one rule on every interface. Stop all stops every
+    /// Captain stop, emergency stop, deletion and restart follow one rule on every interface. A single stop ends a
+    /// Planning or Refining captain's session and recalls any other captain. Stop all stops every
     /// working captain, planning session and refinement session and reports each failure. Deletion refuses a
     /// Working, Planning or Refining captain or one with an active mission, and removes the captain's events,
     /// planning sessions and refinement sessions on single and batch paths. Restart keeps the captain record.
@@ -122,6 +123,53 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertEqual(1, result.RefinementSessionsFailed);
                     AssertEqual(2, result.Failures.Count);
                     AssertTrue(result.Failures.Any(f => f.Id == scenario.PlanningSessionId), "The planning session is named");
+                }
+            });
+
+            await RunTest("Every interface stops a Planning or Refining captain through its session and recalls a working captain", async () =>
+            {
+                foreach (string surface in StopSurfaces)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Fixture fx = await Fixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                        StopAllScenario scenario = await StopAllScenario.CreateAsync(testDb.Driver).ConfigureAwait(false);
+
+                        string planningJson = await StopThroughAsync(fx, surface, scenario.PlannerCaptainId).ConfigureAwait(false);
+                        AssertTrue(fx.StoppedPlanning.SequenceEqual(new[] { scenario.PlanningSessionId }), surface + " stops the planning captain's active session: " + planningJson);
+                        AssertContains(scenario.PlanningSessionId, planningJson, surface + " names the stopped planning session");
+
+                        string refiningJson = await StopThroughAsync(fx, surface, scenario.RefinerCaptainId).ConfigureAwait(false);
+                        AssertTrue(fx.StoppedRefinement.SequenceEqual(new[] { scenario.RefinementSessionId }), surface + " stops the refining captain's active session: " + refiningJson);
+                        AssertContains(scenario.RefinementSessionId, refiningJson, surface + " names the stopped refinement session");
+                        AssertEqual(0, fx.Recalled.Count, surface + " does not recall a Planning or Refining captain as if it were working");
+
+                        Captain working = (await testDb.Driver.Captains.ReadAsync(scenario.WorkingCaptainId).ConfigureAwait(false))!;
+                        working.ProcessId = 4343;
+                        await testDb.Driver.Captains.UpdateAsync(working).ConfigureAwait(false);
+                        string workingJson = await StopThroughAsync(fx, surface, scenario.WorkingCaptainId).ConfigureAwait(false);
+                        AssertTrue(fx.StoppedProcesses.SequenceEqual(new[] { scenario.WorkingCaptainId }), surface + " stops the working captain's process: " + workingJson);
+                        AssertTrue(fx.Recalled.SequenceEqual(new[] { scenario.WorkingCaptainId }), surface + " recalls the working captain: " + workingJson);
+                        AssertContains("stopped", workingJson, surface + " reports the stop");
+                    }
+                }
+            });
+
+            await RunTest("Every interface refuses to stop a Planning captain whose session cannot be resolved", async () =>
+            {
+                foreach (string surface in StopSurfaces)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Fixture fx = await Fixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                        Captain orphan = await CreateCaptainAsync(testDb.Driver, "orphan-planner", CaptainStateEnum.Planning).ConfigureAwait(false);
+
+                        string json = await StopThroughAsync(fx, surface, orphan.Id).ConfigureAwait(false);
+
+                        AssertContains("could not resolve that session", json, surface + " names the unresolved session");
+                        AssertEqual(0, fx.Recalled.Count, surface + " does not recall a captain reserved by a session");
+                        AssertEqual(CaptainStateEnum.Planning, (await testDb.Driver.Captains.ReadAsync(orphan.Id).ConfigureAwait(false))!.State, surface + " leaves the captain unchanged");
+                    }
                 }
             });
 
@@ -272,6 +320,26 @@ namespace Armada.Test.Unit.Suites.Routes
         }
 
         private static readonly string[] DeleteSurfaces = new[] { "rest-single", "rest-batch", "mcp-single", "mcp-batch", "websocket" };
+
+        private static readonly string[] StopSurfaces = new[] { "rest", "mcp", "websocket" };
+
+        private async Task<string> StopThroughAsync(Fixture fx, string surface, string captainId)
+        {
+            switch (surface)
+            {
+                case "rest":
+                    // CaptainRoutes maps this result to 200, 404, 409 or 500.
+                    return JsonSerializer.Serialize(await fx.Administration.StopAsync(captainId, McpTestCaller.Operator).ConfigureAwait(false));
+                case "mcp":
+                    return JsonSerializer.Serialize(await RegisterMcpTools(fx)["armada_stop_captain"](
+                        JsonSerializer.SerializeToElement(new { captainId = captainId })).ConfigureAwait(false));
+                case "websocket":
+                    return JsonSerializer.Serialize(await CreateWebSocketHandler(fx).HandleCommandAsync(
+                        "stop_captain", new WebSocketCommand { Action = "stop_captain", CaptainId = captainId }, "", McpTestCaller.Operator).ConfigureAwait(false));
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(surface), surface, "Unknown stop surface");
+            }
+        }
 
         private async Task<string> DeleteThroughAsync(Fixture fx, string surface, string captainId)
         {
@@ -471,6 +539,8 @@ namespace Armada.Test.Unit.Suites.Routes
         {
             public string WorkingCaptainId { get; private set; } = "";
             public string IdleCaptainId { get; private set; } = "";
+            public string PlannerCaptainId { get; private set; } = "";
+            public string RefinerCaptainId { get; private set; } = "";
             public string PlanningSessionId { get; private set; } = "";
             public string RefinementSessionId { get; private set; } = "";
 
@@ -483,6 +553,8 @@ namespace Armada.Test.Unit.Suites.Routes
                 Captain idle = await CreateCaptainAsync(database, "idle", CaptainStateEnum.Idle).ConfigureAwait(false);
                 scenario.WorkingCaptainId = working.Id;
                 scenario.IdleCaptainId = idle.Id;
+                scenario.PlannerCaptainId = planner.Id;
+                scenario.RefinerCaptainId = refiner.Id;
 
                 PlanningSession planning = await database.PlanningSessions.CreateAsync(new PlanningSession
                 {
