@@ -271,6 +271,8 @@ upstream integrations and excludes changes already present at that baseline.
   separately from a timeout. The tunnel protocol guide names the six advertised
   features, the two the proxy reads, and the `unsupported_method` answer to any
   method other than the generic relay.
+- **MCP tool catalog:** pairs each objective tool with its backlog-named twin
+  and states that both call the same operation.
 - **Path containment:** one rule decides that a path is inside a root: it is the
   root itself or lies below the root plus a directory separator, compared
   ordinally after normalization. The server and proxy dashboards, check-run

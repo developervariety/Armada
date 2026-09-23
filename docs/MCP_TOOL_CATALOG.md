@@ -130,6 +130,21 @@ evidence gap.
 | Write | `create_objective`, `create_backlog_item`, `update_objective`, `update_backlog_item`, `reorder_objectives`, `reorder_backlog_items`, `create_backlog_refinement_session`, `send_backlog_refinement_message`, `summarize_backlog_refinement_session`, `apply_backlog_refinement_summary`, `stop_backlog_refinement_session`, `create_backlog_planning_session`, `delete_objective`, `delete_backlog_item` |
 | Execute | `dispatch_backlog_planning_session`, `armada_decompose_plan`, `armada_parse_architect_output` |
 
+An objective and a backlog item are the same record. Each objective tool has a
+backlog-named twin that calls the same service operation with the same
+arguments and returns the same result. Only the not-found text and the error
+`Code` values use the twin's own term (`objective_create_failed` or
+`backlog_create_failed`, for example).
+
+| Objective name | Backlog name |
+| --- | --- |
+| `list_objectives` | `list_backlog` |
+| `get_objective` | `get_backlog_item` |
+| `create_objective` | `create_backlog_item` |
+| `update_objective` | `update_backlog_item` |
+| `reorder_objectives` | `reorder_backlog_items` |
+| `delete_objective` | `delete_backlog_item` |
+
 ### 8.6 Objective Scheduler
 
 | Risk | Tools |
