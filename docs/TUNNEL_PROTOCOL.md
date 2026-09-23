@@ -118,7 +118,7 @@ Representative successful response:
 }
 ```
 
-The feature list above is representative. Armada still advertises legacy feature-specific capabilities today, but the important new contract point is the presence of `dashboard.http.relay` and `dashboard.websocket.relay`.
+Armada advertises these six features. The four `remoteControl.*` names describe the tunnel transport: the handshake, `ping`/`pong` heartbeats, pushed events, and request/response messages. The proxy reads only the two `dashboard.*` names: without `dashboard.http.relay` it refuses to open the instance's dashboard, and without `dashboard.websocket.relay` it refuses the live dashboard websocket.
 
 ## Generic HTTP Relay
 
@@ -218,17 +218,9 @@ Current limitation:
 
 - reconnect and recovery semantics after tunnel interruption still need deeper verification
 
-## Legacy Feature-Specific Methods
+## Unsupported Methods
 
-The server still handles older `armada.*` request families for compatibility, including objective/backlog, planning, workflow, delivery, diagnostics, workspace, and reference methods.
-
-Those methods are compatibility surface:
-
-- they are not the preferred path for new dashboard support
-- the shared dashboard should reach new REST behavior through generic `/api/v1/*` relay
-- the shared dashboard should reach live behavior through generic `/ws` relay
-
-Removing the legacy method families remains follow-up work after compatibility confidence is high enough.
+Armada serves only `armada.http.request`, `armada.ws.open`, `armada.ws.message` and `armada.ws.close` on the tunnel. Any other request method is answered with status `404` and error code `unsupported_method`. The dashboard reaches REST behavior through the generic `/api/v1/*` relay and live behavior through the generic `/ws` relay.
 
 ## Connection Lifecycle And Health
 

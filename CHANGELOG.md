@@ -268,7 +268,9 @@ upstream integrations and excludes changes already present at that baseline.
   below it, so an encoded traversal cannot read a sibling directory with the same
   name prefix. A tunnelled request has one deadline covering send and response,
   releases its pending entry on every exit, and reports caller cancellation
-  separately from a timeout.
+  separately from a timeout. The tunnel protocol guide names the six advertised
+  features, the two the proxy reads, and the `unsupported_method` answer to any
+  method other than the generic relay.
 - **Path containment:** one rule decides that a path is inside a root: it is the
   root itself or lies below the root plus a directory separator, compared
   ordinally after normalization. The server and proxy dashboards, check-run
