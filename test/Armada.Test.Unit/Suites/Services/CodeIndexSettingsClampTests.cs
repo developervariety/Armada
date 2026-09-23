@@ -50,7 +50,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(60, settings.OpenCodeServer.RequestTimeoutSeconds);
 
                 AssertFalse(settings.UseFileSignatures, "UseFileSignatures default must be false");
-                AssertEqual(string.Empty, settings.SignatureModel);
                 AssertEqual(0.2, settings.FileSignatureBoostWeight);
             });
 
@@ -248,13 +247,6 @@ namespace Armada.Test.Unit.Suites.Services
                 CodeIndexSettings settings = new CodeIndexSettings();
                 settings.SummarizerApiKey = null!;
                 AssertEqual(string.Empty, settings.SummarizerApiKey);
-            });
-
-            await RunTest("SignatureModel_NullAssignment_CoalescesToEmptyString", () =>
-            {
-                CodeIndexSettings settings = new CodeIndexSettings();
-                settings.SignatureModel = null!;
-                AssertEqual(string.Empty, settings.SignatureModel);
             });
 
             await RunTest("InferenceClientAndOpenCodeServer_NullAssignment_CoalescesToDefaults", () =>

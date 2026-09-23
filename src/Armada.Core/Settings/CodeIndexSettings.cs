@@ -332,15 +332,6 @@ namespace Armada.Core.Settings
         public bool UseFileSignatures { get; set; } = false;
 
         /// <summary>
-        /// File signature model name. Empty falls back to <see cref="SummarizerModel"/>.
-        /// </summary>
-        public string SignatureModel
-        {
-            get => _SignatureModel;
-            set => _SignatureModel = value ?? string.Empty;
-        }
-
-        /// <summary>
         /// Score boost blend weight for file-signature ranking.
         /// </summary>
         public double FileSignatureBoostWeight
@@ -681,7 +672,6 @@ namespace Armada.Core.Settings
         private int _EmbeddingProgressLogInterval = 200;
         private int _PostLandRefreshDebounceSeconds = 30;
         private int _StalenessSweepIntervalCycles = 50;
-        private string _SignatureModel = string.Empty;
         private double _FileSignatureBoostWeight = 0.2;
         private double _GraphSeedBoost = 18.0;
         private double _GraphNeighborBoost = 8.0;

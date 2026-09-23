@@ -68,6 +68,9 @@ upstream integrations and excludes changes already present at that baseline.
   transition service against the whole transition table, the Claude Code launch
   environment, and the OpenCode output transform. Source files hold no literal
   NUL bytes, and the solution gives each automated test project its own name.
+- The code-index `signatureModel` setting. Nothing read it: file signatures use
+  the summarizer model. A settings file that still carries the key loads
+  normally, and the next save drops it.
 
 ## Changed
 
