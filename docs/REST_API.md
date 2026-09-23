@@ -4086,7 +4086,7 @@ A git repository registered with Armada.
 | `DefaultBranch` | string | `"main"` | Default branch name |
 | `ProjectContext` | string? | null | Project context describing architecture, key files, and dependencies |
 | `StyleGuide` | string? | null | Style guide describing naming conventions, patterns, and library preferences |
-| `EnableModelContext` | bool | false | Whether the model context renders into mission briefs |
+| `EnableModelContext` | bool | true | Whether the model context renders into mission briefs |
 | `ModelContext` | string? | null | Repository context rendered into each mission brief as a `## Model Context` section when `EnableModelContext` is true and the text is not blank |
 | `LandingMode` | [LandingModeEnum](#landingmodeenum)? | null | Per-vessel landing policy override (null = use global setting) |
 | `BranchCleanupPolicy` | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum)? | null | Per-vessel branch cleanup policy override (null = use global setting) |
