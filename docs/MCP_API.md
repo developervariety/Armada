@@ -512,7 +512,16 @@ server-control actions outside mission scope.
 settings file and database credentials. It sets an explicit local operator
 identity; it does not fall back to a default context. It builds its own mission
 status transition service, so `armada_transition_mission_status` applies the
-same validation, completion gates and landing as the admiral's endpoint.
+same validation, completion gates and landing as the admiral's endpoint. It also
+supplies the record-backed services the admiral's endpoint supplies: the mission
+service (`armada_review_hold`), the remote-trigger service (the AgentWake
+tools), releases, deployments, runbooks, captain bench and unbench, unlanded
+branches, terminal-voyage reconciliation, disk lifecycle, and a process stop for
+`armada_stop_captain`. Services that exist only inside the running admiral (the
+dispatch hold, the objective scheduler, planning and refinement session
+coordinators, the coordination board, harbor jobs and the context index) are
+not built, so their tools are not registered on stdio or report the service as
+unavailable.
 
 **SSH stdio bridge.** `scripts/mcp-ssh-http-bridge.mjs` requires
 `ARMADA_MCP_AUTH_HEADER_FILE`, an absolute path on the server to a file that

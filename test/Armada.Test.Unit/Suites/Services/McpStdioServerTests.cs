@@ -305,6 +305,76 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.Cancelled, stored!.Status, "the transition is applied through the stdio host: " + resultJson);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("StdioHost_SuppliesTheRecordBackedServicesTheAdmiralEndpointSupplies", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, Func<JsonElement?, Task<object>>> tools = RegisterStdioTools(testDb);
+
+                    string[] serviceTools = new[]
+                    {
+                        "armada_review_hold",
+                        "armada_agentwake_status",
+                        "create_release",
+                        "create_deployment",
+                        "list_runbooks",
+                        "armada_bench_captain",
+                        "armada_unlanded_branches",
+                        "armada_reconcile_terminal_voyage_missions",
+                        "armada_disk_lifecycle"
+                    };
+                    List<string> missing = new List<string>();
+                    foreach (string name in serviceTools)
+                    {
+                        if (!tools.ContainsKey(name)) missing.Add(name);
+                    }
+                    AssertTrue(missing.Count == 0, "the stdio host registers every record-backed service tool; missing: " + String.Join(", ", missing));
+
+                    Mission held = await testDb.Driver.Missions.CreateAsync(new Mission("stdio held judge", "")
+                    {
+                        Status = MissionStatusEnum.WorkProduced,
+                        HeldForOperatorReview = true,
+                        HeldForOperatorReviewReason = "review_substance"
+                    }).ConfigureAwait(false);
+                    object holdResult = await McpTestCaller.Wrap(tools["armada_review_hold"])(JsonSerializer.SerializeToElement(new
+                    {
+                        action = "fail",
+                        missionId = held.Id,
+                        reason = "stdio review",
+                        @operator = "stdio-operator"
+                    })).ConfigureAwait(false);
+                    string holdJson = JsonSerializer.Serialize(holdResult);
+                    Mission? afterHold = await testDb.Driver.Missions.ReadAsync(held.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, afterHold!.Status, "the review hold is resolved through the stdio host: " + holdJson);
+                    AssertFalse(afterHold.HeldForOperatorReview, "the hold is cleared: " + holdJson);
+
+                    object wakeResult = await McpTestCaller.Wrap(tools["armada_agentwake_status"])(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false);
+                    string wakeJson = JsonSerializer.Serialize(wakeResult);
+                    AssertFalse(wakeJson.Contains("Remote trigger service not configured", StringComparison.Ordinal), "the stdio host supplies the remote trigger service: " + wakeJson);
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterStdioTools(TestDatabase testDb)
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            string root = Path.Combine(Path.GetTempPath(), "armada_stdio_host_" + Guid.NewGuid().ToString("N"));
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.DocksDirectory = Path.Combine(root, "docks");
+            settings.ReposDirectory = Path.Combine(root, "repos");
+            settings.LogDirectory = Path.Combine(root, "logs");
+
+            Dictionary<string, Func<JsonElement?, Task<object>>> tools = new Dictionary<string, Func<JsonElement?, Task<object>>>(StringComparer.Ordinal);
+            McpStdioCommand.RegisterTools(
+                (name, _, _, handler) => tools[name] = handler,
+                testDb.Driver,
+                settings,
+                logging,
+                new GitService(logging, database: testDb.Driver),
+                null);
+            return tools;
         }
 
         private static ArmadaMcpStdioServer CreateServer()

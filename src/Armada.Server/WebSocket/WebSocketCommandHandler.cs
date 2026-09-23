@@ -776,6 +776,7 @@ namespace Armada.Server.WebSocket
             Mission newMission = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data!;
             newMission.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             newMission.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            await MissionDefaultPlaybooks.MergeVesselDefaultsAsync(_Database, newMission).ConfigureAwait(false);
             try
             {
                 newMission = await _Admiral.DispatchMissionAsync(newMission).ConfigureAwait(false);

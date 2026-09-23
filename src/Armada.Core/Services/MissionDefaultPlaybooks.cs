@@ -8,9 +8,9 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
 
     /// <summary>
-    /// Applies a vessel's default playbooks to a mission an operator creates. The REST and MCP mission
-    /// create entry points both call this before they dispatch, so a mission created through either
-    /// carries the same playbook set.
+    /// Applies a vessel's default playbooks to a mission an operator creates. The REST, MCP and WebSocket
+    /// mission create entry points all call this before they dispatch, so a mission created through any of
+    /// them carries the same playbook set.
     /// </summary>
     public static class MissionDefaultPlaybooks
     {

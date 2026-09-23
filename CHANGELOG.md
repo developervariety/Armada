@@ -204,11 +204,15 @@ upstream integrations and excludes changes already present at that baseline.
 - **Operator entry-point parity:** voyage cancel on REST, WebSocket, MCP and remote
   control runs one operation that stops running missions' agent processes and
   cancels InProgress missions. Batch dock delete refuses active docks per ID like
-  single delete. REST mission create merges vessel default playbooks like MCP.
+  single delete. Mission create on REST, MCP and WebSocket merges vessel
+  default playbooks through one helper.
   Batch merge-queue purge is limited to a tenant administrator's own tenant.
   Every REST route's auth refusal names `NotAuthorized` (401) or `Forbidden` (403)
   in the body to match the status, through one shared mapping.
-  The Helm stdio MCP host supplies mission status transitions.
+  The Helm stdio MCP host supplies mission status transitions and the record-backed
+  services the admiral endpoint supplies (review hold, AgentWake, releases,
+  deployments, runbooks, captain bench, unlanded branches, terminal-voyage
+  reconciliation, disk lifecycle and captain process stop).
 - **MCP tool results:** one rule decides that a tool result is an error: an
   explicit `isError: true` result, or a top-level non-empty `Error` string. HTTP
   returns such a result with `isError: true` and audits it as `Failed` with its

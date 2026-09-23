@@ -137,6 +137,36 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("CreateMission_MergesTheVesselDefaultPlaybooksWithTheCallerSelection", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AuthContext caller = await SeedCallerAsync(testDb).ConfigureAwait(false);
+                    Vessel vessel = new Vessel("ws-defaults-vessel", "https://github.com/test/ws-defaults.git");
+                    vessel.DefaultPlaybooks = JsonSerializer.Serialize(new List<SelectedPlaybook>
+                    {
+                        new SelectedPlaybook { PlaybookId = "pbk_default", DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent }
+                    });
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    IAdmiralService admiral = DispatchProxy.Create<IAdmiralService, RecordingAdmiralProxy>();
+
+                    await SendAsync(CreateHandler(testDb, admiral: admiral), "create_mission",
+                        new
+                        {
+                            Title = "ws-defaults-mission",
+                            Description = "defaults",
+                            VesselId = vessel.Id,
+                            SelectedPlaybooks = new[] { new { PlaybookId = "pbk_caller", DeliveryMode = "AttachIntoWorktree" } }
+                        }, caller).ConfigureAwait(false);
+
+                    Mission? dispatched = ((RecordingAdmiralProxy)(object)admiral).LastDispatched;
+                    AssertNotNull(dispatched, "the mission reaches dispatch");
+                    List<string> ids = dispatched!.SelectedPlaybooks.ConvertAll(p => p.PlaybookId);
+                    AssertTrue(ids.Contains("pbk_default"), "the vessel's default playbook is merged into the mission: " + String.Join(",", ids));
+                    AssertTrue(ids.Contains("pbk_caller"), "the caller's own selection is kept: " + String.Join(",", ids));
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("CreateCaptain_IsOwnedByTheCaller", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

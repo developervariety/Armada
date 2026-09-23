@@ -186,6 +186,25 @@ namespace Armada.Helm.Commands
                 emitEvent,
                 logging);
 
+            // The record-backed services the admiral supplies to its HTTP MCP endpoint act on the shared database
+            // and this host's storage, so the stdio host supplies them too. Services that live only inside the
+            // running admiral process (the dispatch hold, the objective scheduler, planning and refinement session
+            // coordinators, the coordination board's live broadcast and wake, harbor jobs and the context index)
+            // are not built here; their tools stay unregistered or report the service as unavailable.
+            DeploymentEnvironmentService environmentService = new DeploymentEnvironmentService(database, workflowProfileService, logging);
+            ReleaseWebhookDispatcher? releaseWebhookDispatcher = armadaSettings.CdWebhook != null && armadaSettings.CdWebhook.IsConfigured()
+                ? new ReleaseWebhookDispatcher(armadaSettings.CdWebhook, logging)
+                : null;
+            ReleaseService releaseService = new ReleaseService(database, workflowProfileService, logging, releaseWebhookDispatcher);
+            DeploymentService deploymentService = new DeploymentService(database, workflowProfileService, environmentService, checkRunService, logging);
+            RunbookService runbookService = new RunbookService(database, logging);
+            CaptainQuarantineService captainQuarantine = new CaptainQuarantineService(database, armadaSettings, logging, new ProviderResetQuotaProbe());
+            UnlandedBranchService? unlandedBranches = git is IBranchInventory branchInventory
+                ? new UnlandedBranchService(database, branchInventory, logging)
+                : null;
+            TerminalVoyageMissionReconciler terminalVoyageMissions = new TerminalVoyageMissionReconciler(logging, database, git);
+            DiskLifecycleService diskLifecycle = new DiskLifecycleService(database, armadaSettings, logging);
+
             McpToolRegistrar.RegisterAll(
                 register,
                 database,
@@ -195,15 +214,31 @@ namespace Armada.Helm.Commands
                 mergeQueueService,
                 dockService,
                 landingService,
+                onStopCaptain: async (captainId) =>
+                {
+                    Armada.Core.Models.Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
+                    if (captain != null)
+                        await agentLifecycle.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                },
                 agentLifecycle: agentLifecycle,
                 templateService: promptTemplateService,
                 logging: logging,
+                remoteTriggerService: remoteTriggerService,
                 codeIndexService: codeIndexService,
                 checkRunService: checkRunService,
                 objectiveService: objectiveService,
+                releaseService: releaseService,
+                cdWebhookDispatcher: releaseWebhookDispatcher,
+                deploymentService: deploymentService,
+                runbookService: runbookService,
                 incidentService: incidentService,
+                captainQuarantine: captainQuarantine,
+                unlandedBranches: unlandedBranches,
+                diskLifecycle: diskLifecycle,
+                terminalVoyageMissions: terminalVoyageMissions,
                 objectiveDispatchPreviewService: objectiveDispatchPreviewService,
-                statusTransitions: statusTransitions);
+                statusTransitions: statusTransitions,
+                missionService: missionService);
         }
     }
 }

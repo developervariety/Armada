@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
@@ -40,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Routes
                         new SelectedPlaybook { PlaybookId = "pbk_b", DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference }
                     };
 
-                    List<SelectedPlaybook> merged = MergePlaybooksTestHelper(vessel.GetDefaultPlaybooks(), callerPlaybooks);
+                    List<SelectedPlaybook> merged = await MergeThroughMissionCreateAsync(testDb, vessel, callerPlaybooks).ConfigureAwait(false);
                     AssertEqual(2, merged.Count, "Should get exactly 2 playbooks when vessel has no defaults");
                     AssertEqual("pbk_a", merged[0].PlaybookId);
                     AssertEqual("pbk_b", merged[1].PlaybookId);
@@ -66,7 +67,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     vessel.DefaultPlaybooks = JsonSerializer.Serialize(defaults);
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-                    List<SelectedPlaybook> merged = MergePlaybooksTestHelper(vessel.GetDefaultPlaybooks(), new List<SelectedPlaybook>());
+                    List<SelectedPlaybook> merged = await MergeThroughMissionCreateAsync(testDb, vessel, new List<SelectedPlaybook>()).ConfigureAwait(false);
                     AssertEqual(3, merged.Count, "Should get 3 defaults when caller supplies none");
                     AssertEqual("pbk_x", merged[0].PlaybookId);
                     AssertEqual("pbk_z", merged[2].PlaybookId);
@@ -99,7 +100,7 @@ namespace Armada.Test.Unit.Suites.Routes
                         new SelectedPlaybook { PlaybookId = "pbk_4", DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference }
                     };
 
-                    List<SelectedPlaybook> merged = MergePlaybooksTestHelper(vessel.GetDefaultPlaybooks(), callerPlaybooks);
+                    List<SelectedPlaybook> merged = await MergeThroughMissionCreateAsync(testDb, vessel, callerPlaybooks).ConfigureAwait(false);
                     AssertEqual(4, merged.Count, "Should get 4 total: 3 defaults + 1 new caller entry");
 
                     SelectedPlaybook? pbk2 = null;
@@ -197,30 +198,16 @@ namespace Armada.Test.Unit.Suites.Routes
         }
 
         /// <summary>
-        /// Replicates the merge logic from McpVoyageTools.MergePlaybooks for unit testing
-        /// without having to instantiate the full voyage tool infrastructure.
+        /// Merge the caller's selection with the vessel's defaults through the helper every mission create
+        /// entry point calls.
         /// </summary>
-        private static List<SelectedPlaybook> MergePlaybooksTestHelper(List<SelectedPlaybook>? defaults, List<SelectedPlaybook> callerEntries)
+        private static async Task<List<SelectedPlaybook>> MergeThroughMissionCreateAsync(TestDatabase testDb, Vessel vessel, List<SelectedPlaybook> callerPlaybooks)
         {
-            List<SelectedPlaybook> merged = new List<SelectedPlaybook>();
-            if (defaults != null)
-            {
-                foreach (SelectedPlaybook d in defaults)
-                    merged.Add(new SelectedPlaybook { PlaybookId = d.PlaybookId, DeliveryMode = d.DeliveryMode });
-            }
-            foreach (SelectedPlaybook caller in callerEntries)
-            {
-                SelectedPlaybook? existing = null;
-                foreach (SelectedPlaybook m in merged)
-                {
-                    if (m.PlaybookId == caller.PlaybookId) { existing = m; break; }
-                }
-                if (existing != null)
-                    existing.DeliveryMode = caller.DeliveryMode;
-                else
-                    merged.Add(new SelectedPlaybook { PlaybookId = caller.PlaybookId, DeliveryMode = caller.DeliveryMode });
-            }
-            return merged;
+            Mission mission = new Mission("default playbook merge", "");
+            mission.VesselId = vessel.Id;
+            mission.SelectedPlaybooks = callerPlaybooks;
+            await MissionDefaultPlaybooks.MergeVesselDefaultsAsync(testDb.Driver, mission).ConfigureAwait(false);
+            return mission.SelectedPlaybooks;
         }
     }
 }
