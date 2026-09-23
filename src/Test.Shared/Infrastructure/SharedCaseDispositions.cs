@@ -28,15 +28,8 @@ namespace Test.Shared.Infrastructure
 
         #region Private-Members
 
-        private const string ModelContextOmitted =
-            "generated instructions omit an enabled vessel model context although the persona memory guidance tells the captain to read it in the prompt; "
-            + "the owner decides whether the brief renders the context or the guidance changes. Either way the case's update-instruction assertions are obsolete, "
-            + "because updating the vessel model context is an operator action";
-
         private static readonly IReadOnlyList<SharedCaseDisposition> _All = new List<SharedCaseDisposition>
         {
-            SharedCaseDisposition.AwaitingOwner("Services.MissionPrompt.generate_claude_md_async_includes_model_context_when_enabled_and_set", ModelContextOmitted),
-            SharedCaseDisposition.AwaitingOwner("Services.MissionPrompt.template_resolved_claude_md_contains_model_context_updates_when_enabled", ModelContextOmitted),
         };
 
         #endregion

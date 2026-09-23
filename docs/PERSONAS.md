@@ -93,6 +93,18 @@ When Armada builds a captain prompt, it resolves the persona, loads its active
 prompt template, and adds mission context and selected playbooks. Default
 playbooks merge from fleet, vessel, persona, captain, and mission layers.
 
+The vessel's project context, style guide and model context render into the
+generated instruction file as `## Project Context`, `## Code Style` and
+`## Model Context` sections, each once and before the mission instructions. The
+Model Context section appears only when the vessel's `EnableModelContext` is on
+and its `ModelContext` text is not blank. It is read-only background: writing
+the vessel model context is an operator action, so the brief never asks a
+captain to update it. Each section's bytes are recorded on the
+`mission.prompt_budget` event, and the total-budget backstop may elide it like
+the other vessel context sections. The Recall Existing Memory guidance in each
+built-in persona template tells the captain to read that section when the brief
+carries one.
+
 When commit metadata is on and the mission is not read-only, the launch prompt
 ends with the `commit.instructions_preamble` text and the Armada trailers. The
 preamble requires a summary line and a full manifest of every file added,

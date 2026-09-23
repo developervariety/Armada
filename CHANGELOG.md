@@ -234,11 +234,17 @@ upstream integrations and excludes changes already present at that baseline.
   WebSocket drives connection state and reconnects; a replaced socket's late events
   are ignored. The home page's bounded mission-summary refresh has a dashboard test
   in place of source-text checks in the unit suite.
+- **Mission brief model context:** the generated instruction file renders the
+  vessel model context once as a `## Model Context` section when
+  `EnableModelContext` is on and the text is not blank, on the direct and the
+  template-resolved paths. The section is read-only background, is counted in the
+  prompt-budget telemetry, and may be elided by the total-budget backstop; the
+  persona memory guidance tells the captain to read it when the brief carries one.
 - **Test ownership:** each behaviour has one executed test implementation. Shared
   copies of executed legacy cases and legacy copies of executed shared cases are
-  deleted instead of skipped. Seeded-persona, empty-model-context and default Claude
-  argument cases assert the current contract; two model-context cases remain named
-  skips awaiting an owner decision.
+  deleted instead of skipped. Seeded-persona, model-context and default Claude
+  argument cases assert the current contract, and the shared runner records no
+  named skips.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

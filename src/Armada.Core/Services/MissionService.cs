@@ -2866,6 +2866,15 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // The vessel model context is read-only background the operator maintains. It renders once,
+            // only when enabled and non-blank; the brief never asks a captain to update it, because
+            // writing the vessel model context is an operator action.
+            if (vessel.EnableModelContext && !String.IsNullOrWhiteSpace(vessel.ModelContext))
+            {
+                content += ledger.Track("mission.model_context_wrapper", await ResolveSectionAsync("mission.model_context_wrapper", templateParams, token).ConfigureAwait(false));
+                content += "\n";
+            }
+
             if (playbookSnapshots.Count > 0)
             {
                 string playbooksMarkdown = await RenderSelectedPlaybooksMarkdownAsync(
@@ -5041,6 +5050,14 @@ namespace Armada.Core.Services
                         "## Code Style\n" +
                         "{StyleGuide}\n";
 
+                case "mission.model_context_wrapper":
+                    return
+                        "## Model Context\n" +
+                        "The following context was accumulated by AI agents during previous missions on this repository. " +
+                        "Use this information to work more effectively.\n" +
+                        "\n" +
+                        "{ModelContext}\n";
+
                 case "mission.metadata":
                     return
                         "# Mission Instructions\n" +
@@ -7048,6 +7065,7 @@ namespace Armada.Core.Services
             "mission.existing_instructions_wrapper",
             "mission.project_context_wrapper",
             "mission.code_style_wrapper",
+            "mission.model_context_wrapper",
             "mission.playbooks_wrapper"
         };
 

@@ -712,8 +712,8 @@ Three operator facts:
   operator as a proposal in its summary.
 
 Every other built-in persona template carries a Recall Existing Memory section
-telling the agent to read the vessel model context and search memory before it
-acts. Startup adds that section once to a built-in persona template that lacks
+telling the agent to read the brief's Model Context section, when the brief
+carries one, and search memory before it acts. Startup adds that section once to a built-in persona template that lacks
 it and changes nothing else, so an operator edit is kept.
 
 ### 8.25 Branch Cleanup Sweep

@@ -39,8 +39,8 @@ namespace Armada.Core.Services
         private const string _MemoryRecallGuidance =
             "\n" +
             _MemoryRecallMarker + "\n" +
-            "Before you act, recall what earlier work on this vessel recorded. Read the vessel model " +
-            "context in this prompt, and when the memory tools are available call `search_memory` with " +
+            "Before you act, recall what earlier work on this vessel recorded. When this brief carries a " +
+            "Model Context section, read it, and when the memory tools are available call `search_memory` with " +
             "this vessel and with keywords from your mission, then `get_memory` for a record that matters. " +
             "Reuse the conventions, decisions and procedures already recorded instead of deriving them " +
             "again.\n" +

@@ -688,6 +688,8 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Vessel vessel = new Vessel("BudgetVessel", "https://github.com/test/repo");
                         vessel.ProjectContext = "Telemetry probe vessel context.";
+                        vessel.EnableModelContext = true;
+                        vessel.ModelContext = "Telemetry probe model context.";
 
                         Mission mission = new Mission();
                         mission.Title = "Record prompt budget";
@@ -705,6 +707,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("\"InstructionFileBytes\":" + fileBytes, payload, "recorded file size must match the written file");
                         AssertContains("mission.rules", payload, "module names must be recorded");
                         AssertContains("mission.project_context_wrapper", payload, "vessel context module must be recorded");
+                        AssertContains("mission.model_context_wrapper", payload, "model context module must be recorded");
                         AssertContains("\"OverBudget\":true", payload, "a file over the configured budget must be flagged");
                         AssertEqual(mission.Id, events[0].MissionId, "the event must be attributed to the mission");
                     }
@@ -1517,6 +1520,7 @@ namespace Armada.Test.Unit.Suites.Services
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CODEX.md"));
                         AssertEqual(1, Regex.Matches(content, "^## Project Context$", RegexOptions.Multiline).Count);
                         AssertEqual(1, Regex.Matches(content, "^## Code Style$", RegexOptions.Multiline).Count);
+                        AssertEqual(1, Regex.Matches(content, "^## Model Context$", RegexOptions.Multiline).Count);
                         AssertEqual(1, Regex.Matches(content, "^## Repository$", RegexOptions.Multiline).Count);
                     }
                     finally
@@ -1826,7 +1830,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(prompt.Contains("Be concise and careful."), "Launch prompt should defer captain instructions to the runtime instruction file");
                     AssertFalse(prompt.Contains("Service-oriented C# backend."), "Launch prompt should defer project context to the runtime instruction file");
                     AssertFalse(prompt.Contains("Prefer explicit types."), "Launch prompt should defer style guide to the runtime instruction file");
-                    AssertFalse(prompt.Contains("Background jobs are scheduled from ArmadaServer."), "Launch prompt should defer model context to the runtime instruction file");
+                    AssertFalse(prompt.Contains("Background jobs are scheduled from ArmadaServer."), "Launch prompt should leave the model context to the runtime instruction file, whose Model Context section carries it");
                     try { Directory.Delete(dock.WorktreePath, true); } catch { }
                 }
             });

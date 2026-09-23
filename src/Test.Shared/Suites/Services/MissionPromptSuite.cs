@@ -321,10 +321,13 @@ namespace Test.Shared.Suites.Services
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("## Model Context", content);
-                        AssertContains("The test suite takes 4 minutes.", content);
-                        AssertContains("## Model Context Updates", content);
-                        AssertContains("update_vessel_context", content);
+                        AssertEqual(1, Regex.Matches(content, "^## Model Context$", RegexOptions.Multiline).Count, "the model context renders exactly once");
+                        AssertContains("The test suite takes 4 minutes. Auth module was recently refactored.", content);
+                        int contextIndex = content.IndexOf("## Model Context", StringComparison.Ordinal);
+                        int missionIndex = content.IndexOf("# Mission Instructions", StringComparison.Ordinal);
+                        AssertTrue(contextIndex < missionIndex, "Model Context should appear before Mission Instructions");
+                        // Writing the vessel model context is an operator action, so the brief never asks a captain to update it.
+                        AssertFalse(content.Contains("update_vessel_context"), "The brief must not tell a captain to update the vessel model context");
                     }
                     finally
                     {
@@ -382,22 +385,29 @@ namespace Test.Shared.Suites.Services
 
                     try
                     {
-                        Vessel vessel = new Vessel("EmptyModelContextVessel", "https://github.com/test/repo");
-                        vessel.EnableModelContext = true;
-                        vessel.ModelContext = null;
+                        string?[] blankContexts = new string?[] { null, "", "  \n\t " };
+                        for (int i = 0; i < blankContexts.Length; i++)
+                        {
+                            string briefDir = Path.Combine(tempDir, "brief" + i);
+                            Directory.CreateDirectory(briefDir);
 
-                        Mission mission = new Mission();
-                        mission.Title = "First mission";
-                        mission.Description = "First mission on this vessel.";
+                            Vessel vessel = new Vessel("EmptyModelContextVessel", "https://github.com/test/repo");
+                            vessel.EnableModelContext = true;
+                            vessel.ModelContext = blankContexts[i];
 
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+                            Mission mission = new Mission();
+                            mission.Title = "First mission";
+                            mission.Description = "First mission on this vessel.";
 
-                        // Updating the vessel model context is an operator action, so an enabled but empty
-                        // context gives the captain neither a context section nor update instructions.
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("First mission", content);
-                        AssertFalse(content.Contains("## Model Context"), "An empty model context must not produce a Model Context section");
-                        AssertFalse(content.Contains("update_vessel_context"), "The brief must not tell a captain to update the vessel model context");
+                            await service.GenerateClaudeMdAsync(briefDir, mission, vessel);
+
+                            // Updating the vessel model context is an operator action, so an enabled but blank
+                            // context gives the captain neither a context section nor update instructions.
+                            string content = await File.ReadAllTextAsync(Path.Combine(briefDir, "CLAUDE.md"));
+                            AssertContains("First mission", content);
+                            AssertFalse(content.Contains("## Model Context"), "A blank model context must not produce a Model Context section (case " + i + ")");
+                            AssertFalse(content.Contains("update_vessel_context"), "The brief must not tell a captain to update the vessel model context");
+                        }
                     }
                     finally
                     {
@@ -558,7 +568,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("template_resolved_claude_md_contains_model_context_updates_when_enabled", "Template-resolved CLAUDE.md contains model context updates when enabled", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("template_resolved_claude_md_contains_model_context_when_enabled", "Template-resolved CLAUDE.md contains model context when enabled", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -585,9 +595,9 @@ namespace Test.Shared.Suites.Services
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("## Model Context Updates", content);
-                        AssertContains("update_vessel_context", content);
-                        AssertContains("The auth module was recently refactored to use JWT tokens.", content);
+                        AssertEqual(1, Regex.Matches(content, "^## Model Context$", RegexOptions.Multiline).Count, "the model context renders exactly once");
+                        AssertEqual(1, Regex.Matches(content, Regex.Escape("The auth module was recently refactored to use JWT tokens.")).Count, "the vessel text renders exactly once");
+                        AssertFalse(content.Contains("update_vessel_context"), "The brief must not tell a captain to update the vessel model context");
                     }
                     finally
                     {
@@ -706,7 +716,7 @@ namespace Test.Shared.Suites.Services
                     AssertFalse(prompt.Contains("Be concise and careful."), "Launch prompt should defer captain instructions to the runtime instruction file");
                     AssertFalse(prompt.Contains("Service-oriented C# backend."), "Launch prompt should defer project context to the runtime instruction file");
                     AssertFalse(prompt.Contains("Prefer explicit types."), "Launch prompt should defer style guide to the runtime instruction file");
-                    AssertFalse(prompt.Contains("Background jobs are scheduled from ArmadaServer."), "Launch prompt should defer model context to the runtime instruction file");
+                    AssertFalse(prompt.Contains("Background jobs are scheduled from ArmadaServer."), "Launch prompt should leave the model context to the runtime instruction file, whose Model Context section carries it");
                 }
             }));
 

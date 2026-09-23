@@ -397,6 +397,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(MissionService.IsElidableBriefModule("mission.objective_scope"), "objective scope is content");
                 AssertTrue(MissionService.IsElidableBriefModule("mission.existing_instructions_wrapper"), "existing instructions are content");
                 AssertTrue(MissionService.IsElidableBriefModule("mission.project_context_wrapper"), "project context is content");
+                AssertTrue(MissionService.IsElidableBriefModule("mission.model_context_wrapper"), "model context is content");
                 AssertFalse(MissionService.IsElidableBriefModule("mission.persona"), "the persona is never elidable");
                 AssertFalse(MissionService.IsElidableBriefModule("mission.rules"), "the rules are never elidable");
                 AssertFalse(MissionService.IsElidableBriefModule("mission.metadata"), "the metadata skeleton is never elidable");
