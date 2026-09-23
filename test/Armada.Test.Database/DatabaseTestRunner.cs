@@ -2536,12 +2536,14 @@ namespace Armada.Test.Database
                 EnumerationResult<CheckRun> datedPage = await _Driver.CheckRuns.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2L, datedPage.TotalRecords, "CheckRun inclusive date range total before pagination");
                 DatabaseAssert.Equal(1, datedPage.Objects.Count, "CheckRun date range page size");
-                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, runB.Id);
+                string firstPageId = datedPage.Objects[0].Id;
 
                 dateQuery.PageNumber = 2;
                 datedPage = await _Driver.CheckRuns.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2L, datedPage.TotalRecords, "CheckRun date range second-page total");
-                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, runA.Id);
+                DatabaseAssert.Equal(1, datedPage.Objects.Count, "CheckRun second-page size");
+                DatabaseAssert.True(firstPageId != datedPage.Objects[0].Id, "CheckRun pages must contain different rows");
+                DatabaseAssert.ContainsIds(new[] { firstPageId, datedPage.Objects[0].Id }, item => item, runA.Id, runB.Id);
 
                 dateQuery.PageNumber = 1;
                 dateQuery.PageSize = 10;
@@ -2686,12 +2688,14 @@ namespace Armada.Test.Database
                 EnumerationResult<Release> datedPage = await _Driver.Releases.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Release inclusive date range total before pagination");
                 DatabaseAssert.Equal(1, datedPage.Objects.Count, "Release date range page size");
-                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, releaseB.Id);
+                string firstPageId = datedPage.Objects[0].Id;
 
                 dateQuery.PageNumber = 2;
                 datedPage = await _Driver.Releases.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Release date range second-page total");
-                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, releaseA.Id);
+                DatabaseAssert.Equal(1, datedPage.Objects.Count, "Release second-page size");
+                DatabaseAssert.True(firstPageId != datedPage.Objects[0].Id, "Release pages must contain different rows");
+                DatabaseAssert.ContainsIds(new[] { firstPageId, datedPage.Objects[0].Id }, item => item, releaseA.Id, releaseB.Id);
 
                 dateQuery.PageNumber = 1;
                 dateQuery.PageSize = 10;
@@ -2802,12 +2806,14 @@ namespace Armada.Test.Database
                 EnumerationResult<Deployment> datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Deployment inclusive date range total before pagination");
                 DatabaseAssert.Equal(1, datedPage.Objects.Count, "Deployment date range page size");
-                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, deploymentB.Id);
+                string firstPageId = datedPage.Objects[0].Id;
 
                 dateQuery.PageNumber = 2;
                 datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Deployment date range second-page total");
-                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, deploymentA.Id);
+                DatabaseAssert.Equal(1, datedPage.Objects.Count, "Deployment second-page size");
+                DatabaseAssert.True(firstPageId != datedPage.Objects[0].Id, "Deployment pages must contain different rows");
+                DatabaseAssert.ContainsIds(new[] { firstPageId, datedPage.Objects[0].Id }, item => item, deploymentA.Id, deploymentB.Id);
 
                 dateQuery.PageNumber = 1;
                 dateQuery.PageSize = 10;
