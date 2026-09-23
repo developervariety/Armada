@@ -127,6 +127,11 @@ can produce no manifest; require both a zero process exit and a fresh manifest.
 Eight backend field cases cover tier metadata, requested captain, scanner
 preferences and voyage planning provenance. These storage cases do not prove dispatch or landing behavior.
 
+The planning-session case covers session and transcript create, read, update,
+enumeration order, tenant and user scoping, the per-session sequence uniqueness
+and the message cascade on SQLite and PostgreSQL. On MySQL and SQL Server, which
+do not store planning sessions, it checks that the refusal names the provider.
+
 `anchor-migration` checks the populated dock snapshot upgrade, incompatible and
 equivalent columns, partial-failure restart and unchanged applied history on all
 four providers. See [backend anchor evidence](../../docs/reference/backend-anchors.md).

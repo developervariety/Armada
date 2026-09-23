@@ -42,7 +42,7 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         private static NotSupportedException NotSupported()
         {
-            return new NotSupportedException("Planning sessions are currently implemented for SQLite-backed Armada deployments.");
+            return new NotSupportedException("The MySQL database provider does not store planning sessions; use SQLite or PostgreSQL.");
         }
     }
 }

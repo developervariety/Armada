@@ -152,6 +152,7 @@ namespace Armada.Test.Database
             await RunTest("Deployment_Create_Read_Update_Enumerate", "Operational", () => TestDeploymentCrudAsync(token), token);
             await RunTest("Objective_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveCrudAsync(token), token);
             await RunTest("ObjectiveRefinementSession_Message_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveRefinementCrudAsync(token), token);
+            await RunTest("PlanningSession_Message_Crud_Scope_Order_And_Cascade", "Operational", () => TestPlanningSessionCrudAsync(token), token);
             await RunTest("Memory_Create_Read_Update_Tags_Reopen", "Operational", () => TestMemoryCrudAsync(token), token);
             await RunTest("Memory_Tenant_Fence_Key_Uniqueness_Guarded_Update", "Operational", () => TestMemoryScopingAsync(token), token);
             await RunTest("Configuration_Ownership_Create_Update_Reopen", "Operational", () => TestConfigurationOwnershipAsync(token), token);
@@ -2969,6 +2970,223 @@ namespace Armada.Test.Database
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
+        }
+
+        private async Task TestPlanningSessionCrudAsync(CancellationToken token)
+        {
+            if (_Settings.Type == DatabaseTypeEnum.Mysql || _Settings.Type == DatabaseTypeEnum.SqlServer)
+            {
+                // These providers do not store planning sessions; the refusal must say so and name the provider.
+                string provider = _Settings.Type == DatabaseTypeEnum.Mysql ? "MySQL" : "SQL Server";
+                await AssertPlanningRefusedAsync(() => _Driver.PlanningSessions.EnumerateAsync(token), provider).ConfigureAwait(false);
+                await AssertPlanningRefusedAsync(() => _Driver.PlanningSessionMessages.EnumerateBySessionAsync("pls_absent", token), provider).ConfigureAwait(false);
+                return;
+            }
+
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            List<string> sessionIds = new List<string>();
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("planning-tenant", token: token).ConfigureAwait(false);
+                UserMaster owner = await fixture.CreateUserAsync(tenant.Id, "planning-owner", token: token).ConfigureAwait(false);
+                UserMaster colleague = await fixture.CreateUserAsync(tenant.Id, "planning-colleague", token: token).ConfigureAwait(false);
+                TenantMetadata otherTenant = await fixture.CreateTenantAsync("planning-other", token: token).ConfigureAwait(false);
+                UserMaster outsider = await fixture.CreateUserAsync(otherTenant.Id, "planning-outsider", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, owner.Id, "planning-fleet", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, owner.Id, fleet.Id, "planning-vessel", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, owner.Id, "planning-captain", token).ConfigureAwait(false);
+                Captain otherCaptain = await fixture.CreateCaptainAsync(otherTenant.Id, outsider.Id, "planning-other-captain", token).ConfigureAwait(false);
+
+                DateTime startedUtc = DateTime.UtcNow.AddMinutes(-3);
+                PlanningSession owned = new PlanningSession
+                {
+                    TenantId = tenant.Id,
+                    UserId = owner.Id,
+                    CaptainId = captain.Id,
+                    VesselId = vessel.Id,
+                    FleetId = fleet.Id,
+                    DockId = "dck_planning",
+                    BranchName = "armada/planning-round-trip",
+                    Title = "Plan the release",
+                    Status = PlanningSessionStatusEnum.Active,
+                    PipelineId = "ppl_planning",
+                    ObjectiveId = "obj_planning",
+                    SelectedPlaybooks = new List<SelectedPlaybook>
+                    {
+                        new SelectedPlaybook { PlaybookId = "pbk_first", DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference },
+                        new SelectedPlaybook { PlaybookId = "pbk_second", DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent }
+                    },
+                    ProcessId = 4242,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-4),
+                    StartedUtc = startedUtc
+                };
+                await _Driver.PlanningSessions.CreateAsync(owned, token).ConfigureAwait(false);
+                sessionIds.Add(owned.Id);
+                PlanningSession shared = new PlanningSession
+                {
+                    TenantId = tenant.Id,
+                    UserId = colleague.Id,
+                    CaptainId = captain.Id,
+                    VesselId = vessel.Id,
+                    Title = "Plan the rollback",
+                    Status = PlanningSessionStatusEnum.Created
+                };
+                await _Driver.PlanningSessions.CreateAsync(shared, token).ConfigureAwait(false);
+                sessionIds.Add(shared.Id);
+                PlanningSession foreign = new PlanningSession
+                {
+                    TenantId = otherTenant.Id,
+                    UserId = outsider.Id,
+                    CaptainId = otherCaptain.Id,
+                    VesselId = "vsl_foreign",
+                    Title = "Another tenant's plan",
+                    Status = PlanningSessionStatusEnum.Active
+                };
+                await _Driver.PlanningSessions.CreateAsync(foreign, token).ConfigureAwait(false);
+                sessionIds.Add(foreign.Id);
+
+                PlanningSession read = DatabaseAssert.NotNull(await _Driver.PlanningSessions.ReadAsync(owned.Id, token).ConfigureAwait(false), "Planning session read returned null");
+                DatabaseAssert.HasPrefix(read.Id, "psn_", "PlanningSession.Id");
+                DatabaseAssert.Equal(tenant.Id, read.TenantId, "PlanningSession.TenantId");
+                DatabaseAssert.Equal(owner.Id, read.UserId, "PlanningSession.UserId");
+                DatabaseAssert.Equal(captain.Id, read.CaptainId, "PlanningSession.CaptainId");
+                DatabaseAssert.Equal(vessel.Id, read.VesselId, "PlanningSession.VesselId");
+                DatabaseAssert.Equal(fleet.Id, read.FleetId, "PlanningSession.FleetId");
+                DatabaseAssert.Equal("dck_planning", read.DockId, "PlanningSession.DockId");
+                DatabaseAssert.Equal("armada/planning-round-trip", read.BranchName, "PlanningSession.BranchName");
+                DatabaseAssert.Equal("Plan the release", read.Title, "PlanningSession.Title");
+                DatabaseAssert.Equal(PlanningSessionStatusEnum.Active, read.Status, "PlanningSession.Status");
+                DatabaseAssert.Equal("ppl_planning", read.PipelineId, "PlanningSession.PipelineId");
+                DatabaseAssert.Equal("obj_planning", read.ObjectiveId, "PlanningSession.ObjectiveId");
+                DatabaseAssert.Equal(2, read.SelectedPlaybooks.Count, "PlanningSession.SelectedPlaybooks.Count");
+                DatabaseAssert.Equal("pbk_first", read.SelectedPlaybooks[0].PlaybookId, "PlanningSession.SelectedPlaybooks[0].PlaybookId");
+                DatabaseAssert.Equal(PlaybookDeliveryModeEnum.InstructionWithReference, read.SelectedPlaybooks[0].DeliveryMode, "PlanningSession.SelectedPlaybooks[0].DeliveryMode");
+                DatabaseAssert.Equal((int?)4242, read.ProcessId, "PlanningSession.ProcessId");
+                DatabaseAssert.Equal<string?>(null, read.FailureReason, "PlanningSession.FailureReason");
+                AssertSameUtcInstant(owned.CreatedUtc, read.CreatedUtc, "PlanningSession.CreatedUtc");
+                AssertSameUtcInstant(startedUtc, read.StartedUtc, "PlanningSession.StartedUtc");
+                DatabaseAssert.True(read.CompletedUtc == null, "PlanningSession.CompletedUtc should be null");
+                AssertSameUtcInstant(owned.LastUpdateUtc, read.LastUpdateUtc, "PlanningSession.LastUpdateUtc");
+
+                DatabaseAssert.True(await _Driver.PlanningSessions.ReadAsync("pls_absent", token).ConfigureAwait(false) == null, "An unknown planning session reads as null");
+                DatabaseAssert.True(await _Driver.PlanningSessions.ReadAsync(otherTenant.Id, owned.Id, token).ConfigureAwait(false) == null, "Another tenant cannot read the session");
+                DatabaseAssert.True(await _Driver.PlanningSessions.ReadAsync(tenant.Id, owned.Id, token).ConfigureAwait(false) != null, "The owning tenant reads the session");
+                DatabaseAssert.True(await _Driver.PlanningSessions.ReadAsync(tenant.Id, colleague.Id, owned.Id, token).ConfigureAwait(false) == null, "Another user in the tenant cannot read the session through the user scope");
+                DatabaseAssert.True(await _Driver.PlanningSessions.ReadAsync(tenant.Id, owner.Id, owned.Id, token).ConfigureAwait(false) != null, "The owning user reads the session");
+
+                read.Status = PlanningSessionStatusEnum.Stopped;
+                read.CompletedUtc = DateTime.UtcNow;
+                read.FailureReason = "Stopped by operator";
+                read.ProcessId = null;
+                read.BranchName = null;
+                read.SelectedPlaybooks = new List<SelectedPlaybook>();
+                await _Driver.PlanningSessions.UpdateAsync(read, token).ConfigureAwait(false);
+                PlanningSession updated = DatabaseAssert.NotNull(await _Driver.PlanningSessions.ReadAsync(owned.Id, token).ConfigureAwait(false), "Updated planning session read returned null");
+                DatabaseAssert.Equal(PlanningSessionStatusEnum.Stopped, updated.Status, "Updated PlanningSession.Status");
+                DatabaseAssert.Equal("Stopped by operator", updated.FailureReason, "Updated PlanningSession.FailureReason");
+                DatabaseAssert.Equal((int?)null, updated.ProcessId, "Updated PlanningSession.ProcessId");
+                DatabaseAssert.Equal<string?>(null, updated.BranchName, "Updated PlanningSession.BranchName");
+                DatabaseAssert.Equal(0, updated.SelectedPlaybooks.Count, "Updated PlanningSession.SelectedPlaybooks.Count");
+                AssertSameUtcInstant(read.CompletedUtc, updated.CompletedUtc, "Updated PlanningSession.CompletedUtc");
+                AssertSameUtcInstant(owned.CreatedUtc, updated.CreatedUtc, "Updated PlanningSession.CreatedUtc is unchanged");
+
+                // Every list is ordered by last update, newest first; the update moved the owned session to the top.
+                List<PlanningSession> tenantSessions = await _Driver.PlanningSessions.EnumerateAsync(tenant.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(owned.Id + "," + shared.Id, String.Join(",", tenantSessions.ConvertAll(item => item.Id)), "Tenant planning sessions, newest update first");
+                List<PlanningSession> userSessions = await _Driver.PlanningSessions.EnumerateAsync(tenant.Id, colleague.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(shared.Id, String.Join(",", userSessions.ConvertAll(item => item.Id)), "User-scoped planning sessions");
+                List<PlanningSession> allSessions = (await _Driver.PlanningSessions.EnumerateAsync(token).ConfigureAwait(false)).FindAll(item => sessionIds.Contains(item.Id));
+                DatabaseAssert.Equal(owned.Id + "," + foreign.Id + "," + shared.Id, String.Join(",", allSessions.ConvertAll(item => item.Id)), "All planning sessions, newest update first");
+                List<PlanningSession> captainSessions = await _Driver.PlanningSessions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(owned.Id + "," + shared.Id, String.Join(",", captainSessions.ConvertAll(item => item.Id)), "Planning sessions by captain");
+                List<PlanningSession> activeSessions = (await _Driver.PlanningSessions.EnumerateByStatusAsync(PlanningSessionStatusEnum.Active, token).ConfigureAwait(false)).FindAll(item => sessionIds.Contains(item.Id));
+                DatabaseAssert.Equal(foreign.Id, String.Join(",", activeSessions.ConvertAll(item => item.Id)), "Active planning sessions");
+
+                PlanningSessionMessage second = new PlanningSessionMessage { PlanningSessionId = owned.Id, TenantId = tenant.Id, UserId = owner.Id, Role = "Assistant", Sequence = 2, Content = "Ship behind a flag." };
+                PlanningSessionMessage first = new PlanningSessionMessage { PlanningSessionId = owned.Id, TenantId = tenant.Id, UserId = owner.Id, Role = "User", Sequence = 1, Content = "How should we ship this?" };
+                PlanningSessionMessage third = new PlanningSessionMessage { PlanningSessionId = owned.Id, TenantId = tenant.Id, UserId = owner.Id, Role = "User", Sequence = 3, Content = String.Empty };
+                await _Driver.PlanningSessionMessages.CreateAsync(second, token).ConfigureAwait(false);
+                await _Driver.PlanningSessionMessages.CreateAsync(first, token).ConfigureAwait(false);
+                await _Driver.PlanningSessionMessages.CreateAsync(third, token).ConfigureAwait(false);
+                PlanningSessionMessage sharedMessage = new PlanningSessionMessage { PlanningSessionId = shared.Id, TenantId = tenant.Id, UserId = colleague.Id, Role = "User", Sequence = 1, Content = "Rollback plan?" };
+                await _Driver.PlanningSessionMessages.CreateAsync(sharedMessage, token).ConfigureAwait(false);
+
+                List<PlanningSessionMessage> transcript = await _Driver.PlanningSessionMessages.EnumerateBySessionAsync(owned.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(first.Id + "," + second.Id + "," + third.Id, String.Join(",", transcript.ConvertAll(item => item.Id)), "Transcript in sequence order");
+
+                bool duplicateRefused = false;
+                try
+                {
+                    await _Driver.PlanningSessionMessages.CreateAsync(new PlanningSessionMessage { PlanningSessionId = owned.Id, TenantId = tenant.Id, UserId = owner.Id, Role = "User", Sequence = 2, Content = "Duplicate" }, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not NotSupportedException)
+                {
+                    duplicateRefused = true;
+                }
+                DatabaseAssert.True(duplicateRefused, "A second message with the same sequence in one session is refused");
+
+                PlanningSessionMessage readMessage = DatabaseAssert.NotNull(await _Driver.PlanningSessionMessages.ReadAsync(second.Id, token).ConfigureAwait(false), "Planning message read returned null");
+                DatabaseAssert.HasPrefix(readMessage.Id, "psm_", "PlanningSessionMessage.Id");
+                DatabaseAssert.Equal(owned.Id, readMessage.PlanningSessionId, "PlanningSessionMessage.PlanningSessionId");
+                DatabaseAssert.Equal(tenant.Id, readMessage.TenantId, "PlanningSessionMessage.TenantId");
+                DatabaseAssert.Equal(owner.Id, readMessage.UserId, "PlanningSessionMessage.UserId");
+                DatabaseAssert.Equal("Assistant", readMessage.Role, "PlanningSessionMessage.Role");
+                DatabaseAssert.Equal(2, readMessage.Sequence, "PlanningSessionMessage.Sequence");
+                DatabaseAssert.Equal("Ship behind a flag.", readMessage.Content, "PlanningSessionMessage.Content");
+                DatabaseAssert.Equal(false, readMessage.IsSelectedForDispatch, "PlanningSessionMessage.IsSelectedForDispatch");
+                AssertSameUtcInstant(second.CreatedUtc, readMessage.CreatedUtc, "PlanningSessionMessage.CreatedUtc");
+                PlanningSessionMessage readEmpty = DatabaseAssert.NotNull(await _Driver.PlanningSessionMessages.ReadAsync(third.Id, token).ConfigureAwait(false), "Empty planning message read returned null");
+                DatabaseAssert.Equal(String.Empty, readEmpty.Content, "An empty message reads as empty content");
+
+                readMessage.IsSelectedForDispatch = true;
+                readMessage.Content = "Ship behind a flag and stage the rollout.";
+                await _Driver.PlanningSessionMessages.UpdateAsync(readMessage, token).ConfigureAwait(false);
+                PlanningSessionMessage updatedMessage = DatabaseAssert.NotNull(await _Driver.PlanningSessionMessages.ReadAsync(second.Id, token).ConfigureAwait(false), "Updated planning message read returned null");
+                DatabaseAssert.Equal(true, updatedMessage.IsSelectedForDispatch, "Updated PlanningSessionMessage.IsSelectedForDispatch");
+                DatabaseAssert.Equal("Ship behind a flag and stage the rollout.", updatedMessage.Content, "Updated PlanningSessionMessage.Content");
+
+                await _Driver.PlanningSessionMessages.DeleteAsync(third.Id, token).ConfigureAwait(false);
+                DatabaseAssert.True(await _Driver.PlanningSessionMessages.ReadAsync(third.Id, token).ConfigureAwait(false) == null, "A deleted message reads as null");
+
+                await _Driver.PlanningSessionMessages.DeleteBySessionAsync(shared.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(0, (await _Driver.PlanningSessionMessages.EnumerateBySessionAsync(shared.Id, token).ConfigureAwait(false)).Count, "DeleteBySession empties that session's transcript");
+                DatabaseAssert.Equal(2, (await _Driver.PlanningSessionMessages.EnumerateBySessionAsync(owned.Id, token).ConfigureAwait(false)).Count, "DeleteBySession leaves other transcripts in place");
+
+                await _Driver.PlanningSessions.DeleteAsync(owned.Id, token).ConfigureAwait(false);
+                DatabaseAssert.True(await _Driver.PlanningSessions.ReadAsync(owned.Id, token).ConfigureAwait(false) == null, "A deleted planning session reads as null");
+                DatabaseAssert.True(await _Driver.PlanningSessionMessages.ReadAsync(first.Id, token).ConfigureAwait(false) == null, "Deleting a session cascades to its messages");
+                DatabaseAssert.Equal(0, (await _Driver.PlanningSessionMessages.EnumerateBySessionAsync(owned.Id, token).ConfigureAwait(false)).Count, "No transcript remains for a deleted session");
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    foreach (string id in sessionIds)
+                        await _Driver.PlanningSessions.DeleteAsync(id, token).ConfigureAwait(false);
+                }
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private static async Task AssertPlanningRefusedAsync(Func<Task> action, string provider)
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+            }
+            catch (NotSupportedException ex)
+            {
+                DatabaseAssert.True(ex.Message.Contains(provider, StringComparison.Ordinal), "The planning refusal names the " + provider + " provider: " + ex.Message);
+                return;
+            }
+            throw new InvalidOperationException("The " + provider + " provider stored planning data instead of refusing it");
+        }
+
+        private static void AssertSameUtcInstant(DateTime? expected, DateTime? actual, string fieldName)
+        {
+            DatabaseAssert.True(expected.HasValue && actual.HasValue, fieldName + " should have a value");
+            DatabaseAssert.Equal(DateTimeKind.Utc, actual!.Value.Kind, fieldName + ".Kind");
+            DatabaseAssert.True(Math.Abs((expected!.Value.ToUniversalTime() - actual.Value).TotalMilliseconds) < 1, fieldName + " should round-trip (expected " + expected.Value.ToString("O") + ", found " + actual.Value.ToString("O") + ")");
         }
 
         private async Task TestObjectiveForeignKeysAsync(CancellationToken token)

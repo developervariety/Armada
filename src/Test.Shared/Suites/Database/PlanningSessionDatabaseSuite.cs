@@ -210,11 +210,10 @@ namespace Test.Shared.Suites.Database
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
         {
-            // Planning sessions are implemented for SQLite-backed deployments only; the PostgreSQL,
-            // MySQL, and SQL Server drivers intentionally throw NotSupportedException for this entity.
-            // Skip the whole suite (rather than fail) when the harness targets a server provider.
-            bool skip = !TestDatabaseConfig.IsSqlite;
-            string? skipReason = skip ? "Planning sessions are implemented for SQLite-backed deployments only." : null;
+            // SQLite and PostgreSQL store planning sessions; the MySQL and SQL Server drivers refuse them
+            // with NotSupportedException. Skip the whole suite (rather than fail) on those two providers.
+            bool skip = TestDatabaseConfig.Type == DatabaseTypeEnum.Mysql || TestDatabaseConfig.Type == DatabaseTypeEnum.SqlServer;
+            string? skipReason = skip ? "The " + TestDatabaseConfig.Type + " provider does not store planning sessions." : null;
 
             return new TestCaseDescriptor(
                 suiteId: SuiteId,

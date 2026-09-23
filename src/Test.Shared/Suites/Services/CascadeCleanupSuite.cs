@@ -145,7 +145,7 @@ namespace Test.Shared.Suites.Services
 
                     PropertyInfo planningSessions = typeof(DatabaseDriver).GetProperty(nameof(DatabaseDriver.PlanningSessions))!;
                     object? original = planningSessions.GetValue(db);
-                    planningSessions.SetValue(db, new Armada.Core.Database.Postgresql.Implementations.PlanningSessionMethods(null!, null!, null!));
+                    planningSessions.SetValue(db, new Armada.Core.Database.Mysql.Implementations.PlanningSessionMethods(String.Empty));
                     int removed;
                     try
                     {

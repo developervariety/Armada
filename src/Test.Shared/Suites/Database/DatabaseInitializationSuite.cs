@@ -6,6 +6,7 @@ namespace Test.Shared.Suites.Database
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -66,9 +67,8 @@ namespace Test.Shared.Suites.Database
                     List<Voyage> voyages = await db.Voyages.EnumerateAsync();
                     AssertEqual(0, voyages.Count);
 
-                    // Planning sessions are implemented for SQLite-backed deployments only; the server
-                    // drivers intentionally throw NotSupportedException for this entity.
-                    if (TestDatabaseConfig.IsSqlite)
+                    // MySQL and SQL Server do not store planning sessions and refuse the read.
+                    if (TestDatabaseConfig.Type != DatabaseTypeEnum.Mysql && TestDatabaseConfig.Type != DatabaseTypeEnum.SqlServer)
                     {
                         List<PlanningSession> planningSessions = await db.PlanningSessions.EnumerateAsync();
                         AssertEqual(0, planningSessions.Count);

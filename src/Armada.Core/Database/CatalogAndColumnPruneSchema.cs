@@ -78,7 +78,7 @@ namespace Armada.Core.Database
                 statements.Add(RemoveScopedDefaults(provider, owner));
 
             List<string> references = new List<string>(_PipelineReferences);
-            // Only SQLite planning sessions carry a pipeline reference.
+            // At this migration only the SQLite schema holds planning sessions, so only it carries this pipeline reference.
             if (provider == DatabaseTypeEnum.Sqlite) references.Add("planning_sessions.pipeline_id");
             foreach (string reference in references)
             {

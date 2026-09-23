@@ -124,6 +124,12 @@ upstream integrations and excludes changes already present at that baseline.
   planning sessions and refinement sessions; a dependent that cannot be removed is
   logged, counted and named in the result. Restart resets runtime state in place
   and keeps the captain's identity, configuration, credentials and holds.
+- **Planning sessions on PostgreSQL:** PostgreSQL stores planning sessions and
+  their transcript messages (schema migration 108) with the same scoping,
+  ordering and message cascade as SQLite, so the dashboard planning page, the
+  planning REST routes and MCP tools, planning timeline entries and stop all work
+  on PostgreSQL deployments. MySQL and SQL Server still do not store planning
+  sessions; their refusal names the provider.
 - **Captain names:** captain create on REST, MCP and WebSocket applies one name
   rule: a name another captain already has is refused before anything is written.
   REST answers `409 Conflict` with a `Conflict` error instead of a database error,

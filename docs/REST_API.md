@@ -2209,7 +2209,7 @@ other caller receives `403`.
 **Response:** `200 OK` - `CaptainStopAllResult`. `Status` is `all_stopped` when
 every stop succeeded and `stopped_with_failures` otherwise. `UnavailableSources`
 names a session kind the database provider does not store (`PlanningSessions` on
-PostgreSQL, MySQL and SQL Server); no session of that kind can be running, so it
+MySQL and SQL Server); no session of that kind can be running, so it
 is not a failure and the stop continues with the other kinds. A session kind whose
 active sessions cannot be read for any other reason is counted as a failed stop
 with `Id` `*`.
@@ -3691,7 +3691,7 @@ curl -X POST http://localhost:7890/api/v1/workspace/vessels/vsl_abc123/exec \
 
 ### Planning Sessions
 
-Planning sessions back the dashboard captain-chat flow and transcript-to-dispatch handoff. These routes are implemented for SQLite first; other database backends return `501 Not Supported`.
+Planning sessions back the dashboard captain-chat flow and transcript-to-dispatch handoff. SQLite and PostgreSQL store planning sessions; on MySQL and SQL Server these routes return `501 Not Implemented` with a message that names the provider.
 
 #### GET /api/v1/planning-sessions
 

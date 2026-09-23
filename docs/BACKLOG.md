@@ -170,4 +170,4 @@ The same backlog item remains the system-of-record link through:
 - incident
 - history
 
-`Activity > History` and `GET /api/v1/history` can filter by `objectiveId` to reconstruct the delivery story of one backlog item. Timeline entries for backlog refinement sessions link back to `/backlog/{objectiveId}` so the transcript and downstream delivery context remain discoverable from one place. A timeline source the configured database provider does not store (planning sessions outside SQLite) is left out of the response, named in its `UnavailableSources` list, and logged by the Admiral.
+`Activity > History` and `GET /api/v1/history` can filter by `objectiveId` to reconstruct the delivery story of one backlog item. Timeline entries for backlog refinement sessions link back to `/backlog/{objectiveId}` so the transcript and downstream delivery context remain discoverable from one place. A timeline source the configured database provider does not store (planning sessions on MySQL and SQL Server) is left out of the response, named in its `UnavailableSources` list, and logged by the Admiral.

@@ -1137,6 +1137,54 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_tenant_created ON request_history(tenant_id, created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_user_created ON request_history(user_id, created_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_request_history_route_created ON request_history(route, created_utc DESC);"
+                ),
+                // Only the tenant, user and parent-session references carry a foreign key, matching the SQLite
+                // schema; a deleted captain's sessions are removed by CascadeCleanup.
+                new SchemaMigration(108, "Persist planning sessions and their transcript messages",
+                    @"CREATE TABLE IF NOT EXISTS planning_sessions (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        captain_id TEXT NOT NULL,
+                        vessel_id TEXT NOT NULL,
+                        fleet_id TEXT,
+                        dock_id TEXT,
+                        branch_name TEXT,
+                        title TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'Created',
+                        pipeline_id TEXT,
+                        objective_id TEXT,
+                        selected_playbooks_json TEXT,
+                        process_id INTEGER,
+                        failure_reason TEXT,
+                        created_utc TIMESTAMPTZ NOT NULL,
+                        started_utc TIMESTAMPTZ,
+                        completed_utc TIMESTAMPTZ,
+                        last_update_utc TIMESTAMPTZ NOT NULL,
+                        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS planning_session_messages (
+                        id TEXT PRIMARY KEY,
+                        planning_session_id TEXT NOT NULL,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        role TEXT NOT NULL,
+                        sequence INTEGER NOT NULL,
+                        content TEXT,
+                        is_selected_for_dispatch BOOLEAN NOT NULL DEFAULT FALSE,
+                        created_utc TIMESTAMPTZ NOT NULL,
+                        last_update_utc TIMESTAMPTZ NOT NULL,
+                        FOREIGN KEY (planning_session_id) REFERENCES planning_sessions(id) ON DELETE CASCADE,
+                        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_tenant_user ON planning_sessions(tenant_id, user_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_captain ON planning_sessions(captain_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_status ON planning_sessions(status);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_last_update ON planning_sessions(last_update_utc DESC);",
+                    @"CREATE INDEX IF NOT EXISTS idx_planning_session_messages_session ON planning_session_messages(planning_session_id);",
+                    @"CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_session_messages_session_sequence ON planning_session_messages(planning_session_id, sequence);"
                 )
             };
         }

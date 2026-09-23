@@ -137,6 +137,20 @@ namespace Armada.Test.Database
 
             if (_Settings.Type == DatabaseTypeEnum.Postgresql)
                 DatabaseAssert.True(await IndexExistsAsync(conn, "idx_request_history_created", token).ConfigureAwait(false), "Missing index idx_request_history_created");
+
+            // SQLite and PostgreSQL store planning sessions; MySQL and SQL Server refuse them.
+            if (_Settings.Type == DatabaseTypeEnum.Sqlite || _Settings.Type == DatabaseTypeEnum.Postgresql)
+            {
+                DatabaseAssert.True(await TableExistsAsync(conn, "planning_sessions", token).ConfigureAwait(false), "planning_sessions table missing");
+                DatabaseAssert.True(await TableExistsAsync(conn, "planning_session_messages", token).ConfigureAwait(false), "planning_session_messages table missing");
+                await AssertColumnAsync(conn, "planning_sessions", "objective_id", token).ConfigureAwait(false);
+                await AssertColumnAsync(conn, "planning_session_messages", "is_selected_for_dispatch", token).ConfigureAwait(false);
+                foreach (string indexName in new[] { "idx_planning_sessions_tenant_user", "idx_planning_sessions_captain", "idx_planning_sessions_status",
+                    "idx_planning_sessions_last_update", "idx_planning_session_messages_session", "idx_planning_session_messages_session_sequence" })
+                {
+                    DatabaseAssert.True(await IndexExistsAsync(conn, indexName, token).ConfigureAwait(false), "Missing index " + indexName);
+                }
+            }
         }
 
         private long GetExpectedMinimumSchemaVersion()
