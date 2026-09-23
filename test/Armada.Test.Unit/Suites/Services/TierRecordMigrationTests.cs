@@ -16,7 +16,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// The one-time tier record migration: retired tier lists and family rules become captain tiers, the retired
     /// within-tier preference order becomes captain preference ranks, the retired specialist persona list becomes
-    /// persona specialist flags, and a migrated settings file is never migrated again.
+    /// explicit minimum tiers, and a migrated settings file is never migrated again.
     /// </summary>
     public sealed class TierRecordMigrationTests : TestSuite
     {
@@ -84,7 +84,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Plan flags the retired specialist personas on persona records and reports names without a record", () =>
+            await RunTest("Plan assigns minimum tiers for retired specialist personas and reports missing names", () =>
             {
                 List<Persona> personas = new List<Persona>
                 {
@@ -94,8 +94,10 @@ namespace Armada.Test.Unit.Suites.Services
                     new Persona("Judge", "persona.judge") { TenantId = "ten_other" }
                 };
                 TierRecordMigrationResult plan = TierRecordMigrationService.Plan(Retired(), new List<Captain>(), personas);
-                AssertEqual(3, plan.Personas.Count, "both Judge records and the canonical Test Engineer record are flagged");
-                AssertFalse(plan.Personas.Any(p => p.Name == "Worker"), "an unlisted persona is not flagged");
+                AssertEqual(3, plan.Personas.Count, "both Judge records and the canonical Test Engineer record receive minimum tiers");
+                AssertEqual(CaptainTierEnum.Premium, TierRecordMigrationService.MinimumTierForPersona("Judge"), "legacy Judge receives Premium");
+                AssertEqual(CaptainTierEnum.Standard, TierRecordMigrationService.MinimumTierForPersona("Test Engineer"), "Test Engineer receives Standard");
+                AssertFalse(plan.Personas.Any(p => p.Name == "Worker"), "an unlisted persona gets no minimum tier change");
                 AssertEqual("MissingReviewer", String.Join(",", plan.UnmatchedSpecialistPersonas), "a listed persona without a record is reported");
                 return Task.CompletedTask;
             });
@@ -128,7 +130,13 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 Apply(TierRecordMigrationService.Plan(retired, captains, new List<Persona>()), captains);
                 AssertEqual("3,2,1", Rank(captains, "cpt-astra") + "," + Rank(captains, "cpt-fable") + "," + Rank(captains, "cpt-fable51"));
-                ModelTierSettings tiers = new ModelTierSettings { Records = TierRoutingRecords.ForSpecialists(new[] { "Judge" }) };
+                ModelTierSettings tiers = new ModelTierSettings
+                {
+                    Records = TierRoutingRecords.ForMinimumTiers(new[]
+                    {
+                        new KeyValuePair<string, CaptainTierEnum>("Judge", CaptainTierEnum.Premium)
+                    })
+                };
                 Mission judge = new Mission { Persona = "Judge", PreferredModel = "high" };
                 AssertEqual("cpt-astra,cpt-fable,cpt-fable51", String.Join(",", LegacyCaptainSelector.Order(tiers, judge, captains, false, n => 0).Select(c => c.Id)));
                 return Task.CompletedTask;
@@ -157,8 +165,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Captain? highA = await testDb.Driver.Captains.ReadAsync("cpt-high-a");
                         AssertEqual(CaptainTierEnum.Premium, highA!.Tier, "the tier persists");
                         AssertEqual(3, highA.PreferenceRank, "the rank persists");
-                        AssertTrue((await testDb.Driver.Personas.ReadAsync(judge.Id))!.Specialist, "the specialist flag persists");
-                        AssertFalse((await testDb.Driver.Personas.ReadAsync(worker.Id))!.Specialist, "an unlisted persona stays unflagged");
+                        AssertEqual(CaptainTierEnum.Premium, (await testDb.Driver.Personas.ReadAsync(judge.Id))!.MinimumTier, "the Judge Premium minimum persists");
+                        AssertNull((await testDb.Driver.Personas.ReadAsync(worker.Id))!.MinimumTier, "an unlisted persona stays unset");
 
                         AssertNotNull(first.SettingsBackupPath, "a backup is written");
                         AssertEqual(_RetiredSettingsJson, await File.ReadAllTextAsync(first.SettingsBackupPath!), "the backup is the original file");

@@ -1542,8 +1542,7 @@ namespace Armada.Server
                         stageMission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                             stage.PreferredModel,
                             md.PreferredModel,
-                            stage.PersonaName,
-                            settings?.ModelTier.SpecialistPersonas);
+                            settings?.ModelTier.MinimumTierForPersona(stage.PersonaName));
                         stageMission.CapabilityHint = md.CapabilityHint;
                         // Every stage of a read-only voyage stays read-only: a pipeline must not
                         // silently turn an audit into an implementing mission at stage 2.

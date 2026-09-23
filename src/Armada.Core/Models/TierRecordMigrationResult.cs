@@ -28,10 +28,10 @@ namespace Armada.Core.Models
         /// <summary>Captain records whose tier or preference rank changes.</summary>
         public List<CaptainTierMigrationChange> Captains { get; set; } = new List<CaptainTierMigrationChange>();
 
-        /// <summary>Persona records flagged as specialists.</summary>
-        public List<PersonaSpecialistMigrationChange> Personas { get; set; } = new List<PersonaSpecialistMigrationChange>();
+        /// <summary>Persona records whose minimum tier changes.</summary>
+        public List<PersonaMinimumTierMigrationChange> Personas { get; set; } = new List<PersonaMinimumTierMigrationChange>();
 
-        /// <summary>Retired specialist persona names that match no persona record.</summary>
+        /// <summary>Retired persona names that match no persona record.</summary>
         public List<string> UnmatchedSpecialistPersonas { get; set; } = new List<string>();
 
         /// <summary>Path of the settings backup written before the retired keys were removed, when one was written.</summary>

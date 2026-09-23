@@ -1,6 +1,8 @@
 namespace Armada.Server.Mcp
 {
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -24,14 +26,26 @@ namespace Armada.Server.Mcp
         public string? PromptTemplateName { get; set; }
 
         /// <summary>
-        /// Whether missions of this persona require a Premium captain. Null leaves the current value unchanged.
+        /// Legacy compatibility input. Persona routing now uses MinimumTier.
         /// </summary>
         public bool? Specialist { get; set; }
+
+        /// <summary>Minimum capability tier. An explicit null can clear it on update.</summary>
+        public CaptainTierEnum? MinimumTier
+        {
+            get => _MinimumTier;
+            set { _MinimumTier = value; MinimumTierSupplied = true; }
+        }
+
+        [JsonIgnore]
+        public bool MinimumTierSupplied { get; private set; }
 
         /// <summary>
         /// Default playbooks for this persona. Null leaves the current value unchanged;
         /// an empty list clears it.
         /// </summary>
         public List<SelectedPlaybook>? DefaultPlaybooks { get; set; }
+
+        private CaptainTierEnum? _MinimumTier;
     }
 }

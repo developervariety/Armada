@@ -31,10 +31,21 @@ namespace Armada.Test.Unit.Suites.Services
             return c;
         }
 
-        private static ModelTierSettings Settings(params string[] specialists)
+        private static ModelTierSettings Settings(params string[] premiumPersonas)
         {
             ModelTierSettings settings = new ModelTierSettings();
-            settings.Records = TierRoutingRecords.ForSpecialists(specialists);
+            settings.Records = TierRoutingRecords.ForMinimumTiers((premiumPersonas ?? Array.Empty<string>())
+                .Select(name => new KeyValuePair<string, CaptainTierEnum>(name, CaptainTierEnum.Premium)));
+            return settings;
+        }
+
+        private static ModelTierSettings ModelTierSettingsFor(CaptainTierEnum minimumTier)
+        {
+            ModelTierSettings settings = new ModelTierSettings();
+            settings.Records = TierRoutingRecords.ForMinimumTiers(new[]
+            {
+                new KeyValuePair<string, CaptainTierEnum>("Judge", minimumTier)
+            });
             return settings;
         }
 
@@ -124,10 +135,11 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("TierOrder_Specialist_PremiumOnlyWhateverTheFloor", () =>
+            await RunTest("TierOrder_PremiumMinimum_PremiumOnlyWhateverTheFloor", () =>
             {
                 foreach (CaptainTierEnum? floor in new CaptainTierEnum?[] { null, CaptainTierEnum.Economy, CaptainTierEnum.Standard, CaptainTierEnum.Premium })
-                    AssertEqual("Premium", String.Join(",", PreferredModelTierSelector.TierOrder(floor, true)), "specialist with floor " + floor);
+                    AssertEqual("Premium", String.Join(",", PreferredModelTierSelector.TierOrder(floor, CaptainTierEnum.Premium)), "Premium minimum with floor " + floor);
+                AssertEqual("Standard,Premium", String.Join(",", PreferredModelTierSelector.TierOrder(null, CaptainTierEnum.Standard)), "a Standard minimum can use Standard or Premium");
                 return Task.CompletedTask;
             });
 
@@ -279,7 +291,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Select_SpecialistFlag_ForcesPremiumForEveryPreferredModel", () =>
+            await RunTest("Select_PremiumMinimum_ForcesPremiumForEveryPreferredModel", () =>
             {
                 List<Captain> pool = new List<Captain>
                 {
@@ -288,14 +300,14 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("model-p", CaptainTierEnum.Premium)
                 };
                 foreach (string? preferred in new string?[] { "low", "mid", "high", null })
-                    AssertEqual("model-p", Pick(Settings("TestEngineer"), preferred, pool, "TestEngineer", n => 0), "specialist with preferred model " + (preferred ?? "(none)"));
+                    AssertEqual("model-p", Pick(Settings("Judge"), preferred, pool, "Judge", n => 0), "Premium minimum with preferred model " + (preferred ?? "(none)"));
                 return Task.CompletedTask;
             });
 
-            await RunTest("Select_SpecialistFlag_WithoutAnIdlePremiumCaptain_Waits", () =>
+            await RunTest("Select_PremiumMinimum_WithoutAnIdlePremiumCaptain_Waits", () =>
             {
                 List<Captain> pool = new List<Captain> { MakeCaptain("model-s", CaptainTierEnum.Standard) };
-                AssertNull(Pick(Settings("Judge"), null, pool, "Judge", n => 0), "a specialist never runs below Premium");
+                AssertNull(Pick(Settings("Judge"), null, pool, "Judge", n => 0), "a Premium minimum never runs below Premium");
                 AssertEqual("model-s", Pick(Settings(), null, pool, "Judge", n => 0), "without the flag the same persona may run on Standard");
                 return Task.CompletedTask;
             });
@@ -405,24 +417,25 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("IsSpecialistPersona_ComesFromPersonaRecords", () =>
+            await RunTest("PersonaMinimumTier_ComesFromPersonaRecords", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertFalse(defaults.IsSpecialistPersona("Judge"), "no persona is a specialist until its record is flagged");
+                AssertFalse(defaults.IsSpecialistPersona("Judge"), "no persona has a Premium minimum until its record is set");
                 AssertEqual(0, defaults.SpecialistPersonas.Count);
 
                 List<Persona> personas = new List<Persona>
                 {
-                    new Persona("Judge", "persona.judge") { Specialist = true },
-                    new Persona("Test Engineer", "persona.test_engineer") { Specialist = true },
+                    new Persona("Judge", "persona.judge") { MinimumTier = CaptainTierEnum.Premium },
+                    new Persona("Test Engineer", "persona.test_engineer") { MinimumTier = CaptainTierEnum.Standard },
                     new Persona("Worker", "persona.worker")
                 };
                 ModelTierSettings settings = new ModelTierSettings { Records = TierRoutingRecords.From(personas, null) };
-                AssertTrue(settings.IsSpecialistPersona("judge"), "matching is case-insensitive");
-                AssertTrue(settings.IsSpecialistPersona("TestEngineer"), "the legacy spelling matches the canonical persona");
-                AssertFalse(settings.IsSpecialistPersona("Worker"), "an unflagged persona is not a specialist");
-                AssertFalse(settings.IsSpecialistPersona(null), "null is not a specialist");
-                AssertEqual(2, settings.SpecialistPersonas.Count);
+                AssertTrue(settings.IsSpecialistPersona("judge"), "Premium minimum matching is case-insensitive");
+                AssertFalse(settings.IsSpecialistPersona("TestEngineer"), "a Standard minimum is not a Premium minimum");
+                AssertEqual(CaptainTierEnum.Standard, settings.MinimumTierForPersona("TestEngineer"), "legacy spelling matches the Test Engineer minimum");
+                AssertFalse(settings.IsSpecialistPersona("Worker"), "a persona without a Premium minimum is not Premium-only");
+                AssertFalse(settings.IsSpecialistPersona(null), "null has no Premium minimum");
+                AssertEqual(1, settings.SpecialistPersonas.Count);
                 return Task.CompletedTask;
             });
 
@@ -437,10 +450,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("EnforceHighTierForPersona_Specialist_UpgradesBelowHighToHigh", () =>
             {
-                IReadOnlyCollection<string> specialists = Settings("Judge", "Architect", "TestEngineer").SpecialistPersonas;
+                IReadOnlyCollection<string> specialists = Settings("Judge", "Architect").SpecialistPersonas;
                 AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("mid", "Judge", specialists), "specialist mid request is upgraded to high");
                 AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("low", "Architect", specialists), "specialist low request is upgraded to high");
-                AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona(null, "TestEngineer", specialists), "specialist with no preferred model defaults to high");
                 AssertEqual("high", PreferredModelTierSelector.EnforceHighTierForPersona("high", "Judge", specialists), "specialist that already asked for high stays high");
                 return Task.CompletedTask;
             });
@@ -451,10 +463,10 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("ResolveTierForPersona_HighInheritedByNonSpecialist_CapsToMid", () =>
+            await RunTest("ResolveTierForPersona_HighRequestRemainsAHardFloor", () =>
             {
-                AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("high", "Worker"), "a high tier inherited by a Worker is capped to mid");
-                AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("High", "Worker"), "the cap is case-insensitive");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", "Worker"), "a high mission request stays a hard floor");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("High", "Worker"), "the request is case-insensitive");
                 return Task.CompletedTask;
             });
 
@@ -466,12 +478,12 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("ResolveTierForPersona_SpecialistPersona_StillUpgradesToHigh", () =>
+            await RunTest("ResolveTierForPersona_PremiumMinimum_RaisesLowOrUnsetRequest", () =>
             {
-                IReadOnlyCollection<string> specialists = Settings("Judge", "TestEngineer").SpecialistPersonas;
-                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", "Judge", specialists), "a Judge keeps high");
-                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", "Judge", specialists), "a Judge is upgraded from mid to high");
-                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona(null, "TestEngineer", specialists), "a TestEngineer with no tier is set to high");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", CaptainTierEnum.Premium), "Premium remains Premium");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", CaptainTierEnum.Premium), "Premium raises Standard to Premium");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona(null, CaptainTierEnum.Premium), "an unset selector resolves to the persona floor");
+                AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona(null, CaptainTierEnum.Standard), "Test Engineer's Standard floor resolves to mid");
                 return Task.CompletedTask;
             });
 
@@ -482,11 +494,11 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("ResolveEffectivePreferredModel_InheritsMissionTierThenCapsForPersona", () =>
+            await RunTest("ResolveEffectivePreferredModel_InheritsThenAppliesPersonaMinimum", () =>
             {
                 IReadOnlyCollection<string> specialists = Settings("Judge").SpecialistPersonas;
-                AssertEqual("mid", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "high", "Worker", specialists), "a mission-level high tier inherited by a Worker stage caps to mid");
-                AssertEqual("high", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "high", "Judge", specialists), "a Judge stage keeps high");
+                AssertEqual("high", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "high", "Worker", (CaptainTierEnum?)null), "a mission-level high tier stays a hard floor");
+                AssertEqual("high", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "high", "Judge", CaptainTierEnum.Premium), "a Judge stage keeps high");
                 AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "gpt-5.6-luna", "Worker", specialists), "literal pins pass through");
                 AssertEqual("claude-opus-5", PreferredModelTierSelector.ResolveEffectivePreferredModel("claude-opus-5", "high", "Worker", specialists), "a stage literal override wins");
                 return Task.CompletedTask;
@@ -501,14 +513,14 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("CaptainSatisfiesPreferredRouting_SpecialistPersona_RequiresPremium", () =>
+            await RunTest("CaptainSatisfiesPreferredRouting_PersonaMinimum_IsAHardFloor", () =>
             {
                 Captain standard = MakeCaptain("model-s", CaptainTierEnum.Standard);
                 Captain premium = MakeCaptain("model-p", CaptainTierEnum.Premium);
                 ModelTierSettings settings = Settings("Judge");
                 AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(standard, "Judge", "mid", settings), "a specialist needs Premium even for a mid request");
                 AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(premium, "Judge", null, settings), "a Premium captain serves the specialist");
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(standard, "Judge", "model-s", settings), "a literal pin is honoured");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(standard, "Judge", "model-s", settings), "a literal pin below the persona minimum is rejected");
                 return Task.CompletedTask;
             });
 
@@ -522,10 +534,10 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("VanillaDefaults_NoSpecialistNoNonNativePreferenceNoReserve", () =>
+            await RunTest("VanillaDefaults_NoPremiumMinimumNoNonNativePreferenceNoReserve", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();
-                AssertFalse(defaults.IsSpecialistPersona("Judge"), "vanilla reserves no Judge specialist");
+                AssertFalse(defaults.IsSpecialistPersona("Judge"), "vanilla configures no Judge Premium minimum");
                 AssertFalse(defaults.PreferNonNativeFirst, "vanilla does not prefer non-native captains");
                 AssertEqual(0, defaults.ReservedHighTierSlots, "vanilla reserved high-tier slots is zero");
                 AssertFalse(defaults.HasRetiredTierKeys, "vanilla carries no retired tier keys");

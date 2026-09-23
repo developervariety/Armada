@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using SyslogLogging;
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Test.Common;
@@ -28,7 +29,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Seed creates specialist personas and pipelines", async () =>
+            await RunTest("Seed creates built-in personas and pipelines with capability floors", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -45,6 +46,9 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(persona.IsBuiltIn, "Persona should be built in: " + kvp.Key);
                         AssertTrue(persona.Active, "Persona should be active: " + kvp.Key);
                         AssertEqual(Constants.DefaultTenantId, persona.TenantId, "Persona tenant for " + kvp.Key);
+                        CaptainTierEnum? expectedMinimum = kvp.Key == "TestEngineer" ? CaptainTierEnum.Standard
+                            : kvp.Key == "Judge" || kvp.Key == "Architect" ? CaptainTierEnum.Premium : null;
+                        AssertEqual(expectedMinimum, persona.MinimumTier, "Persona minimum tier for " + kvp.Key);
                     }
 
                     Dictionary<string, string> expectedPipelines = GetSpecialistPipelineStages();
@@ -79,9 +83,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Persona? productManager = await testDb.Driver.Personas.ReadByNameAsync("Product Manager").ConfigureAwait(false);
                     AssertProductPersona("Product Manager", "persona.product_manager", productManager);
+                    AssertEqual(CaptainTierEnum.Premium, productManager!.MinimumTier, "Product Manager has a Premium minimum");
 
                     Persona? usabilityEngineer = await testDb.Driver.Personas.ReadByNameAsync("Usability Engineer").ConfigureAwait(false);
                     AssertProductPersona("Usability Engineer", "persona.usability_engineer", usabilityEngineer);
+                    AssertEqual(CaptainTierEnum.Premium, usabilityEngineer!.MinimumTier, "Usability Engineer has a Premium minimum");
 
                     Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false);
                     AssertNotNull(pipeline, "ProductDevelopment pipeline should be seeded");

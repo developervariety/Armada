@@ -19,7 +19,8 @@ namespace Armada.Core.Services
     /// <c>familyClassificationRules</c> become each captain's pinned tier (high is Premium, mid is Standard,
     /// a model none of them classified is Economy); the retired <c>withinTierPreferenceOrder</c> becomes each
     /// captain's preference rank (the first listed model ranks highest, unlisted models rank 0); and the
-    /// retired <c>specialistPersonas</c> become the specialist flag on matching persona records. It writes a
+    /// retired <c>specialistPersonas</c> become a Premium minimum on matching persona records, except
+    /// Test Engineer, which gets a Standard minimum. It writes a
     /// copy of the settings file first, removes the retired keys, stamps
     /// <see cref="ModelTierSettings.TierRecordsMigratedUtc"/>, and logs every record it changed. A settings
     /// file that already carries the stamp is never migrated again; retired keys it still holds are ignored.
@@ -118,7 +119,7 @@ namespace Armada.Core.Services
             }
 
             HashSet<string> matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            List<string> specialists = (settings.RetiredSpecialistPersonas ?? new List<string>())
+            List<string> retiredMinimumTierPersonas = (settings.RetiredSpecialistPersonas ?? new List<string>())
                 .Where(name => !String.IsNullOrWhiteSpace(name))
                 .Select(name => PersonaCatalog.NormalizeName(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -127,13 +128,21 @@ namespace Armada.Core.Services
             {
                 if (persona == null) continue;
                 string name = PersonaCatalog.NormalizeName(persona.Name);
-                if (!specialists.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+                if (!retiredMinimumTierPersonas.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
                 matched.Add(name);
-                if (persona.Specialist) continue;
-                result.Personas.Add(new PersonaSpecialistMigrationChange { PersonaId = persona.Id, Name = persona.Name, TenantId = persona.TenantId });
+                CaptainTierEnum minimumTier = MinimumTierForPersona(persona.Name);
+                if (persona.MinimumTier == minimumTier) continue;
+                result.Personas.Add(new PersonaMinimumTierMigrationChange { PersonaId = persona.Id, Name = persona.Name, TenantId = persona.TenantId });
             }
-            result.UnmatchedSpecialistPersonas = specialists.Where(name => !matched.Contains(name)).ToList();
+            result.UnmatchedSpecialistPersonas = retiredMinimumTierPersonas.Where(name => !matched.Contains(name)).ToList();
             return result;
+        }
+
+        /// <summary>Map a retired specialist persona to its replacement minimum tier.</summary>
+        public static CaptainTierEnum MinimumTierForPersona(string? persona)
+        {
+            return PersonaCatalog.Matches(persona, PersonaCatalog.TestEngineer)
+                ? CaptainTierEnum.Standard : CaptainTierEnum.Premium;
         }
 
         /// <summary>
@@ -206,18 +215,18 @@ namespace Armada.Core.Services
                     + ", preference rank " + change.PreviousRank + " -> " + change.Rank);
             }
 
-            foreach (PersonaSpecialistMigrationChange change in result.Personas)
+            foreach (PersonaMinimumTierMigrationChange change in result.Personas)
             {
                 Persona? persona = personas.FirstOrDefault(p => String.Equals(p.Id, change.PersonaId, StringComparison.Ordinal));
                 if (persona == null) continue;
-                persona.Specialist = true;
+                persona.MinimumTier = MinimumTierForPersona(persona.Name);
                 persona.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Personas.UpdateAsync(persona, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "persona " + change.PersonaId + " (" + change.Name + ") flagged as specialist");
+                _Logging.Info(_Header + "persona " + change.PersonaId + " (" + change.Name + ") minimum tier set to " + persona.MinimumTier);
             }
 
             foreach (string name in result.UnmatchedSpecialistPersonas)
-                _Logging.Warn(_Header + "retired specialist persona " + name + " matches no persona record; create the persona and set its specialist flag");
+                _Logging.Warn(_Header + "retired specialist persona " + name + " matches no persona record; create the persona and set its minimum tier");
 
             return result;
         }

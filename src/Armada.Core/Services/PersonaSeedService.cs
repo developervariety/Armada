@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using SyslogLogging;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
 
@@ -87,8 +88,15 @@ namespace Armada.Core.Services
             Persona? existing = await _Database.Personas.ReadByNameAsync(name, token).ConfigureAwait(false);
             if (existing != null)
             {
+                CaptainTierEnum? minimumTier = SeedMinimumTier(name);
                 if (IsCanonicalPersona(existing, description, templateName))
                 {
+                    if (existing.MinimumTier != minimumTier)
+                    {
+                        existing.MinimumTier = minimumTier;
+                        await _Database.Personas.UpdateAsync(existing, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "updated built-in persona minimum tier: " + name);
+                    }
                     return;
                 }
 
@@ -97,6 +105,7 @@ namespace Armada.Core.Services
                 existing.PromptTemplateName = templateName;
                 existing.IsBuiltIn = true;
                 existing.Active = true;
+                existing.MinimumTier = minimumTier;
 
                 await _Database.Personas.UpdateAsync(existing, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "reconciled built-in persona: " + name);
@@ -109,9 +118,20 @@ namespace Armada.Core.Services
             persona.Description = description;
             persona.PromptTemplateName = templateName;
             persona.IsBuiltIn = true;
+            persona.MinimumTier = SeedMinimumTier(name);
 
             await _Database.Personas.CreateAsync(persona, token).ConfigureAwait(false);
             _Logging.Info(_Header + "seeded built-in persona: " + name);
+        }
+
+        private static CaptainTierEnum? SeedMinimumTier(string name)
+        {
+            if (PersonaCatalog.Matches(name, PersonaCatalog.TestEngineer)) return CaptainTierEnum.Standard;
+            if (PersonaCatalog.Matches(name, "Architect")
+                || PersonaCatalog.Matches(name, "Product Manager")
+                || PersonaCatalog.Matches(name, "Usability Engineer")
+                || PersonaCatalog.Matches(name, "Judge")) return CaptainTierEnum.Premium;
+            return null;
         }
 
         private async Task SeedPipelinesAsync(CancellationToken token)

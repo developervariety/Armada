@@ -1800,7 +1800,7 @@ namespace Armada.Server
                 // the rescue will actually run as.
                 PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
                     recoveryWorkerStage?.PreferredModel ?? failedMission.PreferredModel,
-                    rescuePersona),
+                    rescuePersona, _Settings.ModelTier.MinimumTierForPersona(rescuePersona)),
                 StageOrder = recoveryWorkerStage?.Order,
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
@@ -2219,7 +2219,7 @@ namespace Armada.Server
                 // from the failed mission.
                 PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
                     stage.PreferredModel ?? failedMission.PreferredModel,
-                    stage.PersonaName),
+                    stage.PersonaName, _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName)),
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Status = MissionStatusEnum.Pending,
                 RecoveryAttempts = attemptNumber,

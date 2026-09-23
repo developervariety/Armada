@@ -9799,7 +9799,7 @@ namespace Armada.Core.Services
         /// <param name="captain">Captain row to evaluate.</param>
         /// <param name="missionPersona">Mission persona, if any.</param>
         /// <param name="preferredModel">Preferred model or tier selector, if any.</param>
-        /// <param name="modelTierSettings">Optional settings whose specialist personas require a Premium captain; null applies no specialist floor.</param>
+        /// <param name="modelTierSettings">Optional settings whose persona minimum tier adds an eligibility floor.</param>
         /// <returns>True when the captain may run the mission under the given pins.</returns>
         public static bool CaptainSatisfiesPreferredRouting(
             Captain captain,
@@ -9809,6 +9809,7 @@ namespace Armada.Core.Services
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
+            bool literalPin = !String.IsNullOrEmpty(preferredModel) && !PreferredModelTierSelector.IsTierSelector(preferredModel);
             if (!String.IsNullOrEmpty(preferredModel))
             {
                 if (PreferredModelTierSelector.IsTierSelector(preferredModel))
@@ -9822,14 +9823,12 @@ namespace Armada.Core.Services
                 }
             }
 
-            bool literalPin = !String.IsNullOrEmpty(preferredModel) && !PreferredModelTierSelector.IsTierSelector(preferredModel);
-            if (!literalPin
-                && modelTierSettings != null
-                && modelTierSettings.IsSpecialistPersona(missionPersona)
-                && CaptainTierSelector.EffectiveTier(captain) != CaptainTierEnum.Premium)
-            {
-                return false;
-            }
+            if (!literalPin && modelTierSettings != null
+                && !LegacyCaptainSelector.TierOrderFor(modelTierSettings, new Mission { Persona = missionPersona, PreferredModel = preferredModel })
+                    .Contains(CaptainTierSelector.EffectiveTier(captain))) return false;
+            if (literalPin && modelTierSettings != null
+                && !PreferredModelTierSelector.TierOrder(modelTierSettings.MinimumTierForPersona(missionPersona), null)
+                    .Contains(CaptainTierSelector.EffectiveTier(captain))) return false;
 
             if (!String.IsNullOrEmpty(missionPersona))
             {
@@ -10023,8 +10022,8 @@ namespace Armada.Core.Services
                 return "no captain of the tenant allows persona " + (mission.Persona ?? "(none)");
 
             string? preferredModel = mission.PreferredModel;
-            bool isSpecialist = _Settings.ModelTier.IsSpecialistPersona(mission.Persona);
-            if (String.IsNullOrEmpty(preferredModel) && !isSpecialist) return null;
+            CaptainTierEnum? minimumTier = _Settings.ModelTier.MinimumTierForPersona(mission.Persona);
+            if (String.IsNullOrEmpty(preferredModel) && !minimumTier.HasValue) return null;
 
             if (!String.IsNullOrEmpty(preferredModel)
                 && !PreferredModelTierSelector.IsTierSelector(preferredModel)

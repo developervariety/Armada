@@ -90,7 +90,7 @@ namespace Armada.Test.Unit
                 captain.Tier = change.Tier;
                 captain.PreferenceRank = change.Rank;
             }
-            personas.ForEach(p => p.Specialist = true);
+            personas.ForEach(p => p.MinimumTier = TierRecordMigrationService.MinimumTierForPersona(p.Name));
             settings.Records = TierRoutingRecords.From(personas, captains);
             Mission mission = new Mission { Persona = persona, PreferredModel = tier, CapabilityHint = hint };
             return LegacyCaptainSelector.Select(settings, mission, captains, false, randomPick)?.Model;

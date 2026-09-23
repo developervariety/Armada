@@ -19,9 +19,9 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Pins the captain each representative routing case selects for one settings file written with the
-    /// model tier lists, the within-tier preference order and the specialist persona list. The same
+    /// model tier lists, the within-tier preference order and the retired specialist persona list. The same
     /// assertions hold for any build that reads that settings file, so they guard selection behaviour
-    /// across a change to where tier membership, rank and specialist status are stored.
+    /// across a change to where tier membership, rank and persona minimums are stored.
     /// </summary>
     public sealed class TierRoutingCharacterizationTests : TestSuite
     {
@@ -98,21 +98,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("cpt-fable", LegacyCaptainSelector.Select(fixture.Tiers, mission, withoutAstra, false, n => 0)!.Id, "the next rank takes over");
             });
 
-            await RunTest("A specialist persona is forced to the high tier", async () =>
+            await RunTest("Test Engineer uses Standard while Judge uses Premium", async () =>
             {
                 RoutingFixture fixture = await PrepareAsync(Roster()).ConfigureAwait(false);
                 foreach (string preferred in new string[] { "mid", "low" })
                 {
-                    Mission mission = new Mission { Id = "msn-specialist", Persona = "TestEngineer", PreferredModel = preferred };
+                    Mission mission = new Mission { Id = "msn-test-engineer", Persona = "TestEngineer", PreferredModel = preferred };
                     List<string> order = Ids(LegacyCaptainSelector.Order(fixture.Tiers, mission, Idle(fixture), false, n => 0));
-                    AssertSequence(new List<string> { "cpt-astra", "cpt-fable", "cpt-fable51" }, order, "specialist order for " + preferred);
+                    AssertSequence(new List<string> { "cpt-deepseek", "cpt-luna-ext", "cpt-luna", "cpt-mid-ext", "cpt-composer", "cpt-astra", "cpt-fable", "cpt-fable51" }, order, "Test Engineer order for " + preferred);
                 }
 
-                Mission unpinned = new Mission { Id = "msn-specialist_default", Persona = "TestEngineer" };
-                AssertEqual("cpt-astra", LegacyCaptainSelector.Select(fixture.Tiers, unpinned, Idle(fixture), false, n => 0)!.Id, "a specialist without a preferred model starts at the high tier");
+                Mission judge = new Mission { Id = "msn-judge_floor", Persona = "Judge" };
+                AssertEqual("cpt-astra", LegacyCaptainSelector.Select(fixture.Tiers, judge, Idle(fixture), false, n => 0)!.Id, "Judge without a preferred model starts at its Premium floor");
 
-                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", "Judge", fixture.Tiers.SpecialistPersonas), "a specialist stage upgrades mid");
-                AssertEqual("mid", PreferredModelTierSelector.ResolveTierForPersona("high", "Worker", fixture.Tiers.SpecialistPersonas), "a Worker stage caps high");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("mid", CaptainTierEnum.Premium), "Premium minimum upgrades mid");
+                AssertEqual("high", PreferredModelTierSelector.ResolveTierForPersona("high", (CaptainTierEnum?)null), "Worker stage preserves explicit high");
             });
 
             await RunTest("A concrete model pin takes that model, or the pinned model's tier when none is idle", async () =>
@@ -277,8 +277,11 @@ namespace Armada.Test.Unit.Suites.Services
                 captain.Tier = change.Tier;
                 captain.PreferenceRank = change.Rank;
             }
-            foreach (PersonaSpecialistMigrationChange change in plan.Personas)
-                personas.First(p => p.Id == change.PersonaId).Specialist = true;
+            foreach (PersonaMinimumTierMigrationChange change in plan.Personas)
+            {
+                Persona persona = personas.First(p => p.Id == change.PersonaId);
+                persona.MinimumTier = TierRecordMigrationService.MinimumTierForPersona(persona.Name);
+            }
             tiers.Records = TierRoutingRecords.From(personas, roster);
             RoutingFixture fixture = new RoutingFixture { Tiers = tiers, Captains = roster };
             return Task.FromResult(fixture);

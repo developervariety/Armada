@@ -11,7 +11,7 @@ namespace Armada.Core.Services
     using Armada.Core.Settings;
 
     /// <summary>
-    /// An immutable snapshot of the routing facts that live on records: the personas flagged as specialists
+    /// An immutable snapshot of the routing facts that live on records: persona minimum tiers
     /// and the tier of every model the captain roster runs. Routing reads the snapshot held on
     /// <see cref="ModelTierSettings.Records"/>; <see cref="RefreshAsync"/> replaces it from the database.
     /// </summary>
@@ -19,46 +19,44 @@ namespace Armada.Core.Services
     {
         #region Public-Members
 
-        /// <summary>A snapshot with no specialist persona and no known model.</summary>
-        public static readonly TierRoutingRecords Empty = new TierRoutingRecords(new List<string>(), new Dictionary<string, CaptainTierEnum>(StringComparer.OrdinalIgnoreCase));
+        /// <summary>A snapshot with no persona minimum tiers and no known model.</summary>
+        public static readonly TierRoutingRecords Empty = new TierRoutingRecords(new Dictionary<string, CaptainTierEnum>(StringComparer.OrdinalIgnoreCase), new Dictionary<string, CaptainTierEnum>(StringComparer.OrdinalIgnoreCase));
 
-        /// <summary>Canonical names of the personas flagged as specialists.</summary>
-        public IReadOnlyCollection<string> SpecialistPersonas => _Specialists;
+        /// <summary>Compatibility property: canonical names of personas with a Premium minimum tier.</summary>
+        public IReadOnlyCollection<string> SpecialistPersonas => _PersonaMinimumTiers
+            .Where(item => item.Value == CaptainTierEnum.Premium).Select(item => item.Key).ToList();
 
         #endregion
 
         #region Private-Members
 
-        private readonly List<string> _Specialists;
-        private readonly HashSet<string> _SpecialistSet;
+        private readonly Dictionary<string, CaptainTierEnum> _PersonaMinimumTiers;
         private readonly Dictionary<string, CaptainTierEnum> _ModelTiers;
 
         #endregion
 
         #region Constructors-and-Factories
 
-        private TierRoutingRecords(List<string> specialists, Dictionary<string, CaptainTierEnum> modelTiers)
+        private TierRoutingRecords(Dictionary<string, CaptainTierEnum> personaMinimumTiers, Dictionary<string, CaptainTierEnum> modelTiers)
         {
-            _Specialists = specialists;
-            _SpecialistSet = new HashSet<string>(specialists, StringComparer.OrdinalIgnoreCase);
+            _PersonaMinimumTiers = personaMinimumTiers;
             _ModelTiers = modelTiers;
         }
 
         /// <summary>
         /// Build a snapshot from persona and captain records.
         /// </summary>
-        /// <param name="personas">Persona records; those with <see cref="Persona.Specialist"/> set are specialists.</param>
+        /// <param name="personas">Persona records with optional minimum capability tiers.</param>
         /// <param name="captains">Captain records; each model takes the highest effective tier of the captains that run it.</param>
         /// <returns>The snapshot.</returns>
         public static TierRoutingRecords From(IEnumerable<Persona>? personas, IEnumerable<Captain>? captains)
         {
-            List<string> specialists = new List<string>();
-            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, CaptainTierEnum> personaMinimumTiers = new Dictionary<string, CaptainTierEnum>(StringComparer.OrdinalIgnoreCase);
             foreach (Persona persona in personas ?? Enumerable.Empty<Persona>())
             {
-                if (persona == null || !persona.Specialist) continue;
+                if (persona == null || !persona.MinimumTier.HasValue) continue;
                 string name = PersonaCatalog.NormalizeName(persona.Name);
-                if (name.Length > 0 && seen.Add(name)) specialists.Add(name);
+                if (name.Length > 0) personaMinimumTiers[name] = persona.MinimumTier.Value;
             }
 
             Dictionary<string, CaptainTierEnum> modelTiers = new Dictionary<string, CaptainTierEnum>(StringComparer.OrdinalIgnoreCase);
@@ -71,23 +69,23 @@ namespace Armada.Core.Services
                     modelTiers[model] = tier;
             }
 
-            return new TierRoutingRecords(specialists, modelTiers);
+            return new TierRoutingRecords(personaMinimumTiers, modelTiers);
         }
 
         /// <summary>
-        /// Build a snapshot that flags the named personas as specialists and knows no model.
+        /// Build a snapshot with explicit persona minimum tiers and no model facts.
         /// </summary>
-        /// <param name="specialistPersonas">Specialist persona names.</param>
+        /// <param name="minimumTiers">Persona names and their minimum tiers.</param>
         /// <returns>The snapshot.</returns>
-        public static TierRoutingRecords ForSpecialists(IEnumerable<string>? specialistPersonas)
+        public static TierRoutingRecords ForMinimumTiers(IEnumerable<KeyValuePair<string, CaptainTierEnum>>? minimumTiers)
         {
-            List<Persona> personas = new List<Persona>();
-            foreach (string name in specialistPersonas ?? Enumerable.Empty<string>())
+            Dictionary<string, CaptainTierEnum> personas = new Dictionary<string, CaptainTierEnum>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, CaptainTierEnum> entry in minimumTiers ?? Enumerable.Empty<KeyValuePair<string, CaptainTierEnum>>())
             {
-                if (String.IsNullOrWhiteSpace(name)) continue;
-                personas.Add(new Persona { Name = name, Specialist = true });
+                if (String.IsNullOrWhiteSpace(entry.Key)) continue;
+                personas[PersonaCatalog.NormalizeName(entry.Key)] = entry.Value;
             }
-            return From(personas, null);
+            return new TierRoutingRecords(personas, new Dictionary<string, CaptainTierEnum>(StringComparer.OrdinalIgnoreCase));
         }
 
         #endregion
@@ -113,15 +111,18 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Whether the persona is flagged as a specialist. Matching is case-insensitive on the canonical name.
+        /// The configured minimum capability tier for the persona, if any.
         /// </summary>
         /// <param name="persona">Persona name.</param>
-        /// <returns>True for a specialist persona.</returns>
-        public bool IsSpecialist(string? persona)
+        /// <returns>The minimum tier, or null when the persona has no minimum.</returns>
+        public CaptainTierEnum? MinimumTierForPersona(string? persona)
         {
-            if (String.IsNullOrWhiteSpace(persona)) return false;
-            return _SpecialistSet.Contains(PersonaCatalog.NormalizeName(persona));
+            if (String.IsNullOrWhiteSpace(persona)) return null;
+            return _PersonaMinimumTiers.TryGetValue(PersonaCatalog.NormalizeName(persona), out CaptainTierEnum tier) ? tier : null;
         }
+
+        /// <summary>Compatibility query for callers that mean a Premium minimum tier.</summary>
+        public bool IsSpecialist(string? persona) => MinimumTierForPersona(persona) == CaptainTierEnum.Premium;
 
         /// <summary>
         /// The tier of a model the roster runs: the highest effective tier among the captains that run it.

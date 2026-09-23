@@ -3,11 +3,12 @@ namespace Armada.Core.Settings
     using System;
     using System.Collections.Generic;
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
     using Armada.Core.Services;
 
     /// <summary>
     /// Settings that govern tier routing policy. A captain's tier, its preference rank within the tier,
-    /// and a persona's specialist flag live on the captain and persona records, not here. These settings
+    /// and a persona's minimum tier live on the captain and persona records, not here. These settings
     /// hold only fleet-wide policy: the reserved Premium slots, the non-native preference, capability
     /// profiles, and usage routing. Product defaults are policy-neutral.
     /// </summary>
@@ -35,10 +36,9 @@ namespace Armada.Core.Settings
         public const string WithinTierStrategyPreferenceOrderThenRandom = "PreferenceOrderThenRandom";
 
         /// <summary>
-        /// Number of idle Premium captain slots to hold in reserve for specialist
-        /// (downstream) missions such as Judge and TestEngineer. When the only idle
-        /// capacity left after specialist dispatch is Premium and at or below this
-        /// count, non-specialist (Worker) dispatch is deferred for one scheduler cycle
+        /// Number of idle Premium captain slots to hold in reserve for downstream
+        /// review missions. When the only idle capacity left is Premium and at or below
+        /// this count, Worker dispatch is deferred for one scheduler cycle
         /// so the held-back slots stay free for the next incoming review/landing stage.
         /// Workers always prefer Standard captains, so this never withholds non-Premium
         /// capacity. The reservation is suppressed while no in-flight work could produce
@@ -134,7 +134,7 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// The routing facts read from captain and persona records: which personas are specialists and the
+        /// The routing facts read from captain and persona records: configured persona minimum tiers and the
         /// tier of each model the roster runs. Refreshed from the database; never serialized.
         /// </summary>
         [JsonIgnore]
@@ -145,7 +145,7 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Names of the personas flagged as specialists on their records.
+        /// Compatibility property: persona names whose configured minimum tier is Premium.
         /// </summary>
         [JsonIgnore]
         public IReadOnlyCollection<string> SpecialistPersonas => _Records.SpecialistPersonas;
@@ -177,15 +177,16 @@ namespace Armada.Core.Settings
         #region Public-Methods
 
         /// <summary>
-        /// Returns true when the persona is flagged as a specialist on its record. Matching is
-        /// case-insensitive and uses the canonical persona spelling. Null, empty, or whitespace personas
-        /// return false.
+        /// Returns the explicit persona minimum tier, if one is configured.
         /// </summary>
         /// <param name="persona">Persona name to test.</param>
-        public bool IsSpecialistPersona(string? persona)
+        public CaptainTierEnum? MinimumTierForPersona(string? persona)
         {
-            return _Records.IsSpecialist(persona);
+            return _Records.MinimumTierForPersona(persona);
         }
+
+        /// <summary>Compatibility query for whether a persona has a Premium minimum tier.</summary>
+        public bool IsSpecialistPersona(string? persona) => MinimumTierForPersona(persona) == CaptainTierEnum.Premium;
 
         /// <summary>
         /// Remove every retired tier key, so a later save no longer writes them.

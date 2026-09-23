@@ -102,6 +102,7 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "captains", "last_process_alive_utc", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "captains", "preference_rank", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "personas", "specialist", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "personas", "minimum_tier", token).ConfigureAwait(false);
             DatabaseAssert.True(await TableExistsAsync(conn, "coordination_leases", token).ConfigureAwait(false), "coordination_leases table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "judge_follow_ups", token).ConfigureAwait(false), "judge_follow_ups table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "memories", token).ConfigureAwait(false), "memories table missing");

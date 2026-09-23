@@ -112,9 +112,13 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Whether missions of this persona require the Premium tier. A specialist mission is routed only to
-        /// captains whose tier is Premium, whatever tier its preferred model names.
+        /// Minimum capability tier for missions of this persona. Null leaves the mission request and normal
+        /// Legacy Routing order in control. This is an eligibility floor, not a preference for stronger models.
         /// </summary>
+        public CaptainTierEnum? MinimumTier { get; set; } = null;
+
+        /// <summary>Compatibility input field. It does not affect routing; databases use it for one-time migration.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public bool Specialist { get; set; } = false;
 
         /// <summary>

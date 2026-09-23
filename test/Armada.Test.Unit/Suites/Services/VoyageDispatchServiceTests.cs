@@ -1552,7 +1552,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Inherited high tier on Worker blocks routing until persona aware cap", () =>
+            await RunTest("Inherited high tier remains a hard routing floor", () =>
             {
                 ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
                 Captain captain = new Captain("mid-tier-worker");
@@ -1564,24 +1564,23 @@ namespace Armada.Test.Unit.Suites.Services
                     "high",
                     "Worker",
                     fleet.SpecialistPersonas);
-                AssertEqual("high", enforced, "the enforce-only path keeps high on Worker and reproduces the failure mode");
-                AssertFalse(
-                    MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", enforced, fleet),
-                    "high on Worker leaves an idle mid-tier roster with zero eligible captains");
+                AssertEqual("high", enforced, "the legacy helper keeps an explicit high request");
+                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", enforced, fleet),
+                    "an explicit high request leaves a Standard captain below the floor");
 
                 string? resolved = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                     null,
                     "high",
                     "Worker",
                     fleet.SpecialistPersonas);
-                AssertEqual("mid", resolved, "the persona-aware resolver caps inherited high to mid on Worker");
+                AssertEqual("high", resolved, "the persona-aware resolver keeps the mission floor");
                 AssertTrue(
-                    MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", resolved, fleet),
-                    "the cap restores assignable coverage on the same idle roster");
+                    !MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", resolved, fleet),
+                    "a Standard captain remains below an explicit Premium request");
                 return Task.CompletedTask;
             });
 
-            await RunTest("Pipeline dispatch caps mission high tier to mid on Worker stages", async () =>
+            await RunTest("Pipeline dispatch keeps mission high tier for Worker stages", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {

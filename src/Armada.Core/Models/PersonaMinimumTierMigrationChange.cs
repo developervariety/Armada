@@ -3,10 +3,10 @@ namespace Armada.Core.Models
     using System;
 
     /// <summary>
-    /// One persona record the tier record migration flags as a specialist, because the retired specialist
-    /// persona list named it.
+    /// One persona record the tier record migration receives a minimum tier from the retired specialist
+    /// persona list.
     /// </summary>
-    public sealed class PersonaSpecialistMigrationChange
+    public sealed class PersonaMinimumTierMigrationChange
     {
         #region Public-Members
 

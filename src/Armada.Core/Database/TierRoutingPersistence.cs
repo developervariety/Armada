@@ -7,7 +7,7 @@ namespace Armada.Core.Database
 
     /// <summary>
     /// Persists the routing fields that live on records rather than in settings: a captain's preference rank
-    /// within its tier and a persona's specialist flag. Every provider binds and reads them through this
+    /// within its tier and a persona's minimum routing tier. Every provider binds and reads them through this
     /// class, so the values are stored and restored identically.
     /// </summary>
     internal static class TierRoutingPersistence
@@ -17,8 +17,7 @@ namespace Armada.Core.Database
         /// <summary>Column holding a captain's preference rank within its tier.</summary>
         internal const string PreferenceRankColumn = "preference_rank";
 
-        /// <summary>Column holding whether a persona requires the Premium tier.</summary>
-        internal const string SpecialistColumn = "specialist";
+        internal const string MinimumTierColumn = "minimum_tier";
 
         /// <summary>SQLite migration statements adding the routing columns.</summary>
         internal static readonly string[] SqliteStatements = new string[]
@@ -73,25 +72,32 @@ namespace Armada.Core.Database
             captain.PreferenceRank = rank == DBNull.Value ? 0 : Convert.ToInt32(rank);
         }
 
-        /// <summary>Bind the persona specialist flag for an insert or update.</summary>
+        /// <summary>Bind persona routing fields for an insert or update.</summary>
         /// <param name="command">Command to bind.</param>
-        /// <param name="persona">Persona whose flag is stored.</param>
+        /// <param name="persona">Persona whose minimum tier is stored.</param>
         internal static void AddPersona(DbCommand command, Persona persona)
         {
-            DbParameter specialist = command.CreateParameter();
-            specialist.ParameterName = "@" + SpecialistColumn;
-            specialist.DbType = DbType.Boolean;
-            specialist.Value = persona.Specialist;
-            command.Parameters.Add(specialist);
+            DbParameter minimumTier = command.CreateParameter();
+            minimumTier.ParameterName = "@" + MinimumTierColumn;
+            minimumTier.DbType = DbType.String;
+            minimumTier.Value = persona.MinimumTier.HasValue ? persona.MinimumTier.Value.ToString() : DBNull.Value;
+            command.Parameters.Add(minimumTier);
         }
 
-        /// <summary>Read the persona specialist flag from a persona row.</summary>
-        /// <param name="reader">Reader positioned on a persona row that selects the flag column.</param>
+        /// <summary>Read the minimum tier from a persona row.</summary>
+        /// <param name="reader">Reader positioned on a persona row that selects the minimum tier column.</param>
         /// <param name="persona">Persona to populate.</param>
         internal static void ReadPersona(DbDataReader reader, Persona persona)
         {
-            object specialist = reader[SpecialistColumn];
-            persona.Specialist = specialist != DBNull.Value && Convert.ToBoolean(specialist);
+            try
+            {
+                string? minimumTier = reader[MinimumTierColumn] == DBNull.Value ? null : Convert.ToString(reader[MinimumTierColumn]);
+                persona.MinimumTier = String.IsNullOrWhiteSpace(minimumTier)
+                    ? null
+                    : Enum.TryParse(minimumTier, true, out Armada.Core.Enums.CaptainTierEnum parsed) ? parsed : null;
+            }
+            catch (IndexOutOfRangeException) { }
+            catch (ArgumentOutOfRangeException) { }
         }
 
         #endregion

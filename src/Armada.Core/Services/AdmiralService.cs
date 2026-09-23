@@ -452,8 +452,7 @@ namespace Armada.Core.Services
                         mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                             stage.PreferredModel,
                             md.PreferredModel,
-                            stage.PersonaName,
-                            _Settings.ModelTier.SpecialistPersonas);
+                            _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName));
 
                         // A stage that does not inherit the dispatch mode runs as Implementation: the
                         // DoD gate then judges report-only work by its commit, and the brief carries
@@ -639,8 +638,7 @@ namespace Armada.Core.Services
                             mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                                 stage.PreferredModel,
                                 md.PreferredModel,
-                                stage.PersonaName,
-                                _Settings.ModelTier.SpecialistPersonas);
+                                _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName));
                             mission.Mode = MissionModes.Parse(md.Mode);
 
                             // Every pipeline stage gets a fresh dock worktree. Preserve the
@@ -2485,7 +2483,7 @@ namespace Armada.Core.Services
 
         private async Task DispatchPendingMissionsAsync(CancellationToken token)
         {
-            // Tier, preference rank and the specialist flag live on records; read them fresh every pass, so a record
+            // Tier, preference rank and persona minimums live on records; read them fresh every pass, so a record
             // edit reaches dispatch, stage creation and previews within one pass even while nothing is pending.
             await TierRoutingRecords.RefreshAsync(_Settings.ModelTier, _Database, token).ConfigureAwait(false);
 
@@ -2531,49 +2529,48 @@ namespace Armada.Core.Services
                 return;
             }
 
-            // Split candidates by tier requirement. Specialist (downstream review /
-            // test / architect) stages dispatch first so they are not perpetually
-            // outbid for scarce high-tier captains by Worker missions. Workers then
+            // Split candidates by tier requirement. Premium-floor stages dispatch first so they are not
+            // outbid for scarce Premium captains by missions with a lower floor. Those missions then
             // dispatch subject to a high-tier capacity reservation so produced work
             // does not outrun review+landing capacity (the observed starvation symptom).
-            List<(Mission mission, Vessel vessel)> specialistMissions = new List<(Mission, Vessel)>();
-            List<(Mission mission, Vessel vessel)> nonSpecialistMissions = new List<(Mission, Vessel)>();
+            List<(Mission mission, Vessel vessel)> premiumFloorMissions = new List<(Mission, Vessel)>();
+            List<(Mission mission, Vessel vessel)> otherFloorMissions = new List<(Mission, Vessel)>();
             foreach ((Mission mission, Vessel vessel) pair in assignable)
             {
-                if (_Settings.ModelTier.IsSpecialistPersona(pair.mission.Persona))
-                    specialistMissions.Add(pair);
+                if (_Settings.ModelTier.MinimumTierForPersona(pair.mission.Persona) == CaptainTierEnum.Premium)
+                    premiumFloorMissions.Add(pair);
                 else
-                    nonSpecialistMissions.Add(pair);
+                    otherFloorMissions.Add(pair);
             }
 
             List<(Mission mission, bool result)> dispatchResults = new List<(Mission, bool)>();
 
-            // Phase 1: specialists claim idle high-tier captains before Workers.
-            if (specialistMissions.Count > 0)
+            // Phase 1: Premium-floor missions claim idle high-tier captains before Workers.
+            if (premiumFloorMissions.Count > 0)
             {
-                Task<bool>[] specialistTasks = specialistMissions
+                Task<bool>[] premiumFloorTasks = premiumFloorMissions
                     .Select(p => _Missions.TryAssignAsync(p.mission, p.vessel, token))
                     .ToArray();
-                bool[] specialistResults = await Task.WhenAll(specialistTasks).ConfigureAwait(false);
-                for (int i = 0; i < specialistResults.Length; i++)
-                    dispatchResults.Add((specialistMissions[i].mission, specialistResults[i]));
+                bool[] premiumFloorResults = await Task.WhenAll(premiumFloorTasks).ConfigureAwait(false);
+                for (int i = 0; i < premiumFloorResults.Length; i++)
+                    dispatchResults.Add((premiumFloorMissions[i].mission, premiumFloorResults[i]));
             }
 
-            // Phase 2: Workers. When the only idle capacity left after Phase 1 is
-            // high-tier and it is at or below the configured reservation, defer Worker
-            // dispatch for one cycle so the held-back high-tier captain stays free for
-            // the next incoming specialist stage. Workers prefer mid/low captains, so
-            // this gate only engages once mid/low capacity is exhausted -- non-high-tier
+            // Phase 2: Other-floor missions. When the only idle capacity left after Phase 1 is
+            // Premium and it is at or below the configured reservation, defer these missions
+            // for one cycle so the held-back captain stays free for the next incoming Premium-floor
+            // stage. Lower minimum tiers can use Standard and Economy captains, so this gate only
+            // engages when no lower-tier capacity remains -- non-Premium
             // capacity is never withheld.
-            bool nonSpecialistDeferred = false;
-            if (nonSpecialistMissions.Count > 0)
+            bool otherFloorDeferred = false;
+            if (otherFloorMissions.Count > 0)
             {
-                bool canDispatchNonSpecialist = true;
+                bool canDispatchOtherFloor = true;
                 int reservedHighTierSlots = _Settings.ModelTier.ReservedHighTierSlots;
                 if (reservedHighTierSlots > 0)
                 {
                     // Re-query idle capacity AFTER Phase 1 so captains claimed by
-                    // specialists are excluded from the reservation accounting.
+                    // Premium-floor missions are excluded from the reservation accounting.
                     List<Captain> remainingIdle = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
                     int idleHighTier = 0;
                     int idleNonHighTier = 0;
@@ -2586,32 +2583,32 @@ namespace Armada.Core.Services
                     }
 
                     // Engage the reservation only when (a) the remaining idle pool is
-                    // high-tier-only and within the reserve, AND (b) there is in-flight
-                    // work that could soon produce a downstream specialist stage. The
+                    // Premium-only and within the reserve, AND (b) there is in-flight
+                    // work that could soon produce a downstream Premium-floor stage. The
                     // second condition is the deadlock guard: with nothing in flight no
-                    // Judge is coming, so holding the last idle high-tier captain would
-                    // starve Workers forever on a high-tier-only fleet. Priming one
-                    // Worker is safe -- once it is in flight the reserve re-engages.
+                    // Premium-floor mission is coming, so holding the last idle Premium captain
+                    // would starve other work forever on a Premium-only fleet. Priming one lower-floor
+                    // mission is safe -- once it is in flight the reserve re-engages.
                     if (idleHighTier <= reservedHighTierSlots
                         && idleNonHighTier == 0
-                        && await HasInFlightSpecialistDemandAsync(token).ConfigureAwait(false))
+                        && await HasInFlightPremiumDemandAsync(token).ConfigureAwait(false))
                     {
-                        canDispatchNonSpecialist = false;
-                        nonSpecialistDeferred = true;
-                        _Logging.Info(_Header + "deferring " + nonSpecialistMissions.Count +
-                            " Worker mission(s) to reserve high-tier capacity: idle high-tier=" + idleHighTier +
-                            " reserved=" + reservedHighTierSlots + " idle non-high-tier=" + idleNonHighTier);
+                        canDispatchOtherFloor = false;
+                        otherFloorDeferred = true;
+                        _Logging.Info(_Header + "deferring " + otherFloorMissions.Count +
+                            " mission(s) to reserve Premium capacity: idle Premium=" + idleHighTier +
+                            " reserved=" + reservedHighTierSlots + " idle other-tier=" + idleNonHighTier);
                     }
                 }
 
-                if (canDispatchNonSpecialist)
+                if (canDispatchOtherFloor)
                 {
-                    Task<bool>[] nonSpecialistTasks = nonSpecialistMissions
+                    Task<bool>[] otherFloorTasks = otherFloorMissions
                         .Select(p => _Missions.TryAssignAsync(p.mission, p.vessel, token))
                         .ToArray();
-                    bool[] nonSpecialistResults = await Task.WhenAll(nonSpecialistTasks).ConfigureAwait(false);
-                    for (int i = 0; i < nonSpecialistResults.Length; i++)
-                        dispatchResults.Add((nonSpecialistMissions[i].mission, nonSpecialistResults[i]));
+                    bool[] otherFloorResults = await Task.WhenAll(otherFloorTasks).ConfigureAwait(false);
+                    for (int i = 0; i < otherFloorResults.Length; i++)
+                        dispatchResults.Add((otherFloorMissions[i].mission, otherFloorResults[i]));
                 }
             }
 
@@ -2632,18 +2629,18 @@ namespace Armada.Core.Services
                 }
             }
 
-            _RetryDispatchNeeded = anyFailed || nonSpecialistDeferred;
+            _RetryDispatchNeeded = anyFailed || otherFloorDeferred;
         }
 
         /// <summary>
         /// Returns true when at least one mission is in a non-terminal active state
         /// (Assigned, InProgress, WorkProduced, Testing, Review, or PullRequestOpen) --
         /// i.e. work is running or awaiting a downstream review/landing stage that will
-        /// soon need a high-tier captain. Used to decide whether reserving high-tier
+        /// soon need a Premium captain. Used to decide whether reserving Premium
         /// capacity is justified; with no such work in flight there is no imminent
-        /// specialist demand and the reservation is suppressed to avoid starving Workers.
+        /// Premium-floor demand and the reservation is suppressed to avoid starving other work.
         /// </summary>
-        private async Task<bool> HasInFlightSpecialistDemandAsync(CancellationToken token)
+        private async Task<bool> HasInFlightPremiumDemandAsync(CancellationToken token)
         {
             Dictionary<MissionStatusEnum, int> counts = await _Database.Missions.CountByStatusAsync(token).ConfigureAwait(false);
             return CountForStatus(counts, MissionStatusEnum.Assigned)

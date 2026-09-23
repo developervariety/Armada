@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
@@ -9,8 +10,8 @@ namespace Armada.Core.Services
     /// <summary>
     /// Pure static helper for preferredModel tier selectors (low, mid, high). A selector names a tier floor
     /// on the captain Capability tier: low is Economy, mid is Standard, high is Premium. A captain's tier
-    /// comes from its record (<see cref="CaptainTierSelector.EffectiveTier"/>); a persona flagged as a
-    /// specialist always requires Premium. Literal model names pass through unchanged and are handled by
+    /// comes from its record (<see cref="CaptainTierSelector.EffectiveTier"/>); a persona minimum is a hard
+    /// routing floor. Literal model names pass through unchanged and are handled by
     /// <see cref="LegacyCaptainSelector"/>. Tier values are case-insensitive.
     /// </summary>
     public static class PreferredModelTierSelector
@@ -111,29 +112,21 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Returns true when the persona is in the supplied specialist set.
-        /// Worker and null personas return false. When <paramref name="specialistPersonas"/>
-        /// is null or empty, no persona is reserved for high: product defaults are empty.
+        /// Compatibility helper that checks whether the supplied legacy persona set contains a name.
         /// </summary>
         /// <param name="persona">Persona name to test.</param>
-        /// <param name="specialistPersonas">Optional override set; null uses the built-in default.</param>
+        /// <param name="specialistPersonas">Optional legacy Premium persona set.</param>
         public static bool RequiresHighTier(string? persona, IReadOnlyCollection<string>? specialistPersonas = null)
         {
             return IsSpecialistPersona(persona, specialistPersonas);
         }
 
         /// <summary>
-        /// Returns a PreferredModel value safe to store on a mission with the given persona.
-        /// For specialist personas (Judge, Architect, etc.) this upgrades any tier selector
-        /// below "high" to "high". Null/empty preferredModel becomes "high" when the persona
-        /// requires it; literal model names are passed through unchanged (operator-pinned
-        /// literals stay honest -- the dispatcher's tier-fallback handles the runtime case
-        /// if no captain matches). When <paramref name="specialistPersonas"/> is null or
-        /// empty, no persona is treated as a specialist.
+        /// Compatibility helper that raises tier selectors for names in a legacy Premium persona set.
         /// </summary>
         /// <param name="preferredModel">Requested tier selector or literal model name.</param>
         /// <param name="persona">Persona the mission requires.</param>
-        /// <param name="specialistPersonas">Optional specialist set; null or empty treats no persona as a specialist.</param>
+        /// <param name="specialistPersonas">Optional legacy Premium persona set.</param>
         public static string? EnforceHighTierForPersona(
             string? preferredModel,
             string? persona,
@@ -151,25 +144,11 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Returns a PreferredModel value safe to store on a mission whose persona may differ
-        /// from the mission the value was inherited from. This is the two-way counterpart to
-        /// <see cref="EnforceHighTierForPersona"/>: it upgrades to "high" for specialist
-        /// personas exactly as that method does, and it additionally caps a "high" selector
-        /// down to "mid" for a persona that is not a specialist.
-        ///
-        /// The cap matters because the high tier is reserved for specialist and reviewer
-        /// personas. A non-specialist persona carrying "high" is unassignable whenever the
-        /// captain roster has no high-tier captain that accepts that persona: the mission
-        /// waits at WaitingForIdleCaptain forever while captains sit Idle, which reads as a
-        /// capacity problem and is not one. Inheriting a tier across a persona change is the
-        /// way that state is normally reached.
-        ///
-        /// Literal model names are passed through unchanged so operator-pinned literals stay
-        /// honest, and a null or empty value is only filled in when the persona requires high.
+        /// Compatibility helper for the retired Premium persona set. New routing uses the explicit minimum-tier overload.
         /// </summary>
         /// <param name="preferredModel">Requested tier selector or literal model name.</param>
         /// <param name="persona">Persona the mission will actually run as.</param>
-        /// <param name="specialistPersonas">Optional specialist set; null or empty treats no persona as a specialist.</param>
+        /// <param name="specialistPersonas">Optional legacy Premium persona set.</param>
         public static string? ResolveTierForPersona(
             string? preferredModel,
             string? persona,
@@ -177,13 +156,8 @@ namespace Armada.Core.Services
         {
             if (RequiresHighTier(persona, specialistPersonas))
                 return EnforceHighTierForPersona(preferredModel, persona, specialistPersonas);
-
-            if (String.IsNullOrWhiteSpace(preferredModel)) return preferredModel;
-            if (!IsTierSelector(preferredModel)) return preferredModel;
-            if (String.Equals(NormalizeTier(preferredModel), HighTier, StringComparison.OrdinalIgnoreCase))
-                return MidTier;
-
-            return preferredModel;
+            // A mission's explicit high selector is a hard floor for every persona.
+            return ResolveTierForPersona(preferredModel, (CaptainTierEnum?)null);
         }
 
         /// <summary>
@@ -194,7 +168,7 @@ namespace Armada.Core.Services
         /// <param name="stagePreferredModel">Optional stage-level override.</param>
         /// <param name="missionPreferredModel">Optional per-mission value inherited when the stage override is null.</param>
         /// <param name="persona">Persona the mission will actually run as.</param>
-        /// <param name="specialistPersonas">Optional specialist set; null or empty treats no persona as a specialist.</param>
+        /// <param name="specialistPersonas">Optional legacy Premium persona set.</param>
         public static string? ResolveEffectivePreferredModel(
             string? stagePreferredModel,
             string? missionPreferredModel,
@@ -202,6 +176,58 @@ namespace Armada.Core.Services
             IReadOnlyCollection<string>? specialistPersonas = null)
         {
             return ResolveTierForPersona(stagePreferredModel ?? missionPreferredModel, persona, specialistPersonas);
+        }
+
+        /// <summary>Raises a tier selector to the persona's explicit minimum tier; literal pins stay unchanged.</summary>
+        public static string? ResolveTierForPersona(string? preferredModel, CaptainTierEnum? minimumTier)
+        {
+            if (!minimumTier.HasValue)
+                return IsTierSelector(preferredModel) ? NormalizeTier(preferredModel!) : preferredModel;
+            if (String.IsNullOrWhiteSpace(preferredModel))
+                return minimumTier.Value == CaptainTierEnum.Economy ? LowTier
+                    : minimumTier.Value == CaptainTierEnum.Standard ? MidTier : HighTier;
+            if (!IsTierSelector(preferredModel)) return preferredModel;
+            CaptainTierEnum requested = FloorOf(preferredModel);
+            CaptainTierEnum effective = requested > minimumTier.Value ? requested : minimumTier.Value;
+            return effective == CaptainTierEnum.Economy ? LowTier
+                : effective == CaptainTierEnum.Standard ? MidTier : HighTier;
+        }
+
+        /// <summary>Apply an explicit persona minimum to a selector, preserving literal model pins.</summary>
+        public static string? ResolveTierForPersona(string? preferredModel, string? persona, CaptainTierEnum? minimumTier)
+        {
+            return ResolveTierForPersona(preferredModel, minimumTier);
+        }
+
+        /// <summary>Resolve stage and mission preferences, then apply the persona's explicit minimum tier.</summary>
+        public static string? ResolveEffectivePreferredModel(
+            string? stagePreferredModel,
+            string? missionPreferredModel,
+            CaptainTierEnum? minimumTier)
+        {
+            return ResolveTierForPersona(stagePreferredModel ?? missionPreferredModel, minimumTier);
+        }
+
+        /// <summary>Resolves a model request for a persona name using the current record snapshot.</summary>
+        public static string? ResolveEffectivePreferredModel(
+            string? stagePreferredModel,
+            string? missionPreferredModel,
+            string? persona,
+            ModelTierSettings settings)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            return ResolveEffectivePreferredModel(
+                stagePreferredModel, missionPreferredModel, settings.MinimumTierForPersona(persona));
+        }
+
+        /// <summary>Resolve a model request using a persona name and its explicit minimum tier.</summary>
+        public static string? ResolveEffectivePreferredModel(
+            string? stagePreferredModel,
+            string? missionPreferredModel,
+            string? persona,
+            CaptainTierEnum? minimumTier)
+        {
+            return ResolveEffectivePreferredModel(stagePreferredModel, missionPreferredModel, minimumTier);
         }
 
         /// <summary>
@@ -238,7 +264,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// The tiers a mission may land on, in the order they are tried. A specialist persona lands only on
+        /// The tiers a mission may land on, in the order they are tried. A legacy specialist admits only
         /// Premium. With a floor, the floor is tried first and every tier above it follows, lowest first, so a
         /// stronger captain is not consumed while one at the floor is idle. Without a floor, Standard is tried
         /// first, then Premium, then Economy.
@@ -248,12 +274,33 @@ namespace Armada.Core.Services
         /// <returns>The ordered tiers.</returns>
         public static List<CaptainTierEnum> TierOrder(CaptainTierEnum? floor, bool isSpecialist)
         {
-            if (isSpecialist) return new List<CaptainTierEnum> { CaptainTierEnum.Premium };
-            if (!floor.HasValue) return new List<CaptainTierEnum> { CaptainTierEnum.Standard, CaptainTierEnum.Premium, CaptainTierEnum.Economy };
-            List<CaptainTierEnum> order = new List<CaptainTierEnum>();
-            foreach (CaptainTierEnum tier in new[] { CaptainTierEnum.Economy, CaptainTierEnum.Standard, CaptainTierEnum.Premium })
-                if (tier >= floor.Value) order.Add(tier);
-            return order;
+            return TierOrderForMinimum(floor, isSpecialist ? CaptainTierEnum.Premium : (CaptainTierEnum?)null);
+        }
+
+        /// <summary>The ordered tiers at or above both the mission floor and the persona minimum.</summary>
+        public static List<CaptainTierEnum> TierOrder(CaptainTierEnum? floor, CaptainTierEnum? minimumTier)
+        {
+            return TierOrderForMinimum(floor, minimumTier);
+        }
+
+        private static List<CaptainTierEnum> TierOrderForMinimum(CaptainTierEnum? floor, CaptainTierEnum? minimumTier)
+        {
+            CaptainTierEnum? effectiveFloor = !minimumTier.HasValue ? floor
+                : !floor.HasValue || minimumTier.Value > floor.Value ? minimumTier : floor;
+            if (!effectiveFloor.HasValue)
+                return new List<CaptainTierEnum> { CaptainTierEnum.Standard, CaptainTierEnum.Premium, CaptainTierEnum.Economy };
+            return new[] { CaptainTierEnum.Economy, CaptainTierEnum.Standard, CaptainTierEnum.Premium }
+                .Where(tier => tier >= effectiveFloor.Value).ToList();
+        }
+
+        /// <summary>Compatibility overload for callers that still store a Premium persona list.</summary>
+        public static List<CaptainTierEnum> TierOrder(
+            CaptainTierEnum? floor,
+            string? persona,
+            IReadOnlyCollection<string>? premiumPersonas)
+        {
+            return TierOrder(floor, RequiresHighTier(persona, premiumPersonas)
+                ? CaptainTierEnum.Premium : (CaptainTierEnum?)null);
         }
 
         /// <summary>

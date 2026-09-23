@@ -10,7 +10,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Legacy Routing: the tier captain selector. Selection runs in two layers. Eligibility admits a captain
     /// when its persona lock allows the mission's persona and its Capability tier is at or above the mission's
-    /// tier floor (the preferredModel selector, or Premium for a specialist persona). Order then ranks the
+    /// tier floor (the preferredModel selector, or the persona's minimum tier). Order then ranks the
     /// eligible captains: the lowest admitted tier first, then higher preference rank, then (optionally) an
     /// external-provider captain before a native one, then a captain whose preferred persona matches; among
     /// equal captains a model is chosen at random. Smart Routing orders captains with this same selector and
@@ -64,7 +64,9 @@ namespace Armada.Core.Services
             if (IsConcretePin(preferredModel) && idleCaptains.Any(c => c != null && RunsModel(c, preferredModel!)))
             {
                 // An idle captain runs the pinned model: the pin is an explicit choice, honoured ahead of tiers.
-                List<Captain> pinned = eligible.Where(c => RunsModel(c, preferredModel!)).ToList();
+                List<CaptainTierEnum> allowedTiers = TierOrderFor(tiers, mission);
+                List<Captain> pinned = eligible.Where(c => RunsModel(c, preferredModel!)
+                    && allowedTiers.Contains(CaptainTierSelector.EffectiveTier(c))).ToList();
                 if (pinned.Count == 0) return null;
                 if (narrowToLowestTier) pinned = RequestedCaptainAssignmentRule.NarrowToLowestTier(pinned);
                 return PickAvoidingRetrySkips(tiers, mission, pinned, randomPick);
@@ -145,15 +147,15 @@ namespace Armada.Core.Services
                     reasons[captain.Id] = ReasonPersonaNotAllowed;
                 else if (pinSatisfied && !RunsModel(captain, preferredModel!))
                     reasons[captain.Id] = ReasonModelPinMismatch;
-                else if (!pinSatisfied && !order.Contains(CaptainTierSelector.EffectiveTier(captain)))
+                else if (!order.Contains(CaptainTierSelector.EffectiveTier(captain)))
                     reasons[captain.Id] = ReasonBelowTierFloor;
             }
             return reasons;
         }
 
         /// <summary>
-        /// The tiers the mission may land on, in the order they are tried: Premium only for a specialist
-        /// persona; otherwise the floor its preferredModel names (a tier selector, or the roster tier of a
+        /// The tiers the mission may land on, in the order they are tried: at or above the persona minimum
+        /// and preferredModel floor (a tier selector, or the roster tier of a
         /// pinned model no idle captain runs) and every tier above it.
         /// </summary>
         /// <param name="tiers">Model tier settings.</param>
@@ -163,7 +165,7 @@ namespace Armada.Core.Services
         {
             if (tiers == null) throw new ArgumentNullException(nameof(tiers));
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            bool isSpecialist = tiers.IsSpecialistPersona(mission.Persona);
+            CaptainTierEnum? minimumTier = tiers.MinimumTierForPersona(mission.Persona);
             CaptainTierEnum? floor = null;
             string? preferredModel = mission.PreferredModel;
             if (!String.IsNullOrWhiteSpace(preferredModel))
@@ -172,7 +174,7 @@ namespace Armada.Core.Services
                     ? PreferredModelTierSelector.FloorOf(preferredModel)
                     : PreferredModelTierSelector.TierOfModel(preferredModel, tiers);
             }
-            return PreferredModelTierSelector.TierOrder(floor, isSpecialist);
+            return PreferredModelTierSelector.TierOrder(floor, minimumTier);
         }
 
         #endregion
