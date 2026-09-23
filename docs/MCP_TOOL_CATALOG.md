@@ -469,6 +469,11 @@ even when the failure is older than the sweep lookback window. Deferrals are
 runtime state like the hold itself: after a restart, the sweep picks up only
 failures inside its lookback window.
 
+Automatic Checks obey the same hold. The heartbeat runs no Pending Check while
+the hold is engaged, records one `check.auto_deferred_dispatch_hold` event per
+engagement, and runs the waiting Checks on the first sweep after the hold
+clears. `run_check` and `retry_check_run` are not held.
+
 Empty voyages created through REST, WebSocket or the remote-control tunnel
 dispatch no work. Missions added to them later go through the admiral
 dispatch, which the hold refuses.

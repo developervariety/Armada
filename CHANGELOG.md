@@ -106,6 +106,10 @@ upstream integrations and excludes changes already present at that baseline.
   `[ARMADA:STATUS]` marker sets only InProgress, Testing, or Review, so post-work
   and terminal states always pass the completion and landing checks. Interrupted
   and duplicate completions retain launch identity.
+- **Dispatch hold:** automatic Checks obey the hold. The heartbeat runs no
+  Pending Check while the hold is engaged, records one named deferral event per
+  engagement, and runs the waiting Checks after the hold clears. Operator check
+  runs are not held.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.

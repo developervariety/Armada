@@ -418,7 +418,7 @@ namespace Armada.Server
             _DeploymentService = new DeploymentService(_Database, _WorkflowProfileService, _EnvironmentService, _CheckRunService, _Logging);
             _IncidentService = new IncidentService(_Database);
             _RunbookService = new RunbookService(_Database, _Logging);
-            _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(_Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging);
+            _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(_Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging, _DispatchHold);
             _AutonomousRecovery = new AutonomousRecoveryOrchestrator(
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService,

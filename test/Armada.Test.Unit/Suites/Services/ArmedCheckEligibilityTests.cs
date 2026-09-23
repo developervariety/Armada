@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -24,7 +25,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Suite name.</summary>
         public override string Name => "Armed Check Eligibility";
 
-        private static AutomaticCheckRunOrchestrator BuildOrchestrator(TestDatabase testDb)
+        private static AutomaticCheckRunOrchestrator BuildOrchestrator(TestDatabase testDb, DispatchHold? dispatchHold = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -34,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
             ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging);
             IncidentService incidents = new IncidentService(testDb.Driver);
 
-            return new AutomaticCheckRunOrchestrator(testDb.Driver, checkRuns, releases, incidents, logging);
+            return new AutomaticCheckRunOrchestrator(testDb.Driver, checkRuns, releases, incidents, logging, dispatchHold);
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb)
@@ -193,6 +194,38 @@ namespace Armada.Test.Unit.Suites.Services
                     CheckRun? reloaded = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
                     AssertNotNull(reloaded, "The armed check should remain readable");
                     AssertEqual("armada/worker/msn-1", reloaded!.BranchName, "The sweep must point the check at the work before running it");
+                }
+            });
+
+            await RunTest("Sweep runs no check while the dispatch hold is engaged and names the hold once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("held-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                    await CreateWorkMissionAsync(
+                        testDb, vessel, voyage, MissionStatusEnum.WorkProduced, "armada/worker/msn-held", "held123").ConfigureAwait(false);
+
+                    DispatchHold hold = new DispatchHold();
+                    hold.Engage("Managed-vessel execution is paused.", "operator-session");
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb, hold);
+
+                    AssertEqual(0, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "No check may execute while the hold is engaged");
+                    AssertEqual(0, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "A second sweep under the same hold executes nothing");
+
+                    CheckRun? reloaded = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
+                    AssertNotNull(reloaded, "The held check should remain readable");
+                    AssertEqual(CheckRunStatusEnum.Pending, reloaded!.Status, "A held check stays Pending, so it runs once the hold clears");
+                    AssertNull(reloaded.BranchName, "A held check is not stamped or started");
+
+                    List<ArmadaEvent> deferred = await testDb.Driver.Events.EnumerateByTypeAsync(
+                        AutomaticCheckRunOrchestrator.DeferredByDispatchHoldEvent, 50).ConfigureAwait(false);
+                    AssertEqual(1, deferred.Count, "One event per hold engagement names why checks wait, not one per sweep");
+                    AssertContains("operator-session", deferred[0].Message ?? String.Empty, "The event names who holds dispatch");
+
+                    hold.Clear();
+                    AssertEqual(1, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "The held check runs once the hold clears");
                 }
             });
 

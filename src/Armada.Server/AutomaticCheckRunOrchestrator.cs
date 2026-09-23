@@ -17,6 +17,11 @@ namespace Armada.Server
     /// </summary>
     public sealed class AutomaticCheckRunOrchestrator
     {
+        /// <summary>
+        /// Event written once per dispatch-hold engagement when the sweep leaves pending checks waiting.
+        /// </summary>
+        public const string DeferredByDispatchHoldEvent = "check.auto_deferred_dispatch_hold";
+
         private const int MaxChecksPerSweep = 3;
         private readonly string _Header = "[AutomaticCheckRunOrchestrator] ";
         private readonly DatabaseDriver _Database;
@@ -25,6 +30,8 @@ namespace Armada.Server
         private readonly IncidentService _Incidents;
         private readonly LoggingModule _Logging;
         private readonly StaleCheckSupersessionService _Supersession;
+        private readonly DispatchHold? _DispatchHold;
+        private DateTime? _ReportedHoldSetByUtc = null;
         private readonly SemaphoreSlim _SweepGate = new SemaphoreSlim(1, 1);
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Web;
 
@@ -36,7 +43,8 @@ namespace Armada.Server
             CheckRunService checkRuns,
             ReleaseService releases,
             IncidentService incidents,
-            LoggingModule logging)
+            LoggingModule logging,
+            DispatchHold? dispatchHold = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _CheckRuns = checkRuns ?? throw new ArgumentNullException(nameof(checkRuns));
@@ -44,6 +52,7 @@ namespace Armada.Server
             _Incidents = incidents ?? throw new ArgumentNullException(nameof(incidents));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Supersession = new StaleCheckSupersessionService(_Database, _Logging);
+            _DispatchHold = dispatchHold;
         }
 
         /// <summary>
@@ -98,6 +107,17 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "stale-check supersession failed: " + ex.Message);
             }
 
+            // The dispatch hold stops all automatic execution on managed vessels, and a check runs the
+            // vessel's build and test commands. Pending records stay Pending and run on the first sweep
+            // after the hold clears. An operator's own check run is not affected.
+            DispatchHoldSnapshot? hold = _DispatchHold?.Snapshot();
+            if (hold != null)
+            {
+                await ReportHoldDeferralAsync(hold, token).ConfigureAwait(false);
+                return 0;
+            }
+
+            _ReportedHoldSetByUtc = null;
             List<CheckRun> eligible = await FindEligiblePendingChecksAsync(token).ConfigureAwait(false);
 
             if (eligible.Count == 0) return 0;
@@ -115,6 +135,27 @@ namespace Armada.Server
             }
 
             return executed;
+        }
+
+        /// <summary>
+        /// Name the hold once per engagement, so a quiet check queue does not read as an idle one.
+        /// </summary>
+        private async Task ReportHoldDeferralAsync(DispatchHoldSnapshot hold, CancellationToken token)
+        {
+            if (_ReportedHoldSetByUtc == hold.SetByUtc) return;
+
+            string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
+            string message = "Automatic checks deferred: dispatch_hold engaged by " + holder + " at "
+                + hold.SetByUtc.ToString("u") + ": " + hold.Reason + " Pending checks run after the hold clears.";
+            _Logging.Info(_Header + message);
+
+            ArmadaEvent evt = new ArmadaEvent(DeferredByDispatchHoldEvent, message)
+            {
+                TenantId = Constants.DefaultTenantId,
+                Payload = JsonSerializer.Serialize(new { hold.SetBy, hold.SetByUtc, hold.Reason }, _JsonOptions)
+            };
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            _ReportedHoldSetByUtc = hold.SetByUtc;
         }
 
         private async Task<List<CheckRun>> FindEligiblePendingChecksAsync(CancellationToken token)

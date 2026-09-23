@@ -253,7 +253,8 @@ Each scheduler-dispatched voyage passes through the same check-arming service
 as an operator dispatch. When its workflow profile defines them, Build and
 UnitTest Checks are attached in `Pending` state and run against the produced
 stage commit before a Judge PASS can land. `armada_dispatch_hold` stops new
-scheduler and operator dispatches while leaving in-flight voyages running.
+scheduler and operator dispatches and automatic Check runs, while leaving
+in-flight voyages running.
 
 Operators maintain campaign quality, verify objectives, and delegate bounded
 read-only helpers. The built-in objective scheduler and generic AgentWake are available.

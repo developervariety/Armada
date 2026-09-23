@@ -229,11 +229,20 @@ a merge-queue test run; Armada serializes them host-wide. A Check submitted
 during a gate queues rather than racing, so it can take considerably longer to
 return than the command itself takes.
 
-When automatic Check resolution is enabled, the heartbeat can run eligible
-non-deployment Checks after linked missions or voyages complete, when a release
-is ready, or when an idle vessel needs a baseline check. Deployment deploy,
-verify, and rollback Checks stay under the deployment action so the deployment
-record remains authoritative.
+The heartbeat runs eligible non-deployment Checks automatically, up to three per
+sweep: a voyage-armed Check once a stage commits work to a branch, a
+mission-linked Check after its mission completes, a release-linked Check when
+the release is ready, and an unlinked Check when its vessel is idle. A Pending
+Check of a voyage that ended without completing is cancelled with its reason.
+No setting turns this off. Deployment deploy, verify, and rollback Checks stay
+under the deployment action so the deployment record remains authoritative.
+
+While the dispatch hold is engaged, the heartbeat runs no Check. Pending Checks
+stay Pending and run on the first sweep after the hold clears. One
+`check.auto_deferred_dispatch_hold` event per hold engagement names the holder
+and reason. A voyage that needs a green Check before its Judge PASS can land
+waits for the hold to clear. `run_check` and `retry_check_run` still run a Check
+on an operator's request.
 
 ## 10. Minimum Closeout
 
