@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 
@@ -26,6 +26,7 @@ vi.mock('../api/client', async () => (await import('../test/clientMock')).withAl
 
 import { listCaptains, listSignals } from '../api/client';
 import Signals from './Signals';
+import { deferred } from '../test/routeRace';
 
 const empty = { success: true, pageNumber: 1, pageSize: 25, totalPages: 0, totalRecords: 0, totalMs: 1, objects: [] };
 
@@ -83,5 +84,33 @@ test('a refresh keeps the selected signals that still exist and drops the ones t
 
   expect(rowCheckbox('sig_a').checked).toBe(true);
   expect(rowCheckbox('sig_c').checked).toBe(false);
+  expect(screen.getByText(/Delete Selected/)).toHaveTextContent('(1)');
+});
+
+test('an earlier filter that responds last neither replaces the rows nor prunes the selection', async () => {
+  const wake = deferred<unknown>();
+  vi.mocked(listSignals).mockImplementation((async (params?: { filters?: Record<string, string> }) => {
+    const type = params?.filters?.signalType;
+    if (type === 'Wake') return wake.promise;
+    if (type === 'Mail') return page(['sig_mail']);
+    return page(['sig_all']);
+  }) as never);
+  render(<MemoryRouter><Signals /></MemoryRouter>);
+  await screen.findByText('sig_all', { selector: '.id-value' });
+
+  const typeSelect = screen.getByDisplayValue('All Types');
+  fireEvent.change(typeSelect, { target: { value: 'Wake' } });
+  await waitFor(() => expect(listSignals).toHaveBeenLastCalledWith(
+    expect.objectContaining({ filters: expect.objectContaining({ signalType: 'Wake' }) }),
+  ));
+  fireEvent.change(typeSelect, { target: { value: 'Mail' } });
+  await screen.findByText('sig_mail', { selector: '.id-value' });
+  fireEvent.click(rowCheckbox('sig_mail'));
+  expect(screen.getByText(/Delete Selected/)).toHaveTextContent('(1)');
+
+  await act(async () => { wake.resolve(page(['sig_wake'])); });
+  expect(screen.getByText('sig_mail', { selector: '.id-value' })).toBeInTheDocument();
+  expect(screen.queryByText('sig_wake', { selector: '.id-value' })).not.toBeInTheDocument();
+  expect(rowCheckbox('sig_mail').checked).toBe(true);
   expect(screen.getByText(/Delete Selected/)).toHaveTextContent('(1)');
 });

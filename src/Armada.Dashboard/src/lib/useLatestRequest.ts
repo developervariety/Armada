@@ -11,15 +11,20 @@ export interface LatestRequest {
 }
 
 /**
- * Orders the loads of a detail page whose record key (the route id) can change while a request is in flight.
- * Every load calls `begin(key)`; only the most recently started load is current, so an earlier response can
- * never replace a later one. A load is initial until a load for the same key succeeds, so navigating to another
- * id shows the spinner and surfaces a failure instead of leaving the previous record on screen.
+ * The one ordering rule for page loads: only the most recently started load may write state.
+ *
+ * Every load of a page (the first read, a filter, search, page or route-id change, an auto-refresh tick, a manual
+ * refresh, a reload after a live-event gap) calls `begin(key)` before its request and checks `isCurrent()` after
+ * each await. A load that a later load has superseded writes nothing, so a slower, older response never replaces a
+ * newer one. `key` names what the load reads: a detail page passes its route id, a list page may pass its query or
+ * nothing. A load is initial until a load for the same key succeeds, so navigating to another id shows the spinner
+ * and surfaces a failure instead of leaving the previous record on screen, while a refresh of the record on screen
+ * stays quiet.
  */
 export function useLatestRequest() {
   const state = useRef({ generation: 0, loadedKey: undefined as string | undefined });
   const api = useRef({
-    begin(key: string): LatestRequest {
+    begin(key: string = ''): LatestRequest {
       const generation = ++state.current.generation;
       return {
         isInitialLoad: state.current.loadedKey !== key,

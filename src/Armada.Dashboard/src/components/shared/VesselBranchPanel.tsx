@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getVesselBranches, mergeVesselBranch, pushVesselBranch } from '../../api/client';
 import type { BranchInfo, BranchListResponse, BranchMergeStrategy } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 
 interface VesselBranchPanelProps {
   vesselId: string;
@@ -23,15 +24,21 @@ export default function VesselBranchPanel({ vesselId }: VesselBranchPanelProps) 
   const [refusal, setRefusal] = useState('');
   const [notice, setNotice] = useState('');
 
+  // A read superseded by a later one (another vessel or a reread after a write) writes nothing.
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin(vesselId);
     try {
-      setListing(await getVesselBranches(vesselId));
+      const result = await getVesselBranches(vesselId);
+      if (!request.isCurrent()) return;
+      setListing(result);
       setLoadError('');
     } catch (err) {
+      if (!request.isCurrent()) return;
       setListing(null);
       setLoadError(err instanceof Error ? err.message : String(err));
     }
-  }, [vesselId]);
+  }, [requests, vesselId]);
 
   useEffect(() => { load(); }, [load]);
 

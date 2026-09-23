@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 
@@ -32,6 +32,8 @@ vi.mock('../api/client', async () => (await import('../test/clientMock')).withAl
 
 import { listDeployments, listEnvironments, listIncidents, listReleases, listVessels } from '../api/client';
 import Incidents from './Incidents';
+import { deferred } from '../test/routeRace';
+import { DEFAULT_AUTO_REFRESH_SECONDS } from '../lib/useAutoRefresh';
 
 const empty = { success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] };
 const statusTotals: Record<string, number> = { Open: 7, Monitoring: 2, Mitigated: 1, RolledBack: 3, Closed: 40 };
@@ -82,4 +84,46 @@ test('sends the status filter to the server', async () => {
   await waitFor(() => expect(listIncidents).toHaveBeenLastCalledWith(
     expect.objectContaining({ pageNumber: 1, status: 'Mitigated' }),
   ));
+});
+
+test('an auto-refresh of the previous page that responds last does not replace the page the user moved to', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    localStorage.clear();
+    const staleRefresh = deferred<unknown>();
+    let pageOneReads = 0;
+    const incident = (id: string, title: string) => ({
+      id, title, summary: null, impact: null, status: 'Open', severity: 'High',
+      environmentId: null, environmentName: null, deploymentId: null, releaseId: null,
+      createdUtc: '2026-01-01T00:00:00Z', lastUpdateUtc: '2026-01-01T00:00:00Z',
+    });
+    vi.mocked(listIncidents).mockImplementation((async (query?: { pageNumber?: number; pageSize?: number; status?: string }) => {
+      if (query?.pageSize === 1) return { ...empty, pageSize: 1, totalRecords: 0 };
+      const pageNumber = query?.pageNumber ?? 1;
+      const result = (title: string) => ({
+        success: true, pageNumber, pageSize: 25, totalPages: 3, totalRecords: 53, totalMs: 1, objects: [incident(`inc_${pageNumber}`, title)],
+      });
+      if (pageNumber === 2) return result('Incident on page two');
+      pageOneReads += 1;
+      return pageOneReads === 1 ? result('Incident on page one') : staleRefresh.promise;
+    }) as never);
+    render(<MemoryRouter><Incidents /></MemoryRouter>);
+    expect(await screen.findByText('Incident on page one')).toBeInTheDocument();
+
+    await act(async () => { vi.advanceTimersByTime(DEFAULT_AUTO_REFRESH_SECONDS * 1000); });
+    await waitFor(() => expect(pageOneReads).toBe(2));
+
+    fireEvent.click(screen.getAllByText('Next')[0]);
+    expect(await screen.findByText('Incident on page two')).toBeInTheDocument();
+
+    await act(async () => {
+      staleRefresh.resolve({
+        success: true, pageNumber: 1, pageSize: 25, totalPages: 3, totalRecords: 53, totalMs: 1, objects: [incident('inc_1', 'Refreshed page one')],
+      });
+    });
+    expect(screen.getByText('Incident on page two')).toBeInTheDocument();
+    expect(screen.queryByText('Refreshed page one')).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });

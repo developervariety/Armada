@@ -352,9 +352,16 @@ upstream integrations and excludes changes already present at that baseline.
   stay complete past the server's page cap. A release lists its linked deployments
   through the release filter and names each linked check run by reading that run.
   A vessel's mission table shows the newest 1000 missions and says so when the
-  vessel has more. Mission, captain, vessel and merge-entry
-  detail pages apply only the newest load, show the spinner and any load failure
-  when the id changes, and never show the previous record. Only the current
+  vessel has more. Every list page whose query follows a filter, search, page or
+  sort, and every detail page that follows its route id, applies only its newest
+  load: a filter change, an auto-refresh tick, a manual refresh and a reload all
+  start a load, and only the newest load writes the rows,
+  totals, selection, spinner and errors, so a slower, older response never replaces
+  a newer one. A detail page shows the spinner and any load failure when the id
+  changes and never shows the previous record. The Planning page reads the session
+  list and the open session again after a reconnect or an event gap, and applies
+  session, message and captain events that arrive while the open session is loading
+  on top of the loaded session instead of dropping them. Only the current
   WebSocket drives connection state and reconnects; a replaced socket's late events
   are ignored. The home page's bounded mission-summary refresh has a dashboard test
   in place of source-text checks in the unit suite.

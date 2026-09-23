@@ -11,6 +11,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
 import { useAuth } from '../context/AuthContext';
 import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
@@ -108,7 +109,10 @@ export default function PromptTemplateDetail() {
     open: false, title: '', message: '', onConfirm: () => {},
   });
 
+  // A read superseded by a later one (another template, create mode, or a newer reload) writes nothing.
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin(createMode ? '' : name);
     if (createMode) {
       setTemplate(null);
       setTemplateName('');
@@ -125,6 +129,7 @@ export default function PromptTemplateDetail() {
     try {
       setLoading(true);
       const result = await getPromptTemplate(name);
+      if (!request.isCurrent()) return;
       setTemplate(result);
       setTemplateName(result.name);
       setCategory(result.category);
@@ -133,12 +138,13 @@ export default function PromptTemplateDetail() {
       setDirty(false);
       setError('');
     } catch (err) {
+      if (!request.isCurrent()) return;
       setTemplate(null);
       setError(err instanceof Error ? err.message : t('Failed to load prompt template.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [createMode, name, t]);
+  }, [requests, createMode, name, t]);
 
   useEffect(() => { void load(); }, [load]);
 

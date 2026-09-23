@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Missions from './Missions';
 import { listCaptains, listMissionSummaries, listVessels } from '../api/client';
+import { deferred } from '../test/routeRace';
 
 vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listMissionSummaries: vi.fn(),
@@ -109,5 +110,27 @@ describe('Missions list', () => {
     expect(await screen.findByText('Port Alpha decoder')).toBeInTheDocument();
     const titles = screen.getAllByRole('row').slice(2).map((row) => row.querySelector('strong')?.textContent).filter(Boolean);
     expect(titles).toEqual(['Port Alpha decoder', 'Refresh docs']);
+  });
+
+  it('keeps the server page when a full-list read started earlier responds last', async () => {
+    const fullList = deferred<unknown>();
+    vi.mocked(listMissionSummaries).mockImplementation((async (params?: { pageSize?: number }) => {
+      if ((params?.pageSize ?? 0) >= 1000) return fullList.promise;
+      return { success: true, pageNumber: 1, pageSize: 25, totalPages: 1, totalRecords: 1, totalMs: 1, objects: serverPages[0] };
+    }) as never);
+    renderMissions();
+    expect(await screen.findByText('Refresh docs')).toBeInTheDocument();
+
+    const search = screen.getAllByPlaceholderText('Search...')[0];
+    fireEvent.change(search, { target: { value: 'alpha' } });
+    await waitFor(() => expect(listMissionSummaries).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 1000 })));
+    fireEvent.change(search, { target: { value: '' } });
+    expect(await screen.findByText('Refresh docs')).toBeInTheDocument();
+
+    await act(async () => {
+      fullList.resolve({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 2, totalMs: 1, objects: [...serverPages[0], ...serverPages[1]] });
+    });
+    expect(screen.getByText('Refresh docs')).toBeInTheDocument();
+    expect(screen.queryByText('Port Alpha decoder')).not.toBeInTheDocument();
   });
 });

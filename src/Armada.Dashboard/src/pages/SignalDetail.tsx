@@ -12,6 +12,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
 
 // The API may return missionId on signals even though the base type doesn't include it
@@ -47,18 +48,24 @@ export default function SignalDetail() {
     return c?.name || captainId;
   }, [captains, t]);
 
+  // A read superseded by a later one (another id, or a reread after marking it read) writes nothing.
+  const requests = useLatestRequest();
   useEffect(() => {
     if (!id) return;
-    getSignal(id).then(setSignal).catch(() => setError(t('Failed to load signal.')));
+    const request = requests.begin(id);
+    getSignal(id)
+      .then((result) => { if (request.isCurrent()) setSignal(result); })
+      .catch(() => { if (request.isCurrent()) setError(t('Failed to load signal.')); });
     listAllCaptains().then(setCaptains).catch(() => {});
-  }, [id, t]);
+  }, [requests, id, t]);
 
   async function handleMarkRead() {
     if (!id) return;
     try {
       await markSignalRead(id);
+      const request = requests.begin(id);
       const updated = await getSignal(id);
-      setSignal(updated);
+      if (request.isCurrent()) setSignal(updated);
       pushToast('success', t('Signal marked as read.'));
     } catch {
       setError(t('Failed to mark signal as read.'));

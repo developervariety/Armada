@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { listAllPages } from '../lib/listAllPages';
 
 interface SavedHistoryView {
@@ -229,7 +230,9 @@ export default function History() {
     };
   }
 
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     try {
       setLoading(true);
       const [historyResult, vesselResult, allObjectives] = await Promise.all([
@@ -237,6 +240,7 @@ export default function History() {
         listAllVessels(),
         listAllObjectives(),
       ]);
+      if (!request.isCurrent()) return;
 
       setEntries(historyResult.objects || []);
       setTotalRecords(historyResult.totalRecords || 0);
@@ -244,11 +248,11 @@ export default function History() {
       setObjectives(allObjectives);
       setError('');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load history.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load history.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [appliedQuery, t]);
+  }, [requests, appliedQuery, t]);
 
   // A link that changes the URL filters (for example from a backlog item) defines the view: show the
   // new filters and load them. The first render already started from the URL.

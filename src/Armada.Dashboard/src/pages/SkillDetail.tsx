@@ -4,6 +4,7 @@ import { createSkill, deleteSkill, getSkill, updateSkill } from '../api/client';
 import type { Skill } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
@@ -34,11 +35,15 @@ export default function SkillDetail() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
 
+  // A read superseded by a read of another id writes nothing.
+  const requests = useLatestRequest();
   useEffect(() => {
+    const request = requests.begin(createMode ? '' : id);
     if (createMode) return;
     setLoading(true);
     getSkill(id!)
       .then((s) => {
+        if (!request.isCurrent()) return;
         setSkill(s);
         setName(s.name);
         setDescription(s.description || '');
@@ -47,9 +52,9 @@ export default function SkillDetail() {
         setActive(s.active);
         setError('');
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load skill.')))
-      .finally(() => setLoading(false));
-  }, [id, createMode]);
+      .catch((err: unknown) => { if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load skill.')); })
+      .finally(() => { if (request.isCurrent()) setLoading(false); });
+  }, [requests, id, createMode]);
 
   function buildPayload(): Partial<Skill> {
     return {

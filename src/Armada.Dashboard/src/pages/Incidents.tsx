@@ -33,6 +33,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import Pagination from '../components/shared/Pagination';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 
 const INCIDENT_STATUSES: IncidentStatus[] = ['Open', 'Monitoring', 'Mitigated', 'RolledBack', 'Closed'];
 const INCIDENT_SEVERITIES: IncidentSeverity[] = ['Critical', 'High', 'Medium', 'Low'];
@@ -147,7 +148,10 @@ export default function Incidents() {
     }
   }
 
+  // Page changes, filters, search and the refresh timer all load; only the newest load writes the page.
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     try {
       setLoading(true);
       // Status totals are unfiltered counts read from each status query's total, so the cards
@@ -168,6 +172,7 @@ export default function Incidents() {
         Promise.all(countRequests),
         pageRequest,
       ]);
+      if (!request.isCurrent()) return;
       setIncidents(incidentResult.objects || []);
       setTotalPages(incidentResult.totalPages || 1);
       setTotalRecords(incidentResult.totalRecords || 0);
@@ -178,11 +183,11 @@ export default function Incidents() {
       setReleases(releaseResult);
       setError('');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load incidents.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load incidents.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [appliedSearch, pageNumber, pageSize, severityFilter, statusFilter, t]);
+  }, [requests, appliedSearch, pageNumber, pageSize, severityFilter, statusFilter, t]);
 
   useEffect(() => {
     void load();

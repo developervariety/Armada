@@ -1,15 +1,18 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Memories from './Memories';
 import { listMemories } from '../api/client';
+import { deferred } from '../test/routeRace';
 
 vi.mock('../api/client', () => ({ listMemories: vi.fn(), deleteMemory: vi.fn() }));
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ isAdmin: false, isTenantAdmin: false, user: { user: { id: 'usr_1', tenantId: 'ten_a' } } }),
 }));
-vi.mock('../context/LocaleContext', () => ({
-  useLocale: () => ({ t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v }),
-}));
+vi.mock('../context/LocaleContext', () => {
+  // One locale object for every render, as the provider gives, so the page's load is not rebuilt each render.
+  const locale = { t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v };
+  return { useLocale: () => locale };
+});
 vi.mock('../context/NotificationContext', () => {
   const notifications = { pushToast: vi.fn() };
   return { useNotifications: () => notifications };
@@ -47,5 +50,28 @@ describe('Memories page', () => {
     await screen.findByText('Own memory');
     fireEvent.change(screen.getByLabelText('Filter by type'), { target: { value: 'Procedural' } });
     await waitFor(() => expect(listMemories).toHaveBeenLastCalledWith({ pageNumber: 1, pageSize: 25, filters: { type: 'Procedural' } }));
+  });
+
+  it('shows the newest search result when an earlier search responds last', async () => {
+    const earlier = deferred<unknown>();
+    const later = deferred<unknown>();
+    vi.mocked(listMemories).mockImplementation((async (params?: { filters?: Record<string, string> }) => {
+      const term = params?.filters?.search;
+      if (term === 'bu') return earlier.promise;
+      if (term === 'build') return later.promise;
+      return page([memory({})]);
+    }) as never);
+    render(<Memories />);
+    await screen.findByText('Own memory');
+
+    const input = screen.getByPlaceholderText('Search content, topic, tags...');
+    fireEvent.change(input, { target: { value: 'bu' } });
+    fireEvent.change(input, { target: { value: 'build' } });
+    await act(async () => { later.resolve(page([memory({ id: 'mem_new', summary: 'Newest match' })])); });
+    expect(await screen.findByText('Newest match')).toBeInTheDocument();
+
+    await act(async () => { earlier.resolve(page([memory({ id: 'mem_old', summary: 'Stale match' })])); });
+    expect(screen.getByText('Newest match')).toBeInTheDocument();
+    expect(screen.queryByText('Stale match')).not.toBeInTheDocument();
   });
 });

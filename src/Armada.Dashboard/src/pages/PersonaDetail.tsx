@@ -12,6 +12,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
@@ -55,45 +56,57 @@ export default function PersonaDetail() {
     setPromptError('');
   }, []);
 
+  // The persona and its backing template each keep their own order: a read superseded by a later one writes nothing.
+  const requests = useLatestRequest();
+  const promptRequests = useLatestRequest();
+
   const loadPromptForPersona = useCallback(async (templateName: string) => {
+    const request = promptRequests.begin(templateName);
     try {
       setPromptLoading(true);
       const template = await getPromptTemplate(templateName);
+      if (!request.isCurrent()) return;
       setPromptTemplate(template);
       setPromptDescription(template.description ?? '');
       setPromptContent(template.content);
       setPromptDirty(false);
       setPromptError('');
     } catch (err) {
+      if (!request.isCurrent()) return;
       clearPromptEditor();
       setPromptError(err instanceof Error ? err.message : t('Failed to load backing prompt template.'));
     } finally {
-      setPromptLoading(false);
+      if (request.isCurrent()) setPromptLoading(false);
     }
-  }, [clearPromptEditor, t]);
+  }, [promptRequests, clearPromptEditor, t]);
 
   const load = useCallback(async () => {
     if (!name) return;
+    const request = requests.begin(name);
     try {
       setLoading(true);
       const found = await getPersona(name);
+      if (!request.isCurrent()) return;
       setPersona(found);
       const templateResult = await listAllPromptTemplates();
+      if (!request.isCurrent()) return;
       setTemplateNames(templateResult.map(t => t.name));
       const captainResult = await listAllCaptains();
+      if (!request.isCurrent()) return;
       setCaptains(captainResult);
       if (found.promptTemplateName) {
         await loadPromptForPersona(found.promptTemplateName);
       } else {
+        promptRequests.begin();
         clearPromptEditor();
       }
-      setError('');
+      if (request.isCurrent()) setError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('Failed to load persona.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load persona.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [clearPromptEditor, loadPromptForPersona, name, t]);
+  }, [requests, promptRequests, clearPromptEditor, loadPromptForPersona, name, t]);
 
   useEffect(() => { load(); }, [load]);
 

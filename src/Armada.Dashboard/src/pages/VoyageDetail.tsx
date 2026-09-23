@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   getVoyage,
@@ -23,6 +23,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { summarizeVoyageProgress } from '../lib/voyageProgress';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -74,12 +75,15 @@ export default function VoyageDetail() {
   const captainName = useCallback((cid: string | null | undefined) => cid ? captainMap.get(cid) || cid.slice(0, 8) : '-', [captainMap]);
 
   // The loading state replaces the page only on the first read; a refresh keeps it on screen.
-  const loadedRef = useRef(false);
+  // A read superseded by a later one (another id or a newer refresh) writes nothing.
+  const requests = useLatestRequest();
   const loadVoyage = useCallback(async () => {
     if (!id) return;
-    if (!loadedRef.current) setLoading(true);
+    const request = requests.begin(id);
+    if (request.isInitialLoad) setLoading(true);
     try {
       const v = await getVoyage(id);
+      if (!request.isCurrent()) return;
       // The API may return { voyage, missions } or just the voyage object
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const raw = v as any;
@@ -91,21 +95,22 @@ export default function VoyageDetail() {
         // Load missions separately
         try {
           const mResult = await listAllMissions({ voyageId: id });
+          if (!request.isCurrent()) return;
           setMissions(mResult);
         } catch {
+          if (!request.isCurrent()) return;
           setMissions([]);
         }
       }
-      loadedRef.current = true;
+      request.markLoaded();
     } catch (e: unknown) {
-      setError(t('Failed to load voyage: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
+      if (request.isCurrent()) setError(t('Failed to load voyage: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [id, t]);
+  }, [requests, id, t]);
 
   useEffect(() => {
-    loadedRef.current = false;
     loadVoyage();
     listAllVessels().then(setVessels).catch(() => {});
     listAllCaptains().then(setCaptains).catch(() => {});

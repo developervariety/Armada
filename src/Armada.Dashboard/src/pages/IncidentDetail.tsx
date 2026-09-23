@@ -27,6 +27,7 @@ import type {
 } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
 import { RESYNC_MESSAGE_TYPE, useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -290,20 +291,25 @@ export default function IncidentDetail() {
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
+  // A read superseded by a later one (another id or a reload after missed events) writes nothing.
+  const requests = useLatestRequest();
   const loadIncident = useCallback(async (showLoading: boolean) => {
     if (createMode || !id) return;
+    const request = requests.begin(id);
     try {
       if (showLoading) setLoading(true);
       const result = await getIncident(id);
+      if (!request.isCurrent()) return;
       if (dirtyRef.current) setServerChange(result);
       else applyIncident(result);
       setError('');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load incident.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load incident.'));
     } finally {
-      if (showLoading) setLoading(false);
+      // The newest load ends the loading state, even when an older load that showed it was superseded.
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [applyIncident, createMode, id, t]);
+  }, [requests, applyIncident, createMode, id, t]);
 
   useEffect(() => {
     void loadIncident(true);

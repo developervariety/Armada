@@ -12,6 +12,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPipelineDuplicatePayload } from '../lib/duplicates';
 
@@ -82,25 +83,33 @@ export default function PipelineDetail() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
     if (!name) return;
+    // A read superseded by a later one (another pipeline or a newer reload) writes nothing.
+    const request = requests.begin(name);
     try {
       setLoading(true);
-      const isInitialLoad = !pipeline;
+      const isInitialLoad = request.isInitialLoad;
       const found = await getPipeline(name);
+      if (!request.isCurrent()) return;
       setPipeline(found);
       const personaResult = await listAllPersonas();
+      if (!request.isCurrent()) return;
       setPersonaNames(personaResult.map(p => p.name));
       try {
-        setVessels(await listAllVessels());
+        const vesselResult = await listAllVessels();
+        if (!request.isCurrent()) return;
+        setVessels(vesselResult);
       } catch { /* vessels are optional for run-mode */ }
       if (isInitialLoad) setError('');
+      request.markLoaded();
     } catch {
-      setError(t('Failed to load pipeline.'));
+      if (request.isCurrent()) setError(t('Failed to load pipeline.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [name, t]);
+  }, [requests, name, t]);
 
   useEffect(() => { load(); }, [load]);
 

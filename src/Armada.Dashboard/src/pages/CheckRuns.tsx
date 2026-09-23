@@ -20,6 +20,7 @@ import ReadinessPanel from '../components/shared/ReadinessPanel';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import StatusBadge from '../components/shared/StatusBadge';
 import Pagination from '../components/shared/Pagination';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
@@ -154,7 +155,9 @@ export default function CheckRuns() {
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [loadingReadiness, setLoadingReadiness] = useState(false);
 
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     try {
       setLoading(true);
       const filters: Record<string, string> = {};
@@ -173,6 +176,7 @@ export default function CheckRuns() {
         countRequests,
         pageRequest,
       ]);
+      if (!request.isCurrent()) return;
       setRuns(runResult.objects || []);
       setTotalPages(runResult.totalPages || 1);
       setTotalRecords(runResult.totalRecords || 0);
@@ -181,11 +185,11 @@ export default function CheckRuns() {
       setProfiles(profileResult);
       setError('');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load check runs.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load check runs.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [pageNumber, pageSize, sourceFilter, statusFilter, t, typeFilter, vesselFilter]);
+  }, [requests, pageNumber, pageSize, sourceFilter, statusFilter, t, typeFilter, vesselFilter]);
 
   useEffect(() => {
     void load();

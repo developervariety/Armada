@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { canEditOwned, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import PageHeader from '../components/shared/PageHeader';
 import Pagination from '../components/shared/Pagination';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -37,22 +38,26 @@ export default function Memories() {
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; id: string }>({ open: false, id: '' });
 
+  // Each keystroke, filter or page change starts a load; only the newest one writes the list.
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     setLoading(true);
     try {
       const filters: Record<string, string> = {};
       if (typeFilter) filters.type = typeFilter;
       if (search.trim()) filters.search = search.trim();
       const result = await listMemories({ pageNumber, pageSize, filters });
+      if (!request.isCurrent()) return;
       setMemories(result.objects ?? []);
       setTotalPages(result.totalPages ?? 1);
       setTotalRecords(result.totalRecords ?? 0);
     } catch {
-      pushToast('error', t('Failed to load memories.'));
+      if (request.isCurrent()) pushToast('error', t('Failed to load memories.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [pageNumber, pageSize, typeFilter, search, pushToast, t]);
+  }, [requests, pageNumber, pageSize, typeFilter, search, pushToast, t]);
 
   useEffect(() => { void load(); }, [load]);
 

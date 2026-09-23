@@ -17,6 +17,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { retainSelection } from '../lib/selection';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -79,7 +80,10 @@ export default function Signals() {
     return c?.name || id;
   }, [captains, t]);
 
+  // Only the newest load writes the list and prunes the selection against it.
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     setLoading(true);
     try {
       const filters: Record<string, string> = {};
@@ -88,17 +92,18 @@ export default function Signals() {
       if (filterToCaptain) filters.toCaptainId = filterToCaptain;
       if (filterUnreadOnly) filters.unreadOnly = 'true';
       const result = await listSignals({ pageNumber: page, pageSize, filters });
+      if (!request.isCurrent()) return;
       setSignals(result.objects || []);
       setTotalPages(result.totalPages || 0);
       setTotalRecords(result.totalRecords || 0);
       setTotalMs(result.totalMs || 0);
       setSelected(prev => retainSelection(prev, (result.objects || []).map(s => s.id)));
     } catch {
-      setError(t('Failed to load signals.'));
+      if (request.isCurrent()) setError(t('Failed to load signals.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [page, pageSize, filterType, filterToCaptain, filterUnreadOnly, t]);
+  }, [requests, page, pageSize, filterType, filterToCaptain, filterUnreadOnly, t]);
 
   useEffect(() => { load(); }, [load]);
 

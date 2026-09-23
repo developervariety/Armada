@@ -26,6 +26,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
@@ -402,10 +403,17 @@ export default function RequestHistory() {
 
   const allSelected = entries.length > 0 && entries.length === selectedIds.length;
 
+  // The entry list, the summary and the open entry each keep their own order: only the newest load of each writes.
+  const entryRequests = useLatestRequest();
+  const summaryRequests = useLatestRequest();
+  const detailRequests = useLatestRequest();
+
   const loadEntries = useCallback(async () => {
+    const request = entryRequests.begin();
     try {
       setLoading(true);
       const result = await listRequestHistory(query);
+      if (!request.isCurrent()) return;
       setEntries(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
@@ -413,38 +421,43 @@ export default function RequestHistory() {
       setSelectedIds([]);
       setError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('Failed to load request history.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load request history.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [query, t]);
+  }, [entryRequests, query, t]);
 
   const loadSummary = useCallback(async () => {
+    const request = summaryRequests.begin();
     try {
       setSummaryLoading(true);
       const result = await getRequestHistorySummary(summaryQuery);
+      if (!request.isCurrent()) return;
       setSummary(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('Failed to load request history summary.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load request history summary.'));
     } finally {
-      setSummaryLoading(false);
+      if (request.isCurrent()) setSummaryLoading(false);
     }
-  }, [summaryQuery, t]);
+  }, [summaryRequests, summaryQuery, t]);
 
   const openDetail = useCallback(async (entryId: string, routePush = true) => {
+    const request = detailRequests.begin(entryId);
     try {
       setDetailLoading(true);
       if (routePush) navigate(`/requests/${entryId}`);
       const record = await getRequestHistoryEntry(entryId);
+      if (!request.isCurrent()) return;
       setDetailRecord(record);
       setError('');
     } catch (err) {
+      if (!request.isCurrent()) return;
       setError(err instanceof Error ? err.message : t('Failed to load request detail.'));
       if (routePush) navigate('/requests');
     } finally {
-      setDetailLoading(false);
+      if (request.isCurrent()) setDetailLoading(false);
     }
-  }, [navigate, t]);
+  }, [detailRequests, navigate, t]);
 
   useEffect(() => {
     loadEntries();
@@ -458,6 +471,8 @@ export default function RequestHistory() {
 
   useEffect(() => {
     if (!id) {
+      // Closing the entry supersedes any read still in flight, so it cannot reopen the panel.
+      detailRequests.begin();
       setDetailRecord(null);
       setDetailLoading(false);
       return;
@@ -465,7 +480,7 @@ export default function RequestHistory() {
 
     if (detailRecord?.entry.id === id) return;
     void openDetail(id, false);
-  }, [detailRecord?.entry.id, id, openDetail]);
+  }, [detailRecord?.entry.id, detailRequests, id, openDetail]);
 
   const handleReplay = useCallback(async (entryId: string) => {
     try {

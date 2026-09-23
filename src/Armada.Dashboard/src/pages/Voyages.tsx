@@ -12,6 +12,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -53,22 +54,25 @@ export default function Voyages() {
     initialPageSize: 1000,
   });
 
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     try {
       setLoading(true);
       const filters: Record<string, string> = {};
       if (statusFilter) filters.status = statusFilter;
       const result = await listVoyages({ pageNumber, pageSize, filters });
+      if (!request.isCurrent()) return;
       setVoyages(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
       setError('');
     } catch {
-      setError(t('Failed to load voyages.'));
+      if (request.isCurrent()) setError(t('Failed to load voyages.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [pageNumber, pageSize, statusFilter, t]);
+  }, [requests, pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 

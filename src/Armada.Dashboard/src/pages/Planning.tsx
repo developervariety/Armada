@@ -30,8 +30,9 @@ import type {
   WebSocketMessage,
 } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
-import { useWebSocket } from '../context/WebSocketContext';
+import { RESYNC_MESSAGE_TYPE, useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import PlanningDispatchCard from '../components/planning/PlanningDispatchCard';
 import PlanningSessionListCard from '../components/planning/PlanningSessionListCard';
@@ -60,6 +61,9 @@ interface PlanningSummaryEventPayload {
     method?: string;
   };
 }
+
+/** A live change to the open session's detail; it returns the detail unchanged when the change is for another session. */
+type DetailUpdate = (current: PlanningSessionDetail) => PlanningSessionDetail;
 
 interface PlanningPrefillState {
   fromWorkspace?: boolean;
@@ -126,10 +130,26 @@ export default function Planning() {
   const dispatchSeedRef = useRef<DispatchSeedState | null>(null);
   const planningPrefillAppliedRef = useRef(false);
 
+  // The catalog and the open session's detail are each read again after a reconnect or an event gap. Only the newest
+  // read of each writes state, and a reread keeps the page on screen instead of showing the loading state again.
+  const catalogRequests = useLatestRequest();
+  const detailRequests = useLatestRequest();
+  // Live changes that arrive while a detail read is in flight. The read's snapshot may predate them, so they are
+  // applied on top of it when it lands instead of being lost.
+  const pendingDetailUpdatesRef = useRef<DetailUpdate[] | null>(null);
+
+  const updateDetail = useCallback((update: DetailUpdate) => {
+    pendingDetailUpdatesRef.current?.push(update);
+    setDetail((current) => (current ? update(current) : current));
+  }, []);
+
   const loadCatalog = useCallback(async () => {
+    const request = catalogRequests.begin();
     try {
-      setLoadingCatalog(true);
-      setError('');
+      if (request.isInitialLoad) {
+        setLoadingCatalog(true);
+        setError('');
+      }
       const [sessionItems, captainResult, fleetResult, vesselResult, pipelineResult] = await Promise.all([
         listPlanningSessions().catch(() => []),
         listAllCaptains().catch(() => null),
@@ -137,33 +157,48 @@ export default function Planning() {
         listAllVessels().catch(() => null),
         listAllPipelines().catch(() => null),
       ]);
+      if (!request.isCurrent()) return;
 
       setSessions(sessionItems);
       setCaptains(captainResult || []);
       setFleets(fleetResult || []);
       setVessels(vesselResult || []);
       setPipelines(pipelineResult || []);
+      request.markLoaded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load planning data.'));
+      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load planning data.'));
     } finally {
-      setLoadingCatalog(false);
+      if (request.isCurrent()) setLoadingCatalog(false);
     }
-  }, [t]);
+  }, [catalogRequests, t]);
 
   const loadDetail = useCallback(async (sessionId: string) => {
+    const request = detailRequests.begin(sessionId);
+    const pendingUpdates: DetailUpdate[] = [];
+    pendingDetailUpdatesRef.current = pendingUpdates;
     try {
-      setLoadingDetail(true);
-      setError('');
-      const result = await getPlanningSession(sessionId);
+      if (request.isInitialLoad) {
+        setLoadingDetail(true);
+        setError('');
+      }
+      const loaded = await getPlanningSession(sessionId);
+      if (!request.isCurrent()) return;
+      const result = pendingUpdates.reduce((current, update) => update(current), loaded);
       setDetail(result);
       setSessions((current) => upsertSession(current, result.session));
+      request.markLoaded();
     } catch (err: unknown) {
+      // A failed reread keeps the session on screen; a failed first read reports the failure.
+      if (!request.isCurrent() || !request.isInitialLoad) return;
       setDetail(null);
       setError(err instanceof Error ? err.message : t('Failed to load planning session.'));
     } finally {
-      setLoadingDetail(false);
+      if (request.isCurrent()) {
+        pendingDetailUpdatesRef.current = null;
+        setLoadingDetail(false);
+      }
     }
-  }, [t]);
+  }, [detailRequests, t]);
 
   useEffect(() => {
     loadCatalog();
@@ -172,6 +207,9 @@ export default function Planning() {
   useEffect(() => {
     setMessageTools({});
     if (!id) {
+      // Leaving the session supersedes a read still in flight, so it cannot reopen the session.
+      detailRequests.begin();
+      pendingDetailUpdatesRef.current = null;
       setDetail(null);
       setSelectedMessageId('');
       setDispatchTitle('');
@@ -181,16 +219,23 @@ export default function Planning() {
     }
 
     loadDetail(id);
-  }, [id, loadDetail]);
+  }, [detailRequests, id, loadDetail]);
 
   useEffect(() => {
     const unsubscribe = subscribe((msg: WebSocketMessage) => {
+      // Events sent while the connection was down, or dropped from the server's replay buffer, never arrive.
+      if (msg.type === RESYNC_MESSAGE_TYPE) {
+        void loadCatalog();
+        if (id) void loadDetail(id);
+        return;
+      }
+
       if (msg.type === 'planning-session.changed') {
         const payload = msg.data as { session?: PlanningSession } | undefined;
         if (!payload?.session) return;
 
         setSessions((current) => upsertSession(current, payload.session!));
-        setDetail((current) => current && current.session.id === payload.session!.id
+        updateDetail((current) => current.session.id === payload.session!.id
           ? { ...current, session: payload.session! }
           : current);
         return;
@@ -206,8 +251,8 @@ export default function Planning() {
         };
 
         setCaptains((current) => mergeCaptainState(current, captainUpdate));
-        setDetail((current) => {
-          if (!current?.captain || current.captain.id !== captainUpdate.id) return current;
+        updateDetail((current) => {
+          if (!current.captain || current.captain.id !== captainUpdate.id) return current;
           return {
             ...current,
             captain: {
@@ -224,8 +269,8 @@ export default function Planning() {
         const payload = msg.data as { sessionId?: string; message?: PlanningSessionMessage } | undefined;
         if (!payload?.sessionId || !payload.message) return;
 
-        setDetail((current) => {
-          if (!current || current.session.id !== payload.sessionId) return current;
+        updateDetail((current) => {
+          if (current.session.id !== payload.sessionId) return current;
           return {
             ...current,
             messages: upsertMessage(current.messages, payload.message!),
@@ -272,6 +317,8 @@ export default function Planning() {
 
         setSessions((current) => removeSession(current, payload.sessionId!));
         if (payload.sessionId === id) {
+          detailRequests.begin();
+          pendingDetailUpdatesRef.current = null;
           setDetail(null);
           setSelectedMessageId('');
           setDispatchTitle('');
@@ -286,7 +333,7 @@ export default function Planning() {
     });
 
     return unsubscribe;
-  }, [deleting, id, navigate, pushToast, subscribe, t]);
+  }, [deleting, detailRequests, id, loadCatalog, loadDetail, navigate, pushToast, subscribe, t, updateDetail]);
 
   useEffect(() => {
     if (!detail) return;

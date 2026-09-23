@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getFleet, createFleet, updateFleet, deleteFleet, listAllPipelines, listAllVessels } from '../api/client';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { buildFleetUpdatePayload } from '../lib/fleetPayload';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -38,25 +39,29 @@ export default function FleetDetail() {
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const [notFound, setNotFound] = useState(false);
-  const loadedRef = useRef(false);
+  const requests = useLatestRequest();
 
   // The fleet is read by id; searching a listed page misses any fleet past the page limit.
   const load = useCallback(async () => {
     if (!id) return;
+    // Only the first read of an id shows the loading state; a refresh keeps the page on screen. A read superseded
+    // by a later one (another id or a newer refresh) writes nothing.
+    const request = requests.begin(id);
     try {
-      // Only the first read shows the loading state; a refresh keeps the page on screen.
-      if (!loadedRef.current) setLoading(true);
+      if (request.isInitialLoad) setLoading(true);
       const [found, vResult, pResult] = await Promise.all([
         getFleet(id),
         listAllVessels({ fleetId: id }),
         listAllPipelines(),
       ]);
+      if (!request.isCurrent()) return;
       setFleet(found);
       setNotFound(false);
       setVessels(vResult.filter(v => v.fleetId === id));
       setPipelines(pResult);
-      loadedRef.current = true;
+      request.markLoaded();
     } catch (err: unknown) {
+      if (!request.isCurrent()) return;
       if ((err as { status?: number } | null)?.status === 404) {
         setFleet(null);
         setNotFound(true);
@@ -64,11 +69,11 @@ export default function FleetDetail() {
         setError(t('Failed to load fleet.'));
       }
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [id, t]);
+  }, [requests, id, t]);
 
-  useEffect(() => { loadedRef.current = false; load(); }, [load]);
+  useEffect(() => { load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('fleet-detail', () => { void load(); });
 
   function openEdit() {

@@ -27,6 +27,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import CopyButton from '../components/shared/CopyButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { retainSelection } from '../lib/selection';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -90,23 +91,26 @@ export default function MergeQueue() {
     return v?.name || id.substring(0, 8);
   }, [vessels]);
 
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     try {
       setLoading(true);
       const filters: Record<string, string> = {};
       if (statusFilter) filters.status = statusFilter;
       const result = await listMergeQueue({ pageNumber, pageSize, filters });
+      if (!request.isCurrent()) return;
       setEntries(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
       setSelected(prev => retainSelection(prev, (result.objects || []).map(e => e.id)));
       setError('');
     } catch {
-      setError(t('Failed to load merge queue.'));
+      if (request.isCurrent()) setError(t('Failed to load merge queue.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [pageNumber, pageSize, statusFilter, t]);
+  }, [requests, pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 

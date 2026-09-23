@@ -12,6 +12,7 @@ import {
 import type { Fleet, PersonaOverride, PersonaPromptPreview, ProjectProfile, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
@@ -65,13 +66,17 @@ export default function ProjectProfileDetail() {
   const [preview, setPreview] = useState<PersonaPromptPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // A read superseded by a read of another id writes nothing.
+  const requests = useLatestRequest();
   useEffect(() => {
     void listAllFleets().then(setFleets).catch(() => {});
     void listAllVessels().then(setVessels).catch(() => {});
+    const request = requests.begin(createMode ? '' : id);
     if (createMode) return;
     setLoading(true);
     getProjectProfile(id!)
       .then((p) => {
+        if (!request.isCurrent()) return;
         setProfile(p);
         setName(p.name);
         setDescription(p.description || '');
@@ -87,9 +92,9 @@ export default function ProjectProfileDetail() {
         setAuthorizationPolicy(p.authorizationPolicy || '');
         setError('');
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load project profile.')))
-      .finally(() => setLoading(false));
-  }, [id, createMode]);
+      .catch((err: unknown) => { if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load project profile.')); })
+      .finally(() => { if (request.isCurrent()) setLoading(false); });
+  }, [requests, id, createMode]);
 
   function buildPayload(): Partial<ProjectProfile> {
     return {

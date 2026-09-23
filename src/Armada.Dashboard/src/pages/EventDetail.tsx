@@ -12,6 +12,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useNotifications } from '../context/NotificationContext';
 
 /** Map entity ID prefix to a route. */
@@ -53,12 +54,17 @@ export default function EventDetail() {
     return v?.name || vesselId;
   }, [vessels]);
 
+  // A read superseded by a read of another id writes nothing.
+  const requests = useLatestRequest();
   useEffect(() => {
     if (!id) return;
-    getEvent(id).then(setEvent).catch(() => setError(t('Failed to load event.')));
+    const request = requests.begin(id);
+    getEvent(id)
+      .then((result) => { if (request.isCurrent()) setEvent(result); })
+      .catch(() => { if (request.isCurrent()) setError(t('Failed to load event.')); });
     listAllCaptains().then(setCaptains).catch(() => {});
     listAllVessels().then(setVessels).catch(() => {});
-  }, [id, t]);
+  }, [requests, id, t]);
 
   function handleDelete() {
     setConfirmAction({

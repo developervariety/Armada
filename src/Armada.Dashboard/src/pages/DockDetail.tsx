@@ -15,6 +15,7 @@ import DockGitAnchorPanel from '../components/shared/DockGitAnchorPanel';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 
@@ -45,13 +46,18 @@ export default function DockDetail() {
 
   const [notFound, setNotFound] = useState(false);
 
+  // A read superseded by a later one (another id or a newer refresh) writes nothing.
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
     if (!id) return;
+    const request = requests.begin(id);
     try {
       const result = await getDock(id);
+      if (!request.isCurrent()) return;
       setDock(result);
       setNotFound(false);
     } catch (err: unknown) {
+      if (!request.isCurrent()) return;
       // A 404 means the dock was reclaimed or never existed; say so instead of a generic failure.
       if ((err as { status?: number } | null)?.status === 404) {
         setDock(null);
@@ -62,7 +68,7 @@ export default function DockDetail() {
     }
     listAllCaptains().then(setCaptains).catch(() => {});
     listAllVessels().then(setVessels).catch(() => {});
-  }, [id, t]);
+  }, [requests, id, t]);
 
   useEffect(() => { void load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('dock-detail', () => { void load(); });

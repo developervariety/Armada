@@ -25,6 +25,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -107,25 +108,31 @@ export default function Missions() {
 
   // The server filters by status and orders by creation time. Any other filter or sort loads every mission (at the
   // server page cap) and filters, sorts and pages on the client, so the result covers all missions, not one page.
+  // Only the newest load writes the list, so a slow full-list read cannot replace a later page read.
+  const requests = useLatestRequest();
   const load = useCallback(async () => {
+    const request = requests.begin();
     try {
       setLoading(true);
       const filters = missionServerFilters(statusFilter, sortField === 'createdUtc' ? sortDir : 'desc');
       if (fullList) {
-        setMissions(await loadAllMissionSummaries(listMissionSummaries, filters));
+        const all = await loadAllMissionSummaries(listMissionSummaries, filters);
+        if (!request.isCurrent()) return;
+        setMissions(all);
       } else {
         const result = await listMissionSummaries({ pageNumber, pageSize, filters });
+        if (!request.isCurrent()) return;
         setMissions(result.objects || []);
         setTotalPages(result.totalPages || 1);
         setTotalRecords(result.totalRecords || 0);
       }
       setError('');
     } catch {
-      setError(t('Failed to load missions.'));
+      if (request.isCurrent()) setError(t('Failed to load missions.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [fullList, pageNumber, pageSize, statusFilter, sortField, sortDir, t]);
+  }, [requests, fullList, pageNumber, pageSize, statusFilter, sortField, sortDir, t]);
 
   useEffect(() => {
     listAllVessels().then(setVessels).catch(() => {});
