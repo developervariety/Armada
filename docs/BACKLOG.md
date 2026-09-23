@@ -24,6 +24,8 @@ Each backlog item can carry:
 
 Armada keeps that current state in normalized database tables and still emits `objective.snapshot` events for audit and timeline continuity.
 
+A stored backlog item whose list or document field holds malformed JSON, or whose kind, status, priority, backlog state or effort holds a value Armada does not define, cannot be read. Reading that item returns an error that names the item ID and the stored field, and an update of it fails, so the stored value stays for repair instead of being replaced with an empty list or a default. Lists leave the item out, and the Admiral logs a warning that counts the skipped items and names each item and field. The other items still list, and the objective scheduler never dispatches the skipped item. Empty stored fields read as empty lists.
+
 ## Dashboard Workflow
 
 The React dashboard is the primary user-facing backlog surface.

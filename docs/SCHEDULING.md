@@ -63,7 +63,7 @@ The Admiral runs a health-check loop on a configurable interval controlled by `H
 3. **Checks for stalled captains** -- captains that have not reported progress within the `StallThresholdMinutes` window (default: 10 minutes).
 4. **Runs escalation rules** -- triggers recovery or alerts for stalled or failed missions.
 
-After those steps the Admiral runs its periodic maintenance, each step on its own cadence in health-loop cycles: objective dispatch attempt reconciliation and stale background-job reaping every cycle, log rotation and planning-session maintenance every 10, data expiry every 100 (completed records after `dataRetentionDays`, production facts after `productionFactRetentionDays`, and captured request history with its detail after `requestHistoryRetentionDays`, default 30; `0` keeps each), disk lifecycle reconciliation every `diskLifecycle.reconcileIntervalCycles`, captain log screening every cycle (the screen self-guards to `captainLogScreening.intervalSeconds` and returns immediately while it is off), the code-index staleness sweep every `codeIndex.stalenessSweepIntervalCycles` (it refreshes only vessels that are already indexed), and the branch cleanup sweep every `branchCleanupSweepIntervalCycles` (default 200). Each step runs in isolation. A failing step logs `<step> failed: <reason>` and the steps after it still run. A failing health check does not stop the cycle count, so maintenance keeps its cadence.
+After those steps the Admiral runs its periodic maintenance, each step on its own cadence in health-loop cycles: objective dispatch attempt reconciliation and stale background-job reaping every cycle, log rotation and planning-session maintenance every 10, data expiry every 100 (completed records after `dataRetentionDays`, production facts after `productionFactRetentionDays`, and captured request history with its detail after `requestHistoryRetentionDays`, default 30; `0` keeps each), disk lifecycle reconciliation every `diskLifecycle.reconcileIntervalCycles`, captain log screening every cycle (the screen self-guards to `captainLogScreening.intervalSeconds` and returns immediately while it is off), the code-index staleness sweep every `codeIndex.stalenessSweepIntervalCycles` (it refreshes only vessels that are already indexed), and the branch cleanup sweep every `branchCleanupSweepIntervalCycles` (default 200). `branchCleanupSweepIntervalCycles` and the sweep's `branchCleanupPreservedRefRetentionDays` hot-reload, so an edited value applies on the next cycle without a restart. Each step runs in isolation. A failing step logs `<step> failed: <reason>` and the steps after it still run. A failing health check does not stop the cycle count, so maintenance keeps its cadence.
 
 ## Captain Log Screening
 
@@ -253,6 +253,23 @@ objective graphs where hands-off continuation is the goal; keep it disabled
 (the default) when you want an operator to review each dispatch. Changes made
 with `armada_objective_scheduler_set` are persisted to the loaded settings file
 and survive an Admiral restart.
+
+The scheduler holds no copy of its settings. It reads and writes the live
+`autonomousObjectiveScheduler` settings section on every use. An edit to that
+section in the settings file (picked up by the settings-file watcher or by
+`POST /api/v1/settings/reload`) takes effect on the next sweep: `enabled`,
+`paused` with its `pausedBy`, `pausedUtc` and `pauseReason`, `intervalMinutes`,
+both concurrency ceilings and `fairShareWithinPriorityBands`. A later
+`armada_objective_scheduler_set` or stale-pause clear writes the live section
+back, so it keeps the edited values and changes only the fields it sets. A pause
+set through the tool is written to the file, so a reload of that file and a
+restart both keep the pause and its attribution. Turning
+`fairShareWithinPriorityBands` off by either route drops the rotation cursor.
+
+An objective row whose stored data cannot be read is left out of the sweep and
+named in an Admiral warning. The sweep continues with the other rows. An
+objective that lists the skipped row as a blocker stays blocked, because a
+missing blocker counts as incomplete.
 
 Each scheduler-dispatched voyage passes through the same check-arming service
 as an operator dispatch. When its workflow profile defines them, Build and

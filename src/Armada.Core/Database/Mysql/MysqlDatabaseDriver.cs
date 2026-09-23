@@ -60,7 +60,7 @@ namespace Armada.Core.Database.Mysql
             CoordinationMessages = new CoordinationMessageMethods(_ConnectionString);
             CoordinationParticipants = new CoordinationParticipantMethods(_ConnectionString);
             CoordinationClaims = new CoordinationClaimMethods(_ConnectionString);
-            Objectives = new ObjectiveMethods(_ConnectionString);
+            Objectives = new ObjectiveMethods(_ConnectionString, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(_ConnectionString);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(_ConnectionString);
             Docks = new DockMethods(_ConnectionString);

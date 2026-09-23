@@ -28,53 +28,58 @@ namespace Armada.Server
         /// <summary>
         /// Whether the scheduler is allowed to auto-dispatch eligible objectives.
         /// </summary>
-        public bool Enabled { get; private set; }
+        /// <remarks>
+        /// Every scheduler setting is read from and written to the live settings section on each
+        /// use. Settings reload replaces that section, so a settings-file edit takes effect on the
+        /// next tick, and a later persist writes the edited values back rather than older copies.
+        /// </remarks>
+        public bool Enabled => Section.Enabled;
 
         /// <summary>
         /// Whether the scheduler is temporarily paused.
         /// </summary>
-        public bool Paused { get; private set; }
+        public bool Paused => Section.Paused;
 
         /// <summary>
         /// Participant key of the session that set the pause, or null when unattributed.
         /// </summary>
-        public string? PausedBy { get; private set; }
+        public string? PausedBy => Section.PausedBy;
 
         /// <summary>
         /// UTC time the pause was set, or null when unattributed.
         /// </summary>
-        public DateTime? PausedUtc { get; private set; }
+        public DateTime? PausedUtc => Section.PausedUtc;
 
         /// <summary>
         /// Why the pause was set, or null.
         /// </summary>
-        public string? PauseReason { get; private set; }
+        public string? PauseReason => Section.PauseReason;
 
         /// <summary>
         /// Minutes between scheduled sweep ticks.
         /// </summary>
-        public int IntervalMinutes { get; private set; }
+        public int IntervalMinutes => Section.IntervalMinutes;
 
         /// <summary>
         /// Minutes the pausing session must be absent before its pause may be cleared as stale.
         /// Read from settings on each call so a settings edit takes effect without a restart.
         /// </summary>
-        public int StalePauseAbsenceMinutes => _Settings.AutonomousObjectiveScheduler.StalePauseAbsenceMinutes;
+        public int StalePauseAbsenceMinutes => Section.StalePauseAbsenceMinutes;
 
         /// <summary>
         /// Maximum number of objectives with simultaneously active linked voyages.
         /// </summary>
-        public int MaxConcurrentVoyages { get; private set; }
+        public int MaxConcurrentVoyages => Section.MaxConcurrentVoyages;
 
         /// <summary>
         /// Maximum number of active objective voyages allowed on one vessel.
         /// </summary>
-        public int MaxConcurrentVoyagesPerVessel { get; private set; }
+        public int MaxConcurrentVoyagesPerVessel => Section.MaxConcurrentVoyagesPerVessel;
 
         /// <summary>
         /// Whether eligible campaigns rotate within each owner priority band.
         /// </summary>
-        public bool FairShareWithinPriorityBands { get; private set; }
+        public bool FairShareWithinPriorityBands => Section.FairShareWithinPriorityBands;
 
         /// <summary>
         /// Last successfully served campaign key in each priority band for this process.
@@ -167,6 +172,9 @@ namespace Armada.Server
         #region Private-Members
 
         private const string _Header = "[AutonomousObjectiveScheduler] ";
+
+        // The live scheduler section. Read on every use: settings reload swaps the section object.
+        private AutonomousObjectiveSchedulerSettings Section => _Settings.AutonomousObjectiveScheduler;
         // The fleet-wide dispatch hold, read once per sweep so an engaged hold is reported by its own
         // name and never as a dispatch fault. Null in tests that do not model a hold.
         private readonly DispatchHold? _DispatchHold;
@@ -206,7 +214,7 @@ namespace Armada.Server
         /// <param name="objectives">Objective service.</param>
         /// <param name="admiral">Admiral service for voyage dispatch.</param>
         /// <param name="mergeQueue">Merge queue service for back-pressure gating.</param>
-        /// <param name="settings">Armada settings (seed values for runtime state).</param>
+        /// <param name="settings">Armada settings; the scheduler reads and writes its section on every use.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="codeIndex">Optional code index service for index-update gating.</param>
         /// <param name="dispatchHold">Optional fleet-wide dispatch hold.</param>
@@ -247,16 +255,6 @@ namespace Armada.Server
             _SweepTimeBudget = sweepTimeBudget ?? TimeSpan.FromSeconds(20);
             if (_SweepTimeBudget <= TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(sweepTimeBudget));
-
-            Enabled = settings.AutonomousObjectiveScheduler.Enabled;
-            Paused = settings.AutonomousObjectiveScheduler.Paused;
-            PausedBy = settings.AutonomousObjectiveScheduler.PausedBy;
-            PausedUtc = settings.AutonomousObjectiveScheduler.PausedUtc;
-            PauseReason = settings.AutonomousObjectiveScheduler.PauseReason;
-            IntervalMinutes = settings.AutonomousObjectiveScheduler.IntervalMinutes;
-            MaxConcurrentVoyages = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages;
-            MaxConcurrentVoyagesPerVessel = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel;
-            FairShareWithinPriorityBands = settings.AutonomousObjectiveScheduler.FairShareWithinPriorityBands;
         }
 
         #endregion
@@ -264,29 +262,20 @@ namespace Armada.Server
         #region Public-Methods
 
         /// <summary>
-        /// Mirror the current runtime state into settings and write them to disk.
+        /// Write the live settings, including the scheduler section, to the settings file.
         /// </summary>
         /// <remarks>
-        /// Runtime state does not survive a restart. A scheduler enabled over MCP therefore reverts
-        /// to the file's value at the next Admiral start, and an autonomous campaign stops with no
-        /// failure for anyone to notice -- the tool reported success and the setting was real until
-        /// the process ended. Writing the file is the second half of the change, not an
-        /// optimisation, so every caller that changes runtime state must call this.
+        /// A change made through the scheduler lives in the settings section, and the section is
+        /// rebuilt from the file at the next Admiral start. A scheduler enabled over MCP and never
+        /// written therefore reverts at restart, and an autonomous campaign stops with no failure
+        /// for anyone to notice. Writing the file is the second half of the change, not an
+        /// optimisation, so every caller that changes scheduler state must call this.
         /// </remarks>
         /// <returns>True when the settings file was written.</returns>
         public async Task<bool> TryPersistAsync()
         {
             try
             {
-                _Settings.AutonomousObjectiveScheduler.Enabled = Enabled;
-                _Settings.AutonomousObjectiveScheduler.Paused = Paused;
-                _Settings.AutonomousObjectiveScheduler.PausedBy = PausedBy;
-                _Settings.AutonomousObjectiveScheduler.PausedUtc = PausedUtc;
-                _Settings.AutonomousObjectiveScheduler.PauseReason = PauseReason;
-                _Settings.AutonomousObjectiveScheduler.IntervalMinutes = IntervalMinutes;
-                _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = MaxConcurrentVoyages;
-                _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = MaxConcurrentVoyagesPerVessel;
-                _Settings.AutonomousObjectiveScheduler.FairShareWithinPriorityBands = FairShareWithinPriorityBands;
                 await _Settings.SaveAsync().ConfigureAwait(false);
                 return true;
             }
@@ -300,12 +289,12 @@ namespace Armada.Server
         /// <summary>
         /// Allow the scheduler to dispatch objectives on subsequent sweeps.
         /// </summary>
-        public void Enable() => Enabled = true;
+        public void Enable() => Section.Enabled = true;
 
         /// <summary>
         /// Prevent the scheduler from dispatching objectives.
         /// </summary>
-        public void Disable() => Enabled = false;
+        public void Disable() => Section.Enabled = false;
 
         /// <summary>
         /// Temporarily suspend dispatch without clearing the Enabled flag. Record who set the
@@ -316,10 +305,11 @@ namespace Armada.Server
         /// <param name="reason">Why the pause is set, or null.</param>
         public void Pause(string? pausedBy = null, string? reason = null)
         {
-            Paused = true;
-            PausedBy = String.IsNullOrWhiteSpace(pausedBy) ? null : pausedBy.Trim();
-            PausedUtc = DateTime.UtcNow;
-            PauseReason = String.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            AutonomousObjectiveSchedulerSettings section = Section;
+            section.PausedBy = String.IsNullOrWhiteSpace(pausedBy) ? null : pausedBy.Trim();
+            section.PausedUtc = DateTime.UtcNow;
+            section.PauseReason = String.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            section.Paused = true;
         }
 
         /// <summary>
@@ -327,10 +317,11 @@ namespace Armada.Server
         /// </summary>
         public void Resume()
         {
-            Paused = false;
-            PausedBy = null;
-            PausedUtc = null;
-            PauseReason = null;
+            AutonomousObjectiveSchedulerSettings section = Section;
+            section.Paused = false;
+            section.PausedBy = null;
+            section.PausedUtc = null;
+            section.PauseReason = null;
         }
 
         /// <summary>
@@ -339,7 +330,7 @@ namespace Armada.Server
         /// <param name="minutes">New interval in minutes.</param>
         public void SetIntervalMinutes(int minutes)
         {
-            IntervalMinutes = Math.Max(1, Math.Min(1440, minutes));
+            Section.IntervalMinutes = Math.Max(1, Math.Min(1440, minutes));
         }
 
         /// <summary>
@@ -348,7 +339,7 @@ namespace Armada.Server
         /// <param name="max">New concurrency cap.</param>
         public void SetMaxConcurrentVoyages(int max)
         {
-            MaxConcurrentVoyages = Math.Max(1, Math.Min(50, max));
+            Section.MaxConcurrentVoyages = Math.Max(1, Math.Min(50, max));
         }
 
         /// <summary>
@@ -357,7 +348,7 @@ namespace Armada.Server
         /// <param name="max">New per-vessel concurrency cap.</param>
         public void SetMaxConcurrentVoyagesPerVessel(int max)
         {
-            MaxConcurrentVoyagesPerVessel = Math.Max(1, Math.Min(50, max));
+            Section.MaxConcurrentVoyagesPerVessel = Math.Max(1, Math.Min(50, max));
         }
 
         /// <summary>
@@ -367,7 +358,7 @@ namespace Armada.Server
         {
             lock (_FairShareLock)
             {
-                FairShareWithinPriorityBands = enabled;
+                Section.FairShareWithinPriorityBands = enabled;
                 if (!enabled) _LastServedCampaignByPriority.Clear();
             }
         }
@@ -530,6 +521,9 @@ namespace Armada.Server
                 lock (_FairShareLock)
                 {
                     fairShareEnabled = FairShareWithinPriorityBands;
+                    // A settings reload can turn rotation off without going through the setter, so the
+                    // cursor is dropped here too; re-enabling starts a fresh rotation either way.
+                    if (!fairShareEnabled) _LastServedCampaignByPriority.Clear();
                     fairShareCursor = new Dictionary<ObjectivePriorityEnum, string>(_LastServedCampaignByPriority);
                 }
                 if (fairShareEnabled)

@@ -81,6 +81,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ArmadaSettings ApplyHotReloadableFrom BranchCleanupSweepIntervalCycles TakesEffectWithoutRestart", () =>
+            {
+                // The health loop reads the cadence on every cycle and the sweep reads the retention window on
+                // every run, so a reloaded value is live without a restart.
+                ArmadaSettings live = new ArmadaSettings();
+                ArmadaSettings edited = new ArmadaSettings
+                {
+                    BranchCleanupSweepIntervalCycles = 50,
+                    BranchCleanupPreservedRefRetentionDays = 3
+                };
+                AssertEqual(200, live.BranchCleanupSweepIntervalCycles, "default cadence");
+                AssertEqual(14, live.BranchCleanupPreservedRefRetentionDays, "default retention");
+
+                live.ApplyHotReloadableFrom(edited);
+
+                AssertEqual(50, live.BranchCleanupSweepIntervalCycles, "a reloaded branch cleanup cadence is applied");
+                AssertEqual(3, live.BranchCleanupPreservedRefRetentionDays, "a reloaded preserved-ref retention is applied");
+                return Task.CompletedTask;
+            });
+
             await RunTest("ArmadaSettings LoadAsync NonExistentFile ReturnsDefaults", async () =>
             {
                 ArmadaSettings settings = await ArmadaSettings.LoadAsync("/nonexistent/path/settings.json");

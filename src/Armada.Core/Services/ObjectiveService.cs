@@ -1384,6 +1384,9 @@ namespace Armada.Core.Services
                 pageNumber++;
             }
 
+            // A stored row that cannot be read is left untouched for repair and named; it must not stop the
+            // backfill, which every objective read waits on, for every other objective.
+            List<StoredObjectiveDataException> unreadable = new List<StoredObjectiveDataException>();
             foreach (ArmadaEvent snapshot in latestByObjectiveId.Values)
             {
                 Objective? objective = DeserializeObjective(snapshot);
@@ -1391,7 +1394,23 @@ namespace Armada.Core.Services
                     continue;
 
                 SanitizeObjective(objective);
-                await UpsertObjectiveRowAsync(objective, token, skipIfExistingNewer: true).ConfigureAwait(false);
+                try
+                {
+                    await UpsertObjectiveRowAsync(objective, token, skipIfExistingNewer: true).ConfigureAwait(false);
+                }
+                catch (StoredObjectiveDataException ex)
+                {
+                    unreadable.Add(ex);
+                }
+            }
+
+            if (unreadable.Count > 0)
+            {
+                string message = _Header + "snapshot backfill skipped " + unreadable.Count
+                    + " objective row(s) whose stored data cannot be read: "
+                    + String.Join("; ", unreadable.Select(ex => ex.ObjectiveId + " (" + ex.Field + ")"));
+                if (_Logging != null) _Logging.Warn(message);
+                else Console.Error.WriteLine(message);
             }
         }
 

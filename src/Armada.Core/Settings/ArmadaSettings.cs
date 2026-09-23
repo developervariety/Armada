@@ -1145,6 +1145,11 @@ namespace Armada.Core.Settings
             PlanningSessionInactivityTimeoutMinutes = source.PlanningSessionInactivityTimeoutMinutes;
             PlanningSessionAbandonmentTimeoutMinutes = source.PlanningSessionAbandonmentTimeoutMinutes;
 
+            // Branch cleanup: the health loop reads the cadence on every cycle and the sweep reads the
+            // retention window on every run.
+            BranchCleanupSweepIntervalCycles = source.BranchCleanupSweepIntervalCycles;
+            BranchCleanupPreservedRefRetentionDays = source.BranchCleanupPreservedRefRetentionDays;
+
             // The admission gate is constructed with a reference to this nested object,
             // so it must be mutated in place or the running gate keeps the old limits.
             ResourcePressureAdmission.CopyFrom(source.ResourcePressureAdmission);
