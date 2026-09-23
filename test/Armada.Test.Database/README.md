@@ -2,7 +2,9 @@
 
 Run through `dotnet run`, not `dotnet test`. Use a dedicated test database.
 The runner creates fixture data and normally deletes that fixture data after
-checks. It does not represent deployment approval or a production backup test.
+checks. Check-run, release and deployment cases verify inclusive creation-time
+bounds, empty ranges, and filtered totals across pages through the real database
+methods on each provider. It does not represent deployment approval or a production backup test.
 
 ```sh
 dotnet run --project test/Armada.Test.Database --framework net10.0 -- \

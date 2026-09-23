@@ -196,6 +196,9 @@ upstream integrations and excludes changes already present at that baseline.
   and retention compare correctly. The history timeline leaves out a source the
   database provider does not store, names it in `UnavailableSources`, and logs it;
   captain deletion logs a skipped or failed dependent cleanup.
+- **Delivery history filters:** PostgreSQL check-run, release and deployment
+  queries bind UTC date bounds to their timestamp columns. Inclusive date ranges
+  and paged totals work without a timestamp/text comparison error.
 - **Provider test coverage:** the database runner checks the active-work footprint
   query on all four providers: active voyages count every mission, a mission
   without a voyage counts only while active, and terminal work and other tenants
