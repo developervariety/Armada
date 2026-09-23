@@ -136,6 +136,18 @@ upstream integrations and excludes changes already present at that baseline.
   Pending Check while the hold is engaged, records one named deferral event per
   engagement, and runs the waiting Checks after the hold clears. Operator check
   runs are not held.
+- **Stall recovery:** a stalled captain's process is registered as superseded
+  before the heartbeat stops it, and the process-exit handler ignores that exit
+  and any exit from a process that is no longer the captain's recorded process,
+  so a stall kill is never read as a failure or an out-of-memory kill and never
+  requeues or reclaims a relaunched mission. The terminal-marker stop uses the
+  same registry. A relaunch is written back only while the mission keeps its
+  status and captain; otherwise the relaunched process is stopped, the captain
+  is released, and `captain.recovery_abandoned` is recorded. While the dispatch
+  hold is engaged a stalled captain is stopped and not relaunched: the mission
+  returns to Pending, the captain is released,
+  `captain.recovery_deferred_dispatch_hold` is recorded once per mission and
+  engagement, and assignment skips the mission until the hold clears.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.

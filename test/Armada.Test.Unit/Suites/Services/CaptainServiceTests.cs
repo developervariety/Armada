@@ -1,7 +1,9 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -300,6 +302,75 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, git.RepairWorktreeCalls, "Recovery should not destructively repair a healthy worktree");
                 }
             });
+
+            foreach (MissionStatusEnum movedTo in new[] { MissionStatusEnum.Failed, MissionStatusEnum.Pending })
+            {
+                await RunTest("Recovery relaunch does not overwrite a mission moved to " + movedTo + " while the agent launched", async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService { IsRepositoryResult = true };
+                        StubDockService docks = new StubDockService();
+                        CaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, docks);
+
+                        Vessel vessel = new Vessel("recover-moved-vessel", "https://github.com/test/repo.git");
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = new Captain("recover-moved-captain");
+                        captain.State = CaptainStateEnum.Working;
+                        captain.CurrentMissionId = "msn_recover_moved";
+                        captain.CurrentDockId = "dck_recover_moved";
+                        captain.ProcessId = 3333;
+                        captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                        Mission mission = new Mission("Moved Recovery Mission");
+                        mission.Id = "msn_recover_moved";
+                        mission.VesselId = vessel.Id;
+                        mission.CaptainId = captain.Id;
+                        mission.DockId = "dck_recover_moved";
+                        mission.Status = MissionStatusEnum.InProgress;
+                        mission.ProcessId = 3333;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        Dock dock = new Dock(vessel.Id);
+                        dock.Id = "dck_recover_moved";
+                        dock.CaptainId = captain.Id;
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_recover_moved_" + Guid.NewGuid().ToString("N"));
+                        dock.Active = true;
+                        await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                        // Another writer settles the mission while the relaunched agent is starting.
+                        List<int?> stopped = new List<int?>();
+                        captainService.OnStopAgent = (Captain c) => { stopped.Add(c.ProcessId); return Task.CompletedTask; };
+                        captainService.OnLaunchAgent = async (Captain c, Mission m, Dock d) =>
+                        {
+                            Mission moved = (await testDb.Driver.Missions.ReadAsync(m.Id).ConfigureAwait(false))!;
+                            moved.Status = movedTo;
+                            moved.CaptainId = null;
+                            moved.ProcessId = null;
+                            moved.FailureReason = "settled by another writer";
+                            await testDb.Driver.Missions.UpdateAsync(moved).ConfigureAwait(false);
+                            return 3334;
+                        };
+
+                        await captainService.TryRecoverAsync(captain).ConfigureAwait(false);
+
+                        Mission after = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        Captain afterCaptain = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                        AssertEqual(movedTo, after.Status, "the other writer's status stands; recovery must not write the mission back to InProgress");
+                        AssertNull(after.ProcessId, "the relaunched process is not recorded on a mission recovery no longer owns");
+                        AssertEqual("settled by another writer", after.FailureReason ?? "", "the other writer's record is kept");
+                        AssertEqual(1, stopped.Count, "the process the abandoned relaunch started is stopped");
+                        AssertEqual(3334, stopped[0] ?? 0, "the stop names the relaunched process");
+                        AssertEqual(CaptainStateEnum.Idle, afterCaptain.State, "the captain is released");
+                        AssertNull(afterCaptain.CurrentMissionId, "the captain no longer names the mission");
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50).ConfigureAwait(false);
+                        AssertEqual(1, events.Count(e => e.EventType == "captain.recovery_abandoned"), "the abandoned relaunch is recorded by name");
+                    }
+                });
+            }
         }
 
         private LoggingModule CreateLogging()

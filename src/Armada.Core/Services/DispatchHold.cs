@@ -1,18 +1,22 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>
     /// A runtime dispatch hold. When engaged, every voyage and mission dispatch
     /// through the admiral is rejected until the hold is cleared, so an operator
     /// working on Armada itself can stop new work before a rebuild or redeploy.
     /// Runtime state only: a restart clears the hold.
+    /// A mission already running is not held, but a mission whose work the admiral stops while the hold is
+    /// engaged (a stalled captain) is deferred: it is not assigned again until the hold clears.
     /// </summary>
     public class DispatchHold
     {
         #region Private-Members
 
         private readonly object _Lock = new object();
+        private readonly HashSet<string> _DeferredMissions = new HashSet<string>(StringComparer.Ordinal);
         private bool _Active = false;
         private string _Reason = String.Empty;
         private string? _SetBy = null;
@@ -49,6 +53,37 @@ namespace Armada.Core.Services
                 _Reason = String.Empty;
                 _SetBy = null;
                 _SetByUtc = DateTime.UtcNow;
+                _DeferredMissions.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Defer a mission until the hold clears. Assignment refuses a deferred mission while the hold is
+        /// engaged; clearing the hold releases every deferral. Does nothing when the hold is not engaged.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>True when this call deferred the mission; false when it was already deferred or no hold is engaged.</returns>
+        public bool DeferMission(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+            lock (_Lock)
+            {
+                if (!_Active) return false;
+                return _DeferredMissions.Add(missionId);
+            }
+        }
+
+        /// <summary>
+        /// Whether assignment must refuse this mission: the hold is engaged and the mission was deferred under it.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>True while the mission is deferred.</returns>
+        public bool IsMissionDeferred(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return false;
+            lock (_Lock)
+            {
+                return _Active && _DeferredMissions.Contains(missionId);
             }
         }
 

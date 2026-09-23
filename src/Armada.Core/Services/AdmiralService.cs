@@ -104,6 +104,20 @@ namespace Armada.Core.Services
         public DispatchHold? DispatchHold => _DispatchHold;
 
         /// <summary>
+        /// Registry of agent processes stopped on purpose. The admiral registers each process it supersedes
+        /// here, and the process-exit handler consults it before it reads an exit code.
+        /// </summary>
+        public IntentionalProcessStops IntentionalStops => _IntentionalStops;
+
+        /// <summary>
+        /// Event recorded when stall recovery stops a stalled captain but does not relaunch it because the
+        /// dispatch hold is engaged.
+        /// </summary>
+        public const string RecoveryDeferredByDispatchHoldEvent = "captain.recovery_deferred_dispatch_hold";
+
+        private readonly IntentionalProcessStops _IntentionalStops;
+
+        /// <summary>
         /// The D3 <c>runtime_failure</c> typed-decision adapter, when wired. Null keeps runtime
         /// classification on the signature rule alone. Set by the server after construction. The
         /// adapter may only upgrade a bare Crash to the more conservative UsageLimit or AuthFailure;
@@ -158,6 +172,7 @@ namespace Armada.Core.Services
         /// <param name="git">Optional git service.</param>
         /// <param name="dispatchHold">Optional emergency dispatch hold.</param>
         /// <param name="fleetCapacityAdmission">Optional universal fleet-capacity admission service.</param>
+        /// <param name="intentionalStops">Optional registry of processes stopped on purpose, shared with the process-exit source.</param>
         public AdmiralService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -172,7 +187,8 @@ namespace Armada.Core.Services
             IResourcePressureAdmission? resourcePressureAdmission = null,
             IGitService? git = null,
             DispatchHold? dispatchHold = null,
-            FleetCapacityAdmission? fleetCapacityAdmission = null)
+            FleetCapacityAdmission? fleetCapacityAdmission = null,
+            IntentionalProcessStops? intentionalStops = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -192,6 +208,7 @@ namespace Armada.Core.Services
             _FleetCapacityAdmission = fleetCapacityAdmission
                 ?? new FleetCapacityAdmission(_Database, _Settings, _Logging);
             _CrashLoopTracker = new CaptainCrashLoopTracker(_Settings.CrashLoopDetection);
+            _IntentionalStops = intentionalStops ?? new IntentionalProcessStops();
         }
 
         #endregion
@@ -1585,6 +1602,10 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
+            // A process the admiral superseded (a stalled captain it stopped to recover or defer) exited because
+            // it was stopped. The admiral already decided the mission's next state, so the exit is not its outcome.
+            bool superseded = _IntentionalStops.TryTake(processId, captainId, missionId, IntentionalStopKindEnum.Superseded);
+
             // System-scoped: process exit handler receives only IDs with no tenant context;
             // tenant is unknown until the entity is read.
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
@@ -1608,6 +1629,27 @@ namespace Armada.Core.Services
             if (mission == null)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " not found during process exit handling");
+                return;
+            }
+
+            // Only the captain's current process speaks for the mission. A superseded process, or any process
+            // that is no longer the captain's recorded process, exited after the mission moved on without it.
+            // A captain with no recorded process is inside a launch whose process id is not written yet, so
+            // that exit is still the mission's.
+            string? ignoredReason = null;
+            if (superseded)
+                ignoredReason = "the admiral stopped and superseded it";
+            else if (captain.ProcessId.HasValue && captain.ProcessId.Value != processId)
+                ignoredReason = "captain " + captain.Id + " now runs process " + captain.ProcessId.Value;
+            if (ignoredReason != null)
+            {
+                _Logging.Info(_Header + "process " + processId + " exit (code " + (exitCode?.ToString() ?? "unknown") + ") for mission "
+                    + missionId + " ignored: " + ignoredReason);
+                await EmitEventAsync("captain.process_exit_ignored",
+                    "Process " + processId + " exit (code " + (exitCode?.ToString() ?? "unknown") + ") ignored: " + ignoredReason,
+                    entityType: "captain", entityId: captain.Id,
+                    captainId: captain.Id, missionId: missionId,
+                    vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
                 return;
             }
 
@@ -2065,14 +2107,16 @@ namespace Armada.Core.Services
                         // Attempt auto-recovery if under the limit
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
                         {
-                            // Kill the stalled process first
-                            if (_Captains.OnStopAgent != null)
+                            // Kill the stalled process first. It is registered as superseded before the stop, so
+                            // its exit, whenever it arrives, is not read as the mission's failure or an OOM kill.
+                            await StopSupersededProcessAsync(captain, processId.Value, "before recovery", token).ConfigureAwait(false);
+
+                            // A relaunch starts work, so it obeys the dispatch hold like every other dispatch.
+                            DispatchHoldSnapshot? hold = _DispatchHold?.Snapshot();
+                            if (hold != null && mission != null)
                             {
-                                try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
-                                catch (Exception stopEx)
-                                {
-                                    _Logging.Warn(_Header + "could not stop stalled captain " + captain.Id + " before recovery: " + stopEx.Message);
-                                }
+                                await DeferStallRecoveryForDispatchHoldAsync(captain, mission, hold, token).ConfigureAwait(false);
+                                return;
                             }
 
                             await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
@@ -2121,6 +2165,80 @@ namespace Armada.Core.Services
                         }
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Stop a captain's process that the admiral is replacing, registering it as superseded first so its
+        /// exit is not handled as the mission's outcome.
+        /// </summary>
+        private async Task StopSupersededProcessAsync(Captain captain, int processId, string context, CancellationToken token)
+        {
+            if (!String.IsNullOrEmpty(captain.CurrentMissionId))
+                _IntentionalStops.TryRegister(processId, captain.Id, captain.CurrentMissionId, IntentionalStopKindEnum.Superseded);
+
+            if (_Captains.OnStopAgent == null) return;
+            try
+            {
+                await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false);
+            }
+            catch (Exception stopEx)
+            {
+                _Logging.Warn(_Header + "could not stop stalled captain " + captain.Id + " " + context + ": " + stopEx.Message);
+            }
+        }
+
+        /// <summary>
+        /// Defer a stalled captain's recovery while the dispatch hold is engaged. The stalled process is already
+        /// stopped. The mission goes back to Pending with its branch kept, exactly as an interrupted run does,
+        /// the captain is released, and the hold keeps the mission from being assigned until it clears; the
+        /// first dispatch pass after that assigns it normally. The deferral is recorded once per mission for
+        /// each hold engagement.
+        /// </summary>
+        private async Task DeferStallRecoveryForDispatchHoldAsync(Captain captain, Mission mission, DispatchHoldSnapshot hold, CancellationToken token)
+        {
+            string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
+            string holdDetail = "dispatch_hold engaged by " + holder + " at " + hold.SetByUtc.ToString("u") + ": " + hold.Reason;
+            string reason = "Stall recovery deferred: " + holdDetail + " The stalled agent was stopped and not relaunched; "
+                + "the mission is dispatched again after the hold clears.";
+
+            // Deferred before the write, so no assignment pass can take the mission between the two.
+            bool firstForEngagement = _DispatchHold!.DeferMission(mission.Id);
+
+            MissionStatusEnum decidedStatus = mission.Status;
+            mission.Status = MissionStatusEnum.Pending;
+            mission.AssignmentState = MissionAssignmentStateEnum.Pending;
+            mission.FailureReason = reason;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, decidedStatus, token).ConfigureAwait(false))
+            {
+                // Another writer moved the mission since the stall was confirmed; its decision stands. The stalled
+                // process is already stopped, so the captain is released unless it has moved on too.
+                _Logging.Warn(_Header + "stall recovery for mission " + mission.Id + " not deferred: its status changed from "
+                    + decidedStatus + " while the stalled captain " + captain.Id + " was stopped");
+                Captain? current = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
+                if (current != null && String.Equals(current.CurrentMissionId, mission.Id, StringComparison.Ordinal))
+                    await _Captains.ReleaseAsync(current, token).ConfigureAwait(false);
+                return;
+            }
+
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, "stall_recovery_deferred_dispatch_hold", _Logging, token).ConfigureAwait(false);
+            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+
+            _Logging.Warn(_Header + "captain " + captain.Id + " stall recovery for mission " + mission.Id + " deferred: " + holdDetail);
+            if (firstForEngagement)
+            {
+                await EmitEventAsync(RecoveryDeferredByDispatchHoldEvent,
+                    "Captain " + captain.Name + " stalled on mission " + mission.Id + "; " + reason,
+                    entityType: "captain", entityId: captain.Id,
+                    captainId: captain.Id, missionId: mission.Id,
+                    vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
             }
         }
 

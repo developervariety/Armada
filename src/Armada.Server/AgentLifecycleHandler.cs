@@ -46,9 +46,9 @@ namespace Armada.Server
         // the captain presents no token and reaches no MCP tool, never the admiral launch credential.
         private readonly Armada.Core.Services.Interfaces.ISessionTokenService? _SessionTokens;
 
-        // Processes this handler stopped because they outlived their terminal marker. Their exit
-        // is a completion, not a crash, whatever exit code the stop produced.
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte> _TerminalMarkerStops = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
+        // Processes stopped on purpose. A process this handler stops because it outlived its terminal
+        // marker is registered as a completion; the admiral registers the processes it supersedes.
+        private IntentionalProcessStops _IntentionalStops = new IntentionalProcessStops();
 
         /// <summary>
         /// Maximum characters retained per mission for streamed agent output.
@@ -227,6 +227,16 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Wire the shared intentional-stop registry, so the processes the admiral supersedes and the
+        /// processes this handler stops after their terminal marker are recorded in one place.
+        /// </summary>
+        /// <param name="stops">Shared registry, also used by the admiral.</param>
+        public void SetIntentionalStops(IntentionalProcessStops stops)
+        {
+            _IntentionalStops = stops ?? throw new ArgumentNullException(nameof(stops));
+        }
+
+        /// <summary>
         /// Wire the Harbor process host. It is set only when Harbor is enabled and its link is registered; a
         /// mission routed to a runner while no host is set is refused, never launched locally.
         /// </summary>
@@ -255,14 +265,14 @@ namespace Armada.Server
 
             double graceSeconds = _Settings.AutonomousRecovery.TerminalMarkerGraceSeconds;
             if ((nowUtc - marker.FirstSeenUtc).TotalSeconds < graceSeconds) return false;
-            if (!_TerminalMarkerStops.TryAdd(processId, 0)) return false;
+            if (!_IntentionalStops.TryRegister(processId, captainId, missionId, IntentionalStopKindEnum.Completion)) return false;
 
             try
             {
                 Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
                 if (captain == null)
                 {
-                    _TerminalMarkerStops.TryRemove(processId, out _);
+                    _IntentionalStops.Forget(processId);
                     _Logging.Warn(_Header + "cannot stop process " + processId + " after terminal marker: captain " + captainId + " not found");
                     return false;
                 }
@@ -280,12 +290,12 @@ namespace Armada.Server
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                _TerminalMarkerStops.TryRemove(processId, out _);
+                _IntentionalStops.Forget(processId);
                 throw;
             }
             catch (Exception ex)
             {
-                _TerminalMarkerStops.TryRemove(processId, out _);
+                _IntentionalStops.Forget(processId);
                 _Logging.Warn(_Header + "failed to stop process " + processId + " after its terminal marker for mission " + missionId + ": " + ex.Message);
                 return false;
             }
@@ -1606,7 +1616,7 @@ namespace Armada.Server
 
             _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId);
 
-            if (_TerminalMarkerStops.TryRemove(processId, out _))
+            if (_IntentionalStops.TryTake(processId, captainId, missionId, IntentionalStopKindEnum.Completion))
             {
                 _Logging.Info(_Header + "process " + processId + " was stopped after its terminal marker; completing mission " + missionId + " from the recorded output");
                 exitCode = 0;

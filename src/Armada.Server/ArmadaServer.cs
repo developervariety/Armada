@@ -170,6 +170,7 @@ namespace Armada.Server
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
+        private IntentionalProcessStops _IntentionalStops = new IntentionalProcessStops();
         private AutonomousObjectiveScheduler _ObjectiveScheduler = null!;
         private IncidentLifecycleOrchestrator _IncidentLifecycle = null!;
         private GitHubIntegrationService _GitHubIntegrationService = null!;
@@ -354,13 +355,13 @@ namespace Armada.Server
             // _ContextRetrieval. A lazy provider lets MissionService reach it at brief-generation
             // time (well after startup) without reordering startup; it stays null until built,
             // and the brief-slimming path (default off) falls back to the full memory section.
-            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission, () => _ContextRetrieval);
+            _DispatchHold = new Armada.Core.Services.DispatchHold();
+            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission, () => _ContextRetrieval, _DispatchHold);
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             _BuildDriftService = new BuildDriftService(_Git, _Database, BuildInfo.RunningCommit, _Logging);
-            _DispatchHold = new Armada.Core.Services.DispatchHold();
-            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService, captainQuarantineService, resourcePressureAdmission, null, _DispatchHold);
+            AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService, captainQuarantineService, resourcePressureAdmission, null, _DispatchHold, intentionalStops: _IntentionalStops);
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
@@ -532,6 +533,7 @@ namespace Armada.Server
                 sessionTokens: _SessionTokenService);
             _AgentLifecycle.SetProviderProgress(_ProviderProgress);
             _AgentLifecycle.SetTerminalMarkers(_TerminalMarkers);
+            _AgentLifecycle.SetIntentionalStops(_IntentionalStops);
 
             // Wire up agent lifecycle events
             _Admiral.OnLaunchAgent = _AgentLifecycle.HandleLaunchAgentAsync;

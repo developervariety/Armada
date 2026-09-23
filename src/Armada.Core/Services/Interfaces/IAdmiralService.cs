@@ -300,7 +300,8 @@ namespace Armada.Core.Services.Interfaces
         /// <summary>
         /// Handle an agent process exit detected via the OnProcessExited event.
         /// Transitions the mission to the appropriate state, releases the captain,
-        /// and reclaims the dock.
+        /// and reclaims the dock. An exit from a process the admiral superseded, or from a
+        /// process that is no longer the captain's recorded process, is ignored and recorded.
         /// </summary>
         /// <param name="processId">OS process ID that exited.</param>
         /// <param name="exitCode">Exit code, or null if unavailable.</param>

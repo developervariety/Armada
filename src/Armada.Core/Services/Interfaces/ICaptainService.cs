@@ -27,7 +27,9 @@ namespace Armada.Core.Services.Interfaces
         Task RecallAsync(string captainId, string? tenantId = null, CancellationToken token = default);
 
         /// <summary>
-        /// Attempt auto-recovery of a failed captain.
+        /// Attempt auto-recovery of a stalled captain by relaunching its agent in the same dock. The relaunch is
+        /// written back only while the mission keeps the status and captain it was decided on; otherwise the
+        /// relaunched process is stopped and the captain released, leaving the mission as the other writer set it.
         /// </summary>
         /// <param name="captain">Captain to recover.</param>
         /// <param name="token">Cancellation token.</param>

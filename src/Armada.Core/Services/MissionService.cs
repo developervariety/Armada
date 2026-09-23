@@ -78,6 +78,7 @@ namespace Armada.Core.Services
         // brief-generation time because the service is built after this service is
         // constructed at startup. Null when no index was built; the slimming path then
         // falls back to the full memory section. Only consulted when brief slimming is on.
+        private readonly DispatchHold? _DispatchHold;
         private readonly Func<ContextRetrievalService?>? _ContextRetrievalProvider;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
 
@@ -435,6 +436,8 @@ namespace Armada.Core.Services
         /// <param name="git">Git service used for branch cleanup on non-landed intermediate stages.</param>
         /// <param name="captainQuarantine">Optional captain quarantine service.</param>
         /// <param name="resourcePressureAdmission">Optional resource-pressure admission policy applied before launch.</param>
+        /// <param name="contextRetrievalProvider">Optional provider of the context retrieval service.</param>
+        /// <param name="dispatchHold">Optional dispatch hold; assignment refuses a mission the hold deferred.</param>
         public MissionService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -445,7 +448,8 @@ namespace Armada.Core.Services
             IGitService? git = null,
             ICaptainQuarantineService? captainQuarantine = null,
             IResourcePressureAdmission? resourcePressureAdmission = null,
-            Func<ContextRetrievalService?>? contextRetrievalProvider = null)
+            Func<ContextRetrievalService?>? contextRetrievalProvider = null,
+            DispatchHold? dispatchHold = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -461,6 +465,7 @@ namespace Armada.Core.Services
             _JudgeFollowUps = new JudgeFollowUpService(_Database, _Logging);
             _SiblingLaneAdmission = new SiblingLaneAdmission(_Database, _Logging);
             _ContextRetrievalProvider = contextRetrievalProvider;
+            _DispatchHold = dispatchHold;
         }
 
         #endregion
@@ -501,6 +506,14 @@ namespace Armada.Core.Services
                 {
                     _Logging.Debug(_Header + "mission " + mission.Id + " is " + mission.Status +
                         " in the database -- skipping assignment");
+                    return false;
+                }
+
+                // The deferral was recorded by name when the hold stopped this mission's work; it is
+                // assigned on the first pass after the hold clears.
+                if (_DispatchHold != null && _DispatchHold.IsMissionDeferred(mission.Id))
+                {
+                    _Logging.Debug(_Header + "mission " + mission.Id + " is deferred by the engaged dispatch hold -- skipping assignment");
                     return false;
                 }
 
