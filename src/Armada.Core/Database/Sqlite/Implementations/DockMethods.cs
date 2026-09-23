@@ -52,18 +52,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (dock == null) throw new ArgumentNullException(nameof(dock));
             dock.LastUpdateUtc = DateTime.UtcNow;
 
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
-                await CreateAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
-            else
-            {
-                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-                {
-                    await conn.OpenAsync(token).ConfigureAwait(false);
-                    await CreateAsync(conn, null).ConfigureAwait(false);
-                }
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                await CreateAsync(conn, null).ConfigureAwait(false);
             }
 
             return dock;
@@ -156,18 +148,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
-                await DeleteAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
-            else
-            {
-                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-                {
-                    await conn.OpenAsync(token).ConfigureAwait(false);
-                    await DeleteAsync(conn, null).ConfigureAwait(false);
-                }
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                await DeleteAsync(conn, null).ConfigureAwait(false);
             }
 
             async Task DeleteAsync(SqliteConnection conn, SqliteTransaction? tx)

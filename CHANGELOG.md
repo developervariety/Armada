@@ -89,6 +89,13 @@ upstream integrations and excludes changes already present at that baseline.
   inherited start commits, return `MissionStartRefs`, and record resolution events.
   Alias dependencies, parallel-stage barriers, review gates, report-only modes,
   and cancellation use consistent lifecycle rules.
+- **Captain assignment commit:** assignment claims the captain with its
+  compare-and-set first and records the dock on the mission only while the mission
+  is still Assigned. A lost claim returns the stored mission to Pending with no
+  captain, dock or new branch (`WaitingForIdleCaptain`, logged as
+  `captain_claim_lost`) and deletes the provisioned dock. A mission that changed
+  status keeps that status and releases the captain only while it still records
+  that mission. The database drivers carry no transaction wrapper.
 - **Review and landing:** Judge PASS requires distinct evidence for every criterion
   and matching immutable Check results. Brief trimming retains the full contract.
   Landing verifies ancestry, preserves a diverged working checkout, and reports

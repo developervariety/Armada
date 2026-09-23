@@ -104,7 +104,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TenantScopedEnumerationTests());
             runner.AddSuite(new TenantScopedPaginationTests());
             runner.AddSuite(new TenantScopedPaginationTests2());
-            runner.AddSuite(new TransactionSupportTests());
 
             // Model tests
             runner.AddSuite(new FleetModelTests());

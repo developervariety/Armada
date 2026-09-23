@@ -994,46 +994,13 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            try
-            {
-                mission.DockId = dock.Id;
-                await _Database.ExecuteInTransactionAsync(async () =>
-                {
-                    if (!await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false))
-                        throw new InvalidOperationException("Mission " + mission.Id + " changed status during assignment.");
-
-                    bool claimed = await _Database.Captains.TryClaimAsync(AssignmentTenantOf(mission), captain.Id, mission.Id, dock.Id, token).ConfigureAwait(false);
-                    if (!claimed)
-                    {
-                        throw new InvalidOperationException("Captain " + captain.Id + " was claimed by another mission.");
-                    }
-                }, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "failed to commit assignment for mission " + mission.Id + ": " + ex.Message);
-
-                mission.Status = MissionStatusEnum.Pending;
-                mission.CaptainId = null;
-                if (!preserveInheritedBranch)
-                    mission.BranchName = null;
-                mission.DockId = null;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-
-                try
-                {
-                    await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
-                    await _Database.Docks.DeleteAsync(dock.Id, token).ConfigureAwait(false);
-                }
-                catch (Exception reclaimEx)
-                {
-                    _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
-                        " after assignment commit failure for mission " + mission.Id + ": " + reclaimEx.Message);
-                }
-
+            // Commit the assignment as two conditional writes, each undone explicitly when the other
+            // fails, so no failure point leaves a half-assigned row. The captain claim goes first: it is
+            // the compare-and-set that keeps one captain from serving two missions, and until it holds
+            // the mission row must not record a dock for that captain.
+            if (!await TryCommitAssignmentAsync(mission, captain, dock, preserveInheritedBranch, token).ConfigureAwait(false))
                 return false;
-            }
+            _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
             // Stage any prestaged files into the worktree before the captain is launched.
             // The validator already ran at dispatch time; this is the host-side copy step.
@@ -1573,6 +1540,114 @@ namespace Armada.Core.Services
             return mission;
         }
 
+
+        /// <summary>
+        /// Commit a provisioned assignment: claim the captain with its compare-and-set, then record
+        /// the dock on the mission row only while that row is still Assigned. Every failure point
+        /// persists its undo: a lost claim returns the mission row to Pending; a mission that changed
+        /// status keeps that status and hands the claim back; either way the dock is discarded.
+        /// </summary>
+        /// <returns>True when both writes hold; false when the assignment was undone.</returns>
+        private async Task<bool> TryCommitAssignmentAsync(
+            Mission mission,
+            Captain captain,
+            Dock dock,
+            bool preserveInheritedBranch,
+            CancellationToken token)
+        {
+            try
+            {
+                bool claimed = await _Database.Captains.TryClaimAsync(AssignmentTenantOf(mission), captain.Id, mission.Id, dock.Id, token).ConfigureAwait(false);
+                if (!claimed)
+                {
+                    _Logging.Warn(_Header + "captain_claim_lost: captain " + captain.Id + " was claimed by another mission before mission "
+                        + mission.Id + " committed its assignment; returning the mission to Pending");
+                    await RevertUncommittedAssignmentAsync(mission, preserveInheritedBranch, MissionAssignmentStateEnum.WaitingForIdleCaptain).ConfigureAwait(false);
+                    await DiscardUncommittedDockAsync(mission, dock).ConfigureAwait(false);
+                    return false;
+                }
+
+                mission.DockId = dock.Id;
+                if (await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false))
+                    return true;
+
+                // The stored mission changed status after this pass loaded it (a cancellation, for
+                // one). That write wins: leave the row alone and hand back the captain this pass took.
+                _Logging.Warn(_Header + "mission_changed_during_assignment: mission " + mission.Id
+                    + " left Assigned before its assignment committed; releasing captain " + captain.Id);
+                mission.DockId = null;
+                await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
+                await DiscardUncommittedDockAsync(mission, dock).ConfigureAwait(false);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // Either write may have applied before the fault, so undo both conditionally.
+                _Logging.Warn(_Header + "assignment_commit_failed: mission " + mission.Id + " captain " + captain.Id + ": " + ex.Message);
+                await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
+                await RevertUncommittedAssignmentAsync(mission, preserveInheritedBranch, MissionAssignmentStateEnum.Pending).ConfigureAwait(false);
+                await DiscardUncommittedDockAsync(mission, dock).ConfigureAwait(false);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Return a mission row this pass wrote Assigned to Pending with no captain, dock, or new
+        /// branch. The write is conditional on the row still being Assigned, so a status another
+        /// writer set since then is kept. Undo writes ignore the pass's cancellation token so an
+        /// aborted pass still undoes what it wrote.
+        /// </summary>
+        private async Task RevertUncommittedAssignmentAsync(Mission mission, bool preserveInheritedBranch, MissionAssignmentStateEnum assignmentState)
+        {
+            mission.Status = MissionStatusEnum.Pending;
+            mission.AssignmentState = assignmentState;
+            mission.CaptainId = null;
+            if (!preserveInheritedBranch)
+                mission.BranchName = null;
+            mission.DockId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            try
+            {
+                await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to return mission " + mission.Id + " to Pending after an uncommitted assignment: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Release a captain only while it still records this mission, so undoing one pass never
+        /// frees a captain another mission has since claimed.
+        /// </summary>
+        private async Task ReleaseClaimIfHeldAsync(string captainId, string missionId)
+        {
+            try
+            {
+                Captain? current = await _Database.Captains.ReadAsync(captainId, CancellationToken.None).ConfigureAwait(false);
+                if (current != null && String.Equals(current.CurrentMissionId, missionId, StringComparison.Ordinal))
+                    await _Captains.ReleaseAsync(current, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to release captain " + captainId + " after an uncommitted assignment of mission " + missionId + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>Reclaim the worktree and delete the record of a dock whose assignment did not commit.</summary>
+        private async Task DiscardUncommittedDockAsync(Mission mission, Dock dock)
+        {
+            try
+            {
+                await _Docks.ReclaimAsync(dock.Id, null, CancellationToken.None).ConfigureAwait(false);
+                await _Database.Docks.DeleteAsync(dock.Id, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
+                    " after an uncommitted assignment of mission " + mission.Id + ": " + ex.Message);
+            }
+        }
 
         /// <summary>
         /// Record a dock-provision failure so a status read shows it. A repeated

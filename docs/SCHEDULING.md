@@ -43,7 +43,12 @@ When multiple pending missions share the same priority level (and the same voyag
 
 When a captain becomes idle -- either by finishing a mission or by being newly registered -- the Admiral checks the pending mission queue on the **next heartbeat cycle** and assigns the highest-priority unassigned mission.
 
-Assignment uses an atomic **TryClaim** operation to prevent race conditions when multiple captains become idle simultaneously. Only one captain can claim a given mission; if the claim fails (another captain claimed it first), the Admiral tries the next pending mission.
+Assignment commits through two conditional writes, and each failure point stores its undo:
+
+1. The captain claim (**TryClaim**) is a compare-and-set on an `Idle` captain, so one captain never serves two missions.
+2. The mission then records its dock only while its stored status is still `Assigned`, so a mission is never assigned twice and a cancellation made during provisioning wins.
+
+If the claim fails because another mission took the captain first, the stored mission returns to `Pending` with no captain, dock or new branch, its assignment state reads `WaitingForIdleCaptain`, the log names `captain_claim_lost`, and the provisioned dock is reclaimed and deleted. If the mission changed status instead, that status stays, the captain is released only while it still records this mission, and the dock is deleted. The next assignment pass retries the mission.
 
 ### What Happens When All Captains Are Busy
 
