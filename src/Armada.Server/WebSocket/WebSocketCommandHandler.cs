@@ -1467,6 +1467,9 @@ namespace Armada.Server.WebSocket
         private async Task<object> CreatePersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             Persona newPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
+            string? createRetiredFieldError = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data?.RetiredFieldError();
+            if (createRetiredFieldError != null)
+                return new { type = "command.error", action = "create_persona", error = createRetiredFieldError };
             newPersona.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             newPersona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
             newPersona.IsBuiltIn = false;
@@ -1492,6 +1495,9 @@ namespace Armada.Server.WebSocket
             if (patchPersona.Description != null) existPersona.Description = patchPersona.Description;
             if (patchPersona.PromptTemplateName != null) existPersona.PromptTemplateName = patchPersona.PromptTemplateName;
             PersonaRoutingUpdate? patchRouting = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data;
+            string? updateRetiredFieldError = patchRouting?.RetiredFieldError();
+            if (updateRetiredFieldError != null)
+                return new { type = "command.error", action = "update_persona", error = updateRetiredFieldError };
             if (patchRouting?.MinimumTierSupplied == true) existPersona.MinimumTier = patchRouting.MinimumTier;
             if (patchRouting != null && patchRouting.DefaultCaptainIdSupplied)
             {

@@ -3265,7 +3265,7 @@ Create a new persona.
 | `Name` | string | yes | Persona name |
 | `Description` | string | no | Persona description |
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
-| `Specialist` | boolean | no | When true, missions of this persona are routed only to Premium captains. Default false |
+| `MinimumTier` | string | no | Capability floor for missions of this persona: `Economy`, `Standard`, `Premium`, or `null` for none. The mission's request raises it, never lowers it. A body that sends the retired `Specialist` flag returns 400 `specialist_retired` |
 | `DefaultCaptainId` | string | no | Captain id missions of this persona prefer; `null` or `""` for none |
 
 **Response:** `201 Created` - Persona
@@ -3298,7 +3298,7 @@ Update an existing persona.
 |---|---|---|---|
 | `Description` | string | no | Updated description |
 | `PromptTemplateName` | string | no | Updated prompt template name |
-| `Specialist` | boolean | no | Updated specialist flag; omitted leaves it unchanged |
+| `MinimumTier` | string | no | Updated capability floor; `null` clears it, omitted leaves it unchanged. The retired `Specialist` flag returns 400 `specialist_retired` |
 | `DefaultCaptainId` | string | no | Captain id missions of this persona prefer; `null` or `""` clears it, omitted leaves it unchanged |
 
 **Response:** `200 OK` - Persona

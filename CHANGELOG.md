@@ -125,6 +125,13 @@ upstream integrations and excludes changes already present at that baseline.
   and duplicate completions retain launch identity. Cancelling a voyage also
   cancels its Testing and Review missions, including one waiting for a review
   decision, and recalls a captain that still holds one.
+- **Persona minimum tiers:** a persona carries an optional minimum capability
+  tier in place of the specialist flag. Dispatch, the dispatch preview and
+  model-list health combine it with the mission's request by taking the higher
+  tier, and no request is capped below what it asks for. Existing specialist
+  flags become a Premium floor at migration (Test Engineer: Standard). Persona
+  writes that still send the retired `specialist` flag are refused as
+  `specialist_retired` on REST, MCP and WebSocket instead of being ignored.
 - **Dispatch hold:** automatic Checks obey the hold. The heartbeat runs no
   Pending Check while the hold is engaged, records one named deferral event per
   engagement, and runs the waiting Checks after the hold clears. Operator check

@@ -65,6 +65,8 @@ namespace Armada.Server.Mcp.Tools
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(args!.Value, _JsonOptions) ?? new PersonaRoutingUpdate();
+                    string? retiredFieldError = routing.RetiredFieldError();
+                    if (retiredFieldError != null) return (object)new { Error = retiredFieldError, Code = PersonaRoutingUpdate.SpecialistRetiredErrorCode };
                     if (routing.DefaultCaptainIdSupplied)
                     {
                         string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(database, persona, routing.DefaultCaptainId).ConfigureAwait(false);
@@ -133,6 +135,8 @@ namespace Armada.Server.Mcp.Tools
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(args!.Value, _JsonOptions) ?? new PersonaRoutingUpdate();
+                    string? retiredFieldError = routing.RetiredFieldError();
+                    if (retiredFieldError != null) return (object)new { Error = retiredFieldError, Code = PersonaRoutingUpdate.SpecialistRetiredErrorCode };
                     if (routing.DefaultCaptainIdSupplied)
                     {
                         string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(database, persona, routing.DefaultCaptainId).ConfigureAwait(false);

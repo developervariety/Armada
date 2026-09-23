@@ -9,6 +9,7 @@ using System.IO;
     using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Test.Common;
 
@@ -420,11 +421,16 @@ using System.IO;
                 AssertEqual(HttpStatusCode.Created, created.StatusCode);
 
                 HttpResponseMessage set = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
-                    JsonHelper.ToJsonContent(new { DefaultCaptainId = captainAId, Specialist = true })).ConfigureAwait(false);
+                    JsonHelper.ToJsonContent(new { DefaultCaptainId = captainAId, MinimumTier = "Premium" })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, set.StatusCode);
                 Persona read = await JsonHelper.DeserializeAsync<Persona>(await _ClientA!.GetAsync("/api/v1/personas/" + defaultedPersonaName).ConfigureAwait(false)).ConfigureAwait(false);
                 AssertEqual(captainAId, read.DefaultCaptainId, "The default captain is stored");
-                AssertTrue(read.Specialist, "The specialist flag in the same update is stored");
+                AssertEqual(CaptainTierEnum.Premium, read.MinimumTier, "The minimum tier in the same update is stored");
+
+                HttpResponseMessage retired = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
+                    JsonHelper.ToJsonContent(new { Specialist = true })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, retired.StatusCode, "The retired specialist flag is refused, not ignored");
+                AssertContains("specialist_retired", await retired.Content.ReadAsStringAsync().ConfigureAwait(false), "The refusal names the retired flag");
 
                 HttpResponseMessage describe = await _ClientA!.PutAsync("/api/v1/personas/" + defaultedPersonaName,
                     JsonHelper.ToJsonContent(new { Description = "described" })).ConfigureAwait(false);

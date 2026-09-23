@@ -12,7 +12,13 @@ namespace Armada.Server
         #region Public-Members
 
         /// <summary>
-        /// Legacy input retained for old update clients. It does not change routing.
+        /// Error code for a request that still sends the retired <c>specialist</c> flag.
+        /// </summary>
+        public const string SpecialistRetiredErrorCode = "specialist_retired";
+
+        /// <summary>
+        /// The retired specialist flag. It no longer changes routing, so a request that sends it is refused by
+        /// <see cref="RetiredFieldError"/> instead of being accepted and ignored.
         /// </summary>
         public bool? Specialist { get; set; } = null;
 
@@ -49,6 +55,22 @@ namespace Armada.Server
         /// </summary>
         [JsonIgnore]
         public bool DefaultCaptainIdSupplied { get; private set; } = false;
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// The refusal for a request that sends a retired routing field, or null when it sends none. Every persona
+        /// create and update entry point calls this before it writes anything.
+        /// </summary>
+        /// <returns>The error message naming <see cref="SpecialistRetiredErrorCode"/>, or null.</returns>
+        public string? RetiredFieldError()
+        {
+            if (!Specialist.HasValue) return null;
+            return SpecialistRetiredErrorCode + ": the specialist flag no longer changes routing. "
+                + "Set minimumTier (Economy, Standard or Premium, or null for no floor) instead.";
+        }
 
         #endregion
 

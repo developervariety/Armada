@@ -129,6 +129,12 @@ namespace Armada.Server.Routes
                 }
                 Persona persona = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
+                string? retiredFieldError = (JsonSerializer.Deserialize<PersonaRoutingUpdate>(req.Http.Request.DataAsString, _jsonOptions) ?? new PersonaRoutingUpdate()).RetiredFieldError();
+                if (retiredFieldError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = retiredFieldError };
+                }
                 // Ownership comes from the caller, never from the body. Built-in records are
                 // seeded by the server, so a request cannot create one.
                 persona.TenantId = ctx.TenantId;
@@ -174,6 +180,12 @@ namespace Armada.Server.Routes
                 if (body.Description != null) existing.Description = body.Description;
                 if (body.PromptTemplateName != null) existing.PromptTemplateName = body.PromptTemplateName;
                 PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(req.Http.Request.DataAsString, _jsonOptions) ?? new PersonaRoutingUpdate();
+                string? retiredFieldError = routing.RetiredFieldError();
+                if (retiredFieldError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = retiredFieldError };
+                }
                 if (routing.MinimumTierSupplied) existing.MinimumTier = routing.MinimumTier;
                 if (routing.DefaultCaptainIdSupplied)
                 {

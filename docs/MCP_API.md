@@ -879,9 +879,12 @@ of one tier a higher rank is tried first.
 `armada_update_captain` accepts `captainId` (required) and the same fields. A field
 left out keeps its stored value; an empty string clears a string field.
 
-`create_persona` and `update_persona` accept `specialist` (boolean). A specialist
-persona's missions are routed only to Premium captains. `update_persona` leaves the
-flag unchanged when it is omitted.
+`create_persona` and `update_persona` accept `minimumTier` (`Economy`, `Standard`,
+`Premium`, or `null`). It is the persona's capability floor, combined with the
+mission's request by taking the higher tier. `update_persona` leaves it unchanged
+when it is omitted and clears it on an explicit `null`. The retired `specialist`
+flag is refused with a tool error that starts with `specialist_retired:`, and
+nothing is written.
 
 `create_persona` and `update_persona` also accept `defaultCaptainId` (string), the
 captain that missions of this persona prefer. On `update_persona`, `null` or an empty

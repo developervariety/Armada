@@ -465,7 +465,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertThrows<ArgumentException>(() => UsageRoutingService.Validate(policy), "empty Default list");
             });
 
-            await RunTest("A Specialist stronger list that names a Standard-tier model falls through and says matched-nothing", async () =>
+            await RunTest("A stronger list below the mission floor matches nothing but is not dead for a persona whose own floor admits it", async () =>
             {
                 using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -509,15 +509,12 @@ namespace Armada.Test.Unit.Suites.Services
                         "the reason names matched-nothing, not an applied list");
                     AssertFalse(decision.Reason.Contains("applied", StringComparison.Ordinal),
                         "a dead list must not read as applied");
-                    AssertTrue(decision.DeadListEntries.Any(entry =>
-                            entry.List == "stronger" && entry.Model == "cursor-grok-4.6-high"),
-                        "the dead stronger entry is named");
+                    AssertFalse(decision.DeadListEntries.Any(entry => entry.Model == "cursor-grok-4.6-high"),
+                        "the Standard model is live for the Test Engineer's Standard floor; only this high mission cannot use it");
                     List<DeadPersonaModelEntry> dead = PersonaModelListHealth.FindDead(
                         Tiers(), policy, new List<Captain> { grok, fable });
-                    AssertTrue(dead.Any(entry => entry.Persona == "TestEngineer" && entry.List == "stronger"),
-                        "save/startup census names the same dead stronger entry");
-                    AssertFalse(dead.Any(entry => entry.List == "default"),
-                        "the Default Premium model is live");
+                    AssertFalse(dead.Any(entry => entry.Persona == "TestEngineer"),
+                        "the save/startup census names no dead Test Engineer entry: both models meet the persona floor");
                 }
             }).ConfigureAwait(false);
 

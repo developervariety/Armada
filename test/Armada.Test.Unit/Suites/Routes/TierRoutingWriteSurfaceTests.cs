@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
+    using Armada.Server;
     using Armada.Server.Mcp.Tools;
     using Armada.Server.WebSocket;
     using Armada.Test.Common;
@@ -126,41 +127,65 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
-            await RunTest("Mcp persona create and update set the specialist flag and keep an omitted one", async () =>
+            await RunTest("Mcp persona create and update set the minimum tier, keep an omitted one and clear it with null", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Dictionary<string, Func<JsonElement?, Task<object>>> tools = PersonaTools(testDb.Driver);
-                    await tools["create_persona"](JsonSerializer.SerializeToElement(new { name = "SpecialistReviewer", promptTemplateName = "persona.worker", specialist = true })).ConfigureAwait(false);
-                    Persona? created = await testDb.Driver.Personas.ReadByNameAsync("SpecialistReviewer").ConfigureAwait(false);
-                    AssertTrue(created!.Specialist, "create persists the flag");
+                    await tools["create_persona"](JsonSerializer.SerializeToElement(new { name = "FlooredReviewer", promptTemplateName = "persona.worker", minimumTier = "Premium" })).ConfigureAwait(false);
+                    Persona? created = await testDb.Driver.Personas.ReadByNameAsync("FlooredReviewer").ConfigureAwait(false);
+                    AssertEqual(CaptainTierEnum.Premium, created!.MinimumTier, "create persists the minimum tier");
 
-                    await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "SpecialistReviewer", description = "renamed" })).ConfigureAwait(false);
+                    await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "FlooredReviewer", description = "renamed" })).ConfigureAwait(false);
                     Persona? kept = await testDb.Driver.Personas.ReadAsync(created.Id).ConfigureAwait(false);
-                    AssertTrue(kept!.Specialist, "an update that omits the flag keeps it");
+                    AssertEqual(CaptainTierEnum.Premium, kept!.MinimumTier, "an update that omits the minimum tier keeps it");
 
-                    await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "SpecialistReviewer", specialist = false })).ConfigureAwait(false);
+                    await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "FlooredReviewer", minimumTier = (string?)null })).ConfigureAwait(false);
                     Persona? cleared = await testDb.Driver.Personas.ReadAsync(created.Id).ConfigureAwait(false);
-                    AssertFalse(cleared!.Specialist, "an update clears the flag");
+                    AssertNull(cleared!.MinimumTier, "an explicit null clears the minimum tier");
                 }
             });
 
-            await RunTest("WebSocket persona update sets the specialist flag and keeps it when omitted", async () =>
+            await RunTest("Every persona write surface refuses the retired specialist flag by name and changes nothing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, Func<JsonElement?, Task<object>>> tools = PersonaTools(testDb.Driver);
+                    string created = JsonSerializer.Serialize(await tools["create_persona"](JsonSerializer.SerializeToElement(new { name = "RetiredFlag", promptTemplateName = "persona.worker", specialist = true })).ConfigureAwait(false));
+                    AssertContains(PersonaRoutingUpdate.SpecialistRetiredErrorCode, created, "MCP create names the retired flag");
+                    AssertNull(await testDb.Driver.Personas.ReadByNameAsync("RetiredFlag").ConfigureAwait(false), "a refused create stores nothing");
+
+                    Persona persona = await testDb.Driver.Personas.CreateAsync(new Persona("RetiredFlagWs", "persona.worker") { MinimumTier = CaptainTierEnum.Standard }).ConfigureAwait(false);
+                    string updated = JsonSerializer.Serialize(await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "RetiredFlagWs", specialist = true, description = "changed" })).ConfigureAwait(false));
+                    AssertContains(PersonaRoutingUpdate.SpecialistRetiredErrorCode, updated, "MCP update names the retired flag");
+
+                    WebSocketCommandHandler handler = new WebSocketCommandHandler(null!, testDb.Driver, null!, null, null, null, _ServerJsonOptions, mission => { }, voyage => { });
+                    string flag = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "RetiredFlagWs", data = new { specialist = true, description = "changed" } });
+                    string wsResult = JsonSerializer.Serialize(await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "RetiredFlagWs" }, flag, McpTestCaller.Operator).ConfigureAwait(false));
+                    AssertContains(PersonaRoutingUpdate.SpecialistRetiredErrorCode, wsResult, "WebSocket update names the retired flag");
+
+                    Persona? stored = await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainTierEnum.Standard, stored!.MinimumTier, "a refused update keeps the stored minimum tier");
+                    AssertFalse(String.Equals("changed", stored.Description, StringComparison.Ordinal), "a refused update changes no other field");
+                }
+            });
+
+            await RunTest("WebSocket persona update sets the minimum tier and keeps it when omitted", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Persona persona = await testDb.Driver.Personas.CreateAsync(new Persona("WsReviewer", "persona.worker")).ConfigureAwait(false);
                     WebSocketCommandHandler handler = new WebSocketCommandHandler(null!, testDb.Driver, null!, null, null, null, _ServerJsonOptions, mission => { }, voyage => { });
 
-                    string flag = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsReviewer", data = new { specialist = true } });
-                    await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "WsReviewer" }, flag, McpTestCaller.Operator).ConfigureAwait(false);
-                    AssertTrue((await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false))!.Specialist, "the flag is set");
+                    string floor = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsReviewer", data = new { minimumTier = "Standard" } });
+                    await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "WsReviewer" }, floor, McpTestCaller.Operator).ConfigureAwait(false);
+                    AssertEqual(CaptainTierEnum.Standard, (await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false))!.MinimumTier, "the minimum tier is set");
 
                     string describe = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "WsReviewer", data = new { description = "reviews" } });
                     await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "WsReviewer" }, describe, McpTestCaller.Operator).ConfigureAwait(false);
                     Persona? kept = await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false);
                     AssertEqual("reviews", kept!.Description);
-                    AssertTrue(kept.Specialist, "an update that omits the flag keeps it");
+                    AssertEqual(CaptainTierEnum.Standard, kept.MinimumTier, "an update that omits the minimum tier keeps it");
                 }
             });
 
@@ -173,10 +198,10 @@ namespace Armada.Test.Unit.Suites.Routes
                     await tools["create_persona"](JsonSerializer.SerializeToElement(new { name = "DefaultedReviewer", promptTemplateName = "persona.worker" })).ConfigureAwait(false);
                     Persona? created = await testDb.Driver.Personas.ReadByNameAsync("DefaultedReviewer").ConfigureAwait(false);
 
-                    await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "DefaultedReviewer", defaultCaptainId = captain.Id, specialist = true })).ConfigureAwait(false);
+                    await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "DefaultedReviewer", defaultCaptainId = captain.Id, minimumTier = "Premium" })).ConfigureAwait(false);
                     Persona? set = await testDb.Driver.Personas.ReadAsync(created!.Id).ConfigureAwait(false);
                     AssertEqual(captain.Id, set!.DefaultCaptainId, "the default captain is set");
-                    AssertTrue(set.Specialist, "the specialist flag in the same update is saved");
+                    AssertEqual(CaptainTierEnum.Premium, set.MinimumTier, "the minimum tier in the same update is saved");
 
                     await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "DefaultedReviewer", description = "reviews" })).ConfigureAwait(false);
                     Persona? kept = await testDb.Driver.Personas.ReadAsync(created.Id).ConfigureAwait(false);

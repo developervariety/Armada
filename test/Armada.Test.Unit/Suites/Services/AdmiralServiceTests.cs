@@ -741,12 +741,12 @@ namespace Armada.Test.Unit.Suites.Services
                         pipeline.Id).ConfigureAwait(false);
 
                     List<Mission> missions = await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
-                    AssertEqual("mid", missions.Single(mission => mission.Persona == "Worker").PreferredModel,
-                        "a Worker stage override of high must cap to its assignable mid tier");
-                    AssertEqual("high", missions.Single(mission => mission.Persona == "TestEngineer").PreferredModel,
-                        "a specialist stage must upgrade the inherited mission tier to high");
+                    AssertEqual("high", missions.Single(mission => mission.Persona == "Worker").PreferredModel,
+                        "a Worker stage override of high is kept: a persona with no minimum tier takes the request as its floor");
+                    AssertEqual("mid", missions.Single(mission => mission.Persona == "TestEngineer").PreferredModel,
+                        "a Standard minimum tier and an inherited mid request combine to mid");
                     AssertEqual("high", missions.Single(mission => mission.Persona == "Judge").PreferredModel,
-                        "a Judge stage must upgrade the inherited mission tier to high");
+                        "a Premium minimum tier raises an inherited mid request to high");
                 }
             });
 

@@ -647,20 +647,23 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Preview inherits mission tier and caps high to mid for Worker coverage", async () =>
+            await RunTest("Preview keeps an inherited high Worker request and counts only captains at or above Premium", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
+                    ArmadaSettings routingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings.CreateArmadaSettings();
                     PreviewHarness harness = await PreviewHarness.CreateAsync(
                         testDb,
                         includeUnitTestCommand: true,
-                        settings: global::Test.Shared.Infrastructure.FleetRoutingSettings.CreateArmadaSettings()).ConfigureAwait(false);
+                        settings: routingSettings).ConfigureAwait(false);
                     harness.Captain.Model = "gpt-5.6-luna";
+                    harness.Captain.Tier = CaptainTierEnum.Premium;
                     harness.Captain.State = CaptainStateEnum.Idle;
                     await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
-                    await testDb.Driver.Captains.CreateAsync(new Captain("preview-judge")
+                    await testDb.Driver.Captains.CreateAsync(new Captain("preview-standard")
                     {
                         Model = "claude-fable-5",
+                        Tier = CaptainTierEnum.Standard,
                         State = CaptainStateEnum.Idle
                     }).ConfigureAwait(false);
 
@@ -693,14 +696,15 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchRole workerRole = result.RequiredRoles.Single(role => role.Persona == "Worker");
                     ObjectiveDispatchRole judgeRole = result.RequiredRoles.Single(role => role.Persona == "Judge");
 
-                    AssertEqual("mid", workerRole.PreferredModel,
-                        "preview must report the same mid tier dispatch persists for an inherited high Worker request");
-                    AssertEqual("high", judgeRole.PreferredModel,
-                        "preview must still report high for a Judge stage when the mission requests high");
-                    AssertEqual(2, workerRole.IdleEligibleCount,
-                        "idle captains that satisfy the capped mid tier must count as eligible Worker coverage");
-                    AssertTrue(result.IsReady,
-                        "preview must be ready when idle mid-tier Workers cover the capped Worker role");
+                    AssertEqual(
+                        PreferredModelTierSelector.ResolveEffectivePreferredModel(null, "high", "Worker", routingSettings.ModelTier),
+                        workerRole.PreferredModel,
+                        "preview reports the tier dispatch persists for an inherited high Worker request");
+                    AssertEqual("high", workerRole.PreferredModel, "an inherited high Worker request stays high");
+                    AssertEqual("high", judgeRole.PreferredModel, "a Judge stage reports high when the mission requests high");
+                    AssertEqual(1, workerRole.IdleEligibleCount,
+                        "only the Premium captain meets the high floor; the Standard captain is not Worker coverage");
+                    AssertTrue(result.IsReady, "the Premium captain covers the Worker role");
                 }
             }).ConfigureAwait(false);
 

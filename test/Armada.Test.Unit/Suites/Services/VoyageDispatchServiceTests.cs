@@ -1580,7 +1580,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("Pipeline dispatch keeps mission high tier for Worker stages", async () =>
+            await RunTest("Pipeline dispatch keeps an inherited high request on a Worker stage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -1608,7 +1608,7 @@ namespace Armada.Test.Unit.Suites.Services
                         CodeContextMode = "off",
                         Missions = new List<MissionDescription>
                         {
-                            new MissionDescription("Implement feature", "Worker should inherit mid, Judge stays high")
+                            new MissionDescription("Implement feature", "Worker and Judge both keep the high request")
                             {
                                 PreferredModel = "high",
                                 Alias = "M1"
@@ -1623,14 +1623,14 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission worker = missions.Single(m => m.Persona == "Worker");
                     Mission judge = missions.Single(m => m.Persona == "Judge");
 
-                    AssertEqual("mid", worker.PreferredModel,
-                        "a mission-level high tier inherited by a Worker stage must cap to mid so assignment can proceed");
+                    AssertEqual("high", worker.PreferredModel,
+                        "a mission-level high request inherited by a Worker stage is kept: nothing caps it below the request");
                     AssertEqual("high", judge.PreferredModel,
                         "a Judge stage must still persist high when the mission requests high");
                 }
             });
 
-            await RunTest("Pipeline dispatch avoids WaitingForIdleCaptain for inherited high on Worker", async () =>
+            await RunTest("An inherited high Worker request is assigned only to a captain at or above Premium", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -1653,13 +1653,19 @@ namespace Armada.Test.Unit.Suites.Services
                     vessel.DefaultBranch = "main";
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-                    for (int index = 0; index < 3; index++)
+                    for (int index = 0; index < 2; index++)
                     {
-                        Captain captain = new Captain("mid-worker-" + index);
-                        captain.Model = "gpt-5.6-luna";
-                        captain.State = CaptainStateEnum.Idle;
-                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        Captain standard = new Captain("standard-worker-" + index);
+                        standard.Model = "gpt-5.6-luna";
+                        standard.Tier = CaptainTierEnum.Standard;
+                        standard.State = CaptainStateEnum.Idle;
+                        await testDb.Driver.Captains.CreateAsync(standard).ConfigureAwait(false);
                     }
+                    Captain premium = new Captain("premium-worker");
+                    premium.Model = "gpt-5.6-luna";
+                    premium.Tier = CaptainTierEnum.Premium;
+                    premium.State = CaptainStateEnum.Idle;
+                    premium = await testDb.Driver.Captains.CreateAsync(premium).ConfigureAwait(false);
 
                     Pipeline pipeline = new Pipeline("ReviewedHighAssign");
                     pipeline.Stages = new List<PipelineStage>
@@ -1680,7 +1686,7 @@ namespace Armada.Test.Unit.Suites.Services
                         CodeContextMode = "off",
                         Missions = new List<MissionDescription>
                         {
-                            new MissionDescription("Implement feature", "Idle mid-tier workers must receive the Worker stage")
+                            new MissionDescription("Implement feature", "Only the Premium captain may take the high Worker stage")
                             {
                                 PreferredModel = "high"
                             }
@@ -1692,8 +1698,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 2).ConfigureAwait(false);
                     Mission worker = missions.Single(m => m.Persona == "Worker");
-                    AssertEqual("mid", worker.PreferredModel,
-                        "Worker stage must cap inherited high to mid before assignment runs");
+                    AssertEqual("high", worker.PreferredModel,
+                        "the Worker stage keeps the inherited high request");
 
                     Mission? refreshedWorker = null;
                     DateTime assignmentDeadline = DateTime.UtcNow.AddSeconds(5);
@@ -1707,8 +1713,8 @@ namespace Armada.Test.Unit.Suites.Services
                         await Task.Delay(25).ConfigureAwait(false);
                     }
                     AssertNotNull(refreshedWorker, "Worker mission must remain readable after dispatch");
-                    AssertNotNull(refreshedWorker!.CaptainId,
-                        "an idle mid-tier captain must be assigned after the Worker preference is capped to mid");
+                    AssertEqual(premium.Id, refreshedWorker!.CaptainId,
+                        "only the Premium captain meets the high floor; the two Standard captains are never chosen");
                     AssertTrue(
                         refreshedWorker.Status == MissionStatusEnum.Assigned
                             || refreshedWorker.Status == MissionStatusEnum.InProgress,
