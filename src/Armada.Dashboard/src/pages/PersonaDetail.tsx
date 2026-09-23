@@ -30,7 +30,7 @@ export default function PersonaDetail() {
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<{ description: string; promptTemplateName: string; defaultCaptainId: string | null; specialist: boolean }>({ description: '', promptTemplateName: '', defaultCaptainId: null, specialist: false });
+  const [form, setForm] = useState<{ description: string; promptTemplateName: string; defaultCaptainId: string | null; minimumTier: 'Economy' | 'Standard' | 'Premium' | '' }>({ description: '', promptTemplateName: '', defaultCaptainId: null, minimumTier: '' });
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [templateNames, setTemplateNames] = useState<string[]>([]);
   const [promptTemplate, setPromptTemplate] = useState<PromptTemplate | null>(null);
@@ -99,7 +99,7 @@ export default function PersonaDetail() {
 
   function openEdit() {
     if (!persona) return;
-    setForm({ description: persona.description ?? '', promptTemplateName: persona.promptTemplateName ?? '', defaultCaptainId: persona.defaultCaptainId ?? null, specialist: Boolean(persona.specialist) });
+    setForm({ description: persona.description ?? '', promptTemplateName: persona.promptTemplateName ?? '', defaultCaptainId: persona.defaultCaptainId ?? null, minimumTier: persona.minimumTier ?? '' });
     setShowForm(true);
   }
 
@@ -107,7 +107,7 @@ export default function PersonaDetail() {
     e.preventDefault();
     if (!persona) return;
     try {
-      await updatePersona(persona.name, { description: form.description, promptTemplateName: form.promptTemplateName, defaultCaptainId: form.defaultCaptainId, specialist: form.specialist });
+      await updatePersona(persona.name, { description: form.description, promptTemplateName: form.promptTemplateName, defaultCaptainId: form.defaultCaptainId, minimumTier: form.minimumTier || null });
       setShowForm(false);
       pushToast('success', t('Persona "{{name}}" saved.', { name: persona.name }));
       load();
@@ -248,12 +248,16 @@ export default function PersonaDetail() {
                 {t('Pre-fills the per-step captain at dispatch and becomes the preferred captain for missions of this persona.')}
               </span>
             </label>
-            <label className="settings-checkbox-label">
-              <input type="checkbox" checked={form.specialist} onChange={e => setForm({ ...form, specialist: e.target.checked })} />
-              <span>{t('Specialist (requires a Premium captain)')}</span>
+            <label>{t('Minimum capability tier')}
+              <select value={form.minimumTier} onChange={e => setForm({ ...form, minimumTier: e.target.value as typeof form.minimumTier })}>
+                <option value="">{t('Use mission tier and normal routing')}</option>
+                <option value="Economy">{t('Economy')}</option>
+                <option value="Standard">{t('Standard')}</option>
+                <option value="Premium">{t('Premium')}</option>
+              </select>
             </label>
             <span className="text-dim" style={{ fontSize: '0.75rem', display: 'block' }}>
-              {t('Missions of a specialist persona are routed only to Premium captains, whatever tier they request.')}
+              {t('This sets a hard minimum tier. A higher tier can still be selected when no captain at the minimum tier is available.')}
             </span>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Save')}</button>
@@ -290,7 +294,7 @@ export default function PersonaDetail() {
           <span className="detail-label">{t('Default Captain')}</span>
           <span><CaptainRef captainId={persona.defaultCaptainId} captains={captains} autoLabel={t('None (default routing)')} /></span>
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Specialist')}</span><span>{persona.specialist ? t('Yes (Premium captains only)') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Minimum capability tier')}</span><span>{persona.minimumTier ?? t('None')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Visibility')}</span><ScopeBadge scope={persona.ownershipScope} /></div>
         <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>

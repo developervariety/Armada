@@ -18,11 +18,11 @@ vi.mock('../context/NotificationContext', () => ({
 vi.mock('../api/client', () => ({
   getDock: vi.fn(),
   deleteDock: vi.fn(),
-  listCaptains: vi.fn(),
-  listVessels: vi.fn(),
+  listAllCaptains: vi.fn(),
+  listAllVessels: vi.fn(),
 }));
 
-import { getDock, listCaptains, listVessels } from '../api/client';
+import { getDock, listAllCaptains, listAllVessels } from '../api/client';
 import DockDetail from './DockDetail';
 
 const empty = { success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] };
@@ -39,8 +39,8 @@ function renderAt(id: string) {
 
 beforeEach(() => {
   vi.mocked(getDock).mockReset();
-  vi.mocked(listCaptains).mockResolvedValue(empty as never);
-  vi.mocked(listVessels).mockResolvedValue(empty as never);
+  vi.mocked(listAllCaptains).mockResolvedValue(empty as never);
+  vi.mocked(listAllVessels).mockResolvedValue(empty as never);
 });
 
 test('shows not found when the dock does not exist', async () => {

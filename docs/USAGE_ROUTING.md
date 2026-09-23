@@ -19,7 +19,7 @@ excluded, and it never changes the tier floor.
 | --- | --- | --- |
 | Capability tier (`Economy`, `Standard`, `Premium`) | Captain record `tier`; null classifies it from the model name | Captain modal and captain detail page |
 | Preference rank (integer, -1000 to 1000, default 0) | Captain record `preferenceRank` | Captain modal and captain detail page |
-| Specialist flag | Persona record `specialist` | Persona detail page |
+| Minimum tier | Persona record `minimumTier` | Persona detail page |
 | Reserved Premium slots | Setting `modelTier.reservedHighTierSlots` | Settings > Routing |
 | Non-native-first | Setting `modelTier.preferNonNativeFirst` | Settings > Routing |
 | Capability profiles | Settings `modelTier.modelCapabilityProfiles` and `capabilityHintDimensionMap` | `settings.json` |
@@ -43,14 +43,16 @@ The tier floor comes from the mission:
 | `preferredModel` `low` | Economy |
 | `preferredModel` `mid` (or `quick`, `medium`) | Standard |
 | `preferredModel` `high` | Premium |
-| Persona flagged as a specialist | Premium, whatever `preferredModel` says |
+| Persona `minimumTier` | Configured tier, combined with any higher mission floor |
 | Concrete model pin that an idle captain runs | None. Only captains that run the pinned model are eligible |
 | Concrete model pin that no idle captain runs | The tier of the captains that run that model; else the model family tier; else none |
 | No `preferredModel` | None |
 
-A specialist persona with no idle Premium captain waits. It is never given to
-a lower tier. A captain whose tier is below the floor is never chosen, even
-when a persona model list names its model.
+A persona minimum tier is a hard floor. Armada tries the lowest tier at or
+above both the persona minimum and the mission request. A Standard minimum can
+use a Premium captain when no Standard captain is available. A captain below
+the effective floor is never chosen, even when a persona model list names its
+model.
 
 ## Layer 2: order (Legacy Routing)
 
@@ -73,7 +75,8 @@ The eligible captains are ordered by these keys, first key first:
 A retry avoids the captains on its retry skip list while another eligible
 captain remains. A requested captain and a fallback tier are applied before
 this layer; see [Requested captain and fallback tier](#requested-captain-and-fallback-tier).
-`reservedHighTierSlots` holds idle Premium captains for specialist missions.
+`reservedHighTierSlots` holds idle Premium captains for downstream work when
+the pipeline can produce a later review stage.
 
 ## Retired tier settings and the one-time migration
 
@@ -88,7 +91,7 @@ records once:
 | `midTierModels`, a `mid` or `low` family rule | Captain tier Standard |
 | A model none of the lists or rules classified | Captain tier Economy (only when a list or rule was set) |
 | `withinTierPreferenceOrder` (with `withinTierStrategy` `PreferenceOrderThenRandom`) | Captain `preferenceRank`: in a list of n models the first model ranks n, the last ranks 1, unlisted models rank 0 |
-| `specialistPersonas` | `specialist` true on every persona record with that name, in every tenant |
+| `specialistPersonas` | `minimumTier: Premium` on matching persona records, except Test Engineer, which gets Standard |
 
 The migration pins a tier only when the captain's effective tier differs from
 the mapped tier. It logs each captain and persona it changes, and warns for a
@@ -182,25 +185,23 @@ event `routing.persona_model_list_dead` names the list. A list that did
 supply the captain is `persona_models_applied_<group>:<captainId>`. Dead
 lists never refuse dispatch.
 
-#### Proposed per-persona capability floor (not implemented)
+#### Persona minimum tier
 
-A future persona field could set a minimum tier of Economy, Standard, or
-Premium. If unset, the current Specialist rule remains: a Specialist requires
-Premium. An explicit value would replace that persona's Specialist-derived
-floor. Persona locks and other eligibility constraints still apply first;
-model lists only order the admitted captains. Capacity decisions cannot change
-the floor. Invalid tier values must be rejected on save.
+`minimumTier` is an optional `Economy`, `Standard`, or `Premium` floor on a
+persona. Null means that the mission request and normal Legacy Routing order
+control. Armada combines this floor with `preferredModel` by taking the higher
+one. A concrete model pin remains a model restriction and must also meet the
+persona floor. Persona locks, tenant ownership, quarantine, and assignment
+reservations remain separate hard gates. Model lists and the Jev capacity
+decision only order eligible captains; neither can lower the floor.
 
-The effective-routing view would show both the configured floor and the
-inherited default. Before a floor change is saved, a preview would show which
-captains enter or leave eligibility and which list entries become live or dead.
-Existing configurations would keep their current routing until an operator
-sets the new field. Tests would cover unset migration behavior, each explicit
-tier, persona locks, and the inability of model lists or capacity decisions to
-bypass the floor. Removing the field would restore the legacy behavior.
-
-This is a design only. It changes eligibility and must not ship without a
-separate owner decision. No runtime field or routing change is included here.
+Existing records with the legacy specialist flag receive an explicit floor at
+schema migration. Test Engineer receives Standard; other flagged personas
+receive Premium to preserve their configured minimum. New built-in personas
+use explicit defaults: Test Engineer is Standard, while Judge, Architect,
+Product Manager, and Usability Engineer are Premium. Operators can change or
+clear a persona floor in its detail page. Routing preview and model-list
+health use the same effective floor as assignment.
 
 The chosen list is `default` unless the `capacity_escalation` decision
 chooses another list. A mission with a concrete `preferredModel` skips the
@@ -518,11 +519,13 @@ recovery state across settings updates.
 
 The Settings hub has an admin **Routing** tab. Its Legacy Routing part edits
 the reserved Premium slots and non-native-first; captain tiers and ranks are
-edited on the captains, and specialist flags on the personas. Its Smart
+edited on the captains, and persona minimum tiers on the persona detail page. Its Smart
 Routing part has:
 
 - a **Routing mode** switch between **Legacy Routing** and **Smart Routing**
-  (it sets `modelTier.usageRouting.enabled` in the draft);
+  (it sets `modelTier.usageRouting.enabled` in the draft). Legacy Routing needs
+  no Jev key. Smart Routing still applies account usage without Jev and tries
+  Default first;
 - the guided **Subscription accounts** section (see
   [Logging in from the Dashboard](#logging-in-from-the-dashboard));
 - budget fields;
@@ -608,10 +611,10 @@ not the time the file was copied. Missing percentages must be null, not zero.
 
 ## Model routing and dispatch policy
 
-Product defaults are policy-neutral: no persona is a specialist, no captain
-has a pinned tier or a rank, and the stage-persona title guard is off. A
-captain's tier and preference rank are fields on the captain record, and a
-persona's specialist flag is a field on the persona record; see
+Product defaults use explicit persona floors; no captain has a pinned tier or
+a rank, and the stage-persona title guard is off. A captain's tier and
+preference rank are fields on the captain record, and a persona's minimum tier
+is a field on the persona record; see
 [the three routing layers](#smart-routing). Edit these keys in
 `settings.json` or on the Dashboard Settings page:
 
@@ -631,20 +634,20 @@ persona's specialist flag is a field on the persona record; see
 | --- | --- | --- |
 | Captain `tier` (`Economy`, `Standard`, `Premium`) | null: classified from the model name | Captain modal and detail page: Capability tier |
 | Captain `preferenceRank` (-1000 to 1000) | `0` | Captain modal and detail page: Preference rank |
-| Persona `specialist` | `false` | Persona detail page: Specialist |
+| Persona `minimumTier` (`Economy`, `Standard`, `Premium`) | unset for custom personas | Persona detail page: Minimum capability tier |
 
 `modelTier.midTierModels`, `highTierModels`, `familyClassificationRules`,
 `specialistPersonas`, `withinTierStrategy`, and `withinTierPreferenceOrder` are
 retired. At the first startup that finds them, Armada moves them onto captain
-tiers, captain ranks, and persona flags, writes a settings backup, removes the
+tiers, captain ranks, and persona minimum tiers, writes a settings backup, removes the
 keys, and stamps `tierRecordsMigratedUtc`. See
 [Retired tier settings and the one-time migration](#retired-tier-settings-and-the-one-time-migration).
 
 **Legacy Routing** is layers 1 and 2 while `modelTier.usageRouting.enabled`
-is false: persona locks and the tier floor decide eligibility, then tier,
-capability scoring, preference rank, non-native-first, and the preferred
+is false: persona locks and the effective tier floor decide eligibility, then
+tier, capability scoring, preference rank, non-native-first, and the preferred
 persona order the eligible captains; the persona default captain and the
-Premium slot reserve also apply. **Smart Routing**
+Premium slot reserve also apply. It works without a Jev key. **Smart Routing**
 (`modelTier.usageRouting.enabled` true) keeps that order and adds the usage
 filter (Exhausted removed, Low and Reserve demoted), per-persona `default`,
 `lighter`, and `stronger` model lists (`modelTier.usageRouting.personaModels`),
@@ -711,9 +714,10 @@ With no pinned tier on any captain, each captain's tier is classified from
 its model name, and a model the classifier does not know is Standard.
 
 `factory/settings.fleet.example.json` holds the fleet routing policy, guard,
-and specialist-reviewer assets. Captain tiers, ranks, and specialist flags are
-not settings: set them on the records, or let the one-time migration derive
-them from a settings file that still carries the retired tier keys. The live
+and reviewer assets. Captain tiers and ranks are not settings: set them on the
+records, or let the one-time migration derive them from a settings file that
+still carries the retired tier keys. Persona minimum tiers are also record
+fields. The live
 `~/.armada/settings.json` is not in the repository.
 
 The `docker/` image pins (agent CLI set, `CLI_REFRESH`, `@latest`) are

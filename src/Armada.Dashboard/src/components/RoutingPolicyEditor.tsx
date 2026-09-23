@@ -112,7 +112,7 @@ interface RoutingPolicyEditorProps {
 /**
  * Fleet-wide Legacy Routing policy (reserved Premium slots and the non-native preference), the voyage dispatch
  * guard, model providers, and additional assets. Each captain's tier and preference rank are edited on the
- * captain, and a persona's specialist flag on the persona. A reload keeps unsaved edits, and a save sends only
+ * captain, and a persona's minimum tier on the persona. A reload keeps unsaved edits, and a save sends only
  * the changed fields.
  */
 export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }: RoutingPolicyEditorProps) {
@@ -168,7 +168,7 @@ export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }
       <div className="settings-section">
         <h3>{t('Legacy Routing')}</h3>
         <p className="text-muted">
-          {t('Each captain carries its capability tier (Economy, Standard, Premium) and a preference rank, edited on the captain. A mission requests a tier floor: low is Economy, mid is Standard, high is Premium, and the lowest idle tier at or above the floor is tried first, higher rank first. A persona flagged as a specialist, edited on the persona, always requires Premium. This policy hot-reloads.')}
+          {t('Each captain carries a capability tier (Economy, Standard, Premium) and preference rank. Missions can request a tier floor, and each persona can set its own minimum tier. The lowest eligible tier goes first, then higher preference rank. This policy hot-reloads.')}
         </p>
         {usageRoutingEnabled && (
           <p className="text-muted" role="note">
@@ -178,7 +178,7 @@ export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }
         <div className="settings-grid">
           <div className="form-group">
             <label htmlFor="routing-reserved-slots">{t('Reserved Premium slots')}</label>
-            <input id="routing-reserved-slots" type="number" min={0} max={10} value={draft.reservedHighTierSlots} onChange={(e) => edit({ reservedHighTierSlots: parseInt(e.target.value) || 0 })} title={t('Idle Premium slots held for specialist work (0 disables)')} />
+            <input id="routing-reserved-slots" type="number" min={0} max={10} value={draft.reservedHighTierSlots} onChange={(e) => edit({ reservedHighTierSlots: parseInt(e.target.value) || 0 })} title={t('Idle Premium slots held for downstream work (0 disables)')} />
           </div>
           <div className="form-group">
             <label className="settings-checkbox-label">

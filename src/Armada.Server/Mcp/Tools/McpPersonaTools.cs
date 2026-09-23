@@ -42,7 +42,7 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (e.g. 'Worker', 'Architect', 'Judge')" },
                         description = new { type = "string", description = "Human-readable description of what this persona does" },
                         promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" },
-                        specialist = new { type = "boolean", description = "When true, missions of this persona are routed only to Premium captains. Default false." },
+                        minimumTier = new { type = new[] { "string", "null" }, @enum = new[] { "Economy", "Standard", "Premium", null }, description = "Minimum capability tier; omit or pass null for no floor." },
                         defaultCaptainId = new { type = "string", description = "Captain id missions of this persona prefer. Omit or pass null or empty for none. Refused with default_captain_not_found for an id outside the caller's tenant and default_captain_persona_locked for a captain whose AllowedPersonas excludes the persona; a refused create writes nothing." },
                         defaultPlaybooks = DefaultPlaybooksSchema()
                     },
@@ -60,8 +60,8 @@ namespace Armada.Server.Mcp.Tools
                     persona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
                     if (request.Description != null)
                         persona.Description = request.Description;
-                    if (request.Specialist.HasValue)
-                        persona.Specialist = request.Specialist.Value;
+                    if (request.MinimumTierSupplied)
+                        persona.MinimumTier = request.MinimumTier;
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(args!.Value, _JsonOptions) ?? new PersonaRoutingUpdate();
@@ -108,7 +108,7 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (used to look up the persona)" },
                         description = new { type = "string", description = "New description" },
                         promptTemplateName = new { type = "string", description = "New prompt template name" },
-                        specialist = new { type = "boolean", description = "When true, missions of this persona are routed only to Premium captains. Null leaves it unchanged." },
+                        minimumTier = new { type = new[] { "string", "null" }, @enum = new[] { "Economy", "Standard", "Premium", null }, description = "Minimum capability tier. Pass null to clear it; omit to leave it unchanged." },
                         defaultCaptainId = new { type = "string", description = "Captain id missions of this persona prefer. Null or empty clears it; omit to leave it unchanged. Refused with default_captain_not_found for an id outside the persona's tenant and default_captain_persona_locked for a captain whose AllowedPersonas excludes the persona." },
                         defaultPlaybooks = DefaultPlaybooksSchema()
                     },
@@ -128,8 +128,8 @@ namespace Armada.Server.Mcp.Tools
                         persona.Description = request.Description;
                     if (request.PromptTemplateName != null)
                         persona.PromptTemplateName = request.PromptTemplateName;
-                    if (request.Specialist.HasValue)
-                        persona.Specialist = request.Specialist.Value;
+                    if (request.MinimumTierSupplied)
+                        persona.MinimumTier = request.MinimumTier;
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(args!.Value, _JsonOptions) ?? new PersonaRoutingUpdate();

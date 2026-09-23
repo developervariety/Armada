@@ -16,7 +16,7 @@ namespace Armada.Core.Models
     {
         public string Persona { get; set; } = String.Empty;
         public string Floor { get; set; } = String.Empty;
-        public bool Specialist { get; set; }
+        public string? MinimumTier { get; set; }
         public List<string> EligibleCaptainIds { get; set; } = new List<string>();
         public List<PersonaModelListMark> Default { get; set; } = new List<PersonaModelListMark>();
         public List<PersonaModelListMark> Lighter { get; set; } = new List<PersonaModelListMark>();

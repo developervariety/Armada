@@ -8,7 +8,7 @@ namespace Armada.Test.Database
     using Armada.Core.Models;
     using Armada.Core.Settings;
 
-    /// <summary>Provider-backed persistence of a captain's preference rank and a persona's specialist flag.</summary>
+    /// <summary>Provider-backed persistence of captain preference ranks and persona minimum tiers.</summary>
     internal sealed class TierRoutingDatabaseTests
     {
         private readonly DatabaseDriver _Driver;
@@ -31,7 +31,7 @@ namespace Armada.Test.Database
                 Tier = CaptainTierEnum.Premium,
                 PreferenceRank = 7
             }, token).ConfigureAwait(false);
-            Persona persona = await _Driver.Personas.CreateAsync(new Persona("Specialist" + suffix, "persona.worker") { Specialist = true }, token).ConfigureAwait(false);
+            Persona persona = await _Driver.Personas.CreateAsync(new Persona("Routed" + suffix, "persona.worker") { MinimumTier = CaptainTierEnum.Standard }, token).ConfigureAwait(false);
 
             try
             {
@@ -39,20 +39,20 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(7, createdCaptain.PreferenceRank, "Create persists the preference rank");
                 DatabaseAssert.True(createdCaptain.Tier == CaptainTierEnum.Premium, "Create keeps the tier beside the rank");
                 Persona createdPersona = await ReopenAndReadPersonaAsync(persona.Id, token).ConfigureAwait(false);
-                DatabaseAssert.True(createdPersona.Specialist, "Create persists the specialist flag");
+                DatabaseAssert.True(createdPersona.MinimumTier == CaptainTierEnum.Standard, "Create persists the minimum tier");
 
                 createdCaptain.PreferenceRank = -3;
                 await _Driver.Captains.UpdateAsync(createdCaptain, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(-3, (await ReopenAndReadCaptainAsync(captain.Id, token).ConfigureAwait(false)).PreferenceRank, "Update persists a changed rank");
 
-                createdPersona.Specialist = false;
+                createdPersona.MinimumTier = CaptainTierEnum.Premium;
                 await _Driver.Personas.UpdateAsync(createdPersona, token).ConfigureAwait(false);
-                DatabaseAssert.True(!(await ReopenAndReadPersonaAsync(persona.Id, token).ConfigureAwait(false)).Specialist, "Update clears the specialist flag");
+                DatabaseAssert.True((await ReopenAndReadPersonaAsync(persona.Id, token).ConfigureAwait(false)).MinimumTier == CaptainTierEnum.Premium, "Update persists a changed minimum tier");
 
                 Persona defaulted = await _Driver.Personas.CreateAsync(new Persona("Plain" + suffix, "persona.worker"), token).ConfigureAwait(false);
                 try
                 {
-                    DatabaseAssert.True(!(await ReopenAndReadPersonaAsync(defaulted.Id, token).ConfigureAwait(false)).Specialist, "A persona is not a specialist by default");
+                    DatabaseAssert.True(!(await ReopenAndReadPersonaAsync(defaulted.Id, token).ConfigureAwait(false)).MinimumTier.HasValue, "A persona minimum is unset by default");
                 }
                 finally
                 {

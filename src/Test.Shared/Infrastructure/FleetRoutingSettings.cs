@@ -92,7 +92,9 @@ namespace Test.Shared.Infrastructure
                     { "example/mid-audit", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 68, Cost = 55 } }
                 }
             };
-            settings.Records = TierRoutingRecords.ForSpecialists(SpecialistPersonaNames);
+            settings.Records = TierRoutingRecords.ForMinimumTiers(SpecialistPersonaNames
+                .Select(name => new KeyValuePair<string, Armada.Core.Enums.CaptainTierEnum>(
+                    name, TierRecordMigrationService.MinimumTierForPersona(name))));
             return settings;
         }
 
@@ -116,7 +118,7 @@ namespace Test.Shared.Infrastructure
                     captain.PreferenceRank = change.Rank;
                 }
             }
-            personas.ForEach(persona => persona.Specialist = true);
+            personas.ForEach(persona => persona.MinimumTier = TierRecordMigrationService.MinimumTierForPersona(persona.Name));
             settings.Records = TierRoutingRecords.From(personas, captains);
         }
 

@@ -1,6 +1,7 @@
 namespace Armada.Server
 {
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// The routing fields of a persona update request. A member the request omits leaves the stored value
@@ -11,9 +12,19 @@ namespace Armada.Server
         #region Public-Members
 
         /// <summary>
-        /// Whether missions of this persona are routed only to Premium captains. Null leaves the stored value unchanged.
+        /// Legacy input retained for old update clients. It does not change routing.
         /// </summary>
         public bool? Specialist { get; set; } = null;
+
+        /// <summary>Minimum capability tier; an explicit null clears the floor.</summary>
+        public CaptainTierEnum? MinimumTier
+        {
+            get => _MinimumTier;
+            set { _MinimumTier = value; MinimumTierSupplied = true; }
+        }
+
+        [JsonIgnore]
+        public bool MinimumTierSupplied { get; private set; }
 
         /// <summary>
         /// Requested default captain id. Only meaningful when <see cref="DefaultCaptainIdSupplied"/> is true: a null
@@ -44,6 +55,7 @@ namespace Armada.Server
         #region Private-Members
 
         private string? _DefaultCaptainId = null;
+        private CaptainTierEnum? _MinimumTier = null;
 
         #endregion
     }

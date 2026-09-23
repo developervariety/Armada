@@ -993,7 +993,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(98, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.SqlServerStatements),
                 new SchemaMigration(99, "Persist memory proposals", MemoryProposalSchema.SqlServerStatements),
                 new SchemaMigration(100, "Persist captain preference ranks and persona specialist flags", TierRoutingPersistence.SqlServerStatements),
-                new SchemaMigration(101, "Drop the unused jobs table", JobsTableDropSchema.SqlServerStatements)
+                new SchemaMigration(101, "Drop the unused jobs table", JobsTableDropSchema.SqlServerStatements),
+                new SchemaMigration(102, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.SqlServerStatements)
             };
         }
 

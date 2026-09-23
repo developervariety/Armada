@@ -53,8 +53,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, ownership_scope, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, specialist, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @specialist, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, ownership_scope, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, minimum_tier, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @minimum_tier, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", persona.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
@@ -188,7 +188,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         prompt_template_name = @prompt_template_name,
                         default_captain_id = @default_captain_id,
                         is_built_in = @is_built_in,
-                            specialist = @specialist,
+                            minimum_tier = @minimum_tier,
                         default_playbooks = @default_playbooks,
                         active = @active,
                         last_update_utc = @last_update_utc

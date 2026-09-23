@@ -76,7 +76,7 @@ What the fork adds on top of the shared model:
   Checks, declared-consumer builds, verified landing evidence, and full recovery
   pipelines with provider-aware rescue.
 - **Smart Routing.** Legacy Routing (captain capability tiers and preference
-  ranks, persona locks, specialist personas, non-native-first) plus an opt-in usage
+  ranks, persona locks and minimum tiers, non-native-first) plus an opt-in usage
   filter that removes captains on exhausted accounts and demotes low ones,
   per-persona default, lighter, and stronger model lists chosen by the
   `capacity_escalation` typed decision, and optional persona route restrictions.
@@ -185,20 +185,19 @@ Personas are stored records, not hardcoded prompt strings. Custom personas and p
 
 ### Model-Tier Routing
 
-Dispatchers can use `preferredModel` as routing guidance. Product defaults are
-policy-neutral (no specialist persona, no ranked captain, guard off). Routing
+Dispatchers can use `preferredModel` as routing guidance. Routing
 selects in three layers; see [Smart Routing](docs/USAGE_ROUTING.md).
 
 - Each captain carries a capability tier (`Economy`, `Standard`, `Premium`; classified from the model name unless pinned) and a preference rank, both edited on the captain. `low`, `mid`, and `high` name a tier floor (Economy, Standard, Premium): the lowest idle tier at or above the floor is tried first, higher rank first.
-- A persona flagged as a specialist (edited on the persona) always requires a Premium captain.
+- A persona can set a minimum capability tier. The Test Engineer persona uses a Standard minimum so routine test work can use Standard captains.
 - Literal model names remain available for direct pins.
 - Pipeline stages can override mission-level routing with their own `PreferredModel`.
 - Dispatch and objective preview use the same persona-aware result for each generated
-  stage and mission. A non-specialist `high` tier request is capped to `mid`, while
-  configured specialist and Judge stages stay `high`. Preview reports separate
+  stage and mission. The persona minimum and mission request combine into one
+  floor. Preview reports separate
   requirements when mission descriptions use different literal model pins.
-- Non-native-first, reserved Premium slots, and the stage-persona title-prefix guard live in `ArmadaSettings` (`factory/settings.fleet.example.json` is the fleet overlay). The retired `midTierModels`, `highTierModels`, `familyClassificationRules`, `specialistPersonas`, `withinTierStrategy`, and `withinTierPreferenceOrder` keys are moved onto captain tiers, captain ranks, and persona flags once at startup, with a settings backup.
-- **Legacy Routing** is everything above, with `modelTier.usageRouting.enabled` false. Optional [Smart Routing](docs/USAGE_ROUTING.md) (`enabled` true) keeps the Legacy Routing order and filters it: captains on Exhausted accounts are removed and captains on Low or Reserve accounts move after the rest. Per-persona `default`, `lighter`, and `stronger` model lists group the order, the `capacity_escalation` typed decision chooses the list tried first, and optional persona routes restrict a persona to named accounts. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
+- Non-native-first, reserved Premium slots, and the stage-persona title-prefix guard live in `ArmadaSettings` (`factory/settings.fleet.example.json` is the fleet overlay). The retired tier keys move onto captain tiers, captain ranks, and persona minimum tiers once at startup, with a settings backup.
+- **Legacy Routing** is everything above, with `modelTier.usageRouting.enabled` false. It needs no Jev key and remains available when operators prefer its deterministic order. Optional [Smart Routing](docs/USAGE_ROUTING.md) (`enabled` true) keeps the Legacy Routing order and filters it: captains on Exhausted accounts are removed and captains on Low or Reserve accounts move after the rest. Per-persona `default`, `lighter`, and `stronger` model lists group the order, the `capacity_escalation` decision chooses the list tried first, and optional persona routes restrict a persona to named accounts. Without Jev, Smart Routing tries Default first and keeps the account usage filter. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
 - The same Routing tab edits those fields and saves only the fields that changed. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
 ### Typed decisions (Off until a key is present)

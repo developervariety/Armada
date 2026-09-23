@@ -2271,8 +2271,8 @@ export interface Persona {
   promptTemplateName: string;
   /** Captain preferred for this persona, used to seed a dispatch's per-step assignment. */
   defaultCaptainId?: string | null;
-  /** When true, missions of this persona are routed only to Premium captains. */
-  specialist?: boolean;
+  /** Minimum capability tier required for missions of this persona. */
+  minimumTier?: 'Economy' | 'Standard' | 'Premium' | null;
   isBuiltIn: boolean;
   active: boolean;
   createdUtc: string;

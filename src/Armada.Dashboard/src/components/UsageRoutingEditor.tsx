@@ -54,12 +54,12 @@ export default function UsageRoutingEditor({ value, onChange, statuses, personas
       <label className="routing-mode-option">
         <input type="radio" name="routing-mode" aria-label={t('Legacy Routing')} checked={!smart} onChange={() => update({ enabled: false })} />
         <span><strong>{t('Legacy Routing')}</strong><br />
-          <span className="text-muted">{t('Captain tiers, preference ranks, and persona locks pick the captain.')}</span></span>
+          <span className="text-muted">{t('Works without a Jev API key. Persona locks, minimum tiers, and Legacy Routing order pick the captain.')}</span></span>
       </label>
       <label className="routing-mode-option">
         <input type="radio" name="routing-mode" aria-label={t('Smart Routing')} checked={smart} onChange={() => update({ enabled: true })} />
         <span><strong>{t('Smart Routing')}</strong><br />
-          <span className="text-muted">{t('Legacy Routing plus the usage filter, persona model lists, and the Jev capacity decision.')}</span></span>
+          <span className="text-muted">{t('Adds account usage and persona model lists. Jev selects a list when available; without Jev, Default goes first.')}</span></span>
       </label>
     </fieldset>
     <div className="settings-grid">

@@ -1099,13 +1099,12 @@ namespace Armada.Core.Services
         {
             List<PipelineStage> stages = pipeline?.Stages?.ToList()
                 ?? new List<PipelineStage> { new PipelineStage(1, "Worker") };
-            IReadOnlyCollection<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
             foreach (PipelineStage stage in stages
                 .Where(item => item != null)
                 .OrderBy(item => item.Order))
             {
                 List<string?> resolvedPreferences = ResolveStagePreferredModels(
-                    stage, missionDescriptions, specialistPersonas);
+                    stage, missionDescriptions, _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName));
                 foreach (string? preferredModel in resolvedPreferences.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     CaptainAssignmentOverride? assignment = MissionService.SelectCaptainOverride(captainAssignments, stage.PersonaName);
@@ -1160,13 +1159,13 @@ namespace Armada.Core.Services
         private static List<string?> ResolveStagePreferredModels(
             PipelineStage stage,
             IReadOnlyList<MissionDescription>? missionDescriptions,
-            IReadOnlyCollection<string> specialistPersonas)
+            Armada.Core.Enums.CaptainTierEnum? minimumTier)
         {
             List<string?> resolved = new List<string?>();
             if (missionDescriptions == null || missionDescriptions.Count == 0)
             {
                 resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
-                    stage.PreferredModel, null, stage.PersonaName, specialistPersonas));
+                    stage.PreferredModel, null, minimumTier));
                 return resolved;
             }
 
@@ -1176,14 +1175,13 @@ namespace Armada.Core.Services
                 resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
                     stage.PreferredModel,
                     missionDescription.PreferredModel,
-                    stage.PersonaName,
-                    specialistPersonas));
+                    minimumTier));
             }
 
             if (resolved.Count == 0)
             {
                 resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
-                    stage.PreferredModel, null, stage.PersonaName, specialistPersonas));
+                    stage.PreferredModel, null, minimumTier));
             }
 
             return resolved;

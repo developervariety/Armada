@@ -1492,7 +1492,7 @@ namespace Armada.Server.WebSocket
             if (patchPersona.Description != null) existPersona.Description = patchPersona.Description;
             if (patchPersona.PromptTemplateName != null) existPersona.PromptTemplateName = patchPersona.PromptTemplateName;
             PersonaRoutingUpdate? patchRouting = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data;
-            if (patchRouting?.Specialist != null) existPersona.Specialist = patchRouting.Specialist.Value;
+            if (patchRouting?.MinimumTierSupplied == true) existPersona.MinimumTier = patchRouting.MinimumTier;
             if (patchRouting != null && patchRouting.DefaultCaptainIdSupplied)
             {
                 string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_Database, existPersona, patchRouting.DefaultCaptainId).ConfigureAwait(false);

@@ -180,7 +180,7 @@ namespace Armada.Server
     /// <summary>
     /// Partial update for model-tier routing policy. A null member leaves the current
     /// value in place; a supplied collection replaces that collection outright. A captain's
-    /// tier and preference rank and a persona's specialist flag are edited on those records;
+    /// tier and preference rank and a persona's minimum tier are edited on those records;
     /// the retired tier keys sent here are ignored.
     /// </summary>
     public class ModelTierUpdate
@@ -189,7 +189,7 @@ namespace Armada.Server
         public UsageRoutingSettings? UsageRouting { get; set; }
 
         /// <summary>
-        /// Idle Premium captain slots held in reserve for specialist missions.
+        /// Idle Premium captain slots held in reserve for missions with a Premium minimum tier.
         /// Clamped to [0, 10]. Zero disables the reservation.
         /// </summary>
         public int? ReservedHighTierSlots { get; set; }

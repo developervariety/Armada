@@ -60,15 +60,15 @@ namespace Armada.Core.Services
             foreach (KeyValuePair<string, PersonaModelSettings> pair in policy.PersonaModels)
             {
                 if (pair.Value == null) continue;
-                bool specialist = tiers.IsSpecialistPersona(pair.Key);
+                CaptainTierEnum? minimumTier = tiers.MinimumTierForPersona(pair.Key);
                 List<Captain> eligible = captains
                     .Where(captain => captain != null && IsEligible(tiers, pair.Key, captain))
                     .ToList();
                 views.Add(new PersonaModelRoutingView
                 {
                     Persona = pair.Key,
-                    Floor = specialist ? "Premium" : "none",
-                    Specialist = specialist,
+                    Floor = minimumTier?.ToString() ?? "none",
+                    MinimumTier = minimumTier?.ToString(),
                     EligibleCaptainIds = eligible.Select(captain => captain.Id).ToList(),
                     Default = Mark(pair.Value.Default, pair.Key, tiers, captains),
                     Lighter = Mark(pair.Value.Lighter, pair.Key, tiers, captains),
@@ -83,8 +83,8 @@ namespace Armada.Core.Services
         {
             if (captain == null || String.IsNullOrWhiteSpace(persona)) return false;
             if (!MissionService.CaptainAllowsPersona(captain, persona)) return false;
-            bool specialist = tiers != null && tiers.IsSpecialistPersona(persona);
-            List<CaptainTierEnum> order = PreferredModelTierSelector.TierOrder(null, specialist);
+            CaptainTierEnum? minimumTier = tiers?.MinimumTierForPersona(persona);
+            List<CaptainTierEnum> order = PreferredModelTierSelector.TierOrder(null, minimumTier);
             return order.Contains(CaptainTierSelector.EffectiveTier(captain));
         }
 

@@ -27,7 +27,7 @@ function saved(overrides: { reservedHighTierSlots?: number; usageRouting?: Recor
   };
 }
 
-const reservedSlots = () => screen.getByTitle('Idle Premium slots held for specialist work (0 disables)');
+const reservedSlots = () => screen.getByTitle('Idle Premium slots held for downstream work (0 disables)');
 const usagePolicy = () => screen.getByLabelText('Account and persona policy (JSON)');
 
 describe('Routing settings page', () => {
@@ -68,7 +68,7 @@ describe('Routing settings page', () => {
     vi.mocked(getSettings).mockResolvedValue(saved());
     vi.mocked(updateSettings).mockResolvedValue(saved({ reservedHighTierSlots: 2 }));
     render(<RoutingSettings />);
-    await screen.findByTitle('Idle Premium slots held for specialist work (0 disables)');
+    await screen.findByTitle('Idle Premium slots held for downstream work (0 disables)');
     fireEvent.change(reservedSlots(), { target: { value: '2' } });
     fireEvent.click(screen.getByText('Save model routing'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
@@ -79,7 +79,7 @@ describe('Routing settings page', () => {
   it('shows no retired tier list, strategy, preference order, family rule, or specialist persona field', async () => {
     vi.mocked(getSettings).mockResolvedValue(saved());
     render(<RoutingSettings />);
-    await screen.findByTitle('Idle Premium slots held for specialist work (0 disables)');
+    await screen.findByTitle('Idle Premium slots held for downstream work (0 disables)');
     expect(screen.queryByText('Mid-tier models (one per line)')).not.toBeInTheDocument();
     expect(screen.queryByText('High-tier models (one per line)')).not.toBeInTheDocument();
     expect(screen.queryByText('Specialist personas (one per line)')).not.toBeInTheDocument();
@@ -109,7 +109,7 @@ describe('Routing settings page', () => {
     vi.mocked(updateSettings).mockResolvedValueOnce(saved({ usageRouting: { ...policy, enabled: true } }));
     vi.mocked(updateSettings).mockResolvedValueOnce(saved({ reservedHighTierSlots: 5, usageRouting: { ...policy, enabled: true } }));
     render(<RoutingSettings />);
-    await screen.findByTitle('Idle Premium slots held for specialist work (0 disables)');
+    await screen.findByTitle('Idle Premium slots held for downstream work (0 disables)');
     fireEvent.change(reservedSlots(), { target: { value: '5' } });
     fireEvent.click(screen.getByLabelText('Smart Routing'));
     fireEvent.click(screen.getByText('Save routing policy'));
