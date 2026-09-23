@@ -45,6 +45,45 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProcessHost_ChildThatExitsImmediately_IsStartedThenExitedNeverLaunchFailed", async () =>
+            {
+                if (SkipWindows("ProcessHost_ChildThatExitsImmediately_IsStartedThenExitedNeverLaunchFailed")) return;
+                using (CutoverFixture fixture = new CutoverFixture())
+                {
+                    // A child can exit and be reaped before its start time is read. It still started, so the
+                    // launch returns an identity that reads as exited instead of failing the launch.
+                    int launchFailures = 0;
+                    string firstFailure = String.Empty;
+                    object gate = new object();
+                    Task[] workers = new Task[8];
+                    for (int w = 0; w < workers.Length; w++)
+                    {
+                        workers[w] = Task.Run(async () =>
+                        {
+                            for (int i = 0; i < 40; i++)
+                            {
+                                try
+                                {
+                                    SelfDeployProcessIdentity child = fixture.StartShell("exit 0");
+                                    SelfDeployProcessStateEnum state = await fixture.Host.WaitForExitAsync(child, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(20));
+                                    if (state != SelfDeployProcessStateEnum.Exited) throw new InvalidOperationException("child read " + state + " after it exited");
+                                }
+                                catch (SelfDeployCutoverException ex)
+                                {
+                                    lock (gate)
+                                    {
+                                        launchFailures++;
+                                        if (firstFailure.Length == 0) firstFailure = ex.FailureReason + ": " + ex.InnerException?.Message;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    await Task.WhenAll(workers);
+                    AssertEqual(0, launchFailures, "an immediately exiting child is not a failed launch (" + firstFailure + ")");
+                }
+            });
+
             await RunTest("ProcessHost_TerminatedChild_IsConfirmedExitedEveryTime", async () =>
             {
                 if (SkipWindows("ProcessHost_TerminatedChild_IsConfirmedExitedEveryTime")) return;
@@ -628,7 +667,7 @@ namespace Armada.Test.Unit.Suites.Services
             public SelfDeployProcessIdentity Start(SelfDeployLaunchSpec spec)
             {
                 SelfDeployProcessIdentity identity = _Inner.Start(spec);
-                Started.Add(identity);
+                lock (Started) Started.Add(identity);
                 return identity;
             }
 

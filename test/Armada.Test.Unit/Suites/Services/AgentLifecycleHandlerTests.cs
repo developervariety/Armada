@@ -772,6 +772,88 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A process exit that stops the liveness heartbeat while it is starting never faults the launch", async () =>
+            {
+                // The exit handler stops the heartbeat on its own thread, so it can remove and dispose the
+                // loop's cancellation source at any instant after the launch path publishes it. Starting must
+                // not touch the source after publishing it.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    settings.HeartbeatIntervalSeconds = 3600;
+                    const int processId = 737373;
+                    const int iterations = 50000;
+
+                    MethodInfo startMethod = typeof(AgentLifecycleHandler).GetMethod("StartProcessLivenessHeartbeat", BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException("Could not find StartProcessLivenessHeartbeat method");
+                    MethodInfo stopMethod = typeof(AgentLifecycleHandler).GetMethod("StopProcessLivenessHeartbeat", BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException("Could not find StopProcessLivenessHeartbeat method");
+                    Action<int, string, string> start = startMethod.CreateDelegate<Action<int, string, string>>(handler);
+                    Action<int> stop = stopMethod.CreateDelegate<Action<int>>(handler);
+
+                    int faults = 0;
+                    string? firstFault = null;
+                    using (CancellationTokenSource stopping = new CancellationTokenSource())
+                    {
+                        Task stopper = Task.Factory.StartNew(() =>
+                        {
+                            while (!stopping.IsCancellationRequested) stop(processId);
+                        }, TaskCreationOptions.LongRunning);
+
+                        Task starter = Task.Factory.StartNew(() =>
+                        {
+                            for (int i = 0; i < iterations; i++)
+                            {
+                                try { start(processId, "race-captain", "race-mission"); }
+                                catch (ObjectDisposedException ex)
+                                {
+                                    faults++;
+                                    if (firstFault == null) firstFault = ex.Message;
+                                }
+                            }
+                        }, TaskCreationOptions.LongRunning);
+
+                        await starter.ConfigureAwait(false);
+                        stopping.Cancel();
+                        await stopper.ConfigureAwait(false);
+                    }
+
+                    stop(processId);
+                    AssertEqual(0, faults, "starting the heartbeat raced its stop " + faults + " times out of " + iterations + (firstFault == null ? "" : ": " + firstFault));
+                }
+            });
+
+            await RunTest("A stopped liveness heartbeat loop never removes the loop a later launch registered for the same process id", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    settings.HeartbeatIntervalSeconds = 3600;
+                    const int rounds = 200;
+                    int lost = 0;
+
+                    for (int i = 0; i < rounds; i++)
+                    {
+                        int processId = 848000 + i;
+                        StartTrackedProcessHeartbeat(handler, processId, "reuse-captain", "reuse-mission-a");
+                        StopTrackedProcessHeartbeat(handler, processId);
+                        StartTrackedProcessHeartbeat(handler, processId, "reuse-captain", "reuse-mission-b");
+                    }
+
+                    // Every stopped first loop has finished once its cancellation is observed.
+                    await Task.Delay(500).ConfigureAwait(false);
+
+                    for (int i = 0; i < rounds; i++)
+                    {
+                        int processId = 848000 + i;
+                        if (!HasProcessHeartbeatLoop(handler, processId)) lost++;
+                        StopTrackedProcessHeartbeat(handler, processId);
+                    }
+
+                    AssertEqual(0, lost, "a stopped loop removed the registration of the loop started after it");
+                }
+            });
+
             await RunTest("HandleAgentOutput bounds streamed output and retains tail with truncation marker", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

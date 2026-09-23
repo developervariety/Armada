@@ -317,8 +317,6 @@ namespace Test.Shared.Infrastructure
             dbSettings.Type = DatabaseTypeEnum.Sqlite;
             dbSettings.Filename = sqlitePath;
 
-            RestPort = GetAvailablePort();
-            McpPort = GetAvailablePort();
             ApiKey = "test-key-" + Guid.NewGuid().ToString("N");
 
             LoggingModule logging = new LoggingModule();
@@ -331,8 +329,6 @@ namespace Test.Shared.Infrastructure
             settings.LogDirectory = Path.Combine(TempDir, "logs");
             settings.DocksDirectory = Path.Combine(TempDir, "docks");
             settings.ReposDirectory = Path.Combine(TempDir, "repos");
-            settings.AdmiralPort = RestPort;
-            settings.McpPort = McpPort;
             settings.ApiKey = ApiKey;
             settings.HeartbeatIntervalSeconds = 300;
             // Bind this server's settings to its own temp file. The server watches its settings file and
@@ -366,9 +362,26 @@ namespace Test.Shared.Infrastructure
             // Dispatched missions use the non-launching test runtime unless a runtime is opted in by name, so a
             // run never starts the agent CLIs installed on this machine or reads their credentials.
             TestProcessEnvironment.RemoveProviderVariables();
-            _Server = new ArmadaServer(logging, settings,
-                new TestAgentRuntimeFactory(logging, settings, TestAgentRuntimeFactory.ReadOptedInRuntimes()), quiet: true);
-            await _Server.StartAsync().ConfigureAwait(false);
+
+            // The listen ports are found free and released before the server binds them, so a start that loses
+            // one to another socket is stopped and started again on new ports.
+            await LoopbackPorts.StartAsync(
+                async () =>
+                {
+                    RestPort = LoopbackPorts.FindFree();
+                    McpPort = LoopbackPorts.FindFree();
+                    settings.AdmiralPort = RestPort;
+                    settings.McpPort = McpPort;
+                    _Server = new ArmadaServer(logging, settings,
+                        new TestAgentRuntimeFactory(logging, settings, TestAgentRuntimeFactory.ReadOptedInRuntimes()), quiet: true);
+                    await _Server.StartAsync().ConfigureAwait(false);
+                },
+                () =>
+                {
+                    try { _Server?.Stop(); }
+                    catch (Exception stopEx) { Console.Error.WriteLine("[E2EServerFixture] stopping a server that lost its port failed: " + stopEx.Message); }
+                    _Server = null!;
+                }).ConfigureAwait(false);
 
             BaseUrl = "http://127.0.0.1:" + RestPort;
 
@@ -432,15 +445,6 @@ namespace Test.Shared.Infrastructure
             {
                 // Best-effort cleanup; a lingering handle must not crash process exit.
             }
-        }
-
-        private static int GetAvailablePort()
-        {
-            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-            return port;
         }
 
         #endregion

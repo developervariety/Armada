@@ -525,11 +525,15 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselIds = new List<string> { vessel.Id }
                     }).ConfigureAwait(false);
 
+                    DateTime? periodicSweepCompletedUtc = scheduler.LastSweepCompletedUtc;
                     scheduler.RequestRefill();
                     scheduler.RequestRefill();
                     scheduler.RequestRefill();
 
+                    // The counter moves when the event-triggered sweep starts; its dispatch is visible only once
+                    // that sweep has completed.
                     await WaitForEventTriggeredSweepCountAsync(scheduler, 1).ConfigureAwait(false);
+                    await WaitForSweepCompletedAfterAsync(scheduler, periodicSweepCompletedUtc).ConfigureAwait(false);
                     await Task.Delay(100).ConfigureAwait(false);
 
                     AssertEqual(1L, scheduler.EventTriggeredSweepCount,
@@ -2917,7 +2921,19 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.Delay(10).ConfigureAwait(false);
 
             AssertEqual(expectedCount, scheduler.EventTriggeredSweepCount,
-                "The expected event-triggered sweep did not finish before the test deadline.");
+                "The expected event-triggered sweep did not start before the test deadline.");
+        }
+
+        private async Task WaitForSweepCompletedAfterAsync(
+            AutonomousObjectiveScheduler scheduler,
+            DateTime? previousCompletionUtc)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            while ((scheduler.LastSweepCompletedUtc == previousCompletionUtc || scheduler.SweepInProgress) && DateTime.UtcNow < deadline)
+                await Task.Delay(10).ConfigureAwait(false);
+
+            AssertFalse(scheduler.LastSweepCompletedUtc == previousCompletionUtc || scheduler.SweepInProgress,
+                "The event-triggered sweep did not complete before the test deadline.");
         }
 
         private static ArmadaSettings EnabledSchedulerSettings()

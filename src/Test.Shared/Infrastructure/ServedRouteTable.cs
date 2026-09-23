@@ -87,7 +87,6 @@ namespace Test.Shared.Infrastructure
             ProxySettings settings = new ProxySettings
             {
                 Hostname = "127.0.0.1",
-                Port = ReservePort(),
                 Password = "route-table-password",
                 DataDirectory = dataDirectory,
                 LogDirectory = Path.Combine(dataDirectory, "logs")
@@ -96,15 +95,27 @@ namespace Test.Shared.Infrastructure
 
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
-            ArmadaProxyServer proxy = new ArmadaProxyServer(logging, settings, quiet: true);
-            await proxy.StartAsync().ConfigureAwait(false);
+            ArmadaProxyServer? proxy = null;
+            await LoopbackPorts.StartAsync(
+                async () =>
+                {
+                    settings.Port = LoopbackPorts.FindFree();
+                    proxy = new ArmadaProxyServer(logging, settings, quiet: true);
+                    await proxy.StartAsync().ConfigureAwait(false);
+                },
+                () =>
+                {
+                    try { proxy?.Stop(); }
+                    catch (Exception stopEx) { Console.Error.WriteLine("[ServedRouteTable] stopping a proxy that lost its port failed: " + stopEx.Message); }
+                    proxy = null;
+                }).ConfigureAwait(false);
             try
             {
-                return FromRoutes(proxy.Routes);
+                return FromRoutes(proxy!.Routes);
             }
             finally
             {
-                proxy.Stop();
+                proxy!.Stop();
             }
         }
 
@@ -142,15 +153,6 @@ namespace Test.Shared.Infrastructure
 
             if (served.Count == 0) throw new InvalidOperationException("The server registered no routes; the contract cannot be checked.");
             return new ServedRouteTable(served);
-        }
-
-        private static int ReservePort()
-        {
-            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-            return port;
         }
 
         #endregion

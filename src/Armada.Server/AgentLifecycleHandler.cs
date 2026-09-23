@@ -999,6 +999,13 @@ namespace Armada.Server
         private void StartProcessLivenessHeartbeat(int processId, string captainId, string missionId)
         {
             CancellationTokenSource cts = new CancellationTokenSource();
+
+            // Read the token BEFORE the source is published. Once it is in the map, the process exit
+            // handler (StopProcessLivenessHeartbeat, on its own thread) may remove and dispose it at any
+            // instant, and CancellationTokenSource.Token throws ObjectDisposedException after disposal.
+            // A CancellationToken captured before disposal stays usable, so nothing below touches the
+            // source again except the owner that removes it from the map.
+            CancellationToken token = cts.Token;
             if (!_ProcessHeartbeatLoops.TryAdd(processId, cts))
             {
                 cts.Dispose();
@@ -1007,12 +1014,6 @@ namespace Armada.Server
 
             TimeSpan interval = _ProcessLivenessInterval ?? TimeSpan.FromSeconds(Math.Max(5, _Settings.HeartbeatIntervalSeconds));
 
-            // Read the token HERE, while the source is guaranteed alive. Reading cts.Token inside the
-            // task body raced with StopProcessLivenessHeartbeat disposing the source: the property
-            // throws ObjectDisposedException, and because it sat outside the try block the
-            // fire-and-forget task faulted with nobody observing it, so the exception resurfaced from
-            // the finalizer thread. A CancellationToken captured before disposal stays usable.
-            CancellationToken token = cts.Token;
             _ = Task.Run(async () =>
             {
                 try
@@ -1072,9 +1073,11 @@ namespace Armada.Server
                 }
                 finally
                 {
-                    if (_ProcessHeartbeatLoops.TryRemove(processId, out CancellationTokenSource? removed))
+                    // Remove only this loop's own source: a later launch that reused the process id owns
+                    // any newer entry.
+                    if (_ProcessHeartbeatLoops.TryRemove(new KeyValuePair<int, CancellationTokenSource>(processId, cts)))
                     {
-                        removed.Dispose();
+                        cts.Dispose();
                     }
                 }
             });

@@ -96,11 +96,12 @@ namespace Armada.Core.Services
             Process process = new Process { StartInfo = startInfo };
             try
             {
+                DateTime launchUtc = DateTime.UtcNow;
                 if (!process.Start()) throw new SelfDeployCutoverException("launch_did_not_start");
                 return new SelfDeployProcessIdentity
                 {
                     ProcessId = process.Id,
-                    StartedUtc = process.StartTime.ToUniversalTime()
+                    StartedUtc = ReadStartTimeUtc(process, launchUtc)
                 };
             }
             catch (SelfDeployCutoverException)
@@ -171,6 +172,23 @@ namespace Armada.Core.Services
                 state = GetState(identity);
             }
             return state;
+        }
+
+        /// <summary>
+        /// Read the start time of a process this host has just started. A child that exits at once can be reaped
+        /// before its start time is read; it still started, so the launch time taken just before the start stands
+        /// in for it (well inside <see cref="StartTimeTolerance"/>) and the identity then reads as exited.
+        /// </summary>
+        private static DateTime ReadStartTimeUtc(Process process, DateTime launchUtc)
+        {
+            try
+            {
+                return process.StartTime.ToUniversalTime();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is Win32Exception || ex is NotSupportedException)
+            {
+                return launchUtc;
+            }
         }
 
         private static void SignalKill(Process process, bool entireProcessTree)

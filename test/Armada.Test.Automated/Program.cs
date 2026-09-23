@@ -76,9 +76,6 @@ namespace Armada.Test.Automated
             // Print database info at startup
             PrintDatabaseInfo(dbSettings);
 
-            // Allocate random ports
-            int restPort = GetAvailablePort();
-            int mcpPort = GetAvailablePort();
             string apiKey = "test-key-" + Guid.NewGuid().ToString("N");
 
             LoggingModule logging = new LoggingModule();
@@ -91,8 +88,6 @@ namespace Armada.Test.Automated
             settings.LogDirectory = Path.Combine(tempDir, "logs");
             settings.DocksDirectory = Path.Combine(tempDir, "docks");
             settings.ReposDirectory = Path.Combine(tempDir, "repos");
-            settings.AdmiralPort = restPort;
-            settings.McpPort = mcpPort;
             settings.ApiKey = apiKey;
             settings.HeartbeatIntervalSeconds = 300;
             // Bind the harness server's settings to its own temp file, so it neither hot-reloads the host
@@ -107,8 +102,28 @@ namespace Armada.Test.Automated
             settings.InitializeDirectories();
 
             // Dispatched missions use the non-launching test runtime; only an opted-in runtime starts its CLI.
-            ArmadaServer server = new ArmadaServer(logging, settings, new TestAgentRuntimeFactory(logging, settings, realRuntimes), quiet: true);
-            await server.StartAsync().ConfigureAwait(false);
+            // The listen ports are found free and released before the server binds them, so a start that loses
+            // one to another socket is stopped and started again on new ports.
+            int restPort = 0;
+            int mcpPort = 0;
+            ArmadaServer? startedServer = null;
+            await LoopbackPorts.StartAsync(
+                async () =>
+                {
+                    restPort = LoopbackPorts.FindFree();
+                    mcpPort = LoopbackPorts.FindFree();
+                    settings.AdmiralPort = restPort;
+                    settings.McpPort = mcpPort;
+                    startedServer = new ArmadaServer(logging, settings, new TestAgentRuntimeFactory(logging, settings, realRuntimes), quiet: true);
+                    await startedServer.StartAsync().ConfigureAwait(false);
+                },
+                () =>
+                {
+                    try { startedServer?.Stop(); }
+                    catch (Exception stopEx) { Console.Error.WriteLine("Stopping a server that lost its port failed: " + stopEx.Message); }
+                    startedServer = null;
+                }).ConfigureAwait(false);
+            ArmadaServer server = startedServer!;
             await Task.Delay(500).ConfigureAwait(false);
 
             string baseUrl = "http://localhost:" + restPort;
@@ -259,15 +274,6 @@ namespace Armada.Test.Automated
                     Console.WriteLine("Database: MySQL (" + dbSettings.Hostname + ":" + myPort + "/" + dbSettings.DatabaseName + ")");
                     break;
             }
-        }
-
-        private static int GetAvailablePort()
-        {
-            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-            return port;
         }
     }
 }

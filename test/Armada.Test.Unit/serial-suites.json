@@ -6,6 +6,7 @@
     "Autonomous Objective Scheduler": "Wall-clock bound: asserts a sweep completes in under 2 s with a 40 ms per-sweep budget.",
     "Long Running Job Service": "Starts an in-process server on ports found by binding port 0.",
     "Admiral Server Stop": "Starts in-process servers on ports found by binding port 0.",
+    "Loopback Ports": "Starts in-process servers on ports found by binding port 0, and holds a loopback port to make one start lose it.",
     "Objective Dispatch Attempts": "Wall-clock bound: asserts a contended admission returns in under 3 s; also starts an in-process server on ports found by binding port 0.",
     "Dispatch Code Context Bounded": "Wall-clock bound: asserts dispatch returns in under 5 s when code context stalls.",
     "Dispatch Fail Fast": "Wall-clock bound: asserts dispatch fails in under 15 s; also sets the git and code-context timeout environment variables.",

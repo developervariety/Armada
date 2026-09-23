@@ -365,6 +365,15 @@ namespace Test.Shared.Suites.E2E
                 AssertNotNull(otherTenantEntry, "Other-tenant entry");
                 _OtherTenantEntryId = otherTenantEntry!.Id;
 
+                // A request is recorded after its response is sent, so the user's own entry is awaited like
+                // every other captured entry; a single read can run before the capture is written.
+                RequestHistoryEntry? ownEntry = await FindEntryByTraceAsync(
+                    _TenantAUserClient!,
+                    "/api/v1/whoami",
+                    _TenantUserTrace,
+                    "GET").ConfigureAwait(false);
+                AssertNotNull(ownEntry, "Regular user should see own request");
+
                 HttpResponseMessage response = await _TenantAUserClient!.GetAsync(
                     "/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);

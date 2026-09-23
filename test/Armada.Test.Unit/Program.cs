@@ -258,6 +258,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new Suites.Services.InboxServiceTests());
             runner.AddSuite(new Suites.Services.LongRunningJobServiceTests());
             runner.AddSuite(new Suites.Services.ArmadaServerStopTests());
+            runner.AddSuite(new Suites.Services.LoopbackPortsTests());
             runner.AddSuite(new Suites.Services.CodeIndexStalenessTests());
             runner.AddSuite(new Suites.Services.BranchCleanupSweepTests());
             runner.AddSuite(new Suites.Services.HealthLoopMaintenanceRunnerTests());

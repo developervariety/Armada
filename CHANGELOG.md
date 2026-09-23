@@ -143,6 +143,16 @@ upstream integrations and excludes changes already present at that baseline.
   they open. Stop sends no shutdown request: a 3-second grace period, then a tree
   kill. A cancelled launch starts nothing, and a launch that fails after start
   kills its child. Gemini, Cursor, and Mux keep JSON error events in the mission log.
+- **Launch and test races:** the liveness heartbeat reads its cancellation token
+  before it registers the loop, so a process exit that stops the heartbeat while a
+  launch starts it no longer fails the launch with a disposed-source error, and a
+  loop removes only its own registration. A self-deploy child that exits and is
+  reaped before its start time is read is recorded as started (with its launch
+  time) and then reads as exited, instead of failing the launch with
+  `launch_failed`. The shared and automated test hosts repeat a server start on new
+  loopback ports when a found port is taken before the bind; request-history scope
+  cases wait for the user's own capture, which is written after the response; the
+  scheduler refill case waits for the event-triggered sweep to complete.
 - **Indexing:** source chunks follow declaration boundaries, embedding clients use
   configured endpoints, captains search their own vessel, duplicate groups have an
   operator report, and dispatch staleness considers source relevance.
