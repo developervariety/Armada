@@ -126,6 +126,40 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
+            await RunTest("Stop all on a provider that stores no planning sessions still stops refinement sessions and names the unavailable source", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StopAllScenario scenario = await StopAllScenario.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                    PropertyInfo planningSessions = typeof(DatabaseDriver).GetProperty(nameof(DatabaseDriver.PlanningSessions))!;
+                    object? original = planningSessions.GetValue(testDb.Driver);
+                    planningSessions.SetValue(testDb.Driver, new Armada.Core.Database.Postgresql.Implementations.PlanningSessionMethods(null!, null!, null!));
+                    try
+                    {
+                        List<string> refinementStopped = new List<string>();
+                        CaptainAdministrationService service = new CaptainAdministrationService(testDb.Driver, (id, token) => Task.CompletedTask);
+                        service.StopRefinementSession = (session, token) =>
+                        {
+                            refinementStopped.Add(session.Id);
+                            return Task.CompletedTask;
+                        };
+
+                        CaptainStopAllResult result = await service.StopAllAsync().ConfigureAwait(false);
+
+                        AssertEqual(1, result.CaptainsStopped, "The working captain is recalled");
+                        AssertEqual(1, result.RefinementSessionsStopped, "The refinement session is stopped after the planning read is refused");
+                        AssertTrue(refinementStopped.Contains(scenario.RefinementSessionId), "The active refinement session is the one stopped");
+                        AssertEqual(0, result.PlanningSessionsFailed, "A provider with no planning storage has no planning session to fail");
+                        AssertTrue(result.UnavailableSources.Contains(CaptainStopAllResult.PlanningSessionsSource), "The unavailable planning source is named");
+                        AssertEqual(CaptainStopAllResult.AllStoppedStatus, result.Status);
+                    }
+                    finally
+                    {
+                        planningSessions.SetValue(testDb.Driver, original);
+                    }
+                }
+            });
+
             await RunTest("Every interface stops a Planning or Refining captain through its session and recalls a working captain", async () =>
             {
                 foreach (string surface in StopSurfaces)

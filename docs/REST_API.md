@@ -2207,7 +2207,12 @@ same result. It acts on every tenant, so it requires a global administrator; any
 other caller receives `403`.
 
 **Response:** `200 OK` - `CaptainStopAllResult`. `Status` is `all_stopped` when
-every stop succeeded and `stopped_with_failures` otherwise.
+every stop succeeded and `stopped_with_failures` otherwise. `UnavailableSources`
+names a session kind the database provider does not store (`PlanningSessions` on
+PostgreSQL, MySQL and SQL Server); no session of that kind can be running, so it
+is not a failure and the stop continues with the other kinds. A session kind whose
+active sessions cannot be read for any other reason is counted as a failed stop
+with `Id` `*`.
 
 ```json
 {
@@ -2222,7 +2227,8 @@ every stop succeeded and `stopped_with_failures` otherwise.
   "RefinementSessionsFailed": 1,
   "Failures": [
     { "Kind": "RefinementSession", "Id": "ors_abc123", "Message": "runtime did not exit" }
-  ]
+  ],
+  "UnavailableSources": []
 }
 ```
 

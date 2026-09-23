@@ -176,9 +176,13 @@ namespace Armada.Server
                 }
             }
 
-            List<PlanningSession> planning = (await _Database.PlanningSessions.EnumerateAsync(token).ConfigureAwait(false))
-                .Where(IsActive)
-                .ToList();
+            List<PlanningSession> planning = await ReadActiveSessionsAsync(
+                result,
+                CaptainStopAllResult.PlanningSessionsSource,
+                "PlanningSession",
+                () => _Database.PlanningSessions.EnumerateAsync(token),
+                s => IsActive(s),
+                failed => result.PlanningSessionsFailed += failed).ConfigureAwait(false);
             foreach (PlanningSession session in planning)
             {
                 if (StopPlanningSession == null)
@@ -200,9 +204,13 @@ namespace Armada.Server
                 }
             }
 
-            List<ObjectiveRefinementSession> refinement = (await _Database.ObjectiveRefinementSessions.EnumerateAsync(token).ConfigureAwait(false))
-                .Where(IsActive)
-                .ToList();
+            List<ObjectiveRefinementSession> refinement = await ReadActiveSessionsAsync(
+                result,
+                CaptainStopAllResult.RefinementSessionsSource,
+                "RefinementSession",
+                () => _Database.ObjectiveRefinementSessions.EnumerateAsync(token),
+                s => IsActive(s),
+                failed => result.RefinementSessionsFailed += failed).ConfigureAwait(false);
             foreach (ObjectiveRefinementSession session in refinement)
             {
                 if (StopRefinementSession == null)
@@ -407,6 +415,38 @@ namespace Armada.Server
             return session.Status == ObjectiveRefinementSessionStatusEnum.Active
                 || session.Status == ObjectiveRefinementSessionStatusEnum.Responding
                 || session.Status == ObjectiveRefinementSessionStatusEnum.Stopping;
+        }
+
+        /// <summary>
+        /// Read the active sessions of one kind for an emergency stop. A provider that does not store
+        /// that kind has none running: the source is named in the result and the stop continues. Any
+        /// other read error means sessions of that kind may still be running, so it is counted and
+        /// named as a failed stop, never skipped.
+        /// </summary>
+        private async Task<List<T>> ReadActiveSessionsAsync<T>(
+            CaptainStopAllResult result,
+            string source,
+            string kind,
+            Func<Task<List<T>>> read,
+            Func<T, bool> isActive,
+            Action<int> countFailed)
+        {
+            try
+            {
+                return (await read().ConfigureAwait(false)).Where(isActive).ToList();
+            }
+            catch (NotSupportedException ex)
+            {
+                result.UnavailableSources.Add(source);
+                _Logging?.Info(_Header + "emergency stop skipped " + source + ": the database provider does not store them (" + ex.Message + ")");
+                return new List<T>();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                countFailed(1);
+                result.Failures.Add(new CaptainStopFailure(kind, "*", "Could not read active sessions: " + ex.Message));
+                return new List<T>();
+            }
         }
 
         #endregion

@@ -21,6 +21,16 @@ namespace Armada.Core.Models
         public const string PartialStatus = "stopped_with_failures";
 
         /// <summary>
+        /// <see cref="UnavailableSources"/> entry when the provider does not store planning sessions.
+        /// </summary>
+        public const string PlanningSessionsSource = "PlanningSessions";
+
+        /// <summary>
+        /// <see cref="UnavailableSources"/> entry when the provider does not store objective refinement sessions.
+        /// </summary>
+        public const string RefinementSessionsSource = "RefinementSessions";
+
+        /// <summary>
         /// <see cref="AllStoppedStatus"/> when <see cref="Failed"/> is zero, otherwise <see cref="PartialStatus"/>.
         /// </summary>
         public string Status => Failed == 0 ? AllStoppedStatus : PartialStatus;
@@ -69,6 +79,12 @@ namespace Armada.Core.Models
         /// One entry per captain or session that could not be stopped.
         /// </summary>
         public List<CaptainStopFailure> Failures { get; set; } = new List<CaptainStopFailure>();
+
+        /// <summary>
+        /// Session sources the database provider does not store, so no session of that kind can be running.
+        /// A named source is not a failure; it says why that kind reports zero.
+        /// </summary>
+        public List<string> UnavailableSources { get; set; } = new List<string>();
 
         #endregion
 

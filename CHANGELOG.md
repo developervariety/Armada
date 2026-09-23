@@ -110,7 +110,9 @@ upstream integrations and excludes changes already present at that baseline.
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.
   Stop all covers working captains, planning sessions and refinement sessions and
-  reports stopped and failed counts with each failure named; Helm `captain stop-all`
+  reports stopped and failed counts with each failure named; a session kind the
+  database provider does not store is named in `UnavailableSources` and the stop
+  continues with the other kinds; Helm `captain stop-all`
   calls it once and prints those counts. Single and batch deletion refuse Working,
   Planning, Refining and mission-owning captains and remove the captain's events,
   planning sessions and refinement sessions; a dependent that cannot be removed is
