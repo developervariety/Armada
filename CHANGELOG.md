@@ -277,7 +277,11 @@ upstream integrations and excludes changes already present at that baseline.
   artifact collection and summary parsing, Workspace browsing, captain runtime
   configuration writes, Harbor directory mapping, dock occupant listing, and the
   API-endpoint workspace tools all apply it, so a sibling directory whose name
-  starts with the root's name is outside.
+  starts with the root's name is outside. Prestaged-file copies, read-context
+  staging and disk-lifecycle deletion apply it too, so a directory whose name
+  differs from an allowed root only by letter case is not deleted. Self-deploy
+  and build-drift reporting share one rule for which vessel holds the running
+  server; it compares letter case the way the host's file system does.
 - **Papercut merge:** the typed-decision merge works on copies of the listed
   groups, so an unavailable answer after an earlier merge returns the original
   groups with their original counts.

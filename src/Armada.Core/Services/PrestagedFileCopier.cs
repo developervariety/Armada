@@ -92,9 +92,11 @@ namespace Armada.Core.Services
                 // contained within the worktree root. Validation should already
                 // have caught '..' and absolute paths, but a final check on the
                 // resolved path catches anything odd like symlink hops.
-                string normalizedRoot = fullWorktree.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (!destAbsolute.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
-                    !destAbsolute.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                if (!PathContainment.IsWithin(fullWorktree, destAbsolute)
+                    || String.Equals(
+                        Path.TrimEndingDirectorySeparator(destAbsolute),
+                        Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullWorktree)),
+                        StringComparison.Ordinal))
                 {
                     return "prestaged file destPath '" + dest + "' resolves outside the worktree root";
                 }

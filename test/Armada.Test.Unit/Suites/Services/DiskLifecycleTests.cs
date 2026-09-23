@@ -24,6 +24,38 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Deletion is refused for a path that matches an allowed root only when case is ignored", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                // Outside the temp directory and the data directory, which are allowed roots themselves.
+                string baseDirectory = Path.Combine(AppContext.BaseDirectory, "disklife-case-" + Guid.NewGuid().ToString("N"));
+                string allowedRoot = Path.Combine(baseDirectory, "allowed");
+                string caseVariant = Path.Combine(baseDirectory, "ALLOWED", "victim");
+                try
+                {
+                    Directory.CreateDirectory(Path.Combine(allowedRoot, "reclaimable"));
+                    Directory.CreateDirectory(caseVariant);
+                    Layout layout = CreateLayout();
+                    try
+                    {
+                        layout.Settings.DiskLifecycle.AllowedRoots.Add(allowedRoot);
+                        DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+
+                        AssertTrue(service.IsPathAllowed(Path.Combine(allowedRoot, "reclaimable")), "a path below an allowed root may be deleted");
+                        AssertFalse(service.IsPathAllowed(caseVariant),
+                            "a path under a directory whose name differs from the allowed root only by case is not inside it");
+                    }
+                    finally
+                    {
+                        Cleanup(layout);
+                    }
+                }
+                finally
+                {
+                    if (Directory.Exists(baseDirectory)) Directory.Delete(baseDirectory, true);
+                }
+            });
+
             await RunTest("Scan classifies owned categories and protects active and sibling paths", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

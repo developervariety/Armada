@@ -757,24 +757,16 @@ namespace Armada.Core.Services
 
         #region Guards and Helpers
 
-        private bool IsPathAllowed(string fullPath)
+        internal bool IsPathAllowed(string fullPath)
         {
             if (IsSymlink(fullPath))
             {
                 return false;
             }
 
-            string normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullPath));
             foreach (string root in ResolveAllowedRoots())
             {
-                // Trim trailing separators: Path.GetTempPath() returns one on macOS/Linux and a
-                // naive concatenation would produce a double separator that never matches.
-                string rootNorm = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
-                if (String.Equals(normalized, rootNorm, StringComparison.OrdinalIgnoreCase)
-                    || normalized.StartsWith(rootNorm + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
+                if (PathContainment.IsWithin(root, fullPath)) return true;
             }
             return false;
         }

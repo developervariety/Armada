@@ -271,17 +271,13 @@ namespace Armada.Core.Services
 
         private static bool IsWithinRoot(string absolutePath, string normalizedRoot)
         {
-            return absolutePath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                || absolutePath.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                || String.Equals(absolutePath, normalizedRoot, StringComparison.OrdinalIgnoreCase);
+            return PathContainment.IsWithin(normalizedRoot, absolutePath);
         }
 
         private static string GetRelativePath(string absolutePath, string normalizedRoot)
         {
-            if (absolutePath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                return absolutePath.Substring(normalizedRoot.Length + 1).Replace('\\', '/');
-            if (absolutePath.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                return absolutePath.Substring(normalizedRoot.Length + 1).Replace('\\', '/');
+            if (PathContainment.IsWithin(normalizedRoot, absolutePath))
+                return Path.GetRelativePath(normalizedRoot, absolutePath).Replace('\\', '/');
             return absolutePath.Replace('\\', '/');
         }
 

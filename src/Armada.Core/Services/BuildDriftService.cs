@@ -114,24 +114,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(baseDir)) return null;
 
             List<Vessel> vessels = await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
-            foreach (Vessel vessel in vessels)
-            {
-                if (String.IsNullOrEmpty(vessel.WorkingDirectory)) continue;
-
-                string normalizedVesselPath = vessel.WorkingDirectory.TrimEnd(
-                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-                if (baseDir.StartsWith(
-                    normalizedVesselPath + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase)
-                    || String.Equals(baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                        normalizedVesselPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    return vessel;
-                }
-            }
-
-            return null;
+            return SelfVesselLocator.FindByBaseDirectory(vessels, baseDir);
         }
 
         #endregion

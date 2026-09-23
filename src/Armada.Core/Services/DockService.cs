@@ -2410,6 +2410,8 @@ namespace Armada.Core.Services
                 string dockPath;
                 try { dockPath = Path.GetFullPath(dock.WorktreePath); }
                 catch (Exception) { continue; }
+                // Case is ignored on purpose: a near-match counts as live use, so the holder is kept.
+                // An exact-case rule could treat a live dock on a case-insensitive file system as free.
                 if (!dockPath.Equals(normalized, StringComparison.OrdinalIgnoreCase)
                     && !normalized.StartsWith(dockPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                     && !dockPath.StartsWith(normalized + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))

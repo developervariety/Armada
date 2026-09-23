@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.IO;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Test.Common;
 
@@ -47,6 +48,30 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(PathContainment.IsWithin(root, baseDirectory), "the root's parent is outside");
                 AssertFalse(PathContainment.IsWithin(root, Path.Combine(baseDirectory, "WORKSPACE", "a.txt")), "a case-only difference is refused on every platform");
                 AssertFalse(PathContainment.IsWithin(root, ""), "an empty path is outside");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("IsWithinHostCasing follows the host's file-system casing and keeps the sibling rule", () =>
+            {
+                bool hostIgnoresCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+                AssertTrue(PathContainment.IsWithinHostCasing(root, Path.Combine(root, "bin", "server.dll")), "a path below the root is inside");
+                AssertEqual(hostIgnoresCase, PathContainment.IsWithinHostCasing(root, Path.Combine(baseDirectory, "WORKSPACE", "bin")),
+                    "a case-only difference is inside exactly where the host file system ignores case");
+                AssertFalse(PathContainment.IsWithinHostCasing(root, Path.Combine(baseDirectory, "workspace-backup", "bin")), "a sibling-prefix path is outside");
+                AssertFalse(PathContainment.IsWithinHostCasing(root, ""), "an empty path is outside");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("SelfVesselLocator picks the vessel whose checkout holds the server, not a sibling-prefix vessel", () =>
+            {
+                Vessel sibling = new Vessel("sibling", "https://example.invalid/sibling.git") { WorkingDirectory = root + "-backup" };
+                Vessel unset = new Vessel("unset", "https://example.invalid/unset.git") { WorkingDirectory = null };
+                Vessel self = new Vessel("self", "https://example.invalid/self.git") { WorkingDirectory = root + sep };
+                string serverDirectory = Path.Combine(root, "src", "bin");
+
+                AssertEqual(self.Id, SelfVesselLocator.FindByBaseDirectory(new[] { sibling, unset, self }, serverDirectory)?.Id, "the containing checkout is the server's vessel");
+                AssertNull(SelfVesselLocator.FindByBaseDirectory(new[] { sibling, unset }, serverDirectory), "no vessel holds the server");
+                AssertNull(SelfVesselLocator.FindByBaseDirectory(new[] { self }, null), "no base directory matches nothing");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
