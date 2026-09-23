@@ -259,6 +259,10 @@ upstream integrations and excludes changes already present at that baseline.
   list or a default that the next update would write back. Lists and the snapshot
   backfill skip such a row with a warning that counts and names it, and the
   scheduler never dispatches it.
+- **Unreadable refinement session rows:** every provider reads the objective
+  refinement session status through one shared rule. An unknown stored status is a
+  read error that names the session and field, never a `Created` session; lists
+  skip such a row with one warning that counts and names it.
 - **Retention and history:** data expiry removes captured request history and its
   detail older than `requestHistoryRetentionDays` (default 30; `0` keeps it).
   PostgreSQL stores request capture times as ISO-8601 text, upgrades older rows,

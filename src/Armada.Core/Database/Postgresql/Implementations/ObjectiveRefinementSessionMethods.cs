@@ -15,6 +15,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
     public class ObjectiveRefinementSessionMethods : IObjectiveRefinementSessionMethods
     {
         private readonly PostgresqlDatabaseDriver _Driver;
+        private readonly SyslogLogging.LoggingModule _Logging;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ObjectiveRefinementSessionMethods"/> class.
@@ -22,6 +23,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         public ObjectiveRefinementSessionMethods(PostgresqlDatabaseDriver driver, Settings.DatabaseSettings settings, SyslogLogging.LoggingModule logging)
         {
             _Driver = driver ?? throw new ArgumentNullException(nameof(driver));
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
         /// <inheritdoc />
@@ -228,8 +230,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     parameterize?.Invoke(cmd);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                        results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
+                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -268,7 +270,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 FleetId = NullableString(reader["fleet_id"]),
                 VesselId = NullableString(reader["vessel_id"]),
                 Title = reader["title"].ToString()!,
-                Status = ObjectivePersistenceHelper.ParseEnum(reader["status"], ObjectiveRefinementSessionStatusEnum.Created),
+                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
                 ProcessId = NullableInt(reader["process_id"]),
                 FailureReason = NullableString(reader["failure_reason"]),
                 CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),

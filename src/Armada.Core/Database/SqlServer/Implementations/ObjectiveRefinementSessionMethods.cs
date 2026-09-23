@@ -15,6 +15,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
     public class ObjectiveRefinementSessionMethods : IObjectiveRefinementSessionMethods
     {
         private readonly SqlServerDatabaseDriver _Driver;
+        private readonly SyslogLogging.LoggingModule _Logging;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ObjectiveRefinementSessionMethods"/> class.
@@ -22,6 +23,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
         public ObjectiveRefinementSessionMethods(SqlServerDatabaseDriver driver, Settings.DatabaseSettings settings, SyslogLogging.LoggingModule logging)
         {
             _Driver = driver ?? throw new ArgumentNullException(nameof(driver));
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
         /// <inheritdoc />
@@ -228,8 +230,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     parameterize?.Invoke(cmd);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                        results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
+                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -268,7 +270,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 FleetId = SqlServerDatabaseDriver.NullableString(reader["fleet_id"]),
                 VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
                 Title = reader["title"].ToString()!,
-                Status = ObjectivePersistenceHelper.ParseEnum(reader["status"], ObjectiveRefinementSessionStatusEnum.Created),
+                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
                 ProcessId = SqlServerDatabaseDriver.NullableInt(reader["process_id"]),
                 FailureReason = SqlServerDatabaseDriver.NullableString(reader["failure_reason"]),
                 CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),

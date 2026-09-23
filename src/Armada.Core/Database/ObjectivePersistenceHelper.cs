@@ -103,18 +103,6 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
-        /// Lenient enum read for objective refinement-session rows: an unknown value reads as the fallback.
-        /// </summary>
-        internal static TEnum ParseEnum<TEnum>(object? value, TEnum fallback) where TEnum : struct
-        {
-            string? raw = value?.ToString();
-            if (String.IsNullOrWhiteSpace(raw))
-                return fallback;
-
-            return Enum.TryParse<TEnum>(raw, true, out TEnum parsed) ? parsed : fallback;
-        }
-
-        /// <summary>
         /// Read every objective row from <paramref name="reader"/>. A row whose stored data cannot be read
         /// is left out of the list and logged as a warning that counts the skipped rows and names each
         /// objective and field, so one unreadable row neither fails the whole list nor reads with its

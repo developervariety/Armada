@@ -206,8 +206,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     parameterize?.Invoke(cmd);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                        results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
+                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -246,7 +246,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 FleetId = SqliteDatabaseDriver.NullableString(reader["fleet_id"]),
                 VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
                 Title = reader["title"].ToString()!,
-                Status = Enum.TryParse<ObjectiveRefinementSessionStatusEnum>(reader["status"].ToString(), true, out ObjectiveRefinementSessionStatusEnum parsed) ? parsed : ObjectiveRefinementSessionStatusEnum.Created,
+                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
                 ProcessId = SqliteDatabaseDriver.NullableInt(reader["process_id"]),
                 FailureReason = SqliteDatabaseDriver.NullableString(reader["failure_reason"]),
                 CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),

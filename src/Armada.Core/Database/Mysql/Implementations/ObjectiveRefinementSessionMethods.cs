@@ -15,13 +15,17 @@ namespace Armada.Core.Database.Mysql.Implementations
     public class ObjectiveRefinementSessionMethods : IObjectiveRefinementSessionMethods
     {
         private readonly string _ConnectionString;
+        private readonly SyslogLogging.LoggingModule _Logging;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ObjectiveRefinementSessionMethods"/> class.
         /// </summary>
-        public ObjectiveRefinementSessionMethods(string connectionString)
+        /// <param name="connectionString">MySQL connection string.</param>
+        /// <param name="logging">Logging module that records skipped unreadable rows.</param>
+        public ObjectiveRefinementSessionMethods(string connectionString, SyslogLogging.LoggingModule logging)
         {
             _ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
         /// <inheritdoc />
@@ -228,8 +232,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     parameterize?.Invoke(cmd);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                        results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
+                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -268,7 +272,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 FleetId = MysqlDatabaseDriver.NullableString(reader["fleet_id"]),
                 VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
                 Title = reader["title"].ToString()!,
-                Status = ObjectivePersistenceHelper.ParseEnum(reader["status"], ObjectiveRefinementSessionStatusEnum.Created),
+                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
                 ProcessId = MysqlDatabaseDriver.NullableInt(reader["process_id"]),
                 FailureReason = MysqlDatabaseDriver.NullableString(reader["failure_reason"]),
                 CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),

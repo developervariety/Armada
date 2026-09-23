@@ -1602,6 +1602,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("An unknown stored refinement session status is a named read error and lists skip the row", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenantId = "ten_corrupt_refinement";
+                    string userId = "usr_corrupt_refinement";
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, true, true, "UnitTest");
+                    Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest { Title = "Refined" }).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("corrupt-refinement-captain")).ConfigureAwait(false);
+                    ObjectiveRefinementSession good = await testDb.Driver.ObjectiveRefinementSessions.CreateAsync(new ObjectiveRefinementSession
+                    {
+                        ObjectiveId = objective.Id,
+                        TenantId = tenantId,
+                        UserId = userId,
+                        CaptainId = captain.Id,
+                        Title = "Readable session",
+                        Status = ObjectiveRefinementSessionStatusEnum.Active
+                    }).ConfigureAwait(false);
+                    ObjectiveRefinementSession bad = await testDb.Driver.ObjectiveRefinementSessions.CreateAsync(new ObjectiveRefinementSession
+                    {
+                        ObjectiveId = objective.Id,
+                        TenantId = tenantId,
+                        UserId = userId,
+                        CaptainId = captain.Id,
+                        Title = "Corrupt session",
+                        Status = ObjectiveRefinementSessionStatusEnum.Active
+                    }).ConfigureAwait(false);
+                    await SetTableColumnAsync(testDb, "objective_refinement_sessions", bad.Id, "status", "NoSuchStatus").ConfigureAwait(false);
+
+                    string? readError = await CaptureInvalidOperationAsync(() => testDb.Driver.ObjectiveRefinementSessions.ReadAsync(bad.Id)).ConfigureAwait(false);
+                    AssertNotNull(readError, "An unknown status must not read as a Created session.");
+                    AssertContains(bad.Id, readError!, "The read error names the session row.");
+                    AssertContains("status", readError!, "The read error names the field.");
+
+                    List<ObjectiveRefinementSession> listed = await testDb.Driver.ObjectiveRefinementSessions.EnumerateByObjectiveAsync(objective.Id).ConfigureAwait(false);
+                    AssertEqual(1, listed.Count, "The unreadable row is skipped instead of listing as a Created session.");
+                    AssertEqual(good.Id, listed[0].Id);
+                    List<ObjectiveRefinementSession> created = await testDb.Driver.ObjectiveRefinementSessions.EnumerateByStatusAsync(ObjectiveRefinementSessionStatusEnum.Created).ConfigureAwait(false);
+                    AssertEqual(0, created.Count, "No row reads as Created.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("All database providers register objective preparation persistence", () =>
             {
                 AssertPreparationMigration(SqliteTableQueries.GetMigrations(), 81, "SQLite");
@@ -1950,6 +1994,21 @@ namespace Armada.Test.Unit.Suites.Services
                     command.CommandText = "UPDATE objectives SET " + column + " = @value WHERE id = @id;";
                     command.Parameters.AddWithValue("@value", value);
                     command.Parameters.AddWithValue("@id", objectiveId);
+                    await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static async Task SetTableColumnAsync(TestDatabase testDb, string table, string id, string column, string value)
+        {
+            using (SqliteConnection connection = new SqliteConnection(testDb.ConnectionString))
+            {
+                await connection.OpenAsync().ConfigureAwait(false);
+                using (SqliteCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE " + table + " SET " + column + " = @value WHERE id = @id;";
+                    command.Parameters.AddWithValue("@value", value);
+                    command.Parameters.AddWithValue("@id", id);
                     await command.ExecuteNonQueryAsync().ConfigureAwait(false);
                 }
             }

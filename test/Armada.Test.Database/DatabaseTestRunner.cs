@@ -154,6 +154,7 @@ namespace Armada.Test.Database
             await RunTest("Objective_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveCrudAsync(token), token);
             await RunTest("Objective_Unreadable_Stored_Data_Is_Named_And_Skipped_From_Lists", "Operational", () => TestObjectiveUnreadableStoredDataAsync(token), token);
             await RunTest("ObjectiveRefinementSession_Message_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveRefinementCrudAsync(token), token);
+            await RunTest("ObjectiveRefinementSession_Unknown_Stored_Status_Is_Named_And_Skipped_From_Lists", "Operational", () => TestObjectiveRefinementUnreadableStatusAsync(token), token);
             await RunTest("PlanningSession_Message_Crud_Scope_Order_And_Cascade", "Operational", () => TestPlanningSessionCrudAsync(token), token);
             await RunTest("Memory_Create_Read_Update_Tags_Reopen", "Operational", () => TestMemoryCrudAsync(token), token);
             await RunTest("Memory_Tenant_Fence_Key_Uniqueness_Guarded_Update", "Operational", () => TestMemoryScopingAsync(token), token);
@@ -2947,6 +2948,41 @@ namespace Armada.Test.Database
 
                 DatabaseAssert.True(await _Driver.Objectives.ExistsAnyAsync(token).ConfigureAwait(false), "Objective ExistsAnyAsync should return true");
                 DatabaseAssert.True(await _Driver.Objectives.ExistsAsync(objectiveA.Id, token).ConfigureAwait(false), "Objective ExistsAsync should return true");
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestObjectiveRefinementUnreadableStatusAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("unreadable-refinement", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "unreadable-refinement", token: token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "unreadable-refinement-captain", token).ConfigureAwait(false);
+                Objective objective = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "unreadable-refinement-objective", null, null, token).ConfigureAwait(false);
+                ObjectiveRefinementSession readable = await fixture.CreateObjectiveRefinementSessionAsync(
+                    tenant.Id, user.Id, objective.Id, captain.Id, null, ObjectiveRefinementSessionStatusEnum.Active, token).ConfigureAwait(false);
+                ObjectiveRefinementSession unreadable = await fixture.CreateObjectiveRefinementSessionAsync(
+                    tenant.Id, user.Id, objective.Id, captain.Id, null, ObjectiveRefinementSessionStatusEnum.Active, token).ConfigureAwait(false);
+
+                await ExecuteRawAsync(new List<string>
+                {
+                    "UPDATE objective_refinement_sessions SET status = 'NoSuchStatus' WHERE id = '" + unreadable.Id + "';"
+                }, token).ConfigureAwait(false);
+
+                string? readError = null;
+                try { await _Driver.ObjectiveRefinementSessions.ReadAsync(unreadable.Id, token).ConfigureAwait(false); }
+                catch (StoredRefinementSessionDataException ex) { readError = ex.Message; }
+                DatabaseAssert.True(readError != null && readError.Contains(unreadable.Id) && readError.Contains("status"),
+                    "An unknown status is a read error naming the row and field, never Created: " + readError);
+
+                List<ObjectiveRefinementSession> listed = await _Driver.ObjectiveRefinementSessions.EnumerateByObjectiveAsync(objective.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, listed.Count, "Only the readable refinement session is listed");
+                DatabaseAssert.Equal(readable.Id, listed[0].Id, "The readable refinement session is listed");
             }
             finally
             {
