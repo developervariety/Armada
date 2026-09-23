@@ -188,18 +188,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
             mission.LastUpdateUtc = DateTime.UtcNow;
             int affected = 0;
 
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
-                await UpdateAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
-            else
-            {
-                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-                {
-                    await conn.OpenAsync(token).ConfigureAwait(false);
-                    await UpdateAsync(conn, null).ConfigureAwait(false);
-                }
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                await UpdateAsync(conn, null).ConfigureAwait(false);
             }
 
             if (affected == 0) mission.LastUpdateUtc = previousUpdateUtc;

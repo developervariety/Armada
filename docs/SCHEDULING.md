@@ -43,7 +43,12 @@ When multiple pending missions share the same priority level (and the same voyag
 
 When a captain becomes idle -- either by finishing a mission or by being newly registered -- the Admiral checks the pending mission queue on the **next heartbeat cycle** and assigns the highest-priority unassigned mission.
 
-Assignment uses an atomic **TryClaim** operation to prevent race conditions when multiple captains become idle simultaneously. Only one captain can claim a given mission; if the claim fails (another captain claimed it first), the Admiral tries the next pending mission.
+Assignment commits through two conditional writes, and each failure point stores its undo:
+
+1. The captain claim (**TryClaim**) is a compare-and-set on an `Idle` captain, so one captain never serves two missions.
+2. The mission then records its dock only while its stored status is still `Assigned`, so a mission is never assigned twice and a cancellation made during provisioning wins.
+
+If the claim fails because another mission took the captain first, the stored mission returns to `Pending` with no captain, dock or new branch, its assignment state reads `WaitingForIdleCaptain`, the log names `captain_claim_lost`, and the provisioned dock is reclaimed and deleted. If the mission changed status instead, that status stays, the captain is released only while it still records this mission, and the dock is deleted. The next assignment pass retries the mission.
 
 ### What Happens When All Captains Are Busy
 
@@ -58,7 +63,7 @@ The Admiral runs a health-check loop on a configurable interval controlled by `H
 3. **Checks for stalled captains** -- captains that have not reported progress within the `StallThresholdMinutes` window (default: 10 minutes).
 4. **Runs escalation rules** -- triggers recovery or alerts for stalled or failed missions.
 
-After those steps the Admiral runs its periodic maintenance, each step on its own cadence in health-loop cycles: objective dispatch attempt reconciliation and stale background-job reaping every cycle, log rotation and planning-session maintenance every 10, data expiry every 100 (completed records after `dataRetentionDays`, production facts after `productionFactRetentionDays`, and captured request history with its detail after `requestHistoryRetentionDays`, default 30; `0` keeps each), disk lifecycle reconciliation every `diskLifecycle.reconcileIntervalCycles`, captain log screening every cycle (the screen self-guards to `captainLogScreening.intervalSeconds` and returns immediately while it is off), the code-index staleness sweep every `codeIndex.stalenessSweepIntervalCycles` (it refreshes only vessels that are already indexed), and the branch cleanup sweep every `branchCleanupSweepIntervalCycles` (default 200). Each step runs in isolation. A failing step logs `<step> failed: <reason>` and the steps after it still run. A failing health check does not stop the cycle count, so maintenance keeps its cadence.
+After those steps the Admiral runs its periodic maintenance, each step on its own cadence in health-loop cycles: objective dispatch attempt reconciliation and stale background-job reaping every cycle, log rotation and planning-session maintenance every 10, data expiry every 100 (completed records after `dataRetentionDays`, production facts after `productionFactRetentionDays`, and captured request history with its detail after `requestHistoryRetentionDays`, default 30; `0` keeps each), disk lifecycle reconciliation every `diskLifecycle.reconcileIntervalCycles`, captain log screening every cycle (the screen self-guards to `captainLogScreening.intervalSeconds` and returns immediately while it is off), the code-index staleness sweep every `codeIndex.stalenessSweepIntervalCycles` (it refreshes only vessels that are already indexed), and the branch cleanup sweep every `branchCleanupSweepIntervalCycles` (default 200). `branchCleanupSweepIntervalCycles` and the sweep's `branchCleanupPreservedRefRetentionDays` hot-reload, so an edited value applies on the next cycle without a restart. Each step runs in isolation. A failing step logs `<step> failed: <reason>` and the steps after it still run. A failing health check does not stop the cycle count, so maintenance keeps its cadence.
 
 ## Captain Log Screening
 
@@ -248,6 +253,23 @@ objective graphs where hands-off continuation is the goal; keep it disabled
 (the default) when you want an operator to review each dispatch. Changes made
 with `armada_objective_scheduler_set` are persisted to the loaded settings file
 and survive an Admiral restart.
+
+The scheduler holds no copy of its settings. It reads and writes the live
+`autonomousObjectiveScheduler` settings section on every use. An edit to that
+section in the settings file (picked up by the settings-file watcher or by
+`POST /api/v1/settings/reload`) takes effect on the next sweep: `enabled`,
+`paused` with its `pausedBy`, `pausedUtc` and `pauseReason`, `intervalMinutes`,
+both concurrency ceilings and `fairShareWithinPriorityBands`. A later
+`armada_objective_scheduler_set` or stale-pause clear writes the live section
+back, so it keeps the edited values and changes only the fields it sets. A pause
+set through the tool is written to the file, so a reload of that file and a
+restart both keep the pause and its attribution. Turning
+`fairShareWithinPriorityBands` off by either route drops the rotation cursor.
+
+An objective row whose stored data cannot be read is left out of the sweep and
+named in an Admiral warning. The sweep continues with the other rows. An
+objective that lists the skipped row as a blocker stays blocked, because a
+missing blocker counts as incomplete.
 
 Each scheduler-dispatched voyage passes through the same check-arming service
 as an operator dispatch. When its workflow profile defines them, Build and

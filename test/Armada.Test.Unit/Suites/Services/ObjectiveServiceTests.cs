@@ -1518,6 +1518,90 @@ namespace Armada.Test.Unit.Suites.Services
                 ObjectiveBriefRenderer.Render(persisted);
             }).ConfigureAwait(false);
 
+            await RunTest("A malformed stored objective list is a named read error and is never written back empty", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenantId = "ten_corrupt_list";
+                    string userId = "usr_corrupt_list";
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                    Objective blocker = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest { Title = "Blocker" }).ConfigureAwait(false);
+                    Objective blocked = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Blocked",
+                        BlockedByObjectiveIds = new List<string> { blocker.Id }
+                    }).ConfigureAwait(false);
+
+                    const string corrupt = "[\"" + "obj_truncated";
+                    await SetObjectiveColumnAsync(testDb, blocked.Id, "blocked_by_objective_ids_json", corrupt).ConfigureAwait(false);
+
+                    string? readError = await CaptureInvalidOperationAsync(() => testDb.Driver.Objectives.ReadAsync(blocked.Id)).ConfigureAwait(false);
+                    AssertNotNull(readError, "A malformed blocker list must not read as an objective with no blockers.");
+                    AssertContains(blocked.Id, readError!, "The read error names the objective row.");
+                    AssertContains("blocked_by_objective_ids_json", readError!, "The read error names the field.");
+
+                    string? updateError = await CaptureInvalidOperationAsync(() => objectives.UpdateAsync(auth, blocked.Id, new ObjectiveUpsertRequest
+                    {
+                        Title = "Blocked (renamed)"
+                    })).ConfigureAwait(false);
+                    AssertNotNull(updateError, "An update of a row that cannot be read must fail rather than rewrite it.");
+                    AssertEqual(corrupt, await ReadObjectiveColumnAsync(testDb, blocked.Id, "blocked_by_objective_ids_json").ConfigureAwait(false),
+                        "The stored blocker list is left for repair, never replaced with an empty list.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An unknown stored objective enum value is a named read error, never a default", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Unknown status",
+                        Status = ObjectiveStatusEnum.Blocked
+                    }).ConfigureAwait(false);
+                    await SetObjectiveColumnAsync(testDb, objective.Id, "status", "NoSuchStatus").ConfigureAwait(false);
+
+                    string? readError = await CaptureInvalidOperationAsync(() => testDb.Driver.Objectives.ReadAsync(objective.Id)).ConfigureAwait(false);
+                    AssertNotNull(readError, "An unknown status must not read as Draft, or the next update writes Draft over it.");
+                    AssertContains(objective.Id, readError!);
+                    AssertContains("status", readError!);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A list skips a malformed objective row by name and still returns every other row", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenantId = "ten_corrupt_row";
+                    string userId = "usr_corrupt_row";
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    ObjectiveService writer = new ObjectiveService(testDb.Driver);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, true, true, "UnitTest");
+                    Objective good = await writer.CreateAsync(auth, new ObjectiveUpsertRequest { Title = "Readable" }).ConfigureAwait(false);
+                    Objective bad = await writer.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Corrupt voyages",
+                        Tags = new List<string> { "keep" }
+                    }).ConfigureAwait(false);
+                    await SetObjectiveColumnAsync(testDb, bad.Id, "voyage_ids_json", "{not json").ConfigureAwait(false);
+
+                    List<Objective> rows = await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(1, rows.Count, "The malformed row is skipped instead of reading as an objective with no voyages.");
+                    AssertEqual(good.Id, rows[0].Id);
+
+                    // A fresh service backfills from snapshots on first use; the malformed row must not stop that
+                    // backfill or the list for every other objective.
+                    ObjectiveService reader = new ObjectiveService(testDb.Driver);
+                    EnumerationResult<Objective> page = await reader.EnumerateAsync(auth, new ObjectiveQuery { PageSize = 100 }).ConfigureAwait(false);
+                    AssertEqual(1, page.Objects.Count, "The service list returns the readable row.");
+                    AssertEqual(good.Id, page.Objects[0].Id);
+                    AssertEqual("{not json", await ReadObjectiveColumnAsync(testDb, bad.Id, "voyage_ids_json").ConfigureAwait(false),
+                        "Neither the list nor the snapshot backfill rewrites the malformed row.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("All database providers register objective preparation persistence", () =>
             {
                 AssertPreparationMigration(SqliteTableQueries.GetMigrations(), 81, "SQLite");
@@ -1854,6 +1938,49 @@ namespace Armada.Test.Unit.Suites.Services
         {
             return objective.Preparation.Claims.Find(claim => claim.Id == id)
                 ?? throw new InvalidOperationException("Expected preparation claim " + id + ".");
+        }
+
+        private static async Task SetObjectiveColumnAsync(TestDatabase testDb, string objectiveId, string column, string value)
+        {
+            using (SqliteConnection connection = new SqliteConnection(testDb.ConnectionString))
+            {
+                await connection.OpenAsync().ConfigureAwait(false);
+                using (SqliteCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE objectives SET " + column + " = @value WHERE id = @id;";
+                    command.Parameters.AddWithValue("@value", value);
+                    command.Parameters.AddWithValue("@id", objectiveId);
+                    await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static async Task<string?> ReadObjectiveColumnAsync(TestDatabase testDb, string objectiveId, string column)
+        {
+            using (SqliteConnection connection = new SqliteConnection(testDb.ConnectionString))
+            {
+                await connection.OpenAsync().ConfigureAwait(false);
+                using (SqliteCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT " + column + " FROM objectives WHERE id = @id;";
+                    command.Parameters.AddWithValue("@id", objectiveId);
+                    object? value = await command.ExecuteScalarAsync().ConfigureAwait(false);
+                    return value == null || value == DBNull.Value ? null : value.ToString();
+                }
+            }
+        }
+
+        private static async Task<string?> CaptureInvalidOperationAsync(Func<Task> action)
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+                return null;
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ex.Message;
+            }
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)

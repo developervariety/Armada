@@ -60,7 +60,7 @@ namespace Armada.Core.Database.Mysql
             CoordinationMessages = new CoordinationMessageMethods(_ConnectionString);
             CoordinationParticipants = new CoordinationParticipantMethods(_ConnectionString);
             CoordinationClaims = new CoordinationClaimMethods(_ConnectionString);
-            Objectives = new ObjectiveMethods(_ConnectionString);
+            Objectives = new ObjectiveMethods(_ConnectionString, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(_ConnectionString);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(_ConnectionString);
             Docks = new DockMethods(_ConnectionString);
@@ -161,30 +161,6 @@ namespace Armada.Core.Database.Mysql
             _Logging.Info(_Header + "database initialized successfully");
 
 
-        }
-
-        /// <inheritdoc />
-        public override async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken token = default)
-        {
-            if (action == null) throw new ArgumentNullException(nameof(action));
-
-            using (MySqlConnection conn = await GetConnectionAsync(token).ConfigureAwait(false))
-            {
-                using (MySqlTransaction tx = await conn.BeginTransactionAsync(token).ConfigureAwait(false))
-                {
-                    try
-                    {
-                        T result = await action().ConfigureAwait(false);
-                        await tx.CommitAsync(token).ConfigureAwait(false);
-                        return result;
-                    }
-                    catch
-                    {
-                        await tx.RollbackAsync(token).ConfigureAwait(false);
-                        throw;
-                    }
-                }
-            }
         }
 
         /// <summary>

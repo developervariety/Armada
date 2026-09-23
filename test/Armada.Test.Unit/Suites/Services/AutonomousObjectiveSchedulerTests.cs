@@ -782,6 +782,130 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1440, scheduler.StalePauseAbsenceMinutes, "Clamped to one day at the top.");
             }).ConfigureAwait(false);
 
+            await RunTest("A malformed blocker list never dispatches its objective, and the sweep still serves the other rows", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel blockedVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("corrupt-blocker-vessel", "https://github.com/test/corrupt-blocker.git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+                    Vessel otherVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("corrupt-blocker-other", "https://github.com/test/corrupt-blocker-other.git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+                    Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Unfinished blocker",
+                        Status = ObjectiveStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    Objective blocked = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Blocked by an unfinished objective",
+                        Status = ObjectiveStatusEnum.Planned,
+                        BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                        AutoDispatchEnabled = true,
+                        Priority = ObjectivePriorityEnum.P0,
+                        BlockedByObjectiveIds = new List<string> { blocker.Id },
+                        VesselIds = new List<string> { blockedVessel.Id }
+                    }).ConfigureAwait(false);
+                    Objective ready = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Ready and unblocked",
+                        Status = ObjectiveStatusEnum.Planned,
+                        BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                        AutoDispatchEnabled = true,
+                        Priority = ObjectivePriorityEnum.P2,
+                        VesselIds = new List<string> { otherVessel.Id }
+                    }).ConfigureAwait(false);
+
+                    using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                    {
+                        await connection.OpenAsync().ConfigureAwait(false);
+                        using (Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = "UPDATE objectives SET blocked_by_objective_ids_json = @value WHERE id = @id;";
+                            command.Parameters.AddWithValue("@value", "[\"" + blocker.Id);
+                            command.Parameters.AddWithValue("@id", blocked.Id);
+                            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                        }
+                    }
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, EnabledSchedulerSettings());
+                    await scheduler.SweepAsync().ConfigureAwait(false);
+
+                    AssertEqual(1, admiral.DispatchVoyageCallCount, "Only the readable, unblocked objective dispatches.");
+                    AssertEqual(ready.Title, admiral.DispatchedTitles.Count > 0 ? admiral.DispatchedTitles[0] : null);
+                    AssertFalse(admiral.DispatchedTitles.Contains(blocked.Title),
+                        "An objective whose blocker list cannot be read is never dispatched as unblocked.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A settings file edit reaches the scheduler on the next tick and a later tool change never reverts it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string directory = Path.Combine(Path.GetTempPath(), "armada-scheduler-reload-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(directory);
+                    try
+                    {
+                        string path = Path.Combine(directory, "settings.json");
+                        ArmadaSettings live = EnabledSchedulerSettings();
+                        live.SettingsFilePath = path;
+                        await live.SaveAsync().ConfigureAwait(false);
+                        SettingsReloadService reload = new SettingsReloadService(live, _ => Task.FromResult(new List<Captain>()));
+                        AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new RecordingAdmiralService(testDb.Driver), live);
+                        AssertEqual(1, scheduler.IntervalMinutes);
+
+                        ArmadaSettings edited = await ArmadaSettings.LoadAsync(path).ConfigureAwait(false);
+                        edited.AutonomousObjectiveScheduler.IntervalMinutes = 30;
+                        edited.AutonomousObjectiveScheduler.Paused = true;
+                        edited.AutonomousObjectiveScheduler.PausedBy = "file-editor";
+                        edited.AutonomousObjectiveScheduler.PauseReason = "edited in the file";
+                        await edited.SaveAsync(path).ConfigureAwait(false);
+                        SettingsReloadResult result = await reload.ReloadAsync().ConfigureAwait(false);
+                        AssertTrue(result.Applied, "The edited file is a valid candidate: " + result.Reason);
+
+                        AssertEqual(30, scheduler.IntervalMinutes, "The edited interval is the scheduler's interval after the reload.");
+                        AssertTrue(scheduler.Paused, "The edited pause is the scheduler's pause after the reload.");
+                        AssertEqual("file-editor", scheduler.PausedBy);
+                        await scheduler.SweepAsync().ConfigureAwait(false);
+                        AssertEqual("skipped (paused)", scheduler.LastResultSummary, "The next tick obeys the edited pause.");
+
+                        scheduler.SetMaxConcurrentVoyages(4);
+                        AssertTrue(await scheduler.TryPersistAsync().ConfigureAwait(false));
+                        ArmadaSettings onDisk = await ArmadaSettings.LoadAsync(path).ConfigureAwait(false);
+                        AssertEqual(4, onDisk.AutonomousObjectiveScheduler.MaxConcurrentVoyages, "The tool change is written.");
+                        AssertEqual(30, onDisk.AutonomousObjectiveScheduler.IntervalMinutes, "The tool write keeps the edited interval.");
+                        AssertTrue(onDisk.AutonomousObjectiveScheduler.Paused, "The tool write keeps the edited pause.");
+                        AssertEqual("edited in the file", onDisk.AutonomousObjectiveScheduler.PauseReason);
+
+                        // A pause set through the tool survives a reload of the file it wrote and a restart.
+                        scheduler.Pause("owner-session", "deploy window");
+                        DateTime? pausedUtc = scheduler.PausedUtc;
+                        AssertTrue(await scheduler.TryPersistAsync().ConfigureAwait(false));
+                        AssertTrue((await reload.ReloadAsync().ConfigureAwait(false)).Applied);
+                        AssertTrue(scheduler.Paused && scheduler.PausedBy == "owner-session" && scheduler.PauseReason == "deploy window" && scheduler.PausedUtc == pausedUtc,
+                            "A reload of the persisted file keeps the pause and its attribution.");
+                        AutonomousObjectiveScheduler restarted = CreateScheduler(testDb.Driver, new RecordingAdmiralService(testDb.Driver),
+                            await ArmadaSettings.LoadAsync(path).ConfigureAwait(false));
+                        AssertTrue(restarted.Paused && restarted.PausedBy == "owner-session" && restarted.PauseReason == "deploy window" && restarted.PausedUtc == pausedUtc,
+                            "A restart keeps the pause and its attribution.");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(directory, true); } catch (IOException) { }
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_Disabled_EmitsSkippedDisabledEvent", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -254,8 +254,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     parameterize?.Invoke(cmd);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(ObjectiveFromReader(reader));
+                        results.AddRange(await ObjectivePersistenceHelper.ReadRowsAsync(
+                            reader, () => ObjectiveFromReader(reader), _Logging, token).ConfigureAwait(false));
                     }
                 }
             }
@@ -331,21 +331,22 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
         private static Objective ObjectiveFromReader(SqliteDataReader reader)
         {
+            string id = reader["id"].ToString()!;
             Objective objective = new Objective
             {
-                Id = reader["id"].ToString()!,
+                Id = id,
                 TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
                 UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
                 Title = reader["title"].ToString()!,
                 Description = SqliteDatabaseDriver.NullableString(reader["description"]),
-                Status = ParseEnum(reader["status"], ObjectiveStatusEnum.Draft),
-                Kind = ParseEnum(reader["kind"], ObjectiveKindEnum.Feature),
+                Status = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["status"], ObjectiveStatusEnum.Draft, id, "status"),
+                Kind = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["kind"], ObjectiveKindEnum.Feature, id, "kind"),
                 Category = SqliteDatabaseDriver.NullableString(reader["category"]),
-                Priority = ParseEnum(reader["priority"], ObjectivePriorityEnum.P2),
+                Priority = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["priority"], ObjectivePriorityEnum.P2, id, "priority"),
                 Rank = SqliteDatabaseDriver.NullableInt(reader["rank"]) ?? 0,
                 AutoDispatchEnabled = SqliteDatabaseDriver.NullableBool(reader, "auto_dispatch_enabled") ?? false,
-                BacklogState = ParseEnum(reader["backlog_state"], ObjectiveBacklogStateEnum.Inbox),
-                Effort = ParseEnum(reader["effort"], ObjectiveEffortEnum.M),
+                BacklogState = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["backlog_state"], ObjectiveBacklogStateEnum.Inbox, id, "backlog_state"),
+                Effort = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["effort"], ObjectiveEffortEnum.M, id, "effort"),
                 Owner = SqliteDatabaseDriver.NullableString(reader["owner"]),
                 TargetVersion = SqliteDatabaseDriver.NullableString(reader["target_version"]),
                 DueUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["due_utc"]),
@@ -363,92 +364,31 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 CompletedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["completed_utc"])
             };
 
-            objective.BlockedByObjectiveIds = DeserializeList(reader["blocked_by_objective_ids_json"]);
-            objective.Preparation = DeserializePreparation(reader["preparation_json"]);
-            objective.SuggestedPlaybooks = DeserializePlaybooks(reader["suggested_playbooks_json"]);
-            objective.Tags = DeserializeList(reader["tags_json"]);
-            objective.AcceptanceCriteria = DeserializeList(reader["acceptance_criteria_json"]);
-            objective.NonGoals = DeserializeList(reader["non_goals_json"]);
-            objective.RolloutConstraints = DeserializeList(reader["rollout_constraints_json"]);
-            objective.EvidenceLinks = DeserializeList(reader["evidence_links_json"]);
-            objective.FleetIds = DeserializeList(reader["fleet_ids_json"]);
-            objective.VesselIds = DeserializeList(reader["vessel_ids_json"]);
-            objective.PlanningSessionIds = DeserializeList(reader["planning_session_ids_json"]);
-            objective.RefinementSessionIds = DeserializeList(reader["refinement_session_ids_json"]);
-            objective.VoyageIds = DeserializeList(reader["voyage_ids_json"]);
-            objective.MissionIds = DeserializeList(reader["mission_ids_json"]);
-            objective.CheckRunIds = DeserializeList(reader["check_run_ids_json"]);
-            objective.ReleaseIds = DeserializeList(reader["release_ids_json"]);
-            objective.DeploymentIds = DeserializeList(reader["deployment_ids_json"]);
-            objective.IncidentIds = DeserializeList(reader["incident_ids_json"]);
+            objective.BlockedByObjectiveIds = ObjectivePersistenceHelper.DeserializeList(reader["blocked_by_objective_ids_json"], id, "blocked_by_objective_ids_json");
+            objective.Preparation = ObjectivePersistenceHelper.DeserializePreparation(reader["preparation_json"], id, "preparation_json");
+            objective.SuggestedPlaybooks = ObjectivePersistenceHelper.DeserializePlaybooks(reader["suggested_playbooks_json"], id, "suggested_playbooks_json");
+            objective.Tags = ObjectivePersistenceHelper.DeserializeList(reader["tags_json"], id, "tags_json");
+            objective.AcceptanceCriteria = ObjectivePersistenceHelper.DeserializeList(reader["acceptance_criteria_json"], id, "acceptance_criteria_json");
+            objective.NonGoals = ObjectivePersistenceHelper.DeserializeList(reader["non_goals_json"], id, "non_goals_json");
+            objective.RolloutConstraints = ObjectivePersistenceHelper.DeserializeList(reader["rollout_constraints_json"], id, "rollout_constraints_json");
+            objective.EvidenceLinks = ObjectivePersistenceHelper.DeserializeList(reader["evidence_links_json"], id, "evidence_links_json");
+            objective.FleetIds = ObjectivePersistenceHelper.DeserializeList(reader["fleet_ids_json"], id, "fleet_ids_json");
+            objective.VesselIds = ObjectivePersistenceHelper.DeserializeList(reader["vessel_ids_json"], id, "vessel_ids_json");
+            objective.PlanningSessionIds = ObjectivePersistenceHelper.DeserializeList(reader["planning_session_ids_json"], id, "planning_session_ids_json");
+            objective.RefinementSessionIds = ObjectivePersistenceHelper.DeserializeList(reader["refinement_session_ids_json"], id, "refinement_session_ids_json");
+            objective.VoyageIds = ObjectivePersistenceHelper.DeserializeList(reader["voyage_ids_json"], id, "voyage_ids_json");
+            objective.MissionIds = ObjectivePersistenceHelper.DeserializeList(reader["mission_ids_json"], id, "mission_ids_json");
+            objective.CheckRunIds = ObjectivePersistenceHelper.DeserializeList(reader["check_run_ids_json"], id, "check_run_ids_json");
+            objective.ReleaseIds = ObjectivePersistenceHelper.DeserializeList(reader["release_ids_json"], id, "release_ids_json");
+            objective.DeploymentIds = ObjectivePersistenceHelper.DeserializeList(reader["deployment_ids_json"], id, "deployment_ids_json");
+            objective.IncidentIds = ObjectivePersistenceHelper.DeserializeList(reader["incident_ids_json"], id, "incident_ids_json");
             objective.NormalizeTenancy();
             return objective;
-        }
-
-        private static TEnum ParseEnum<TEnum>(object value, TEnum fallback) where TEnum : struct
-        {
-            if (value == null || value == DBNull.Value) return fallback;
-            return Enum.TryParse<TEnum>(value.ToString(), true, out TEnum parsed) ? parsed : fallback;
         }
 
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value, _JsonOptions);
-        }
-
-        private static List<string> DeserializeList(object value)
-        {
-            string? json = SqliteDatabaseDriver.NullableString(value);
-            if (String.IsNullOrWhiteSpace(json)) return new List<string>();
-            try
-            {
-                return JsonSerializer.Deserialize<List<string>>(json, _JsonOptions) ?? new List<string>();
-            }
-            catch
-            {
-                return new List<string>();
-            }
-        }
-
-        private static List<SelectedPlaybook> DeserializePlaybooks(object value)
-        {
-            string? json = SqliteDatabaseDriver.NullableString(value);
-            if (String.IsNullOrWhiteSpace(json)) return new List<SelectedPlaybook>();
-            try
-            {
-                return JsonSerializer.Deserialize<List<SelectedPlaybook>>(json, _JsonOptions) ?? new List<SelectedPlaybook>();
-            }
-            catch
-            {
-                return new List<SelectedPlaybook>();
-            }
-        }
-
-        private static ObjectivePreparation DeserializePreparation(object value)
-        {
-            string? json = SqliteDatabaseDriver.NullableString(value);
-            if (String.IsNullOrWhiteSpace(json)) return new ObjectivePreparation();
-            try
-            {
-                ObjectivePreparation preparation = JsonSerializer.Deserialize<ObjectivePreparation>(json, _JsonOptions)
-                    ?? new ObjectivePreparation();
-                preparation.RequiredClaimKinds ??= new List<ObjectivePreparationClaimKindEnum>();
-                preparation.RequiredSiblingInputs ??= new List<ObjectivePreparationSiblingInput>();
-                foreach (ObjectivePreparationSiblingInput? sibling in preparation.RequiredSiblingInputs)
-                {
-                    if (sibling != null) sibling.RequiredArtifactPaths ??= new List<string>();
-                }
-                preparation.Claims ??= new List<ObjectivePreparationClaim>();
-                foreach (ObjectivePreparationClaim? claim in preparation.Claims)
-                {
-                    if (claim != null) claim.EvidenceLinks ??= new List<string>();
-                }
-                return preparation;
-            }
-            catch (JsonException ex)
-            {
-                throw new InvalidOperationException("Stored objective preparation JSON is invalid.", ex);
-            }
         }
     }
 }

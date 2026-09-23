@@ -89,6 +89,13 @@ upstream integrations and excludes changes already present at that baseline.
   inherited start commits, return `MissionStartRefs`, and record resolution events.
   Alias dependencies, parallel-stage barriers, review gates, report-only modes,
   and cancellation use consistent lifecycle rules.
+- **Captain assignment commit:** assignment claims the captain with its
+  compare-and-set first and records the dock on the mission only while the mission
+  is still Assigned. A lost claim returns the stored mission to Pending with no
+  captain, dock or new branch (`WaitingForIdleCaptain`, logged as
+  `captain_claim_lost`) and deletes the provisioned dock. A mission that changed
+  status keeps that status and releases the captain only while it still records
+  that mission. The database drivers carry no transaction wrapper.
 - **Review and landing:** Judge PASS requires distinct evidence for every criterion
   and matching immutable Check results. Brief trimming retains the full contract.
   Landing verifies ancestry, preserves a diverged working checkout, and reports
@@ -157,6 +164,12 @@ upstream integrations and excludes changes already present at that baseline.
   reloads share one candidate validator for account key paths and captain runtime
   bindings. A missing, unreadable, or invalid file is refused and the current
   settings stay live.
+- **Live scheduler settings:** the autonomous objective scheduler reads and writes
+  the live `autonomousObjectiveScheduler` settings section on every use, so a
+  settings-file edit to its enabled flag, pause, interval, ceilings or fair-share
+  flag takes effect on the next sweep, and a later scheduler tool change writes the
+  edited values back instead of older copies. The branch cleanup cadence and
+  preserved-ref retention also hot-reload.
 - **Runtime execution:** inference-endpoint captains resolve endpoint credentials;
   API-endpoint missions have bounded command execution and deterministic conversation
   compaction, Anthropic stable-prefix caching, and provider cache/reasoning usage
@@ -218,6 +231,12 @@ upstream integrations and excludes changes already present at that baseline.
   owning user. Pipeline create, update and delete write the pipeline and its stages
   in one transaction, so a failed write leaves the stored pipeline unchanged. The
   driver wiring check covers every method set.
+- **Unreadable objective rows:** every provider reads objective list and document
+  fields and enum columns through one shared rule. Malformed JSON or an undefined
+  enum value is a read error that names the objective and field, never an empty
+  list or a default that the next update would write back. Lists and the snapshot
+  backfill skip such a row with a warning that counts and names it, and the
+  scheduler never dispatches it.
 - **Retention and history:** data expiry removes captured request history and its
   detail older than `requestHistoryRetentionDays` (default 30; `0` keeps it).
   PostgreSQL stores request capture times as ISO-8601 text, upgrades older rows,

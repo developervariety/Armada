@@ -152,6 +152,7 @@ namespace Armada.Test.Database
             await RunTest("Release_Create_Read_Update_Enumerate", "Operational", () => TestReleaseCrudAsync(token), token);
             await RunTest("Deployment_Create_Read_Update_Enumerate", "Operational", () => TestDeploymentCrudAsync(token), token);
             await RunTest("Objective_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveCrudAsync(token), token);
+            await RunTest("Objective_Unreadable_Stored_Data_Is_Named_And_Skipped_From_Lists", "Operational", () => TestObjectiveUnreadableStoredDataAsync(token), token);
             await RunTest("ObjectiveRefinementSession_Message_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveRefinementCrudAsync(token), token);
             await RunTest("PlanningSession_Message_Crud_Scope_Order_And_Cascade", "Operational", () => TestPlanningSessionCrudAsync(token), token);
             await RunTest("Memory_Create_Read_Update_Tags_Reopen", "Operational", () => TestMemoryCrudAsync(token), token);
@@ -2836,6 +2837,45 @@ namespace Armada.Test.Database
                 datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(0L, datedPage.TotalRecords, "Deployment date range excludes both rows");
                 DatabaseAssert.Equal(0, datedPage.Objects.Count, "Deployment empty date range has no rows");
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestObjectiveUnreadableStoredDataAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("unreadable-objective", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "unreadable-objective", token: token).ConfigureAwait(false);
+                Objective readable = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "unreadable-readable", token: token).ConfigureAwait(false);
+                Objective badJson = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "unreadable-json", token: token).ConfigureAwait(false);
+                Objective badEnum = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "unreadable-enum", token: token).ConfigureAwait(false);
+
+                await ExecuteRawAsync(new List<string>
+                {
+                    "UPDATE objectives SET blocked_by_objective_ids_json = '[\"obj_truncated' WHERE id = '" + badJson.Id + "';",
+                    "UPDATE objectives SET status = 'NoSuchStatus' WHERE id = '" + badEnum.Id + "';"
+                }, token).ConfigureAwait(false);
+
+                string? jsonError = null;
+                try { await _Driver.Objectives.ReadAsync(badJson.Id, token).ConfigureAwait(false); }
+                catch (StoredObjectiveDataException ex) { jsonError = ex.Message; }
+                DatabaseAssert.True(jsonError != null && jsonError.Contains(badJson.Id) && jsonError.Contains("blocked_by_objective_ids_json"),
+                    "A malformed blocker list is a read error naming the row and field, never an empty list: " + jsonError);
+
+                string? enumError = null;
+                try { await _Driver.Objectives.ReadAsync(badEnum.Id, token).ConfigureAwait(false); }
+                catch (StoredObjectiveDataException ex) { enumError = ex.Message; }
+                DatabaseAssert.True(enumError != null && enumError.Contains(badEnum.Id) && enumError.Contains("status"),
+                    "An unknown status is a read error naming the row and field, never Draft: " + enumError);
+
+                List<Objective> listed = await _Driver.Objectives.EnumerateAsync(tenant.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, listed.Count, "Only the readable objective is listed");
+                DatabaseAssert.Equal(readable.Id, listed[0].Id, "The readable objective is listed");
             }
             finally
             {

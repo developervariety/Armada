@@ -143,18 +143,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             captain.LastUpdateUtc = DateTime.UtcNow;
 
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
-                await UpdateAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
-            else
-            {
-                using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-                {
-                    await conn.OpenAsync(token).ConfigureAwait(false);
-                    await UpdateAsync(conn, null).ConfigureAwait(false);
-                }
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                await UpdateAsync(conn, null).ConfigureAwait(false);
             }
 
             return captain;
@@ -430,12 +422,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             DateTime now = DateTime.UtcNow;
 
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
-            {
-                return await TryQuarantineAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
-
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
@@ -474,12 +460,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             DateTime now = DateTime.UtcNow;
 
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
-            {
-                return await TryReleaseAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
-
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
@@ -512,12 +492,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
 
             DateTime now = DateTime.UtcNow;
-
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
-            {
-                return await TryReleaseTimedAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
 
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
@@ -769,12 +743,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
             if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
             DateTime now = DateTime.UtcNow;
-
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
-            {
-                return await TryClaimAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
 
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
