@@ -265,7 +265,7 @@ this limit. It does not control work launched outside Armada.
 | --- | --- | --- |
 | `Codex` | `codex app-server` JSON-RPC `account/rateLimits/read` | The account's `homeDirectory` as `CODEX_HOME`, or the Admiral service user's login when no home is set |
 | `Claude` | `https://api.anthropic.com/api/oauth/usage` | `credentialEnv` names an OAuth token variable, or `credentialFilePath` points to Claude's credentials JSON |
-| `Cursor` | `https://cursor.com/api/usage-summary` | Environment variable or file containing the Cookie header value |
+| `Cursor` | Cursor API key exchange and `GetCurrentPeriodUsage`; legacy `https://cursor.com/api/usage-summary` is also supported | `launchCredentialEnv` or `launchCredentialFile` for the API key; `credentialEnv` or `credentialFilePath` for a legacy Cookie header |
 | `OpenCodeGo` | `https://opencode.ai/zen/go/v1/usage` | Environment variable or file containing an API key; an OpenCode auth JSON file with an `opencode-go` API entry also works |
 | `File` | Bounded local normalized JSON snapshot | `usageFilePath` |
 | `Manual` | `manualSnapshot` in the policy | None |
@@ -293,9 +293,11 @@ that one login as independent accounts. A Codex account with its own
 separate windows. Claude reads `<homeDirectory>/.credentials.json` and OpenCodeGo
 reads `<homeDirectory>/opencode/auth.json` when no reference is supplied. Without
 a home, Claude defaults to `~/.claude/.credentials.json`. OAuth needs access to account usage. Armada does not
-refresh or modify login files. Cursor needs an explicit session cookie reference;
-Armada does not import browser cookies. OpenCodeGo measures the Go subscription,
-not every model or third-party provider that the OpenCode runtime can run.
+refresh or modify login files. Cursor exchanges the account's saved API key for
+a short-lived usage token and reads the current billing period. Existing cookie
+references continue to use the legacy usage-summary endpoint; Armada does not
+import browser cookies. OpenCodeGo measures the Go subscription, not every model
+or third-party provider that the OpenCode runtime can run.
 Use separate accounts and File or Manual data for other services.
 
 Store secrets outside Armada settings. `credentialEnv` is a variable **name**,
@@ -371,8 +373,10 @@ accept billing terms.
   at launch and never stores it. `launchCredentialFile` is the alternative: the
   absolute path of `cursor-api-key` inside the account's own folder
   (`<data directory>/accounts/<id>/cursor-api-key`). Settings saves reject any
-  other path, and an account cannot set both. The Cursor usage collector still needs its own
-  session-cookie reference in `credentialEnv` or `credentialFilePath`.
+  other path, and an account cannot set both. The Cursor usage collector reads
+  the API key through `launchCredentialEnv` or `launchCredentialFile`. Legacy
+  session-cookie references in `credentialEnv` or `credentialFilePath` remain
+  supported.
   `XDG_DATA_HOME` also moves OpenCode session storage into the home.
 - Codex external-provider profiles for a captain on an account are written into
   that account's `CODEX_HOME`.
@@ -403,7 +407,7 @@ a shell. The JSON policy editor stays available under **Advanced**.
 in lower case with other characters replaced by hyphens, made unique among
 existing accounts. The server creates `<data directory>/accounts/<id>` with
 mode 0700, and the account is saved with its `runtime`, a matching usage
-collector (`Codex`, `Claude`, `OpenCodeGo`; `Manual` for Cursor), and
+collector (`Codex`, `Claude`, `OpenCodeGo`, `Cursor`), and
 `homeDirectory` set to that folder, or `launchCredentialFile` set to its
 `cursor-api-key` for Cursor.
 
@@ -422,9 +426,10 @@ user's own Cursor login is untouched). A browser login never launches a
 captain: replacing `HOME` would hide git, gh, and ssh configuration, so
 captains use only the API key file or named variable. A missing key is
 `account_launch_credential_unavailable`; save the key on the account card.
-Cursor usage cannot be measured from that key (the collector is `Manual`),
-so remaining usage is Unknown and still routes under `unknownUsagePolicy`
-(default `Allow`).
+The dashboard creates Cursor accounts with collector `Cursor`. Set existing
+Cursor accounts with collector `Manual` to `Cursor` to measure usage from the
+saved key. If an account remains `Manual`, usage is Unknown and routing follows
+`unknownUsagePolicy` (default `Allow`).
 
 **Assign captains.** Tick captains of the same runtime; a captain already on
 another account, or one with its own provider key or base URL, cannot be

@@ -33,7 +33,8 @@ upstream integrations and excludes changes already present at that baseline.
   definition-of-done, recovery, and landing reports.
 - **Account-aware routing:** subscription account usage, separate captain logins,
   usage previews, reserve policies, per-persona model lists and restrictions,
-  account failure holds, and an optional required-login gate.
+  account failure holds, an optional required-login gate, and Cursor usage from
+  saved account API keys with legacy cookie support.
 - **Remote execution and server control:** Harbor identity, runner enrollment and
   mission execution; guarded vessel branch controls; in-place server restart;
   supervised self-deployment preflight, retained-image rollback, and build identity.

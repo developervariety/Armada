@@ -32,7 +32,7 @@ export function collectorForRuntime(runtime: AccountRuntime): string {
     case 'Codex': return 'Codex';
     case 'ClaudeCode': return 'Claude';
     case 'OpenCode': return 'OpenCodeGo';
-    // The Cursor usage collector needs a browser session cookie, which a key login does not provide.
+    case 'Cursor': return 'Cursor';
     default: return 'Manual';
   }
 }

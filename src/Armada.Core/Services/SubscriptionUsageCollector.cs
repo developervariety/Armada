@@ -25,7 +25,7 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
-        /// <summary>Collect Claude OAuth, Cursor cookie, or OpenCode Go API allowance without inference requests.</summary>
+        /// <summary>Collect Claude OAuth, Cursor account, or OpenCode Go API allowance without inference requests.</summary>
         public static async Task<ProviderUsageSnapshot> CollectAsync(UsageAccountSettings account, CancellationToken token = default)
         {
             using (HttpClientHandler handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
@@ -35,11 +35,13 @@ namespace Armada.Core.Services
 
         internal static async Task<ProviderUsageSnapshot> CollectAsync(UsageAccountSettings account, HttpClient client, CancellationToken token = default)
         {
+            if (account.Collector == "Cursor")
+                return await CollectCursorAsync(account, client, token).ConfigureAwait(false);
+
             string credential = await ReadCredentialAsync(account, token).ConfigureAwait(false);
             string url = account.Collector switch
             {
                 "Claude" => "https://api.anthropic.com/api/oauth/usage",
-                "Cursor" => "https://cursor.com/api/usage-summary",
                 "OpenCodeGo" => "https://opencode.ai/zen/go/v1/usage",
                 _ => throw new ArgumentException("unsupported_usage_collector")
             };
@@ -49,8 +51,7 @@ namespace Armada.Core.Services
                 timeout.CancelAfter(TimeSpan.FromSeconds(15));
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.UserAgent.ParseAdd("Armada/1.0");
-                if (account.Collector == "Cursor") request.Headers.Add("Cookie", credential);
-                else request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
                 if (account.Collector == "Claude") request.Headers.Add("anthropic-beta", "oauth-2025-04-20");
                 using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false))
                 {
@@ -94,18 +95,19 @@ namespace Armada.Core.Services
             else if (collector == "Cursor")
             {
                 CursorReply data = JsonSerializer.Deserialize<CursorReply>(json, _Json) ?? throw new InvalidDataException();
-                CursorPlan? plan = data.IndividualUsage?.Plan;
+                CursorPlan? plan = data.PlanUsage ?? data.IndividualUsage?.Plan;
+                string? billingCycleEnd = NormalizeCursorReset(data.BillingCycleEnd);
                 // The total can be an average of independent pools. It is not a third binding limit.
                 if (plan?.AutoPercentUsed != null || plan?.ApiPercentUsed != null)
                 {
-                    Add(snapshot, "cursor_models", plan.AutoPercentUsed, data.BillingCycleEnd);
-                    Add(snapshot, "third_party", plan.ApiPercentUsed, data.BillingCycleEnd);
+                    Add(snapshot, "cursor_models", plan.AutoPercentUsed, billingCycleEnd);
+                    Add(snapshot, "third_party", plan.ApiPercentUsed, billingCycleEnd);
                 }
                 else
                 {
                     double? used = plan?.TotalPercentUsed;
                     if (used == null && plan?.Limit > 0 && plan.Used.HasValue) used = 100 * plan.Used.Value / plan.Limit.Value;
-                    Add(snapshot, "plan", used, data.BillingCycleEnd);
+                    Add(snapshot, "plan", used, billingCycleEnd);
                 }
             }
             else if (collector == "OpenCodeGo")
@@ -124,6 +126,110 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        private static async Task<ProviderUsageSnapshot> CollectCursorAsync(UsageAccountSettings account, HttpClient client, CancellationToken token)
+        {
+            string? cookie = await ReadConfiguredCredentialAsync(account, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(cookie))
+                return await SendCursorCookieRequestAsync(client, cookie, token).ConfigureAwait(false);
+
+            string apiKey = await ReadCursorApiKeyAsync(account, token).ConfigureAwait(false);
+            string accessToken = await ExchangeCursorApiKeyAsync(client, apiKey, token).ConfigureAwait(false);
+            return await SendCursorUsageRequestAsync(client, accessToken, token).ConfigureAwait(false);
+        }
+
+        private static async Task<ProviderUsageSnapshot> SendCursorCookieRequestAsync(HttpClient client, string cookie, CancellationToken token)
+        {
+            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "https://cursor.com/api/usage-summary"))
+            using (CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.UserAgent.ParseAdd("Armada/1.0");
+                request.Headers.Add("Cookie", cookie);
+                using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false))
+                {
+                    await EnsureCursorSuccessAsync(response).ConfigureAwait(false);
+                    using (Stream stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false))
+                        return Parse("Cursor", await ReadBoundedAsync(stream, timeout.Token).ConfigureAwait(false), DateTime.UtcNow);
+                }
+            }
+        }
+
+        private static async Task<string> ExchangeCursorApiKeyAsync(HttpClient client, string apiKey, CancellationToken token)
+        {
+            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "https://api2.cursor.sh/auth/exchange_user_api_key"))
+            using (CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.UserAgent.ParseAdd("Armada/1.0");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false))
+                {
+                    await EnsureCursorSuccessAsync(response).ConfigureAwait(false);
+                    using (Stream stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false))
+                    {
+                        CursorTokenReply data = JsonSerializer.Deserialize<CursorTokenReply>(await ReadBoundedAsync(stream, timeout.Token).ConfigureAwait(false), _Json)
+                            ?? throw new UsageCollectionException("usage_credentials_unavailable");
+                        if (String.IsNullOrWhiteSpace(data.AccessToken)) throw new UsageCollectionException("usage_credentials_unavailable");
+                        return data.AccessToken;
+                    }
+                }
+            }
+        }
+
+        private static async Task<ProviderUsageSnapshot> SendCursorUsageRequestAsync(HttpClient client, string accessToken, CancellationToken token)
+        {
+            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"))
+            using (CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.UserAgent.ParseAdd("Armada/1.0");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                request.Headers.Add("Connect-Protocol-Version", "1");
+                request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false))
+                {
+                    await EnsureCursorSuccessAsync(response).ConfigureAwait(false);
+                    using (Stream stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false))
+                        return Parse("Cursor", await ReadBoundedAsync(stream, timeout.Token).ConfigureAwait(false), DateTime.UtcNow);
+                }
+            }
+        }
+
+        private static Task EnsureCursorSuccessAsync(HttpResponseMessage response)
+        {
+            if (response.IsSuccessStatusCode) return Task.CompletedTask;
+            DateTime? retry = null;
+            if ((int)response.StatusCode == 429)
+                retry = response.Headers.RetryAfter?.Date?.UtcDateTime
+                    ?? DateTime.UtcNow.Add(response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMinutes(15));
+            throw new UsageCollectionException("usage_http_" + (int)response.StatusCode, retry);
+        }
+
+        private static async Task<string?> ReadConfiguredCredentialAsync(UsageAccountSettings account, CancellationToken token)
+        {
+            string? credential = String.IsNullOrWhiteSpace(account.CredentialEnv) ? null : Environment.GetEnvironmentVariable(account.CredentialEnv);
+            if (!String.IsNullOrWhiteSpace(credential)) return credential.Trim();
+            if (String.IsNullOrWhiteSpace(account.CredentialFilePath)) return null;
+            using (FileStream stream = new FileStream(account.CredentialFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                return (await ReadBoundedAsync(stream, token).ConfigureAwait(false)).Trim();
+        }
+
+        private static async Task<string> ReadCursorApiKeyAsync(UsageAccountSettings account, CancellationToken token)
+        {
+            string? credential = String.IsNullOrWhiteSpace(account.LaunchCredentialEnv) ? null : Environment.GetEnvironmentVariable(account.LaunchCredentialEnv);
+            if (String.IsNullOrWhiteSpace(credential) && !String.IsNullOrWhiteSpace(account.LaunchCredentialFile))
+            {
+                using (FileStream stream = new FileStream(account.LaunchCredentialFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    credential = await ReadBoundedAsync(stream, token).ConfigureAwait(false);
+            }
+            if (String.IsNullOrWhiteSpace(credential)) throw new UsageCollectionException("usage_credentials_not_configured");
+            return credential.Trim();
+        }
+
         private static void Add(ProviderUsageSnapshot snapshot, string name, double? used, string? reset)
         {
             DateTime? resetsUtc = null;
@@ -134,6 +240,17 @@ namespace Armada.Core.Services
             }
             if (used.HasValue && (!Double.IsFinite(used.Value) || used < 0)) throw new InvalidDataException("invalid_usage_percentage");
             snapshot.Windows.Add(new ProviderUsageWindow { Name = name, RemainingPercent = used.HasValue ? Math.Max(0, 100 - used.Value) : null, ResetsUtc = resetsUtc });
+        }
+
+        private static string? NormalizeCursorReset(string? reset)
+        {
+            if (String.IsNullOrWhiteSpace(reset)) return reset;
+            if (Int64.TryParse(reset, NumberStyles.Integer, CultureInfo.InvariantCulture, out long unixMilliseconds))
+            {
+                try { return DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds).UtcDateTime.ToString("O", CultureInfo.InvariantCulture); }
+                catch (ArgumentOutOfRangeException) { throw new InvalidDataException("invalid_usage_reset"); }
+            }
+            return reset;
         }
 
         private static void AddGo(ProviderUsageSnapshot snapshot, string name, GoWindow? window)
@@ -214,7 +331,8 @@ namespace Armada.Core.Services
         }
         private sealed class ClaudeScope { public ClaudeModel? Model { get; set; } }
         private sealed class ClaudeModel { public string? Id { get; set; } [JsonPropertyName("display_name")] public string? DisplayName { get; set; } }
-        private sealed class CursorReply { public string? BillingCycleEnd { get; set; } public CursorIndividual? IndividualUsage { get; set; } }
+        private sealed class CursorTokenReply { public string? AccessToken { get; set; } }
+        private sealed class CursorReply { public string? BillingCycleEnd { get; set; } public CursorIndividual? IndividualUsage { get; set; } public CursorPlan? PlanUsage { get; set; } }
         private sealed class CursorIndividual { public CursorPlan? Plan { get; set; } }
         private sealed class CursorPlan
         {
