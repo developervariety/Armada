@@ -488,7 +488,11 @@ The token reaches a captain in its environment as `ARMADA_MCP_TOKEN` (chat uses
 enabled, every captain launch carries it, including Cursor, Gemini and OpenCode
 captains that read only their dock configuration, and a subscription-account
 login switch leaves it in place. Codex receives the reference as a command-line
-override, so it holds in whichever `CODEX_HOME` an account selects. Scoped and
+override, so it holds in whichever `CODEX_HOME` an account selects. A Mux captain
+receives its scoped servers file as `mux print --mcp-config <file>
+--strict-mcp-config`: `mux print` loads MCP servers only from that flag, so the
+launch reaches exactly its own Armada entry, while the captain's config directory
+(`--config-dir`, or `~/.mux`) still selects its endpoints and settings. Scoped and
 dock configuration files only reference the variable, in each client's own
 syntax:
 

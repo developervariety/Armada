@@ -17,8 +17,10 @@ namespace Armada.Core.Services
     ///   captain's existing authentication and provider profiles behind a replacement CODEX_HOME.
     /// - Gemini / Cursor: a scoped HOME/USERPROFILE containing the client's settings file, so they
     ///   physically cannot read the host user's configuration.
-    /// - Mux: a scoped MUX_CONFIG_DIR containing mcp-servers.json, whose auth object presents the launch
-    ///   credential as a bearer token referenced by variable name.
+    /// - Mux: --mcp-config naming a scoped servers file (whose auth object presents the launch credential as a
+    ///   bearer token referenced by variable name) plus --strict-mcp-config. `mux print` loads MCP servers only
+    ///   from --mcp-config, so the scoped file is the only MCP source, and the captain's own config directory
+    ///   (--config-dir, or ~/.mux) still selects its endpoints and settings.
     ///
     /// Every plan puts a chosen MCP credential in the captain's environment, and each client references it
     /// by variable name, so the token never lands in a scoped configuration file. Both a mission launch and
@@ -102,8 +104,10 @@ namespace Armada.Core.Services
                     }
                 case AgentRuntimeEnum.Mux:
                     {
-                        plan.FilesToWrite.Add(new IsolationConfigFile("mcp-servers.json", ArmadaMcpConfigBuilder.BuildMuxServersJson(mcpPort, credential.EnvironmentVariable)));
-                        plan.EnvironmentOverrides["MUX_CONFIG_DIR"] = scopedConfigDirectory;
+                        // The plan never replaces the Mux config directory: that directory holds the captain's
+                        // endpoints, and a flag-selected directory outranks the environment variable anyway.
+                        plan.FilesToWrite.Add(new IsolationConfigFile(MuxCommandBuilder.ScopedMcpConfigFileName, ArmadaMcpConfigBuilder.BuildMuxServersJson(mcpPort, credential.EnvironmentVariable)));
+                        plan.ExtraArguments.AddRange(MuxCommandBuilder.BuildStrictMcpConfigArguments(Path.Combine(scopedConfigDirectory, MuxCommandBuilder.ScopedMcpConfigFileName)));
                         break;
                     }
                 default:

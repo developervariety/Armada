@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Text.Json.Nodes;
+    using Armada.Core.Services;
     using Armada.Helm.Commands;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -124,8 +125,8 @@ namespace Test.Shared.Suites.Services
                 CaseAsync("mux_install_remove_is_idempotent", "Helm Mux MCP install/remove", TestTags.Positive, async () =>
                 {
                     string root = Path.Combine(Path.GetTempPath(), "armada-helm-mux-" + Guid.NewGuid().ToString("N"));
-                    string? prior = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
-                    Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", root);
+                    string? prior = Environment.GetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable);
+                    Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, root);
                     try
                     {
                         McpConfigHelper.ConfigTarget target = new McpConfigHelper.ConfigTarget("Mux", Path.Combine(root, "mcp-servers.json"), new JsonObject
@@ -146,7 +147,7 @@ namespace Test.Shared.Suites.Services
                     }
                     finally
                     {
-                        Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", prior);
+                        Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, prior);
                         if (Directory.Exists(root)) Directory.Delete(root, true);
                     }
                 }),
@@ -154,8 +155,8 @@ namespace Test.Shared.Suites.Services
                 {
                     string root = Path.Combine(Path.GetTempPath(), "armada-helm-mux-shape-" + Guid.NewGuid().ToString("N"));
                     string path = Path.Combine(root, "mcp-servers.json");
-                    string? prior = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
-                    Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", root);
+                    string? prior = Environment.GetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable);
+                    Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, root);
                     try
                     {
                         Directory.CreateDirectory(root);
@@ -188,15 +189,15 @@ namespace Test.Shared.Suites.Services
                     }
                     finally
                     {
-                        Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", prior);
+                        Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, prior);
                         if (Directory.Exists(root)) Directory.Delete(root, true);
                     }
                 }),
                 CaseAsync("mux_install_entry_references_the_api_key_variable", "Helm Mux MCP entry authenticates by variable reference", TestTags.Positive, () =>
                 {
                     string root = Path.Combine(Path.GetTempPath(), "armada-helm-mux-auth-" + Guid.NewGuid().ToString("N"));
-                    string? prior = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
-                    Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", root);
+                    string? prior = Environment.GetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable);
+                    Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, root);
                     try
                     {
                         Directory.CreateDirectory(root);
@@ -211,7 +212,7 @@ namespace Test.Shared.Suites.Services
                     }
                     finally
                     {
-                        Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", prior);
+                        Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, prior);
                         if (Directory.Exists(root)) Directory.Delete(root, true);
                     }
                     return System.Threading.Tasks.Task.CompletedTask;
@@ -333,8 +334,8 @@ namespace Test.Shared.Suites.Services
                 {
                     string root = Path.Combine(Path.GetTempPath(), "armada-helm-mux-jsonc-" + Guid.NewGuid().ToString("N"));
                     string path = Path.Combine(root, "mcp-servers.json");
-                    string? prior = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
-                    Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", root);
+                    string? prior = Environment.GetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable);
+                    Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, root);
                     Directory.CreateDirectory(root);
                     string original = """
 {
@@ -393,7 +394,7 @@ namespace Test.Shared.Suites.Services
                     }
                     finally
                     {
-                        Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", prior);
+                        Environment.SetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable, prior);
                         if (Directory.Exists(root)) Directory.Delete(root, true);
                     }
                 }),

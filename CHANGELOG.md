@@ -163,6 +163,12 @@ upstream integrations and excludes changes already present at that baseline.
   counters. Large output keeps diagnostic content and archives its full form.
   Runtime logs expose command and failure context, and launch configuration delivers
   the correct scoped MCP credential for each supported runtime.
+- **Mux captain MCP delivery:** a Mux mission or chat launch passes its own
+  Armada server file with `--mcp-config` and `--strict-mcp-config`, because
+  `mux print` loads MCP servers only from that flag. The captain's config
+  directory (`--config-dir`, or `~/.mux`) keeps selecting its endpoints and
+  settings, so captains that share a config directory no longer share MCP
+  servers, and a launch sets no `MUX_CONFIG_ROOT` variable, which Mux never read.
 - **API-endpoint tool bounds:** `run_command` owns a process group and kills it on
   timeout or cancellation, including children the shell left behind, and caps
   output while reading instead of after a whole line. `edit_file` and `multi_edit`

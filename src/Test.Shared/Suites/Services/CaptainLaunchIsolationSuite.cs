@@ -138,12 +138,17 @@ namespace Test.Shared.Suites.Services
             }));
 
             // ---- Planner: Mux ----
-            cases.Add(Case("plan_mux_scopes_config_dir", "Mux plan scopes MUX_CONFIG_DIR with mcp-servers.json", TestTags.Positive, () =>
+            cases.Add(Case("plan_mux_delivers_strict_mcp_config", "Mux plan passes its own servers file through --mcp-config in strict mode and leaves the config directory to the captain", TestTags.Positive, () =>
             {
+                // `mux print` loads MCP servers only from --mcp-config, and --config-dir outranks MUX_CONFIG_DIR, so a
+                // scoped config directory would neither deliver the server nor survive a captain's own directory.
                 CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Mux, 7891, scoped, missionCredential);
-                AssertTrue(plan.EnvironmentOverrides.ContainsKey("MUX_CONFIG_DIR"), "expected MUX_CONFIG_DIR override");
-                AssertEqual(scoped, plan.EnvironmentOverrides["MUX_CONFIG_DIR"]);
-                AssertEqual("mcp-servers.json", plan.FilesToWrite[0].RelativePath);
+                AssertEqual(MuxCommandBuilder.ScopedMcpConfigFileName, plan.FilesToWrite[0].RelativePath);
+                AssertTrue(plan.FilesToWrite[0].Contents.Contains("\"armada\"", StringComparison.Ordinal), "expected Armada MCP entry");
+                List<string> expected = new List<string> { MuxCommandBuilder.McpConfigFlag, Path.Combine(scoped, MuxCommandBuilder.ScopedMcpConfigFileName), MuxCommandBuilder.StrictMcpConfigFlag };
+                AssertEqual(String.Join(" ", expected), String.Join(" ", plan.ExtraArguments), "Mux MCP arguments");
+                AssertFalse(plan.EnvironmentOverrides.ContainsKey(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable), "the plan does not replace the captain's config directory");
+                AssertFalse(plan.ExtraArguments.Contains(MuxCommandBuilder.ConfigDirectoryFlag), "the plan does not pass a config directory");
             }));
 
             // ---- MCP credential per launch kind ----

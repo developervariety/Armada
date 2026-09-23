@@ -156,12 +156,9 @@ namespace Armada.Runtimes
         /// </summary>
         protected override void ApplyEnvironment(System.Diagnostics.ProcessStartInfo startInfo, Captain? captain, string? model = null)
         {
+            // The captain's config directory reaches Mux as the --config-dir argument, which outranks any
+            // environment variable, so the environment carries only the base URL.
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
-            if (!String.IsNullOrWhiteSpace(options?.ConfigDirectory))
-            {
-                startInfo.Environment["MUX_CONFIG_ROOT"] = options.ConfigDirectory!;
-            }
-
             if (!String.IsNullOrWhiteSpace(options?.BaseUrl))
             {
                 startInfo.Environment["OPENAI_BASE_URL"] = options.BaseUrl!;
