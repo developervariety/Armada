@@ -160,12 +160,9 @@ this frame and not in the URL. Query strings appear in request logs.
   user as the owner, as the matching REST create does, and replaces any owner
   the `data` object names. Without an authenticated caller it returns
   `command.error` with `code` `authentication_required` and writes nothing. `create_voyage` with missions dispatches
-  through the admiral, so the voyage and missions take the vessel's owner.
-  `create_voyage` also accepts `skipStages` and `skipStagesReason`: when
-  `skipStages` names a stage, the voyage materialises the vessel's effective
-  pipeline without those stages, under the same rule as `armada_dispatch`. A
-  refused skip returns `command.error` with `code` `stage_skip_judge_refused`
-  or `stage_skip_unknown_persona`. The
+  through the shared voyage dispatch service that `POST /api/v1/voyages` and
+  `armada_dispatch` use, so the voyage and missions take the vessel's owner and
+  every dispatch rule applies the same way (see [create_voyage](#create_voyage)). The
   `restart_mission` progress signal takes the mission's owner.
 - `subscribe` is open to any authenticated session. Each event carries a
   delivery scope and reaches only the sessions that may read the record it
@@ -1666,8 +1663,44 @@ Create a new voyage. Optionally include a `vesselId` and `missions[]` array for 
 |---|---|---|---|
 | `action` | string | Yes | `"create_voyage"` |
 | `data` | object | Yes | Voyage creation data |
+| `data.Title` | string | Yes | Voyage title |
+| `data.Description` | string | No | Voyage description |
 | `data.VesselId` | string | No | Target vessel for missions |
-| `data.Missions` | array | No | Array of mission objects to create and dispatch |
+| `data.Missions` | array | No | Mission objects to create and dispatch: `Title`, `Description`, and optionally `PreferredModel`, `Mode`, `CapabilityHint`, `PrestagedFiles`, `CodeContextMode`, `CodeContextQuery`, `DependsOnMissionId`, `Alias`, `DependsOnMissionAlias`, `SelectedPlaybooks`, `StartFromRef` |
+| `data.PipelineId` / `data.Pipeline` | string | No | Pipeline by ID, or by name when `PipelineId` is empty |
+| `data.SelectedPlaybooks` | array | No | Playbooks applied to every mission, merged with the vessel defaults |
+| `data.CaptainAssignments` | array | No | Per-persona captain overrides: `Persona`, `CaptainId`, `FallbackTier` (`Economy`, `Standard`, `Premium`). Stored on the voyage and applied to every mission of that persona, including fan-out missions |
+| `data.CodeContextMode` | string | No | `auto` (default), `off`, or `force` |
+| `data.CodeContextTokenBudget` / `data.CodeContextMaxResults` | integer | No | Context-pack limits |
+| `data.ObjectiveId` | string | No | Objective to link; needs `VesselId` and at least one mission |
+| `data.ForcePreflight` | boolean | No | Dispatch a linked objective despite an incomplete dispatch preflight; recorded as an override event |
+| `data.SkipStages` / `data.SkipStagesReason` | array / string | No | Pipeline stages the operator confirms this voyage does not need, and why |
+
+A request without `VesselId` or without missions creates a bare voyage. It
+refuses `ObjectiveId` with `code` `objective_requires_dispatch`; link an
+objective to a bare voyage through `POST /api/v1/voyages`.
+
+A request with `VesselId` and missions is dispatched through the shared voyage
+dispatch service that `POST /api/v1/voyages` and `armada_dispatch` use. The same
+validation, dispatch hold, objective preflight and admission, code-index gate,
+code-context preparation, pipeline resolution, playbook merge, captain
+overrides and stage-skip rule apply. A success returns `command.result` whose
+`data` is the created voyage with `missionStartRefs`. A refusal returns
+`command.error` with `error` and `code` from the shared refusal body, `status`
+(the HTTP status REST returns for the same refusal), and `detail` (the full
+refusal body REST returns, for example the dispatch hold's `SetBy`, `SetByUtc`
+and `Reason`, or a refused stage skip's `Persona`):
+
+```json
+{
+  "type": "command.error",
+  "action": "create_voyage",
+  "error": "dispatch_hold_active: Dispatch hold active since 2026-03-07 12:34:56Z (set by operator): maintenance ...",
+  "code": "dispatch_hold_active",
+  "status": 409,
+  "detail": { "Error": "dispatch_hold_active: ...", "Code": "dispatch_hold_active", "SetBy": "operator", "SetByUtc": "2026-03-07T12:34:56Z", "Reason": "maintenance", "Action": "..." }
+}
+```
 
 ---
 

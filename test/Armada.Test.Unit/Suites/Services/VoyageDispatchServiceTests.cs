@@ -861,6 +861,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Parity_CaptainAssignments_WebSocketCreateVoyageStoresAndRoutesLikeRest", async () =>
+            {
+                // The WebSocket create_voyage command reaches the same shared dispatch service as REST
+                // and MCP, so a per-persona captain override sent over WebSocket is stored on the voyage
+                // and routes a later Worker mission to the preferred captain.
+                using (TestDatabase wsDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings wsSettings = CreateRoutingSettings();
+                    Vessel wsVessel = await CreateRoutingVesselAsync(wsDb, wsSettings, "override-ws-vessel").ConfigureAwait(false);
+                    Captain wsPreferred = await CreateOverrideCaptainsAsync(wsDb).ConfigureAwait(false);
+
+                    Armada.Server.WebSocket.WebSocketCommandHandler handler = new Armada.Server.WebSocket.WebSocketCommandHandler(
+                        new RecordingAdmiralService(wsDb.Driver), wsDb.Driver, null!, null, null, null,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, _ => { }, _ => { });
+                    string rawBody = JsonSerializer.Serialize(new
+                    {
+                        Route = "command",
+                        action = "create_voyage",
+                        data = new
+                        {
+                            title = "Override voyage",
+                            description = "captain assignments through WebSocket",
+                            vesselId = wsVessel.Id,
+                            codeContextMode = "off",
+                            missions = new object[] { new { title = "alpha", description = "first task" } },
+                            captainAssignments = new object[]
+                            {
+                                new { persona = "Worker", captainId = wsPreferred.Id, fallbackTier = "Premium" }
+                            }
+                        }
+                    });
+                    string response = JsonSerializer.Serialize(await handler.HandleCommandAsync(
+                        "create_voyage",
+                        new Armada.Server.WebSocket.WebSocketCommand { Action = "create_voyage" },
+                        rawBody,
+                        McpTestCaller.Operator).ConfigureAwait(false));
+                    AssertContains("command.result", response, "WebSocket dispatch with captain assignments should succeed: " + response);
+
+                    List<Voyage> voyages = await wsDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(1, voyages.Count, "the WebSocket command creates one voyage");
+                    await AssertStoredOverrideRoutesWorkerAsync(wsDb, wsSettings, wsVessel,
+                        voyages[0].Id, wsPreferred, "WebSocket").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("WebSocketCreateVoyage_ObjectiveWithoutMissions_IsRefusedByNameAndWritesNothing", async () =>
+            {
+                using (TestDatabase wsDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Armada.Server.WebSocket.WebSocketCommandHandler handler = new Armada.Server.WebSocket.WebSocketCommandHandler(
+                        new RecordingAdmiralService(wsDb.Driver), wsDb.Driver, null!, null, null, null,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, _ => { }, _ => { });
+                    string rawBody = JsonSerializer.Serialize(new
+                    {
+                        Route = "command",
+                        action = "create_voyage",
+                        data = new { title = "bare with objective", objectiveId = "obj_example" }
+                    });
+                    string response = JsonSerializer.Serialize(await handler.HandleCommandAsync(
+                        "create_voyage",
+                        new Armada.Server.WebSocket.WebSocketCommand { Action = "create_voyage" },
+                        rawBody,
+                        McpTestCaller.Operator).ConfigureAwait(false));
+
+                    AssertContains("command.error", response, "an objective on a bare voyage is refused");
+                    AssertContains("objective_requires_dispatch", response, "the refusal names its code");
+                    List<Voyage> voyages = await wsDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(0, voyages.Count, "a refused create writes no voyage");
+                }
+            });
+
             await RunTest("Parity_InvalidVessel_RestMappingAndMcpHandler_ReturnIdenticalErrorPayload", async () =>
             {
                 // A request both entry points reject (missing vessel) must yield the byte-identical

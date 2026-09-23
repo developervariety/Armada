@@ -330,8 +330,7 @@ materialised and the remaining stages chain across the gap: each kept stage
 depends on the last kept stage before it. One `voyage.stage_skipped` event is
 recorded per dropped stage; its payload carries `Persona`, `StageOrder`,
 `Reason` and `Confirmer` (the calling principal). The same rule applies to REST
-`POST /api/v1/voyages` (`SkipStages`), WebSocket `create_voyage` (`skipStages`,
-which materialises the vessel's effective pipeline when set), alias dispatch,
+`POST /api/v1/voyages` (`SkipStages`), WebSocket `create_voyage` (`skipStages`), alias dispatch,
 and the autonomous scheduler. The dispatch is refused, and nothing is created,
 when a name is the Judge (`stage_skip_judge_refused`), is blank or is not a stage
 of the effective pipeline (`stage_skip_unknown_persona`), or when only the Judge

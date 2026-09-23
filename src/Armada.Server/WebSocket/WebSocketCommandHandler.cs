@@ -34,6 +34,7 @@ namespace Armada.Server.WebSocket
         private readonly MissionStatusTransitionService? _StatusTransitions;
         private readonly Dictionary<string, Func<WebSocketCommand, string, AuthContext, Task<object>>> _Commands;
         private CaptainAdministrationService? _CaptainAdministration;
+        private Func<VoyageDispatchService>? _VoyageDispatchFactory;
         private static readonly JsonSerializerOptions _FieldNameOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         #endregion
@@ -160,6 +161,19 @@ namespace Armada.Server.WebSocket
         {
             get => _CaptainAdministration ??= new CaptainAdministrationService(_Database, (captainId, token) => _Admiral.RecallCaptainAsync(captainId, token));
             set => _CaptainAdministration = value ?? throw new ArgumentNullException(nameof(CaptainAdministration));
+        }
+
+        /// <summary>
+        /// Builds the shared voyage dispatch service <c>create_voyage</c> dispatches through. The server sets the
+        /// factory REST and MCP use, carrying the code-index service, objective service, dispatch preview and
+        /// staleness adapter. When unset, the service is built from this handler's database, admiral and settings
+        /// alone: it still applies the same validation, captain overrides, stage skips and dispatch hold, but has
+        /// no code index or objective service, so an objective-linked dispatch is refused by the service.
+        /// </summary>
+        public Func<VoyageDispatchService> VoyageDispatchFactory
+        {
+            get => _VoyageDispatchFactory ??= () => new VoyageDispatchService(_Database, _Admiral, null, null, null, _Settings);
+            set => _VoyageDispatchFactory = value ?? throw new ArgumentNullException(nameof(VoyageDispatchFactory));
         }
 
         #endregion
@@ -558,7 +572,11 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>create_voyage</c> command.
+        /// Run the <c>create_voyage</c> command. A payload without a vessel or missions creates a bare voyage
+        /// owned by the caller. A payload with both is dispatched through the shared voyage dispatch service,
+        /// the same path REST and MCP use, so captain overrides, pipeline selection, playbooks, objective
+        /// linking, the code-index gate, code-context preparation, stage skips and the dispatch hold apply
+        /// identically. A refusal returns <c>command.error</c> carrying the shared service's code and body.
         /// </summary>
         private async Task<object> CreateVoyageCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
@@ -569,72 +587,61 @@ namespace Armada.Server.WebSocket
 
             List<MissionDescription> missionDescs = voyageData.Missions ?? new List<MissionDescription>();
 
-            Voyage createdVoyage;
             if (String.IsNullOrEmpty(voyVesselId) || missionDescs.Count == 0)
             {
-                createdVoyage = new Voyage(voyTitle, voyDesc);
-                createdVoyage.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
-                createdVoyage.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
-                createdVoyage = await _Database.Voyages.CreateAsync(createdVoyage).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(voyageData.ObjectiveId))
+                {
+                    return new
+                    {
+                        type = "command.error",
+                        action = "create_voyage",
+                        error = "objectiveId needs a vesselId and at least one mission; a bare voyage is not linked to an objective.",
+                        code = "objective_requires_dispatch"
+                    };
+                }
+
+                Voyage bareVoyage = new Voyage(voyTitle, voyDesc);
+                bareVoyage.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+                bareVoyage.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+                bareVoyage = await _Database.Voyages.CreateAsync(bareVoyage).ConfigureAwait(false);
+                return new { type = "command.result", action = "create_voyage", data = (object)bareVoyage };
             }
-            else
+
+            SharedVoyageDispatchRequest dispatchRequest = new SharedVoyageDispatchRequest
             {
-                try
-                {
-                    StageSkipRequest? voyStageSkip = PipelineStageSkip.FromOperator(voyageData.SkipStages, voyageData.SkipStagesReason, caller);
-                    if (voyStageSkip == null)
-                    {
-                        createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        // A stage skip only has meaning against a pipeline, so a create_voyage that
-                        // names skipStages materialises the vessel's effective pipeline minus those
-                        // stages through the same admiral rule the REST and MCP dispatch use.
-                        createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs, null, null, voyStageSkip).ConfigureAwait(false);
-                    }
-                }
-                catch (StageSkipRefusedException refused)
-                {
-                    return new
-                    {
-                        type = "command.error",
-                        action = "create_voyage",
-                        error = refused.Message,
-                        code = refused.Code,
-                        persona = refused.Persona
-                    };
-                }
-                catch (DispatchHoldActiveException held)
-                {
-                    DispatchHoldRefusal refusal = DispatchHoldRefusal.From(held.Hold);
-                    return new
-                    {
-                        type = "command.error",
-                        action = "create_voyage",
-                        error = refusal.Error,
-                        code = refusal.Code,
-                        setBy = refusal.SetBy,
-                        setByUtc = refusal.SetByUtc,
-                        reason = refusal.Reason
-                    };
-                }
-                catch (FleetCapacityAdmissionException capacity)
-                {
-                    return new
-                    {
-                        type = "command.error",
-                        action = "create_voyage",
-                        error = capacity.Message,
-                        code = capacity.Code,
-                        activeCount = capacity.ActiveCount,
-                        limit = capacity.Limit,
-                        candidateVesselId = capacity.CandidateVesselId,
-                        laneMembers = capacity.LaneMembers
-                    };
-                }
-            }
-            return new { type = "command.result", action = "create_voyage", data = (object)createdVoyage };
+                Title = voyTitle,
+                Description = voyDesc,
+                VesselId = voyVesselId,
+                Missions = missionDescs,
+                CodeContextMode = voyageData.CodeContextMode,
+                CodeContextTokenBudget = voyageData.CodeContextTokenBudget,
+                CodeContextMaxResults = voyageData.CodeContextMaxResults,
+                PipelineId = voyageData.PipelineId,
+                Pipeline = voyageData.Pipeline,
+                ObjectiveId = voyageData.ObjectiveId,
+                ForcePreflight = voyageData.ForcePreflight,
+                ObjectiveAuthContext = caller,
+                SelectedPlaybooks = voyageData.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
+                Settings = _Settings,
+                CaptainAssignments = voyageData.CaptainAssignments,
+                SkipStages = voyageData.SkipStages,
+                SkipStagesReason = voyageData.SkipStagesReason
+            };
+
+            VoyageDispatchResult result = await VoyageDispatchFactory().DispatchAsync(dispatchRequest).ConfigureAwait(false);
+            if (result.Succeeded)
+                return new { type = "command.result", action = "create_voyage", data = result.Value };
+
+            WebSocketDispatchRefusal refusal = WebSocketDispatchRefusal.From(result);
+            return new
+            {
+                type = "command.error",
+                action = "create_voyage",
+                error = refusal.Error,
+                code = refusal.Code,
+                status = result.StatusCode,
+                detail = result.Value
+            };
         }
 
         /// <summary>

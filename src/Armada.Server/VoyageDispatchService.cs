@@ -19,7 +19,7 @@ namespace Armada.Server
     using SyslogLogging;
 
     /// <summary>
-    /// Shared voyage dispatch orchestration used by MCP armada_dispatch and REST voyage creation.
+    /// Shared voyage dispatch orchestration used by MCP armada_dispatch, REST voyage creation and WebSocket create_voyage.
     /// </summary>
     public sealed class VoyageDispatchService
     {

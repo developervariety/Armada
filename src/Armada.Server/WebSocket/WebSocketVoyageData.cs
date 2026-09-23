@@ -4,7 +4,9 @@ namespace Armada.Server.WebSocket
     using Armada.Core.Models;
 
     /// <summary>
-    /// Data payload for the create_voyage WebSocket command.
+    /// Data payload for the create_voyage WebSocket command. A payload with a vessel and missions is
+    /// dispatched through the shared voyage dispatch service, so it accepts the same dispatch fields
+    /// as the REST voyage create and the MCP dispatch tool.
     /// </summary>
     public class WebSocketVoyageData
     {
@@ -27,6 +29,51 @@ namespace Armada.Server.WebSocket
         /// List of missions to create with the voyage.
         /// </summary>
         public List<MissionDescription>? Missions { get; set; }
+
+        /// <summary>
+        /// Dispatch-level code context mode: auto, off, or force.
+        /// </summary>
+        public string? CodeContextMode { get; set; } = null;
+
+        /// <summary>
+        /// Optional token budget for generated context packs.
+        /// </summary>
+        public int? CodeContextTokenBudget { get; set; } = null;
+
+        /// <summary>
+        /// Optional maximum result count for generated context packs.
+        /// </summary>
+        public int? CodeContextMaxResults { get; set; } = null;
+
+        /// <summary>
+        /// Pipeline identifier to use.
+        /// </summary>
+        public string? PipelineId { get; set; } = null;
+
+        /// <summary>
+        /// Pipeline name to resolve when <see cref="PipelineId"/> is empty.
+        /// </summary>
+        public string? Pipeline { get; set; } = null;
+
+        /// <summary>
+        /// Ordered playbooks to apply to every mission in the voyage.
+        /// </summary>
+        public List<SelectedPlaybook>? SelectedPlaybooks { get; set; } = null;
+
+        /// <summary>
+        /// Objective to link to the dispatched voyage. Requires a vessel and at least one mission.
+        /// </summary>
+        public string? ObjectiveId { get; set; } = null;
+
+        /// <summary>
+        /// Operator override that lets a linked objective dispatch despite an incomplete dispatch preflight.
+        /// </summary>
+        public bool ForcePreflight { get; set; } = false;
+
+        /// <summary>
+        /// Per-persona captain overrides applied to every mission of that persona, including fan-out missions.
+        /// </summary>
+        public List<CaptainAssignmentOverride>? CaptainAssignments { get; set; } = null;
 
         /// <summary>
         /// Persona names of pipeline stages the operator confirms this voyage does not need, for

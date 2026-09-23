@@ -725,6 +725,18 @@ namespace Armada.Server
             _CaptainAdministration.AttachSessionCoordinators(_PlanningSessions, _ObjectiveRefinementSessions);
             _WebSocketHub.SetCaptainAdministration(_CaptainAdministration);
 
+            // WebSocket create_voyage dispatches through the same shared service as REST and MCP. The factory
+            // reads the fields when a command runs, so services wired later in startup are included.
+            _WebSocketHub.SetVoyageDispatchFactory(() => new VoyageDispatchService(
+                _Database,
+                _Admiral,
+                _Logging,
+                _CodeIndex,
+                _ObjectiveService,
+                _Settings,
+                _ObjectiveDispatchPreviewService,
+                _DispatchStalenessAdapter));
+
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
             _CoordinationService.BoardWakeEmitter = async (participantKey, text, token) =>
             {

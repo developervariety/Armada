@@ -316,6 +316,13 @@ upstream integrations and excludes changes already present at that baseline.
   services the admiral endpoint supplies (review hold, AgentWake, releases,
   deployments, runbooks, captain bench, unlanded branches, terminal-voyage
   reconciliation, disk lifecycle and captain process stop).
+- **WebSocket voyage dispatch:** `create_voyage` with a vessel and missions runs the
+  shared voyage dispatch service that REST and MCP run, and accepts the same fields:
+  captain assignments, pipeline, playbooks, code-context settings, objective and
+  forced preflight, and stage skips. A captain override sent over WebSocket is
+  stored on the voyage and routes the persona's missions, and the code-index gate,
+  code-context preparation and dispatch hold apply as on REST. A refusal returns the
+  shared code, the REST status and the full refusal body.
 - **MCP tool results:** one rule decides that a tool result is an error: an
   explicit `isError: true` result, or a top-level non-empty `Error` string. HTTP
   returns such a result with `isError: true` and audits it as `Failed` with its

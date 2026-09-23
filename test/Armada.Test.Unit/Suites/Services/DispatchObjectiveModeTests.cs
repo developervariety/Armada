@@ -550,7 +550,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                     WebSocketCommandHandler handler = new WebSocketCommandHandler(
-                        harness.Admiral, testDb.Driver, null!, null, null, null, options, mission => { }, voyage => { });
+                        harness.Admiral, testDb.Driver, null!, harness.Settings, null, null, options, mission => { }, voyage => { });
                     string rawBody = JsonSerializer.Serialize(new
                     {
                         Route = "command",

@@ -545,6 +545,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 {
                                     Title = "entry point ws",
                                     VesselId = vessel.Id,
+                                    CodeContextMode = "off",
                                     Missions = new[] { new { Title = "only", Description = "d" } }
                                 }
                             });

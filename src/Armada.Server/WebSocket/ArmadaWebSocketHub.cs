@@ -101,6 +101,16 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
+        /// Use the shared voyage dispatch service REST and MCP use for <c>create_voyage</c>, built per command with
+        /// the server's code-index service, objective service and dispatch preview.
+        /// </summary>
+        /// <param name="factory">Builds the shared voyage dispatch service.</param>
+        public void SetVoyageDispatchFactory(Func<VoyageDispatchService> factory)
+        {
+            _CommandHandler.VoyageDispatchFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+        }
+
+        /// <summary>
         /// Watson7 WebSocket route handler. Registered on the main server at /ws.
         /// Manages the full session lifecycle: connect, read loop, disconnect.
         /// </summary>

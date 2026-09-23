@@ -6,7 +6,7 @@ namespace Armada.Server
     using Armada.Server.Mcp;
 
     /// <summary>
-    /// Normalized request for dispatching a voyage through the shared REST and MCP path.
+    /// Normalized request for dispatching a voyage through the shared REST, MCP and WebSocket path.
     /// </summary>
     public sealed class SharedVoyageDispatchRequest
     {
