@@ -832,13 +832,17 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("LandEntryAsync_GateFails_TargetHeadUnchanged", async () =>
+            await RunTest("LandEntryAsync_GateFails_TargetUnchangedAndFeatureNeverReachesTarget", async () =>
             {
+                // A failed gate must leave both target refs where they were and must never merge
+                // the captain's commit. Unchanged heads already imply an unchanged tree; the tree
+                // check states the intent directly, since a feature file leaking into the target is
+                // the defect the gate exists to prevent.
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gate_fail_" + Guid.NewGuid().ToString("N"));
                 try
                 {
                     Directory.CreateDirectory(rootDir);
-                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
 
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -878,6 +882,12 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(preRemoteHead, postRemoteHead, "Remote target branch should not move when tests fail before pushing");
                         AssertEqual(preBareHead, postBareHead, "Bare local target branch should not move when tests fail before pushing");
 
+                        string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertFalse(remoteMainFiles.Contains("feature.txt"), "Captain feature file must not reach origin/main when the gate fails");
+
+                        string bareMainFiles = await RunGitAsync(repos.BareDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertFalse(bareMainFiles.Contains("feature.txt"), "Captain feature file must not reach the bare local main when the gate fails");
+
                         List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
                         AssertEqual(0, events.Count, "Gate failure before push should not emit target-advanced audit events");
                     }
@@ -888,16 +898,18 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("LandEntryAsync_TargetBranchInWorktree_SkipsRefSyncAndStillLands", async () =>
+            await RunTest("LandEntryAsync_TargetBranchInWorktree_SkipsRefSyncLandsFeatureAndEmitsScopedSkipEvent", async () =>
             {
-                // When the target branch is checked out in a sibling worktree, the local
-                // ref sync is skipped (not a failure). The land still succeeds and a
-                // structured target_ref_sync_skipped event is emitted.
+                // When the target branch is checked out in a sibling worktree, the local ref sync is
+                // skipped (not a failure). The land still succeeds, the feature reaches the remote
+                // target, and a structured target_ref_sync_skipped event (not failed_target_advanced)
+                // is emitted, scoped to the entry, its mission and vessel, and readable by the entry
+                // owner. Entries without a mission land through the policy cases above.
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wt_skip_" + Guid.NewGuid().ToString("N"));
                 try
                 {
                     Directory.CreateDirectory(rootDir);
-                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
                     string checkedOutMainDir = Path.Combine(rootDir, "checked-out-main");
                     await RunGitAsync(repos.BareDir, "worktree", "add", checkedOutMainDir, "main").ConfigureAwait(false);
 
@@ -916,10 +928,16 @@ namespace Armada.Test.Unit.Suites.Services
                         vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
                         await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
+                        Mission mission = new Mission("worktree skip event mission");
+                        mission.VesselId = vessel.Id;
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
                         MergeEntry entry = new MergeEntry();
                         entry.TenantId = Armada.Core.Constants.DefaultTenantId;
                         entry.UserId = Armada.Core.Constants.DefaultUserId;
                         entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
                         entry.BranchName = repos.CaptainBranch;
                         entry.TargetBranch = "main";
                         entry.Status = MergeStatusEnum.Queued;
@@ -937,16 +955,22 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNotNull(updated, "Entry should still exist");
                         AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land even when local target ref sync is skipped due to worktree");
 
-                        // Remote advances; bare local ref stays at old commit (sync was skipped)
+                        // Remote advances and carries the feature; bare local ref stays at old commit (sync was skipped)
                         string postRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
                         string postBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
                         AssertFalse(String.Equals(preRemoteHead, postRemoteHead, StringComparison.OrdinalIgnoreCase),
                             "Remote target branch should advance after successful land");
                         AssertEqual(preBareHead, postBareHead, "Bare local target branch remains at old commit when sync is skipped");
+                        string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertTrue(remoteMainFiles.Contains("feature.txt"), "Captain feature file should be on origin/main after successful land");
 
-                        // Structured skip event emitted; no false-positive rollback event
+                        // Structured skip event emitted and scoped; no false-positive rollback event
                         List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.target_ref_sync_skipped").ConfigureAwait(false);
                         AssertEqual(1, skipEvents.Count, "Should emit one target_ref_sync_skipped event when worktree blocks local sync");
+                        AssertEqual("merge_entry", skipEvents[0].EntityType ?? "", "Skip event should be scoped to the merge entry");
+                        AssertEqual(entry.Id, skipEvents[0].EntityId ?? "", "Skip event should reference the entry id");
+                        AssertEqual(mission.Id, skipEvents[0].MissionId ?? "", "Skip event should carry the mission id");
+                        AssertEqual(vessel.Id, skipEvents[0].VesselId ?? "", "Skip event should carry the vessel id");
                         AssertContains("branch_checked_out_in_worktree", skipEvents[0].Payload ?? "", "Payload should include the skip reason");
                         AssertContains(entry.Id, skipEvents[0].Payload ?? "", "Payload should include the entry id");
 
@@ -957,132 +981,6 @@ namespace Armada.Test.Unit.Suites.Services
                             new EnumerationQuery { EventType = "merge_queue.target_ref_sync_skipped" }).ConfigureAwait(false);
                         AssertEqual(1, scopedSkipEvents.Objects.Count, "The entry owner's tenant and user scoped read must find the skip event");
                         AssertEqual(Armada.Core.Constants.DefaultUserId, skipEvents[0].UserId, "The skip event must carry the entry user");
-
-                        List<ArmadaEvent> rollbackEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
-                        AssertEqual(0, rollbackEvents.Count, "Successful land must not emit a failed_target_advanced event");
-                    }
-                }
-                finally
-                {
-                    try { Directory.Delete(rootDir, true); } catch { }
-                }
-            });
-
-            await RunTest("LandEntryAsync_GateFails_FeatureCommitNeverReachesTarget", async () =>
-            {
-                // Regression for the landing-integrity bug: a Failed gate must leave the
-                // target branch unchanged AND must never merge the captain's commit. A
-                // HEAD-only equality check can pass even if the feature tree leaked, so
-                // assert the captain's file is absent from the target tree directly.
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_gate_fail_tree_" + Guid.NewGuid().ToString("N"));
-                try
-                {
-                    Directory.CreateDirectory(rootDir);
-                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
-
-                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                    {
-                        LoggingModule logging = CreateLogging();
-                        ArmadaSettings settings = CreateSettings();
-                        GitService git = new GitService(logging);
-
-                        Vessel vessel = new Vessel("gate-fail-tree-vessel", repos.RemoteDir);
-                        vessel.LocalPath = repos.BareDir;
-                        vessel.WorkingDirectory = repos.WorkingDir;
-                        vessel.DefaultBranch = "main";
-                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
-                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                        MergeEntry entry = new MergeEntry();
-                        entry.VesselId = vessel.Id;
-                        entry.BranchName = repos.CaptainBranch;
-                        entry.TargetBranch = "main";
-                        entry.Status = MergeStatusEnum.Queued;
-                        entry.TestCommand = "exit 1";
-                        entry.CreatedUtc = DateTime.UtcNow;
-                        entry.LastUpdateUtc = DateTime.UtcNow;
-                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
-
-                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
-                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
-
-                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
-                        AssertNotNull(updated, "Entry should still exist");
-                        AssertEqual(MergeStatusEnum.Failed, updated!.Status, "Entry should fail when the merge gate command fails");
-
-                        string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
-                        AssertFalse(remoteMainFiles.Contains("feature.txt"), "Captain feature file must not reach origin/main when the gate fails");
-
-                        string bareMainFiles = await RunGitAsync(repos.BareDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
-                        AssertFalse(bareMainFiles.Contains("feature.txt"), "Captain feature file must not reach the bare local main when the gate fails");
-                    }
-                }
-                finally
-                {
-                    try { Directory.Delete(rootDir, true); } catch { }
-                }
-            });
-
-            await RunTest("LandEntryAsync_TargetBranchInWorktree_FeatureReachesTargetAndSkipEventEmitted", async () =>
-            {
-                // Pins the event contract when the target branch is in a worktree:
-                // the land succeeds, the feature reaches origin/main, and a structured
-                // target_ref_sync_skipped event (not failed_target_advanced) is emitted.
-                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_wt_event_" + Guid.NewGuid().ToString("N"));
-                try
-                {
-                    Directory.CreateDirectory(rootDir);
-                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
-                    string checkedOutMainDir = Path.Combine(rootDir, "checked-out-main");
-                    await RunGitAsync(repos.BareDir, "worktree", "add", checkedOutMainDir, "main").ConfigureAwait(false);
-
-                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                    {
-                        LoggingModule logging = CreateLogging();
-                        ArmadaSettings settings = CreateSettings();
-                        GitService git = new GitService(logging);
-
-                        Vessel vessel = new Vessel("wt-event-vessel", repos.RemoteDir);
-                        vessel.LocalPath = repos.BareDir;
-                        vessel.WorkingDirectory = repos.WorkingDir;
-                        vessel.DefaultBranch = "main";
-                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
-                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                        Mission mission = new Mission("worktree skip event mission");
-                        mission.VesselId = vessel.Id;
-                        mission.Status = MissionStatusEnum.WorkProduced;
-                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
-
-                        MergeEntry entry = new MergeEntry();
-                        entry.VesselId = vessel.Id;
-                        entry.MissionId = mission.Id;
-                        entry.BranchName = repos.CaptainBranch;
-                        entry.TargetBranch = "main";
-                        entry.Status = MergeStatusEnum.Queued;
-                        entry.CreatedUtc = DateTime.UtcNow;
-                        entry.LastUpdateUtc = DateTime.UtcNow;
-                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
-
-                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
-                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
-
-                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
-                        AssertNotNull(updated, "Entry should still exist");
-                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "Entry should land despite local target ref sync being skipped");
-
-                        // Feature must be present on origin/main after a successful land
-                        string remoteMainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
-                        AssertTrue(remoteMainFiles.Contains("feature.txt"), "Captain feature file should be on origin/main after successful land");
-
-                        // Structured skip event emitted; no rollback event
-                        List<ArmadaEvent> skipEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.target_ref_sync_skipped").ConfigureAwait(false);
-                        AssertEqual(1, skipEvents.Count, "Should emit one target_ref_sync_skipped event");
-                        AssertEqual("merge_entry", skipEvents[0].EntityType ?? "", "Skip event should be scoped to the merge entry");
-                        AssertEqual(entry.Id, skipEvents[0].EntityId ?? "", "Skip event should reference the entry id");
-                        AssertEqual(mission.Id, skipEvents[0].MissionId ?? "", "Skip event should carry the mission id");
-                        AssertEqual(vessel.Id, skipEvents[0].VesselId ?? "", "Skip event should carry the vessel id");
-                        AssertContains("branch_checked_out_in_worktree", skipEvents[0].Payload ?? "", "Payload should include the skip reason");
 
                         List<ArmadaEvent> rollbackEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
                         AssertEqual(0, rollbackEvents.Count, "Successful land must not emit a failed_target_advanced event");

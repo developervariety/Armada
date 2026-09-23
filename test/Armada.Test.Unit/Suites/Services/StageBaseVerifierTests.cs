@@ -27,6 +27,18 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("A stage cut a fresh branch is NotApplicable even without the upstream commit", () =>
+            {
+                // An Architect fan-out worker is spawned branchless by design and cuts a fresh
+                // branch, so it never inherits the Architect's commit. Demanding containment
+                // would fail it, and every rescue of it, for doing what the pipeline intends.
+                AssertEqual(
+                    StageBaseVerdictEnum.NotApplicable,
+                    StageBaseVerifier.Evaluate("msn_upstream", "abc123", false, false, stageContinuesUpstreamBranch: false),
+                    "A fresh-branch stage has no predecessor commit to contain.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("A checkout containing the upstream commit is Verified", () =>
             {
                 AssertEqual(

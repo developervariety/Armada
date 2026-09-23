@@ -126,7 +126,7 @@ namespace Armada.Test.Unit
             // Service tests
             runner.AddSuite(new AdmiralServiceTests());
             runner.AddSuite(new CaptainCrashLoopTrackerTests());
-            runner.AddSuite(new MemoryHotfixRegressionTests());
+            runner.AddSuite(new MissionListProjectionTests());
             runner.AddSuite(new EntityResolverTests());
             runner.AddSuite(new MessageTemplateServiceTests());
             runner.AddSuite(new ProgressParserTests());
@@ -176,9 +176,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainPersonaMatchingTests());
             runner.AddSuite(new ProjectProfileBriefInjectionTests());
             runner.AddSuite(new CaptainOverridePersistenceTests());
-            runner.AddSuite(new CaptainProcessLivenessTests());
             runner.AddSuite(new MissionTransitionTableAgreementTests());
-            runner.AddSuite(new StageBranchInheritanceTests());
             runner.AddSuite(new LandingPipelineTests());
             runner.AddSuite(new LandingServiceTests());
             runner.AddSuite(new LandingStateMachineTests());

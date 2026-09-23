@@ -21,8 +21,8 @@ namespace Armada.Test.Unit
     /// Pins the consumption half of project profiles. Skills and per-persona prompt overrides were
     /// persisted, exposed over REST, and selectable by ProjectProfileService, while nothing in brief
     /// assembly ever read them: an operator could create a skill and attach it to a profile, and no
-    /// captain would ever see it. These tests hold the two resolvers and the fact that brief assembly
-    /// calls them.
+    /// captain would ever see it. These tests hold the two resolvers and the method-set wiring they read
+    /// through; MissionPromptTests proves a generated brief renders their result and accounts for it.
     /// </summary>
     public sealed class ProjectProfileBriefInjectionTests : TestSuite
     {
@@ -284,29 +284,6 @@ namespace Armada.Test.Unit
                         "An updated default captain must persist");
                 }
             });
-
-            // Both resolvers are best-effort and return empty on failure, so a wiring mistake in brief
-            // assembly is invisible at runtime: the brief simply renders without the section, exactly as
-            // it did when nothing called them at all. The guard asserts the calls exist.
-
-            await RunTest("Brief assembly consumes both project-profile resolvers", () =>
-            {
-                string source = File.ReadAllText(Path.Combine(
-                    FindRepositoryRoot(), "src", "Armada.Core", "Services", "MissionService.cs"));
-
-                Assert(
-                    source.Contains("await ResolveSkillsMarkdownAsync(vessel, token)"),
-                    "Brief assembly must resolve the vessel's profile skills");
-                Assert(
-                    source.Contains("ledger.Track(\"mission.skills\""),
-                    "The skills section must be tracked in the prompt-budget ledger like every other module");
-                Assert(
-                    source.Contains("await ResolvePersonaOverrideAsync(vessel, mission.Persona, token)"),
-                    "Brief assembly must resolve the vessel's persona override");
-                Assert(
-                    source.Contains("ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token)"),
-                    "The resolved override must reach the persona prompt builder, not be dropped as null");
-            });
         }
 
         /// <summary>
@@ -334,24 +311,6 @@ namespace Armada.Test.Unit
             vessel.DefaultBranch = "main";
 
             return new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
-        }
-
-        /// <summary>
-        /// Walk up from the test binary until the directory containing the solution's src folder is found,
-        /// so the source guard does not depend on the working directory a runner chose.
-        /// </summary>
-        /// <returns>Absolute path to the repository root.</returns>
-        private static string FindRepositoryRoot()
-        {
-            DirectoryInfo? dir = new DirectoryInfo(AppContext.BaseDirectory);
-
-            while (dir != null)
-            {
-                if (Directory.Exists(Path.Combine(dir.FullName, "src", "Armada.Core"))) return dir.FullName;
-                dir = dir.Parent;
-            }
-
-            throw new DirectoryNotFoundException("Could not locate the repository root from " + AppContext.BaseDirectory);
         }
     }
 }

@@ -718,6 +718,86 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Both project-profile resolvers are best-effort and return empty on failure, so brief
+            // assembly that drops their result renders a brief with no error. Only the rendered file
+            // and its budget accounting show whether the profile reached the captain.
+            await RunTest("GenerateClaudeMdAsync renders profile skills and the persona override into the brief and its budget", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainInstructionByteBudget = 5000000;
+                    StubGitService git = new StubGitService();
+                    IPromptTemplateService templateService;
+                    MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                            new Vessel("ProfileBriefVessel", "https://github.com/test/repo"));
+
+                        Skill skill = new Skill();
+                        skill.Name = "Bench Safety";
+                        skill.Content = "Always isolate the bench before probing.";
+                        await testDb.Driver.Skills.CreateAsync(skill);
+
+                        await testDb.Driver.PromptTemplates.CreateAsync(new PromptTemplate(
+                            "persona.worker_profile_custom",
+                            "PROFILE WORKER TEMPLATE: follow the project's worker contract."));
+
+                        PersonaOverride personaOverride = new PersonaOverride();
+                        personaOverride.PersonaName = "Worker";
+                        personaOverride.PromptTemplateName = "persona.worker_profile_custom";
+                        personaOverride.AdditionalInstructions = "PROFILE ADDENDUM: cite the bench log line.";
+
+                        ProjectProfile profile = new ProjectProfile();
+                        profile.Name = "brief-profile";
+                        profile.VesselId = vessel.Id;
+                        profile.Skills = new List<string> { "Bench Safety" };
+                        profile.PersonaOverrides = new List<PersonaOverride> { personaOverride };
+                        await testDb.Driver.ProjectProfiles.CreateAsync(profile);
+
+                        Mission mission = new Mission();
+                        mission.Title = "Profile brief";
+                        mission.Description = "Carry the vessel profile into the brief.";
+                        mission.Persona = "Worker";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("## Skills", content, "the profile skills section must render");
+                        AssertContains("### Bench Safety", content, "the profile skill heading must render");
+                        AssertContains("Always isolate the bench before probing.", content, "the profile skill body must render");
+                        AssertContains("PROFILE WORKER TEMPLATE: follow the project's worker contract.", content,
+                            "the persona override's template must replace the default persona template");
+                        AssertContains("PROFILE ADDENDUM: cite the bench log line.", content,
+                            "the persona override's additional instructions must render");
+
+                        string skillsMarkdown = await service.ResolveSkillsMarkdownAsync(vessel, CancellationToken.None);
+                        int expectedSkillsBytes = System.Text.Encoding.UTF8.GetByteCount("## Skills\n\n" + skillsMarkdown + "\n");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.prompt_budget", 10);
+                        AssertEqual(1, events.Count, "exactly one prompt-budget event must be recorded");
+                        PromptBudgetModules? budget = System.Text.Json.JsonSerializer.Deserialize<PromptBudgetModules>(events[0].Payload ?? "{}");
+                        AssertNotNull(budget, "the prompt-budget payload must deserialize");
+                        AssertTrue(budget!.Modules.ContainsKey("mission.skills"), "the skills section must be tracked in the budget ledger");
+                        AssertEqual(expectedSkillsBytes, budget.Modules["mission.skills"], "the ledger must count the rendered skills section bytes");
+                        AssertTrue(budget.Modules.ContainsKey("mission.metadata"), "the metadata module carrying the persona prompt must be tracked");
+                        AssertTrue(
+                            budget.Modules["mission.metadata"] >= System.Text.Encoding.UTF8.GetByteCount("PROFILE ADDENDUM: cite the bench log line."),
+                            "the persona override must be counted inside the metadata module");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync leaves prompt-budget telemetry unflagged when under budget", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -2625,6 +2705,15 @@ namespace Armada.Test.Unit.Suites.Services
                 index += needle.Length;
             }
             return count;
+        }
+
+        /// <summary>
+        /// The per-module byte accounting of a mission.prompt_budget event payload.
+        /// </summary>
+        private sealed class PromptBudgetModules
+        {
+            /// <summary>Bytes per tracked brief module.</summary>
+            public Dictionary<string, int> Modules { get; set; } = new Dictionary<string, int>();
         }
     }
 }

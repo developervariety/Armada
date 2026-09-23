@@ -2,7 +2,6 @@ namespace Armada.Test.Unit
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -10,11 +9,9 @@ namespace Armada.Test.Unit
     using Armada.Test.Unit.TestHelpers;
 
     /// <summary>
-    /// Pins the write half of the per-persona captain override feature. The resolver, the model, and the
-    /// voyage column all existed while nothing ever assigned CaptainOverridesJson, so every dispatch stored
-    /// null and the resolver read an empty list forever: the feature was reachable in code and unreachable
-    /// in practice. These tests hold the serializer, the round trip through the voyage row, and the dispatch
-    /// seam that populates it.
+    /// Pins the serialized form of per-persona captain overrides and its round trip through the voyage
+    /// row. These cases do not prove dispatch persistence: VoyageDispatchServiceTests drives the REST and
+    /// MCP dispatch paths, reads the stored override, and proves assignment routes by it.
     /// </summary>
     public sealed class CaptainOverridePersistenceTests : TestSuite
     {
@@ -99,56 +96,6 @@ namespace Armada.Test.Unit
                         "Resolver should see no overrides");
                 }
             });
-
-            // The dispatch seam itself has no test double: VoyageDispatchService needs a live Admiral, a
-            // vessel, and a pipeline to reach the persistence line. The property that actually broke was
-            // that NOBODY assigned the column, so the guard asserts the assignment exists on the one path
-            // both REST and MCP dispatch flow through.
-
-            await RunTest("The shared dispatch path persists captain assignments", () =>
-            {
-                string root = FindRepositoryRoot();
-
-                string service = File.ReadAllText(
-                    Path.Combine(root, "src", "Armada.Server", "VoyageDispatchService.cs"));
-                Assert(
-                    service.Contains("voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(request.CaptainAssignments)"),
-                    "VoyageDispatchService must persist the requested captain assignments onto the voyage");
-
-                // Both callers must actually populate the shared request, or the seam above never sees them.
-                string rest = File.ReadAllText(
-                    Path.Combine(root, "src", "Armada.Server", "Routes", "VoyageRoutes.cs"));
-                Assert(
-                    rest.Contains("CaptainAssignments = request.CaptainAssignments"),
-                    "The REST dispatch path must forward captain assignments into the shared request");
-
-                string mcp = File.ReadAllText(
-                    Path.Combine(root, "src", "Armada.Server", "Mcp", "Tools", "McpVoyageTools.cs"));
-                Assert(
-                    mcp.Contains("CaptainAssignments = request.CaptainAssignments"),
-                    "The MCP dispatch path must forward captain assignments into the shared request");
-                Assert(
-                    mcp.Contains("captainAssignments = new"),
-                    "The MCP tool must declare captainAssignments in its schema, or no operator can send it");
-            });
-        }
-
-        /// <summary>
-        /// Walk up from the test binary until the directory containing the solution's src folder is found,
-        /// so the source guard does not depend on the working directory a runner chose.
-        /// </summary>
-        /// <returns>Absolute path to the repository root.</returns>
-        private static string FindRepositoryRoot()
-        {
-            DirectoryInfo? dir = new DirectoryInfo(AppContext.BaseDirectory);
-
-            while (dir != null)
-            {
-                if (Directory.Exists(Path.Combine(dir.FullName, "src", "Armada.Server"))) return dir.FullName;
-                dir = dir.Parent;
-            }
-
-            throw new DirectoryNotFoundException("Could not locate the repository root from " + AppContext.BaseDirectory);
         }
     }
 }

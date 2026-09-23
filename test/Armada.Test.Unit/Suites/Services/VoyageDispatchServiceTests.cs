@@ -790,6 +790,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Parity_CaptainAssignments_PersistOnVoyageAndRouteLaterPersonaMissions", async () =>
+            {
+                // Both entry points must store the requested per-persona captain overrides on the
+                // voyage row, and assignment must read that stored row: a Worker mission created on
+                // the voyage later (a fan-out mission) goes to the preferred captain, not the other
+                // idle Worker captain, and takes the requested fallback tier.
+                using (TestDatabase restDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (TestDatabase mcpDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings restSettings = CreateRoutingSettings();
+                    ArmadaSettings mcpSettings = CreateRoutingSettings();
+                    Vessel restVessel = await CreateRoutingVesselAsync(restDb, restSettings, "override-rest-vessel").ConfigureAwait(false);
+                    Vessel mcpVessel = await CreateRoutingVesselAsync(mcpDb, mcpSettings, "override-mcp-vessel").ConfigureAwait(false);
+                    Captain restPreferred = await CreateOverrideCaptainsAsync(restDb).ConfigureAwait(false);
+                    Captain mcpPreferred = await CreateOverrideCaptainsAsync(mcpDb).ConfigureAwait(false);
+
+                    VoyageRequest restRequest = new VoyageRequest
+                    {
+                        Title = "Override voyage",
+                        Description = "captain assignments through REST",
+                        VesselId = restVessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionRequest> { new MissionRequest { Title = "alpha", Description = "first task" } },
+                        CaptainAssignments = new List<CaptainAssignmentOverride>
+                        {
+                            new CaptainAssignmentOverride("Worker", restPreferred.Id, CaptainTierEnum.Premium)
+                        }
+                    };
+                    VoyageDispatchService restService = new VoyageDispatchService(
+                        restDb.Driver, new RecordingAdmiralService(restDb.Driver), null, null, null, null);
+                    VoyageDispatchResult restResult = await restService
+                        .DispatchAsync(VoyageRoutes.CreateDispatchRequest(restRequest)).ConfigureAwait(false);
+                    AssertTrue(restResult.Succeeded, "REST dispatch with captain assignments should succeed");
+
+                    RecordingAdmiralService mcpAdmiral = new RecordingAdmiralService(mcpDb.Driver);
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    string dispatchSchema = String.Empty;
+                    McpVoyageTools.Register(
+                        (name, _, input, handler) =>
+                        {
+                            if (name != "armada_dispatch") return;
+                            dispatchSchema = JsonSerializer.Serialize(input);
+                            dispatchHandler = McpTestCaller.Wrap(handler);
+                        },
+                        mcpDb.Driver,
+                        mcpAdmiral);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+                    AssertContains("captainAssignments", dispatchSchema, "the MCP dispatch schema must declare captainAssignments, or no operator can send it");
+                    object mcpResponse = await dispatchHandler!(JsonSerializer.SerializeToElement(new
+                    {
+                        title = "Override voyage",
+                        description = "captain assignments through MCP",
+                        vesselId = mcpVessel.Id,
+                        codeContextMode = "off",
+                        missions = new object[] { new { title = "alpha", description = "first task" } },
+                        captainAssignments = new object[]
+                        {
+                            new { persona = "Worker", captainId = mcpPreferred.Id, fallbackTier = "Premium" }
+                        }
+                    })).ConfigureAwait(false);
+                    AssertFalse(JsonSerializer.Serialize(mcpResponse).Contains("\"Error\""),
+                        "MCP dispatch with captain assignments should not error: " + JsonSerializer.Serialize(mcpResponse));
+
+                    await AssertStoredOverrideRoutesWorkerAsync(restDb, restSettings, restVessel,
+                        restResult.Voyage!.Id, restPreferred, "REST").ConfigureAwait(false);
+                    string mcpVoyageId = mcpAdmiral.CreatedMissions.Single().VoyageId!;
+                    await AssertStoredOverrideRoutesWorkerAsync(mcpDb, mcpSettings, mcpVessel,
+                        mcpVoyageId, mcpPreferred, "MCP").ConfigureAwait(false);
+                }
+            });
+
             await RunTest("Parity_InvalidVessel_RestMappingAndMcpHandler_ReturnIdenticalErrorPayload", async () =>
             {
                 // A request both entry points reject (missing vessel) must yield the byte-identical
@@ -2069,6 +2140,89 @@ namespace Armada.Test.Unit.Suites.Services
                 null,
                 null,
                 settings);
+        }
+
+        private static ArmadaSettings CreateRoutingSettings()
+        {
+            string id = Guid.NewGuid().ToString("N");
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_override_docks_" + id);
+            settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_override_repos_" + id);
+            settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_override_logs_" + id);
+            return settings;
+        }
+
+        private static async Task<Vessel> CreateRoutingVesselAsync(TestDatabase testDb, ArmadaSettings settings, string name)
+        {
+            Vessel vessel = new Vessel(name, "https://github.com/test/repo.git")
+            {
+                TenantId = Constants.DefaultTenantId,
+                UserId = Constants.DefaultUserId
+            };
+            vessel.LocalPath = Path.Combine(settings.ReposDirectory, name + ".git");
+            vessel.DefaultBranch = "main";
+            return await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Seed the preferred captain, whose persona fence excludes Worker, and a competing idle
+        /// captain that Worker routing would otherwise choose. Returns the preferred captain.
+        /// </summary>
+        private static async Task<Captain> CreateOverrideCaptainsAsync(TestDatabase testDb)
+        {
+            Captain competing = new Captain("override-competing-worker");
+            competing.State = CaptainStateEnum.Idle;
+            competing.AllowedPersonas = "[\"Worker\"]";
+            competing.Tier = CaptainTierEnum.Premium;
+            await testDb.Driver.Captains.CreateAsync(competing).ConfigureAwait(false);
+
+            Captain preferred = new Captain("override-preferred");
+            preferred.State = CaptainStateEnum.Idle;
+            preferred.AllowedPersonas = "[\"Judge\"]";
+            preferred.Tier = CaptainTierEnum.Premium;
+            return await testDb.Driver.Captains.CreateAsync(preferred).ConfigureAwait(false);
+        }
+
+        private async Task AssertStoredOverrideRoutesWorkerAsync(
+            TestDatabase testDb,
+            ArmadaSettings settings,
+            Vessel vessel,
+            string voyageId,
+            Captain preferred,
+            string entryPoint)
+        {
+            Voyage? stored = await testDb.Driver.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
+            AssertNotNull(stored, entryPoint + " voyage should exist");
+            List<CaptainAssignmentOverride> overrides = MissionService.DeserializeCaptainOverrides(stored!.CaptainOverridesJson);
+            AssertEqual(1, overrides.Count, entryPoint + " dispatch must store the captain assignment on the voyage row");
+            AssertEqual("Worker", overrides[0].Persona, entryPoint + " stored persona");
+            AssertEqual(preferred.Id, overrides[0].CaptainId, entryPoint + " stored captain");
+            AssertEqual(CaptainTierEnum.Premium, overrides[0].FallbackTier, entryPoint + " stored fallback tier");
+
+            Mission fanOut = new Mission("fan-out worker", "created after dispatch");
+            fanOut.TenantId = Constants.DefaultTenantId;
+            fanOut.UserId = Constants.DefaultUserId;
+            fanOut.VesselId = vessel.Id;
+            fanOut.VoyageId = voyageId;
+            fanOut.Persona = "Worker";
+            fanOut.Status = MissionStatusEnum.Pending;
+            fanOut = await testDb.Driver.Missions.CreateAsync(fanOut).ConfigureAwait(false);
+
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            StubGitService git = new StubGitService();
+            IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+            CaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+            captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64101);
+            MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService,
+                resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+            bool assigned = await missionService.TryAssignAsync(fanOut, vessel).ConfigureAwait(false);
+            AssertTrue(assigned, entryPoint + " fan-out Worker mission should assign");
+            Mission? routed = await testDb.Driver.Missions.ReadAsync(fanOut.Id).ConfigureAwait(false);
+            AssertEqual(preferred.Id, routed!.RequestedCaptainId, entryPoint + " routing must resolve the stored override as the requested captain");
+            AssertEqual(preferred.Id, routed.CaptainId, entryPoint + " routing must assign the stored override's captain");
+            AssertEqual(CaptainTierEnum.Premium, routed.Tier, entryPoint + " routing must apply the stored fallback tier");
         }
 
         private static async Task<Mission> WaitForMissionPrestagedAsync(DatabaseDriver database, string missionId)

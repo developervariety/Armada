@@ -96,6 +96,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A planning reply larger than the live buffer keeps a marked, bounded tail", async () =>
+            {
+                // A planning runtime can stream far more output than a reply needs. The stored reply
+                // must stay bounded however many chunks arrive, say that it was truncated, and keep
+                // the newest output, which is where the planner's answer lands.
+                const int capChars = 256 * 1024;
+                const string truncationMarker = "[ARMADA: planning output truncated to retain tail]";
+                const string finalLine = "FINAL PLAN: ship the bounded buffer";
+                List<string> records = new List<string>();
+                for (int i = 0; i < 12; i++)
+                {
+                    records.Add("chunk-" + i.ToString("D2") + ": " + new string('p', 32 * 1024));
+                }
+                records.Add("repeated line");
+                records.Add("repeated line");
+                records.Add(finalLine);
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver, records))
+                {
+                    Vessel vessel = await fixture.CreateVesselAsync("planning-bounded-output").ConfigureAwait(false);
+                    Captain captain = await fixture.CreateCaptainAsync("planner-bounded-output").ConfigureAwait(false);
+                    PlanningSession session = await fixture.Coordinator.CreateAsync(
+                        null,
+                        null,
+                        captain,
+                        vessel,
+                        new PlanningSessionCreateRequest { Title = "Plan with a large reply" }).ConfigureAwait(false);
+
+                    await fixture.Coordinator.SendMessageAsync(session, "Write a long plan").ConfigureAwait(false);
+
+                    string content = String.Empty;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(20);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        PlanningSession current = (await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false))!;
+                        List<PlanningSessionMessage> messages = await testDb.Driver.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
+                        PlanningSessionMessage? assistant = messages.FindLast(message => String.Equals(message.Role, "Assistant", StringComparison.OrdinalIgnoreCase));
+                        content = assistant?.Content ?? String.Empty;
+                        if (current.Status != PlanningSessionStatusEnum.Responding && content.Length > 0) break;
+                        await Task.Delay(100).ConfigureAwait(false);
+                    }
+
+                    int streamedChars = 0;
+                    foreach (string record in records) streamedChars += record.Length;
+                    AssertTrue(streamedChars > capChars, "the replayed output must exceed the buffer to exercise the bound");
+                    AssertTrue(content.Length <= capChars,
+                        "the stored reply must stay within the live buffer bound; got " + content.Length + " characters");
+                    AssertTrue(content.Length > capChars / 2, "the bound must keep a useful tail, not discard the output");
+                    AssertStartsWith(truncationMarker, content, "a truncated reply must say that it was truncated");
+                    AssertEqual(content.IndexOf(truncationMarker, StringComparison.Ordinal), content.LastIndexOf(truncationMarker, StringComparison.Ordinal),
+                        "repeated truncation must not stack markers");
+                    AssertTrue(content.EndsWith(finalLine, StringComparison.Ordinal), "the newest output must survive truncation");
+                    AssertContains("repeated line" + Environment.NewLine + "repeated line", content, "repeated chunks near the tail must all be kept");
+                    AssertContains("chunk-11: ", content, "the newest large chunk must survive truncation");
+                    AssertFalse(content.Contains("chunk-00: ", StringComparison.Ordinal), "the oldest output must be dropped first");
+                }
+            });
+
             await RunTest("CreateAsync rejects unsupported custom runtime", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

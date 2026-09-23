@@ -43,7 +43,10 @@ upstream integrations and excludes changes already present at that baseline.
   explicit test registration and result manifests, provider migration scenarios,
   API collection coverage, isolated test data directories, one owner suite
   for review-diff coverage, and a local-merge landing case that runs the real
-  landing handler.
+  landing handler. Mission list projection (REST, MCP and the SQLite summary
+  query), planning reply bounds, captain-override dispatch, project-profile
+  briefs and process liveness are proven by behavior in their owner suites, not
+  by source-text checks, and repeated stage-base and merge-queue Git cases run once.
 
 ## Removed
 
