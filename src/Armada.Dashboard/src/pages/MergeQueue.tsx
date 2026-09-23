@@ -1,9 +1,15 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  listMergeQueue, enqueueMerge, deleteMergeEntry, processMergeEntry,
-  processAllMergeQueue, cancelMergeEntry, listVessels,
-  getMissionDiff, getMissionLog,
+  listMergeQueue,
+  enqueueMerge,
+  deleteMergeEntry,
+  processMergeEntry,
+  processAllMergeQueue,
+  cancelMergeEntry,
+  getMissionDiff,
+  getMissionLog,
+  listAllVessels,
 } from '../api/client';
 import type { MergeEntry, Vessel } from '../types/models';
 import Pagination from '../components/shared/Pagination';
@@ -105,7 +111,7 @@ export default function MergeQueue() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
   }, []);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('mergequeue', load);

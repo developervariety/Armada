@@ -4,7 +4,7 @@ import MergeQueueDetail from './MergeQueueDetail';
 import { NavigateButton, deferred } from '../test/routeRace';
 import { getMergeEntry, getVesselLandingPreview, listVessels } from '../api/client';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   getMergeEntry: vi.fn(),
   deleteMergeEntry: vi.fn(),
   processMergeEntry: vi.fn(),

@@ -5,13 +5,13 @@ import {
   deleteIncident,
   getIncident,
   getMissionRecovery,
-  listDeployments,
-  listEnvironments,
-  listReleases,
-  listRunbookExecutions,
-  listVessels,
   rollbackDeployment,
   updateIncident,
+  listAllDeployments,
+  listAllEnvironments,
+  listAllReleases,
+  listAllRunbookExecutions,
+  listAllVessels,
 } from '../api/client';
 import type {
   Deployment,
@@ -183,16 +183,16 @@ export default function IncidentDetail() {
     let cancelled = false;
 
     Promise.all([
-      listVessels({ pageSize: 1000 }),
-      listEnvironments({ pageSize: 500 }),
-      listDeployments({ pageSize: 500 }),
-      listReleases({ pageSize: 500 }),
+      listAllVessels(),
+      listAllEnvironments(),
+      listAllDeployments(),
+      listAllReleases(),
     ]).then(([vesselResult, environmentResult, deploymentResult, releaseResult]) => {
       if (cancelled) return;
-      setVessels(vesselResult.objects || []);
-      setEnvironments(environmentResult.objects || []);
-      setDeployments(deploymentResult.objects || []);
-      setReleases(releaseResult.objects || []);
+      setVessels(vesselResult);
+      setEnvironments(environmentResult);
+      setDeployments(deploymentResult);
+      setReleases(releaseResult);
     }).catch((err: unknown) => {
       if (!cancelled) setError(err instanceof Error ? err.message : t('Failed to load incident reference data.'));
     });
@@ -334,8 +334,8 @@ export default function IncidentDetail() {
     }
 
     let cancelled = false;
-    listRunbookExecutions({ incidentId: id, pageSize: 500 }).then((result) => {
-      if (!cancelled) setExecutions(result.objects || []);
+    listAllRunbookExecutions({ incidentId: id }).then((result) => {
+      if (!cancelled) setExecutions(result);
     }).catch(() => {
       if (!cancelled) setExecutions([]);
     });

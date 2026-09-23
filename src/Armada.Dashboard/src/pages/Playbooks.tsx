@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPlaybook, deletePlaybook, listPlaybooks, updatePlaybook } from '../api/client';
+import { createPlaybook, deletePlaybook, updatePlaybook, listAllPlaybooks } from '../api/client';
 import type { Playbook } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -101,8 +101,8 @@ export default function Playbooks() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listPlaybooks({ pageSize: 9999 });
-      setPlaybooks(result.objects || []);
+      const result = await listAllPlaybooks();
+      setPlaybooks(result);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load playbooks.'));

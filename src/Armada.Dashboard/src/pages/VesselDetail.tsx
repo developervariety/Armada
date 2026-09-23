@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { getVessel, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import { getVessel, listMissionSummaries, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview, listAllFleets, listAllPipelines } from '../api/client';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import { autoLandFormFromPredicate, describeAutoLand } from '../lib/vesselAutoLand';
 import VesselBranchPanel from '../components/shared/VesselBranchPanel';
@@ -45,6 +45,9 @@ interface VesselForm {
   defaultPipelineId: string;
 }
 
+/** The mission table shows at most this many of the vessel's newest missions and says so when there are more. */
+const VESSEL_MISSION_PAGE_SIZE = 1000;
+
 export default function VesselDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
@@ -54,6 +57,7 @@ export default function VesselDetail() {
   const [vessel, setVessel] = useState<Vessel | null>(null);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [missions, setMissions] = useState<MissionSummary[]>([]);
+  const [missionTotal, setMissionTotal] = useState(0);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
@@ -90,6 +94,7 @@ export default function VesselDetail() {
       setLoading(true);
       setVessel(null);
       setMissions([]);
+      setMissionTotal(0);
       setReadiness(null);
       setLandingPreview(null);
       setNotFound(false);
@@ -109,17 +114,18 @@ export default function VesselDetail() {
         throw e;
       }
       const [fResult, mResult, pResult] = await Promise.all([
-        listFleets({ pageSize: 9999 }),
-        listMissionSummaries({ pageSize: 1000, filters: { vesselId: id } }),
-        listPipelines({ pageSize: 9999 }),
+        listAllFleets(),
+        listMissionSummaries({ pageSize: VESSEL_MISSION_PAGE_SIZE, filters: { vesselId: id } }),
+        listAllPipelines(),
       ]);
       if (!request.isCurrent()) return;
       setVessel(found);
       setNotFound(false);
       request.markLoaded();
-      setFleets(fResult.objects);
+      setFleets(fResult);
       setMissions(mResult.objects || []);
-      setPipelines(pResult.objects);
+      setMissionTotal(mResult.totalRecords || (mResult.objects || []).length);
+      setPipelines(pResult);
       if (isInitialLoad) setLoadingReadiness(true);
       getVesselReadiness(id)
         .then((result) => { if (request.isCurrent()) setReadiness(result); })
@@ -590,6 +596,11 @@ export default function VesselDetail() {
       {/* Recent Missions */}
       <div style={{ marginTop: '1rem' }}>
         <h3>{t('Missions')}</h3>
+        {missionTotal > missions.length && (
+          <p className="text-dim" style={{ marginTop: '0.25rem' }}>
+            {t('Showing the newest {{shown}} of {{total}} missions.', { shown: missions.length, total: missionTotal })}
+          </p>
+        )}
         {missions.length > 0 ? (
           <div className="table-wrap">
             <table>

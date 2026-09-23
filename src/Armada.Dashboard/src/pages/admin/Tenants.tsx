@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { listTenants, createTenant, updateTenant, deleteTenant } from '../../api/client';
+import { createTenant, updateTenant, deleteTenant, listAllTenants } from '../../api/client';
 import type { TenantMetadata } from '../../types/models';
 import Pagination from '../../components/shared/Pagination';
 import ActionMenu from '../../components/shared/ActionMenu';
@@ -14,7 +14,6 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
-import { listAllPages } from '../../lib/listAllPages';
 
 type SortField = 'name' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -45,7 +44,7 @@ export default function Tenants() {
       setLoading(true);
       if (isAdmin) {
         // The server returns 10 rows without a page size; read every page at its 1000-row maximum.
-        setItems(await listAllPages((pageNumber) => listTenants({ pageNumber, pageSize: 1000 })));
+        setItems(await listAllTenants());
       } else {
         setItems(user?.tenant ? [user.tenant] : []);
       }

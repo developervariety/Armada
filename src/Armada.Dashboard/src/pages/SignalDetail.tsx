@@ -4,7 +4,7 @@ import {
   getSignal,
   markSignalRead,
   deleteSignalsBatch,
-  listCaptains,
+  listAllCaptains,
 } from '../api/client';
 import type { Signal, Captain } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -50,7 +50,7 @@ export default function SignalDetail() {
   useEffect(() => {
     if (!id) return;
     getSignal(id).then(setSignal).catch(() => setError(t('Failed to load signal.')));
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
   }, [id, t]);
 
   async function handleMarkRead() {

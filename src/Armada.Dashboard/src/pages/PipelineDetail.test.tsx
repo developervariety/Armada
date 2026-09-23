@@ -21,7 +21,7 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ isAdmin: true, isTenantAdmin: true, user: null }),
 }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   createPipeline: vi.fn(),
   getPipeline: vi.fn(),
   updatePipeline: vi.fn(),

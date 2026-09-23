@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import AskArmada from './AskArmada';
 import { getCaptainAskTools, listCaptains } from '../api/client';
-vi.mock('../api/client', () => ({ chatWithCaptain: vi.fn(), getCaptainAskTools: vi.fn(), listCaptains: vi.fn() }));
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({ chatWithCaptain: vi.fn(), getCaptainAskTools: vi.fn(), listCaptains: vi.fn() }));
 vi.mock('../context/LocaleContext', () => ({ useLocale: () => ({ t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v }) }));
 vi.mock('../context/WebSocketContext', () => ({ useWebSocket: () => ({ subscribe: () => () => undefined }) }));
 vi.mock('../components/shared/CaptainChatPanel', () => ({ default: (props: { emptyState?: unknown }) => <div>chat panel{props.emptyState as never}</div> }));

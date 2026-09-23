@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listEvents, deleteEventsBatch, listCaptains, listVessels } from '../api/client';
+import { listEvents, deleteEventsBatch, listAllCaptains, listAllVessels } from '../api/client';
 import type { ArmadaEvent, Captain, Vessel } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -85,8 +85,8 @@ export default function Events() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
   }, []);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('events', load);

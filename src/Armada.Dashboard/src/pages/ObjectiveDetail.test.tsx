@@ -37,7 +37,7 @@ vi.mock('../context/NotificationContext', () => ({
 
 vi.mock('../components/backlog/BacklogRefinementSessionList', () => ({ default: () => null }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   applyObjectiveRefinementSummary: vi.fn(),
   createBacklogItem: vi.fn(),
   createBacklogRefinementSession: vi.fn(),

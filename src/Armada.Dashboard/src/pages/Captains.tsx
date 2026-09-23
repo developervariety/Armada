@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, quarantineCaptain, unquarantineCaptain } from '../api/client';
+import { createCaptain, updateCaptain, deleteCaptain, stopCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, quarantineCaptain, unquarantineCaptain, listAllCaptains } from '../api/client';
 import type { Captain, CaptainQuarantineRequest, CaptainToolAccessResult, ModelEndpoint } from '../types/models';
 import CaptainQuarantineDialog from '../components/captains/CaptainQuarantineDialog';
 import Pagination from '../components/shared/Pagination';
@@ -92,8 +92,8 @@ export default function Captains() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listCaptains({ pageSize: 9999 });
-      setCaptains(result.objects);
+      const result = await listAllCaptains();
+      setCaptains(result);
       setError('');
     } catch {
       setError(t('Failed to load captains.'));

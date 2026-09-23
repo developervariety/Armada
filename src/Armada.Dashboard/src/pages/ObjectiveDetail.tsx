@@ -11,14 +11,14 @@ import {
   importObjectiveFromGitHub,
   listAllBacklog,
   listBacklogRefinementSessions,
-  listCaptains,
-  listFleets,
-  listPipelines,
-  listVessels,
   sendObjectiveRefinementMessage,
   stopObjectiveRefinementSession,
   summarizeObjectiveRefinementSession,
   updateBacklogItem,
+  listAllCaptains,
+  listAllFleets,
+  listAllPipelines,
+  listAllVessels,
 } from '../api/client';
 import type {
   Captain,
@@ -551,17 +551,17 @@ export default function ObjectiveDetail() {
 
     // The parent and blocked-by pickers list every backlog item; one capped page would hide the rest.
     Promise.all([
-      listFleets({ pageSize: 1000 }),
-      listVessels({ pageSize: 1000 }),
-      listCaptains({ pageSize: 1000 }),
-      listPipelines({ pageSize: 1000 }),
+      listAllFleets(),
+      listAllVessels(),
+      listAllCaptains(),
+      listAllPipelines(),
       listAllBacklog(),
     ]).then(([fleetResult, vesselResult, captainResult, pipelineResult, allObjectives]) => {
       if (cancelled) return;
-      setFleets(fleetResult.objects || []);
-      setVessels(vesselResult.objects || []);
-      setCaptains(captainResult.objects || []);
-      setPipelines(pipelineResult.objects || []);
+      setFleets(fleetResult);
+      setVessels(vesselResult);
+      setCaptains(captainResult);
+      setPipelines(pipelineResult);
       setAvailableObjectives(allObjectives || []);
     }).catch((err: unknown) => {
       if (!cancelled) setError(err instanceof Error ? err.message : t('Failed to load backlog reference data.'));

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listPlaybooks } from '../../api/client';
+import { listAllPlaybooks } from '../../api/client';
 import type { Playbook, PlaybookDeliveryMode, SelectedPlaybook } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 
@@ -39,9 +39,9 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
     async function load() {
       try {
         setLoading(true);
-        const result = await listPlaybooks({ pageSize: 9999 });
+        const result = await listAllPlaybooks();
         if (!mounted) return;
-        setPlaybooks(result.objects || []);
+        setPlaybooks(result);
         setError('');
       } catch (err: unknown) {
         if (!mounted) return;

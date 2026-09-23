@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { listCredentials, createCredential, updateCredential, deleteCredential, listUsers, listTenants } from '../../api/client';
+import { createCredential, updateCredential, deleteCredential, listAllCredentials, listAllTenants, listAllUsers } from '../../api/client';
 import type { Credential, UserMaster, TenantMetadata } from '../../types/models';
 import Pagination from '../../components/shared/Pagination';
 import ActionMenu from '../../components/shared/ActionMenu';
@@ -14,7 +14,6 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
-import { listAllPages } from '../../lib/listAllPages';
 
 type SortField = 'name' | 'userId' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -55,11 +54,11 @@ export default function Credentials() {
       // The server returns 10 rows without a page size; read every page so every credential and every
       // owner and tenant name is present.
       const tenantPromise = isAdmin
-        ? listAllPages((pageNumber) => listTenants({ pageNumber, pageSize: 1000 }))
+        ? listAllTenants()
         : Promise.resolve(user?.tenant ? [user.tenant] : []);
       const [allCredentials, allUsers, allTenants] = await Promise.all([
-        listAllPages((pageNumber) => listCredentials({ pageNumber, pageSize: 1000 })),
-        listAllPages((pageNumber) => listUsers({ pageNumber, pageSize: 1000 })),
+        listAllCredentials(),
+        listAllUsers(),
         tenantPromise,
       ]);
       setItems(allCredentials);

@@ -295,8 +295,13 @@ upstream integrations and excludes changes already present at that baseline.
   groups, so an unavailable answer after an earlier merge returns the original
   groups with their original counts.
 - **Dashboard loading:** a list refresh keeps the bulk selection for rows that still
-  exist and drops only rows that vanished. Fleet and vessel pickers on project
-  profiles and pipelines read every page. Mission, captain, vessel and merge-entry
+  exist and drops only rows that vanished. Every read used as a complete set
+  (picker options, id-to-name lookups, counts and filters over the whole set) reads
+  every page through one `listAll` client wrapper per entity, so pickers and names
+  stay complete past the server's page cap. A release lists its linked deployments
+  through the release filter and names each linked check run by reading that run.
+  A vessel's mission table shows the newest 1000 missions and says so when the
+  vessel has more. Mission, captain, vessel and merge-entry
   detail pages apply only the newest load, show the spinner and any load failure
   when the id changes, and never show the previous record. Only the current
   WebSocket drives connection state and reconnects; a replaced socket's late events

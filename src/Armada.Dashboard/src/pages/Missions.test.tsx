@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Missions from './Missions';
 import { listCaptains, listMissionSummaries, listVessels } from '../api/client';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listMissionSummaries: vi.fn(),
   createMission: vi.fn(),
   updateMission: vi.fn(),

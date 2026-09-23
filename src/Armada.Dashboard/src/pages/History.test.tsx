@@ -4,7 +4,7 @@ import History from './History';
 import { enumerateHistoryTimeline, listObjectives, listVessels } from '../api/client';
 import type { HistoricalTimelineQuery } from '../types/models';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   enumerateHistoryTimeline: vi.fn(),
   listObjectives: vi.fn(),
   listVessels: vi.fn(),

@@ -2,9 +2,18 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationContext';
 import {
-  listMissionSummaries, createMission, updateMission, deleteMission, purgeMission,
-  restartMission, retryMissionLanding, transitionMission, getMissionDiff, getMissionLog,
-  listVessels, listCaptains,
+  listMissionSummaries,
+  createMission,
+  updateMission,
+  deleteMission,
+  purgeMission,
+  restartMission,
+  retryMissionLanding,
+  transitionMission,
+  getMissionDiff,
+  getMissionLog,
+  listAllCaptains,
+  listAllVessels,
 } from '../api/client';
 import type { MissionSummary, Vessel, Captain, MissionMode } from '../types/models';
 import Pagination from '../components/shared/Pagination';
@@ -119,8 +128,8 @@ export default function Missions() {
   }, [fullList, pageNumber, pageSize, statusFilter, sortField, sortDir, t]);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [load]);

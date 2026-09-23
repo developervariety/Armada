@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listDocks, deleteDock, listCaptains, listVessels } from '../api/client';
+import { deleteDock, listAllCaptains, listAllDocks, listAllVessels } from '../api/client';
 import type { Dock, Captain, Vessel } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -68,9 +68,9 @@ export default function Docks() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listDocks({ pageSize: 1000 });
-      setDocks(result.objects || []);
-      table.setSelected(prev => retainSelection(prev, (result.objects || []).map(d => d.id)));
+      const result = await listAllDocks();
+      setDocks(result);
+      table.setSelected(prev => retainSelection(prev, result.map(d => d.id)));
       setError('');
     } catch {
       setError(t('Failed to load docks.'));
@@ -78,8 +78,8 @@ export default function Docks() {
       setLoading(false);
     }
     // Captain and vessel names are refreshed with the docks so new records resolve by name.
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
   }, [t]);
 
   useEffect(() => { load(); }, [load]);

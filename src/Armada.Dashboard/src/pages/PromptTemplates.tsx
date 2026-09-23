@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPromptTemplate, listPromptTemplates, resetPromptTemplate } from '../api/client';
+import { createPromptTemplate, resetPromptTemplate, listAllPromptTemplates } from '../api/client';
 import type { PromptTemplate } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
@@ -62,8 +62,8 @@ export default function PromptTemplates() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listPromptTemplates({ pageSize: 9999 });
-      setTemplates(result.objects);
+      const result = await listAllPromptTemplates();
+      setTemplates(result);
       setError('');
     } catch {
       setError(translate('Failed to load prompt templates.'));

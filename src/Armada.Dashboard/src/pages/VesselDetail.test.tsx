@@ -11,7 +11,7 @@ import {
   listPipelines,
 } from '../api/client';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   getVessel: vi.fn(),
   listVessels: vi.fn(),
   listFleets: vi.fn(),
@@ -87,6 +87,28 @@ describe('VesselDetail', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it('says the mission table shows only the newest missions when the vessel has more', async () => {
+    const shown = [
+      { id: 'msn_2', title: 'Second mission', status: 'Complete', captainId: null, branchName: null },
+      { id: 'msn_1', title: 'First mission', status: 'Complete', captainId: null, branchName: null },
+    ];
+    vi.mocked(listMissionSummaries).mockResolvedValue({ ...page(shown), totalPages: 750, totalRecords: 1500 } as never);
+    renderDetail();
+
+    expect(await screen.findByText('Showing the newest 2 of 1500 missions.')).toBeInTheDocument();
+    expect(listMissionSummaries).toHaveBeenCalledWith({ pageSize: 1000, filters: { vesselId: 'vsl_1' } });
+  });
+
+  it('shows no truncation note when every mission is on screen', async () => {
+    vi.mocked(listMissionSummaries).mockResolvedValue(page([
+      { id: 'msn_1', title: 'Only mission', status: 'Complete', captainId: null, branchName: null },
+    ]) as never);
+    renderDetail();
+
+    expect(await screen.findByText('Only mission')).toBeInTheDocument();
+    expect(screen.queryByText(/Showing the newest/)).not.toBeInTheDocument();
   });
 
   it('reads the vessel by id', async () => {

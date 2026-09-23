@@ -3,8 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   getEvent,
   deleteEventsBatch,
-  listCaptains,
-  listVessels,
+  listAllCaptains,
+  listAllVessels,
 } from '../api/client';
 import type { ArmadaEvent, Captain, Vessel } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -56,8 +56,8 @@ export default function EventDetail() {
   useEffect(() => {
     if (!id) return;
     getEvent(id).then(setEvent).catch(() => setError(t('Failed to load event.')));
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
   }, [id, t]);
 
   function handleDelete() {

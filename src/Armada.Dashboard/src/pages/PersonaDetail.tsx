@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { createPersona, deletePersona, getPersona, getPromptTemplate, listCaptains, listPromptTemplates, resetPromptTemplate, updatePersona, updatePromptTemplate } from '../api/client';
+import { createPersona, deletePersona, getPersona, getPromptTemplate, resetPromptTemplate, updatePersona, updatePromptTemplate, listAllCaptains, listAllPromptTemplates } from '../api/client';
 import type { Captain, Persona, PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import CaptainPicker from '../components/shared/CaptainPicker';
@@ -78,10 +78,10 @@ export default function PersonaDetail() {
       setLoading(true);
       const found = await getPersona(name);
       setPersona(found);
-      const templateResult = await listPromptTemplates({ pageSize: 9999 });
-      setTemplateNames(templateResult.objects.map(t => t.name));
-      const captainResult = await listCaptains({ pageSize: 9999 });
-      setCaptains(captainResult.objects);
+      const templateResult = await listAllPromptTemplates();
+      setTemplateNames(templateResult.map(t => t.name));
+      const captainResult = await listAllCaptains();
+      setCaptains(captainResult);
       if (found.promptTemplateName) {
         await loadPromptForPersona(found.promptTemplateName);
       } else {

@@ -3,10 +3,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   getVesselReadiness,
   listCheckRuns,
-  listVessels,
-  listWorkflowProfiles,
   previewWorkflowProfileForVessel,
   runCheck,
+  listAllVessels,
+  listAllWorkflowProfiles,
 } from '../api/client';
 import type { CheckRun, CheckRunRequest, CheckRunType, Vessel, VesselReadinessResult, WorkflowProfile, WorkflowProfileResolutionPreviewResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
@@ -168,8 +168,8 @@ export default function CheckRuns() {
       const countRequests = Promise.all([countOf(), countOf('Passed'), countOf('Failed'), countOf('Running')]);
       const pageRequest = listCheckRuns({ pageNumber, pageSize, filters });
       const [vesselResult, profileResult, counts, runResult] = await Promise.all([
-        listVessels({ pageSize: 1000 }),
-        listWorkflowProfiles({ pageSize: 1000 }),
+        listAllVessels(),
+        listAllWorkflowProfiles(),
         countRequests,
         pageRequest,
       ]);
@@ -177,8 +177,8 @@ export default function CheckRuns() {
       setTotalPages(runResult.totalPages || 1);
       setTotalRecords(runResult.totalRecords || 0);
       setSummaryCounts({ total: counts[0], passed: counts[1], failed: counts[2], running: counts[3] });
-      setVessels(vesselResult.objects || []);
-      setProfiles(profileResult.objects || []);
+      setVessels(vesselResult);
+      setProfiles(profileResult);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load check runs.'));

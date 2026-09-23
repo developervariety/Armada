@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getFleet, listVessels, listPipelines, createFleet, updateFleet, deleteFleet } from '../api/client';
+import { getFleet, createFleet, updateFleet, deleteFleet, listAllPipelines, listAllVessels } from '../api/client';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
@@ -48,13 +48,13 @@ export default function FleetDetail() {
       if (!loadedRef.current) setLoading(true);
       const [found, vResult, pResult] = await Promise.all([
         getFleet(id),
-        listVessels({ pageSize: 1000, filters: { fleetId: id } }),
-        listPipelines({ pageSize: 1000 }),
+        listAllVessels({ fleetId: id }),
+        listAllPipelines(),
       ]);
       setFleet(found);
       setNotFound(false);
-      setVessels((vResult.objects || []).filter(v => v.fleetId === id));
-      setPipelines(pResult.objects || []);
+      setVessels(vResult.filter(v => v.fleetId === id));
+      setPipelines(pResult);
       loadedRef.current = true;
     } catch (err: unknown) {
       if ((err as { status?: number } | null)?.status === 404) {

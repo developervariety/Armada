@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listPersonas, listPromptTemplates, createPersona, updatePersona, deletePersona } from '../api/client';
+import { createPersona, updatePersona, deletePersona, listAllPersonas, listAllPromptTemplates } from '../api/client';
 import type { Persona, ScopeEnum } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
@@ -68,10 +68,10 @@ export default function Personas() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listPersonas({ pageSize: 9999 });
-      setPersonas(result.objects);
-      const templateResult = await listPromptTemplates({ pageSize: 9999 });
-      setTemplateNames(templateResult.objects.map(t => t.name));
+      const result = await listAllPersonas();
+      setPersonas(result);
+      const templateResult = await listAllPromptTemplates();
+      setTemplateNames(templateResult.map(t => t.name));
       setError('');
     } catch {
       setError(t('Failed to load personas.'));

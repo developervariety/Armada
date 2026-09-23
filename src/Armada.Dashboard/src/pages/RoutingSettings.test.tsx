@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import RoutingSettings from './RoutingSettings';
 import { getSettings, listCaptains, listPersonas, updateSettings } from '../api/client';
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   getSettings: vi.fn(), updateSettings: vi.fn(), previewUsageRouting: vi.fn(),
   listCaptains: vi.fn().mockResolvedValue({ objects: [] }), listPersonas: vi.fn().mockResolvedValue({ objects: [] }), createCaptain: vi.fn(), createAccountHome: vi.fn(),
   startAccountLogin: vi.fn(), submitAccountLoginCode: vi.fn(), submitAccountLoginKey: vi.fn(),

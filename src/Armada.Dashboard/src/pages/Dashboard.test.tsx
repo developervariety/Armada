@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import Dashboard from './Dashboard';
+import { servesPages } from '../test/clientMock';
 import {
   getStatus,
   getVoyageMissionSummary,
@@ -14,7 +15,7 @@ import {
 type WebSocketHandler = (message: unknown) => void;
 const socketHandlers: WebSocketHandler[] = [];
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   getStatus: vi.fn(),
   listMissions: vi.fn(),
   listMissionSummaries: vi.fn(),
@@ -176,6 +177,25 @@ describe('Dashboard home', () => {
       expect(cells).toHaveLength(1);
     });
     expect(getVoyageMissionSummary).toHaveBeenCalledWith('vyg_older', expect.objectContaining({ pageSize: 100 }));
+  });
+
+  it('names mission vessels and captains that sit past the server page cap', async () => {
+    // One more vessel and captain than the server serves in one page; the mission uses the last of each.
+    const vessels = Array.from({ length: 1001 }, (_, index) => ({ id: `vsl_${index}`, name: `Vessel ${index}` }));
+    const captains = Array.from({ length: 1001 }, (_, index) => ({ id: `cpt_${index}`, name: `Captain ${index}` }));
+    vi.mocked(listVessels).mockImplementation(servesPages(vessels) as never);
+    vi.mocked(listCaptains).mockImplementation(servesPages(captains) as never);
+    vi.mocked(listMissionSummaries).mockResolvedValue(page([
+      { id: 'msn_late', title: 'Late mission', status: 'Complete', voyageId: null, vesselId: 'vsl_1000', captainId: 'cpt_1000', createdUtc: '2026-09-13T10:00:00Z' },
+    ]) as never);
+
+    renderDashboard();
+
+    expect(await screen.findByText('Late mission')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText('Vessel 1000').filter((element) => element.tagName === 'TD')).toHaveLength(1);
+      expect(screen.getAllByText('Captain 1000').filter((element) => element.tagName === 'TD')).toHaveLength(1);
+    });
   });
 
   it('coalesces WebSocket bursts during an in-flight load into one follow-up load', async () => {

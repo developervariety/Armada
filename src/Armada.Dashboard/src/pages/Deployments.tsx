@@ -4,12 +4,12 @@ import PageHeader from '../components/shared/PageHeader';
 import {
   createDeployment,
   deleteDeployment,
-  listDeployments,
-  listEnvironments,
-  listReleases,
-  listVessels,
-  listWorkflowProfiles,
   updateDeployment,
+  listAllDeployments,
+  listAllEnvironments,
+  listAllReleases,
+  listAllVessels,
+  listAllWorkflowProfiles,
 } from '../api/client';
 import type {
   Deployment,
@@ -105,17 +105,17 @@ export default function Deployments() {
     try {
       setLoading(true);
       const [deploymentResult, vesselResult, environmentResult, releaseResult, profileResult] = await Promise.all([
-        listDeployments({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listEnvironments({ pageSize: 9999 }),
-        listReleases({ pageSize: 9999 }),
-        listWorkflowProfiles({ pageSize: 9999 }),
+        listAllDeployments(),
+        listAllVessels(),
+        listAllEnvironments(),
+        listAllReleases(),
+        listAllWorkflowProfiles(),
       ]);
-      setDeployments(deploymentResult.objects || []);
-      setVessels(vesselResult.objects || []);
-      setEnvironments(environmentResult.objects || []);
-      setReleases(releaseResult.objects || []);
-      setProfiles(profileResult.objects || []);
+      setDeployments(deploymentResult);
+      setVessels(vesselResult);
+      setEnvironments(environmentResult);
+      setReleases(releaseResult);
+      setProfiles(profileResult);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load deployments.'));

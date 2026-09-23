@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listPipelines, listPersonas, createPipeline, updatePipeline, deletePipeline } from '../api/client';
+import { createPipeline, updatePipeline, deletePipeline, listAllPersonas, listAllPipelines } from '../api/client';
 import type { Pipeline, PipelineStage, ScopeEnum } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
@@ -81,10 +81,10 @@ export default function Pipelines() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listPipelines({ pageSize: 9999 });
-      setPipelines(result.objects);
-      const personaResult = await listPersonas({ pageSize: 9999 });
-      setPersonaNames(personaResult.objects.map(p => p.name));
+      const result = await listAllPipelines();
+      setPipelines(result);
+      const personaResult = await listAllPersonas();
+      setPersonaNames(personaResult.map(p => p.name));
       setError('');
     } catch {
       setError(t('Failed to load pipelines.'));

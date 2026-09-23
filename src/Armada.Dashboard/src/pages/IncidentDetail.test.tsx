@@ -37,7 +37,7 @@ vi.mock('../context/NotificationContext', () => ({
 
 vi.mock('../components/shared/MissionRecoveryPanel', () => ({ default: () => null }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   createIncident: vi.fn(),
   deleteIncident: vi.fn(),
   getIncident: vi.fn(),

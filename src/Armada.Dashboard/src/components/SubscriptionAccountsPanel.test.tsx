@@ -7,7 +7,7 @@ import {
 } from '../api/client';
 import type { PolicyRecord } from '../lib/subscriptionAccounts';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listCaptains: vi.fn(), createCaptain: vi.fn(), createAccountHome: vi.fn(), startAccountLogin: vi.fn(),
   submitAccountLoginCode: vi.fn(), submitAccountLoginKey: vi.fn(), getAccountLoginStatus: vi.fn(), cancelAccountLogin: vi.fn(),
   deleteUsageAccount: vi.fn(), refreshUsageAccount: vi.fn(),

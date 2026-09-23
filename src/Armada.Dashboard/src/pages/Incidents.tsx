@@ -4,11 +4,11 @@ import PageHeader from '../components/shared/PageHeader';
 import {
   createIncident,
   deleteIncident,
-  listDeployments,
-  listEnvironments,
   listIncidents,
-  listReleases,
-  listVessels,
+  listAllDeployments,
+  listAllEnvironments,
+  listAllReleases,
+  listAllVessels,
 } from '../api/client';
 import type {
   Deployment,
@@ -161,10 +161,10 @@ export default function Incidents() {
         search: appliedSearch.trim() || undefined,
       });
       const [vesselResult, environmentResult, deploymentResult, releaseResult, countResults, incidentResult] = await Promise.all([
-        listVessels({ pageSize: 1000 }),
-        listEnvironments({ pageSize: 500 }),
-        listDeployments({ pageSize: 500 }),
-        listReleases({ pageSize: 500 }),
+        listAllVessels(),
+        listAllEnvironments(),
+        listAllDeployments(),
+        listAllReleases(),
         Promise.all(countRequests),
         pageRequest,
       ]);
@@ -172,10 +172,10 @@ export default function Incidents() {
       setTotalPages(incidentResult.totalPages || 1);
       setTotalRecords(incidentResult.totalRecords || 0);
       setStatusCounts(Object.fromEntries(INCIDENT_STATUSES.map((status, index) => [status, countResults[index]?.totalRecords ?? 0])));
-      setVessels(vesselResult.objects || []);
-      setEnvironments(environmentResult.objects || []);
-      setDeployments(deploymentResult.objects || []);
-      setReleases(releaseResult.objects || []);
+      setVessels(vesselResult);
+      setEnvironments(environmentResult);
+      setDeployments(deploymentResult);
+      setReleases(releaseResult);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load incidents.'));

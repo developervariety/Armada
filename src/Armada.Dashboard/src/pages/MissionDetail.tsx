@@ -16,10 +16,10 @@ import {
   transitionMission,
   approveMissionReview,
   denyMissionReview,
-  listCheckRuns,
-  listVessels,
-  listCaptains,
-  listDeployments,
+  listAllCaptains,
+  listAllCheckRuns,
+  listAllDeployments,
+  listAllVessels,
 } from '../api/client';
 import type { Captain, CheckRun, Deployment, FormattedLogEntry, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -147,8 +147,8 @@ export default function MissionDetail() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('mission-detail', loadMission);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -160,12 +160,12 @@ export default function MissionDetail() {
 
     let cancelled = false;
     Promise.all([
-      listCheckRuns({ pageSize: 1000, filters: { missionId: id } }).catch(() => null),
-      listDeployments({ pageSize: 1000, missionId: id }).catch(() => null),
+      listAllCheckRuns({ missionId: id }).catch(() => null),
+      listAllDeployments({ missionId: id }).catch(() => null),
     ]).then(([checkResult, deploymentResult]) => {
       if (cancelled) return;
-      setLinkedCheckRuns(checkResult?.objects || []);
-      setLinkedDeployments(deploymentResult?.objects || []);
+      setLinkedCheckRuns(checkResult || []);
+      setLinkedDeployments(deploymentResult || []);
     }).catch(() => {
       if (!cancelled) {
         setLinkedCheckRuns([]);

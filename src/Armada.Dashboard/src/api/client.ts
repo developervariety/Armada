@@ -151,6 +151,14 @@ import type {
 } from '../types/models';
 import { listAllPages } from '../lib/listAllPages';
 
+/**
+ * Page size a complete-set read asks for. The server caps a page (1000, or 500 on some routes) and reports
+ * its page count for the size it served, so the listAll wrappers read every page whatever the cap.
+ */
+const ALL_PAGES_SIZE = 1000;
+type ListFilters = Record<string, string>;
+type WithoutPaging<Q> = Omit<Q, 'pageNumber' | 'pageSize'>;
+
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
 
 let authToken: string | null = null;
@@ -575,18 +583,27 @@ export const lookupTenants = (email: string) =>
 // Admin lists take page parameters: without a page size the server returns 10 rows.
 type PageParams = { pageNumber?: number; pageSize?: number };
 export const listTenants = (params?: PageParams) => get<EnumerationResult<TenantMetadata>>(`/api/v1/tenants${buildQuery(params)}`);
+/** Every tenant visible to the caller, read page by page. */
+export const listAllTenants = () =>
+  listAllPages((pageNumber) => listTenants({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const createTenant = (data: Partial<TenantMetadata>) => post<TenantMetadata>('/api/v1/tenants', data);
 export const updateTenant = (id: string, data: Partial<TenantMetadata>) => put<TenantMetadata>(`/api/v1/tenants/${id}`, data);
 export const deleteTenant = (id: string) => del<void>(`/api/v1/tenants/${id}`);
 
 // ==================== Users (admin) ====================
 export const listUsers = (params?: PageParams) => get<EnumerationResult<UserMaster>>(`/api/v1/users${buildQuery(params)}`);
+/** Every user visible to the caller, read page by page. */
+export const listAllUsers = () =>
+  listAllPages((pageNumber) => listUsers({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const createUser = (data: UserUpsertRequest) => post<UserMaster>('/api/v1/users', data);
 export const updateUser = (id: string, data: UserUpsertRequest) => put<UserMaster>(`/api/v1/users/${id}`, data);
 export const deleteUser = (id: string) => del<void>(`/api/v1/users/${id}`);
 
 // ==================== Credentials (admin) ====================
 export const listCredentials = (params?: PageParams) => get<EnumerationResult<Credential>>(`/api/v1/credentials${buildQuery(params)}`);
+/** Every credential visible to the caller, read page by page. */
+export const listAllCredentials = () =>
+  listAllPages((pageNumber) => listCredentials({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const createCredential = (data: Partial<Credential>) => post<Credential>('/api/v1/credentials', data);
 export const updateCredential = (id: string, data: Partial<Credential>) => put<Credential>(`/api/v1/credentials/${id}`, data);
 export const deleteCredential = (id: string) => del<void>(`/api/v1/credentials/${id}`);
@@ -594,9 +611,9 @@ export const deleteCredential = (id: string) => del<void>(`/api/v1/credentials/$
 // ==================== Fleets ====================
 export const listFleets = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Fleet>>(`/api/v1/fleets${buildQuery(params)}`);
-/** Every fleet visible to the caller; the server caps a page at 1000 and defaults to 10, so this reads each page. */
+/** Every fleet visible to the caller; the server caps a page and defaults to 10, so this reads each page. */
 export const listAllFleets = () =>
-  listAllPages((pageNumber) => listFleets({ pageNumber, pageSize: 1000 }));
+  listAllPages((pageNumber) => listFleets({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getFleet = (id: string) => get<Fleet>(`/api/v1/fleets/${id}`);
 export const createFleet = (data: Partial<Fleet>) => post<Fleet>('/api/v1/fleets', data);
 export const updateFleet = (id: string, data: Partial<Fleet>) => put<Fleet>(`/api/v1/fleets/${id}`, data);
@@ -606,9 +623,9 @@ export const deleteFleetsBatch = (ids: string[]) => post<BatchDeleteResult>('/ap
 // ==================== Vessels ====================
 export const listVessels = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Vessel>>(`/api/v1/vessels${buildQuery(params)}`);
-/** Every vessel visible to the caller; the server caps a page at 1000 and defaults to 10, so this reads each page. */
-export const listAllVessels = () =>
-  listAllPages((pageNumber) => listVessels({ pageNumber, pageSize: 1000 }));
+/** Every vessel matching the filters; the server caps a page and defaults to 10, so this reads each page. */
+export const listAllVessels = (filters?: ListFilters) =>
+  listAllPages((pageNumber) => listVessels({ pageNumber, pageSize: ALL_PAGES_SIZE, filters }));
 export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
@@ -702,6 +719,9 @@ export const enumerateHistoryTimeline = (query?: HistoricalTimelineQuery) =>
 // ==================== Objectives ====================
 export const listObjectives = (params?: ObjectiveQuery) =>
   get<EnumerationResult<Objective>>(`/api/v1/objectives${buildObjectiveQuery(params)}`);
+/** Every objective matching the query, read page by page. */
+export const listAllObjectives = (params?: WithoutPaging<ObjectiveQuery>) =>
+  listAllPages((pageNumber) => listObjectives({ ...params, pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const enumerateObjectives = (query?: ObjectiveQuery) =>
   post<EnumerationResult<Objective>>('/api/v1/objectives/enumerate', query || {});
 export const reorderObjectives = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/objectives/reorder', data);
@@ -746,6 +766,9 @@ export const deleteObjectiveRefinementSession = (sessionId: string) =>
 // ==================== Captains ====================
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
+/** Every captain visible to the caller, read page by page. */
+export const listAllCaptains = () =>
+  listAllPages((pageNumber) => listCaptains({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
 // The runtime tool probe launches the CLI and can take tens of seconds; allow well
 // beyond the default 30s so slow probes resolve instead of aborting and reading as "unknown".
@@ -776,6 +799,9 @@ export const restartCaptain = (id: string) => post<Captain>(`/api/v1/captains/${
 // ==================== Missions ====================
 export const listMissions = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Mission>>(`/api/v1/missions${buildQuery(params)}`);
+/** Every mission matching the filters, read page by page. Filter it: the unfiltered set grows without bound. */
+export const listAllMissions = (filters?: ListFilters) =>
+  listAllPages((pageNumber) => listMissions({ pageNumber, pageSize: ALL_PAGES_SIZE, filters }));
 export const listMissionSummaries = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<MissionSummary>>(`/api/v1/missions/summaries${buildQuery(params)}`);
 export const getMission = (id: string) => get<Mission>(`/api/v1/missions/${id}`);
@@ -812,6 +838,9 @@ export const getMissionRecovery = (id: string) => get<MissionRecoveryReport>(`/a
 // ==================== Voyages ====================
 export const listVoyages = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Voyage>>(`/api/v1/voyages${buildQuery(params)}`);
+/** Every voyage visible to the caller, read page by page. */
+export const listAllVoyages = () =>
+  listAllPages((pageNumber) => listVoyages({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getVoyage = (id: string) => get<Voyage>(`/api/v1/voyages/${id}`);
 /** Scoped mission status counts and a page of distinct vessel IDs for one voyage (page size 1 to 100). */
 export const getVoyageMissionSummary = (id: string, params?: { pageNumber?: number; pageSize?: number }) =>
@@ -855,6 +884,9 @@ export const cancelMergeEntry = (id: string) => del<void>(`/api/v1/merge-queue/$
 // ==================== Prompt Templates ====================
 export const listPromptTemplates = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<PromptTemplate>>(`/api/v1/prompt-templates${buildQuery(params)}`);
+/** Every prompt template, read page by page. */
+export const listAllPromptTemplates = () =>
+  listAllPages((pageNumber) => listPromptTemplates({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getPromptTemplate = (name: string) => get<PromptTemplate>(`/api/v1/prompt-templates/${encodeURIComponent(name)}`);
 export const createPromptTemplate = (data: { name: string; category: string; content: string; description?: string; active?: boolean; ownershipScope?: ScopeEnum }) =>
   post<PromptTemplate>('/api/v1/prompt-templates', data);
@@ -864,6 +896,9 @@ export const resetPromptTemplate = (name: string) => post<PromptTemplate>(`/api/
 // ==================== Playbooks ====================
 export const listPlaybooks = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Playbook>>(`/api/v1/playbooks${buildQuery(params)}`);
+/** Every playbook visible to the caller, read page by page. */
+export const listAllPlaybooks = () =>
+  listAllPages((pageNumber) => listPlaybooks({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getPlaybook = (id: string) => get<Playbook>(`/api/v1/playbooks/${id}`);
 export const createPlaybook = (data: Partial<Playbook>) => post<Playbook>('/api/v1/playbooks', data);
 export const updatePlaybook = (id: string, data: Partial<Playbook>) => put<Playbook>(`/api/v1/playbooks/${id}`, data);
@@ -872,6 +907,9 @@ export const deletePlaybook = (id: string) => del<void>(`/api/v1/playbooks/${id}
 // ==================== Workflow Profiles ====================
 export const listWorkflowProfiles = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<WorkflowProfile>>(`/api/v1/workflow-profiles${buildQuery(params)}`);
+/** Every workflow profile visible to the caller, read page by page. */
+export const listAllWorkflowProfiles = () =>
+  listAllPages((pageNumber) => listWorkflowProfiles({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getWorkflowProfile = (id: string) => get<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
 export const createWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfile>('/api/v1/workflow-profiles', data);
 export const updateWorkflowProfile = (id: string, data: Partial<WorkflowProfile>) => put<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`, data);
@@ -885,6 +923,9 @@ export const resolveWorkflowProfile = (vesselId: string, workflowProfileId?: str
 // ==================== Environments ====================
 export const listEnvironments = (params?: DeploymentEnvironmentQuery) =>
   get<EnumerationResult<DeploymentEnvironment>>(`/api/v1/environments${buildEnvironmentQuery(params)}`);
+/** Every environment matching the query, read page by page. */
+export const listAllEnvironments = (params?: WithoutPaging<DeploymentEnvironmentQuery>) =>
+  listAllPages((pageNumber) => listEnvironments({ ...params, pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const enumerateEnvironments = (query?: DeploymentEnvironmentQuery) =>
   post<EnumerationResult<DeploymentEnvironment>>('/api/v1/environments/enumerate', query || {});
 export const getEnvironment = (id: string) => get<DeploymentEnvironment>(`/api/v1/environments/${encodeURIComponent(id)}`);
@@ -895,6 +936,9 @@ export const deleteEnvironment = (id: string) => del<void>(`/api/v1/environments
 // ==================== Deployments ====================
 export const listDeployments = (params?: DeploymentQuery) =>
   get<EnumerationResult<Deployment>>(`/api/v1/deployments${buildDeploymentQuery(params)}`);
+/** Every deployment matching the query, read page by page. */
+export const listAllDeployments = (params?: WithoutPaging<DeploymentQuery>) =>
+  listAllPages((pageNumber) => listDeployments({ ...params, pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const enumerateDeployments = (query?: DeploymentQuery) =>
   post<EnumerationResult<Deployment>>('/api/v1/deployments/enumerate', query || {});
 export const getDeployment = (id: string) => get<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
@@ -920,6 +964,9 @@ export const deleteIncident = (id: string) => del<void>(`/api/v1/incidents/${enc
 // ==================== Runbooks ====================
 export const listRunbooks = (params?: RunbookQuery) =>
   get<EnumerationResult<Runbook>>(`/api/v1/runbooks${buildRunbookQuery(params)}`);
+/** Every runbook matching the query, read page by page. */
+export const listAllRunbooks = (params?: WithoutPaging<RunbookQuery>) =>
+  listAllPages((pageNumber) => listRunbooks({ ...params, pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const enumerateRunbooks = (query?: RunbookQuery) =>
   post<EnumerationResult<Runbook>>('/api/v1/runbooks/enumerate', query || {});
 export const getRunbook = (id: string) => get<Runbook>(`/api/v1/runbooks/${encodeURIComponent(id)}`);
@@ -928,6 +975,9 @@ export const updateRunbook = (id: string, data: RunbookUpsertRequest) => put<Run
 export const deleteRunbook = (id: string) => del<void>(`/api/v1/runbooks/${encodeURIComponent(id)}`);
 export const listRunbookExecutions = (params?: RunbookExecutionQuery) =>
   get<EnumerationResult<RunbookExecution>>(`/api/v1/runbook-executions${buildRunbookExecutionQuery(params)}`);
+/** Every runbook execution matching the query, read page by page. */
+export const listAllRunbookExecutions = (params?: WithoutPaging<RunbookExecutionQuery>) =>
+  listAllPages((pageNumber) => listRunbookExecutions({ ...params, pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const enumerateRunbookExecutions = (query?: RunbookExecutionQuery) =>
   post<EnumerationResult<RunbookExecution>>('/api/v1/runbook-executions/enumerate', query || {});
 export const getRunbookExecution = (id: string) => get<RunbookExecution>(`/api/v1/runbook-executions/${encodeURIComponent(id)}`);
@@ -940,6 +990,9 @@ export const deleteRunbookExecution = (id: string) => del<void>(`/api/v1/runbook
 // ==================== Releases ====================
 export const listReleases = (params?: ReleaseQuery) =>
   get<EnumerationResult<Release>>(`/api/v1/releases${buildReleaseQuery(params)}`);
+/** Every release matching the query, read page by page. */
+export const listAllReleases = (params?: WithoutPaging<ReleaseQuery>) =>
+  listAllPages((pageNumber) => listReleases({ ...params, pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const enumerateReleases = (query?: ReleaseQuery) =>
   post<EnumerationResult<Release>>('/api/v1/releases/enumerate', query || {});
 export const getRelease = (id: string) => get<Release>(`/api/v1/releases/${encodeURIComponent(id)}`);
@@ -952,6 +1005,9 @@ export const getReleaseGitHubPullRequests = (id: string) => get<GitHubPullReques
 // ==================== Check Runs ====================
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<CheckRun>>(`/api/v1/check-runs${buildQuery(params)}`);
+/** Every check run matching the filters, read page by page. Filter it: check runs carry their output. */
+export const listAllCheckRuns = (filters?: ListFilters) =>
+  listAllPages((pageNumber) => listCheckRuns({ pageNumber, pageSize: ALL_PAGES_SIZE, filters }));
 export const getCheckRun = (id: string) => get<CheckRun>(`/api/v1/check-runs/${encodeURIComponent(id)}`);
 export const runCheck = (data: CheckRunRequest) => post<CheckRun>('/api/v1/check-runs', data, { timeout: 35 * 60 * 1000 });
 export const importCheckRun = (data: CheckRunImportRequest) => post<CheckRun>('/api/v1/check-runs/import', data);
@@ -961,6 +1017,9 @@ export const deleteCheckRun = (id: string) => del<void>(`/api/v1/check-runs/${en
 // ==================== Personas ====================
 export const listPersonas = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Persona>>(`/api/v1/personas${buildQuery(params)}`);
+/** Every persona visible to the caller, read page by page. */
+export const listAllPersonas = () =>
+  listAllPages((pageNumber) => listPersonas({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getPersona = (name: string) => get<Persona>(`/api/v1/personas/${encodeURIComponent(name)}`);
 export const createPersona = (data: Partial<Persona>) => post<Persona>('/api/v1/personas', data);
 export const updatePersona = (name: string, data: Partial<Persona>) => put<Persona>(`/api/v1/personas/${encodeURIComponent(name)}`, data);
@@ -969,6 +1028,9 @@ export const deletePersona = (name: string) => del<void>(`/api/v1/personas/${enc
 // ==================== Pipelines ====================
 export const listPipelines = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Pipeline>>(`/api/v1/pipelines${buildQuery(params)}`);
+/** Every pipeline visible to the caller, read page by page. */
+export const listAllPipelines = () =>
+  listAllPages((pageNumber) => listPipelines({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getPipeline = (name: string) => get<Pipeline>(`/api/v1/pipelines/${encodeURIComponent(name)}`);
 export const createPipeline = (data: Partial<Pipeline>) => post<Pipeline>('/api/v1/pipelines', data);
 export const updatePipeline = (name: string, data: Partial<Pipeline>) => put<Pipeline>(`/api/v1/pipelines/${encodeURIComponent(name)}`, data);
@@ -977,6 +1039,9 @@ export const deletePipeline = (name: string) => del<void>(`/api/v1/pipelines/${e
 // ==================== Docks ====================
 export const listDocks = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Dock>>(`/api/v1/docks${buildQuery(params)}`);
+/** Every dock visible to the caller, read page by page. */
+export const listAllDocks = () =>
+  listAllPages((pageNumber) => listDocks({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getDock = (id: string) => get<Dock>(`/api/v1/docks/${id}`);
 export const deleteDock = (id: string) => del<void>(`/api/v1/docks/${id}`);
 
@@ -1084,6 +1149,9 @@ export function getEntity(type: string, id: string): Promise<unknown> {
 // ==================== Project Profiles ====================
 export const listProjectProfiles = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<ProjectProfile>>(`/api/v1/project-profiles${buildQuery(params)}`);
+/** Every project profile visible to the caller, read page by page. */
+export const listAllProjectProfiles = () =>
+  listAllPages((pageNumber) => listProjectProfiles({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getProjectProfile = (id: string) => get<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`);
 export const createProjectProfile = (data: Partial<ProjectProfile>) => post<ProjectProfile>('/api/v1/project-profiles', data);
 export const updateProjectProfile = (id: string, data: Partial<ProjectProfile>) => put<ProjectProfile>(`/api/v1/project-profiles/${encodeURIComponent(id)}`, data);
@@ -1095,6 +1163,9 @@ export const previewPersonaPrompt = (profileId: string, persona: string) =>
 // ==================== Skills ====================
 export const listSkills = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Skill>>(`/api/v1/skills${buildQuery(params)}`);
+/** Every skill visible to the caller, read page by page. */
+export const listAllSkills = () =>
+  listAllPages((pageNumber) => listSkills({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getSkill = (id: string) => get<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`);
 export const createSkill = (data: Partial<Skill>) => post<Skill>('/api/v1/skills', data);
 export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/api/v1/skills/${encodeURIComponent(id)}`, data);

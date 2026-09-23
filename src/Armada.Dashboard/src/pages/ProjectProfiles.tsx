@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createProjectProfile, deleteProjectProfile, listAllFleets, listAllVessels, listProjectProfiles, updateProjectProfile } from '../api/client';
+import { createProjectProfile, deleteProjectProfile, listAllFleets, listAllVessels, updateProjectProfile, listAllProjectProfiles } from '../api/client';
 import type { Fleet, ProjectProfile, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -64,8 +64,8 @@ export default function ProjectProfiles() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listProjectProfiles({ pageSize: 9999 });
-      setProfiles(result.objects || []);
+      const result = await listAllProjectProfiles();
+      setProfiles(result);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load project profiles.'));

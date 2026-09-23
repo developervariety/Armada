@@ -4,8 +4,8 @@ import {
   createEnvironment,
   deleteEnvironment,
   getEnvironment,
-  listVessels,
   updateEnvironment,
+  listAllVessels,
 } from '../api/client';
 import type {
   DeploymentEnvironment,
@@ -102,8 +102,8 @@ export default function EnvironmentDetail() {
   useEffect(() => {
     let cancelled = false;
 
-    listVessels({ pageSize: 9999 }).then((result) => {
-      if (!cancelled) setVessels(result.objects || []);
+    listAllVessels().then((result) => {
+      if (!cancelled) setVessels(result);
     }).catch(() => {
       if (!cancelled) setError(t('Failed to load vessels.'));
     });

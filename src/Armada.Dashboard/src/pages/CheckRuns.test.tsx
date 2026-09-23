@@ -10,7 +10,7 @@ import {
   runCheck,
 } from '../api/client';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listCheckRuns: vi.fn(),
   listVessels: vi.fn(),
   listWorkflowProfiles: vi.fn(),

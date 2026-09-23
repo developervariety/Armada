@@ -4,12 +4,12 @@ import {
   getVoyage,
   purgeVoyage,
   cancelVoyage,
-  listMissions,
   getMissionDiff,
   getMissionLog,
   createMission,
-  listVessels,
-  listCaptains,
+  listAllCaptains,
+  listAllMissions,
+  listAllVessels,
 } from '../api/client';
 import type { Voyage, Mission, Vessel, Captain, MissionPlaybookSnapshot, SelectedPlaybook, CaptainAssignmentOverride } from '../types/models';
 import CaptainRef from '../components/shared/CaptainRef';
@@ -90,8 +90,8 @@ export default function VoyageDetail() {
         setVoyage(raw);
         // Load missions separately
         try {
-          const mResult = await listMissions({ pageSize: 1000, filters: { voyageId: id } });
-          setMissions(mResult.objects || []);
+          const mResult = await listAllMissions({ voyageId: id });
+          setMissions(mResult);
         } catch {
           setMissions([]);
         }
@@ -107,8 +107,8 @@ export default function VoyageDetail() {
   useEffect(() => {
     loadedRef.current = false;
     loadVoyage();
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
   }, [loadVoyage]);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('voyage-detail', () => { void loadVoyage(); });

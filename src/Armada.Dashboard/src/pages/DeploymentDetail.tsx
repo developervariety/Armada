@@ -6,15 +6,15 @@ import {
   deleteDeployment,
   denyDeployment,
   getDeployment,
-  listRunbookExecutions,
-  listEnvironments,
-  listReleases,
-  listVessels,
-  listWorkflowProfiles,
   rollbackDeployment,
   syncGitHubActions,
   updateDeployment,
   verifyDeployment,
+  listAllEnvironments,
+  listAllReleases,
+  listAllRunbookExecutions,
+  listAllVessels,
+  listAllWorkflowProfiles,
 } from '../api/client';
 import type {
   Deployment,
@@ -89,16 +89,16 @@ export default function DeploymentDetail() {
     let cancelled = false;
 
     Promise.all([
-      listVessels({ pageSize: 9999 }),
-      listWorkflowProfiles({ pageSize: 9999 }),
-      listEnvironments({ pageSize: 9999 }),
-      listReleases({ pageSize: 9999 }),
+      listAllVessels(),
+      listAllWorkflowProfiles(),
+      listAllEnvironments(),
+      listAllReleases(),
     ]).then(([vesselResult, profileResult, environmentResult, releaseResult]) => {
       if (cancelled) return;
-      setVessels(vesselResult.objects || []);
-      setProfiles(profileResult.objects || []);
-      setEnvironments(environmentResult.objects || []);
-      setReleases(releaseResult.objects || []);
+      setVessels(vesselResult);
+      setProfiles(profileResult);
+      setEnvironments(environmentResult);
+      setReleases(releaseResult);
     }).catch((err: unknown) => {
       if (!cancelled) setError(err instanceof Error ? err.message : t('Failed to load deployment reference data.'));
     });
@@ -166,8 +166,8 @@ export default function DeploymentDetail() {
     }
 
     let cancelled = false;
-    listRunbookExecutions({ deploymentId: id, pageSize: 9999 }).then((result) => {
-      if (!cancelled) setRunbookExecutions(result.objects || []);
+    listAllRunbookExecutions({ deploymentId: id }).then((result) => {
+      if (!cancelled) setRunbookExecutions(result);
     }).catch(() => {
       if (!cancelled) setRunbookExecutions([]);
     });

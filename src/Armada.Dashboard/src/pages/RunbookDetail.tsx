@@ -4,12 +4,12 @@ import {
   createRunbook,
   deleteRunbook,
   getRunbook,
-  listEnvironments,
   listRunbookExecutions,
-  listWorkflowProfiles,
   startRunbookExecution,
   updateRunbook,
   updateRunbookExecution,
+  listAllEnvironments,
+  listAllWorkflowProfiles,
 } from '../api/client';
 import type {
   CheckRunType,
@@ -131,12 +131,12 @@ export default function RunbookDetail() {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      listWorkflowProfiles({ pageSize: 1000 }),
-      listEnvironments({ pageSize: 500 }),
+      listAllWorkflowProfiles(),
+      listAllEnvironments(),
     ]).then(([profileResult, environmentResult]) => {
       if (cancelled) return;
-      setProfiles(profileResult.objects || []);
-      setEnvironments(environmentResult.objects || []);
+      setProfiles(profileResult);
+      setEnvironments(environmentResult);
     }).catch((err: unknown) => {
       if (!cancelled) setError(err instanceof Error ? err.message : t('Failed to load runbook reference data.'));
     });

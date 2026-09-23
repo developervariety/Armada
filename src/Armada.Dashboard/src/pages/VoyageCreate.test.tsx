@@ -16,13 +16,14 @@ vi.mock('../context/NotificationContext', () => ({
 
 vi.mock('../components/shared/PlaybookSelector', () => ({ default: () => null }));
 
-vi.mock('../api/client', () => {
+vi.mock('../api/client', async () => {
+  const { withAllPages } = await import('../test/clientMock');
   const empty = { success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] };
-  return {
+  return withAllPages({
     listVessels: vi.fn().mockResolvedValue(empty),
     listPipelines: vi.fn().mockResolvedValue(empty),
     createVoyage: vi.fn(),
-  };
+  });
 });
 
 import VoyageCreate from './VoyageCreate';

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createWorkflowProfile, deleteWorkflowProfile, listFleets, listVessels, listWorkflowProfiles, updateWorkflowProfile } from '../api/client';
+import { createWorkflowProfile, deleteWorkflowProfile, updateWorkflowProfile, listAllFleets, listAllVessels, listAllWorkflowProfiles } from '../api/client';
 import type { Fleet, Vessel, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -95,8 +95,8 @@ export default function WorkflowProfiles() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listWorkflowProfiles({ pageSize: 9999 });
-      setProfiles(result.objects || []);
+      const result = await listAllWorkflowProfiles();
+      setProfiles(result);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load workflow profiles.'));
@@ -110,8 +110,8 @@ export default function WorkflowProfiles() {
   }, []);
 
   useEffect(() => {
-    void listFleets({ pageSize: 9999 }).then((r) => setFleets(r.objects || [])).catch(() => {});
-    void listVessels({ pageSize: 9999 }).then((r) => setVessels(r.objects || [])).catch(() => {});
+    void listAllFleets().then(setFleets).catch(() => {});
+    void listAllVessels().then(setVessels).catch(() => {});
   }, []);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('workflowprofiles', load);

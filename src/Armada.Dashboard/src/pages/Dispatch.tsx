@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { listVessels, listPipelines, listCaptains, listPersonas, createVoyage, getVesselReadiness } from '../api/client';
+import { createVoyage, getVesselReadiness, listAllCaptains, listAllPersonas, listAllPipelines, listAllVessels } from '../api/client';
 import type { Vessel, Pipeline, SelectedPlaybook, VesselReadinessResult, Captain, Persona, CaptainAssignmentOverride, CaptainTier } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -56,15 +56,15 @@ export default function Dispatch() {
 
   useEffect(() => {
     Promise.all([
-      listVessels({ pageSize: 9999 }).catch(() => null),
-      listPipelines({ pageSize: 9999 }).catch(() => null),
-      listCaptains({ pageSize: 9999 }).catch(() => null),
-      listPersonas({ pageSize: 9999 }).catch(() => null),
+      listAllVessels().catch(() => null),
+      listAllPipelines().catch(() => null),
+      listAllCaptains().catch(() => null),
+      listAllPersonas().catch(() => null),
     ]).then(([vRes, pRes, cRes, prRes]) => {
-      if (vRes) setVessels(vRes.objects);
-      if (pRes) setPipelines(pRes.objects);
-      if (cRes) setCaptains(cRes.objects);
-      if (prRes) setPersonas(prRes.objects);
+      if (vRes) setVessels(vRes);
+      if (pRes) setPipelines(pRes);
+      if (cRes) setCaptains(cRes);
+      if (prRes) setPersonas(prRes);
     });
   }, []);
 

@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import PlaybookSelector from './PlaybookSelector';
 import type { SelectedPlaybook } from '../../types/models';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async () => (await import('../../test/clientMock')).withAllPages({
   listPlaybooks: vi.fn().mockResolvedValue({
     objects: [
       {
@@ -34,15 +34,17 @@ vi.mock('../../api/client', () => ({
   }),
 }));
 
-vi.mock('../../context/LocaleContext', () => ({
-  useLocale: () => ({
+// The real provider returns a stable locale, so the mock does too; a new t on every render would reload the list.
+vi.mock('../../context/LocaleContext', () => {
+  const locale = {
     t: (value: string, vars?: Record<string, string | number>) => {
       if (!vars) return value;
       return value.replace(/\{\{(\w+)\}\}/g, (_, key: string) => String(vars[key] ?? ''));
     },
     formatRelativeTime: () => 'just now',
-  }),
-}));
+  };
+  return { useLocale: () => locale };
+});
 
 function Harness() {
   const [value, setValue] = useState<SelectedPlaybook[]>([]);

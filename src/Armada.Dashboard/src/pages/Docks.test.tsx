@@ -22,7 +22,7 @@ vi.mock('../context/NotificationContext', () => ({
   useNotifications: () => ({ pushToast: vi.fn() }),
 }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listDocks: vi.fn(),
   deleteDock: vi.fn(),
   listCaptains: vi.fn(),
@@ -58,7 +58,7 @@ test('loads every dock and paginates, sorts and filters over the whole set', asy
   render(<MemoryRouter><Docks /></MemoryRouter>);
 
   expect(await screen.findByText('30 records')).toBeInTheDocument();
-  expect(listDocks).toHaveBeenCalledWith({ pageSize: 1000 });
+  expect(listDocks).toHaveBeenCalledWith({ pageNumber: 1, pageSize: 1000 });
   // Newest first across all 30 docks; one page of 25 rows.
   expect(screen.getByText('branch-029')).toBeInTheDocument();
   expect(screen.queryByText('branch-000')).not.toBeInTheDocument();

@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  cancelAccountLogin, createAccountHome, createCaptain, deleteUsageAccount, getAccountLoginStatus, listCaptains,
-  refreshUsageAccount, startAccountLogin, submitAccountLoginCode, submitAccountLoginKey,
+  cancelAccountLogin,
+  createAccountHome,
+  createCaptain,
+  deleteUsageAccount,
+  getAccountLoginStatus,
+  refreshUsageAccount,
+  startAccountLogin,
+  submitAccountLoginCode,
+  submitAccountLoginKey,
+  listAllCaptains,
 } from '../api/client';
 import { copyToClipboard } from './shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
@@ -95,8 +103,8 @@ export default function SubscriptionAccountsPanel({ savedPolicy, statuses, disab
 
   const loadCaptains = useCallback(async () => {
     try {
-      const result = await listCaptains({ pageSize: 9999 });
-      setCaptains(result?.objects ?? []);
+      const result = await listAllCaptains();
+      setCaptains(result);
     } catch {
       // Captain assignment stays empty; the account list and logins still work.
     }

@@ -7,15 +7,15 @@ import {
   dispatchPlanningSession,
   getVesselReadiness,
   getPlanningSession,
-  listCaptains,
-  listFleets,
-  listPipelines,
   listPlanningSessions,
-  listVessels,
   sendPlanningSessionMessage,
   stopPlanningSession,
   stopPlanningTurn,
   summarizePlanningSession,
+  listAllCaptains,
+  listAllFleets,
+  listAllPipelines,
+  listAllVessels,
 } from '../api/client';
 import type {
   Captain,
@@ -132,17 +132,17 @@ export default function Planning() {
       setError('');
       const [sessionItems, captainResult, fleetResult, vesselResult, pipelineResult] = await Promise.all([
         listPlanningSessions().catch(() => []),
-        listCaptains({ pageSize: 9999 }).catch(() => null),
-        listFleets({ pageSize: 9999 }).catch(() => null),
-        listVessels({ pageSize: 9999 }).catch(() => null),
-        listPipelines({ pageSize: 9999 }).catch(() => null),
+        listAllCaptains().catch(() => null),
+        listAllFleets().catch(() => null),
+        listAllVessels().catch(() => null),
+        listAllPipelines().catch(() => null),
       ]);
 
       setSessions(sessionItems);
-      setCaptains(captainResult?.objects || []);
-      setFleets(fleetResult?.objects || []);
-      setVessels(vesselResult?.objects || []);
-      setPipelines(pipelineResult?.objects || []);
+      setCaptains(captainResult || []);
+      setFleets(fleetResult || []);
+      setVessels(vesselResult || []);
+      setPipelines(pipelineResult || []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load planning data.'));
     } finally {

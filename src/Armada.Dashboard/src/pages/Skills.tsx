@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createSkill, deleteSkill, listSkills, updateSkill } from '../api/client';
+import { createSkill, deleteSkill, updateSkill, listAllSkills } from '../api/client';
 import type { Skill } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -91,8 +91,8 @@ export default function Skills() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listSkills({ pageSize: 9999 });
-      setSkills(result.objects || []);
+      const result = await listAllSkills();
+      setSkills(result);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load skills.'));

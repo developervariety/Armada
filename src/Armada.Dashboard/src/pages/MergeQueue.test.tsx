@@ -19,7 +19,7 @@ vi.mock('../context/NotificationContext', () => ({
   useNotifications: () => ({ pushToast: vi.fn() }),
 }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listMergeQueue: vi.fn(),
   enqueueMerge: vi.fn(),
   deleteMergeEntry: vi.fn(),

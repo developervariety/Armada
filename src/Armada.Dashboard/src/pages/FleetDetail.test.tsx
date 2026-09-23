@@ -15,7 +15,7 @@ vi.mock('../context/NotificationContext', () => ({
   useNotifications: () => ({ pushToast: vi.fn() }),
 }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   getFleet: vi.fn(),
   listFleets: vi.fn(),
   listVessels: vi.fn(),

@@ -6,7 +6,7 @@ import { createPersona, listPersonas, listPromptTemplates } from '../api/client'
 
 const auth = vi.hoisted(() => ({ current: { isAdmin: false, isTenantAdmin: false, user: { user: { id: 'usr_1', tenantId: 'ten_a' } } } }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listPersonas: vi.fn(),
   listPromptTemplates: vi.fn(),
   createPersona: vi.fn(),

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listFleets, listVessels, listPipelines, createFleet, updateFleet, deleteFleet } from '../api/client';
+import { createFleet, updateFleet, deleteFleet, listAllFleets, listAllPipelines, listAllVessels } from '../api/client';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -66,22 +66,22 @@ export default function Fleets() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [fResult, vResult, pResult] = await Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
-      setPipelines(pResult.objects);
+      const [fResult, vResult, pResult] = await Promise.all([listAllFleets(), listAllVessels(), listAllPipelines()]);
+      setPipelines(pResult);
       const vesselsByFleet = new Map<string, Vessel[]>();
-      for (const v of vResult.objects) {
+      for (const v of vResult) {
         if (v.fleetId) {
           const list = vesselsByFleet.get(v.fleetId) || [];
           list.push(v);
           vesselsByFleet.set(v.fleetId, list);
         }
       }
-      setFleets(fResult.objects.map(f => ({
+      setFleets(fResult.map(f => ({
         ...f,
         _vesselCount: vesselsByFleet.get(f.id)?.length ?? 0,
         _vessels: vesselsByFleet.get(f.id) ?? [],
       })));
-      setVessels(vResult.objects);
+      setVessels(vResult);
       setError('');
     } catch {
       setError(t('Failed to load fleets.'));

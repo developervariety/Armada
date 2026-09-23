@@ -3,8 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   getDock,
   deleteDock,
-  listCaptains,
-  listVessels,
+  listAllCaptains,
+  listAllVessels,
 } from '../api/client';
 import type { Dock, Captain, Vessel } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -60,8 +60,8 @@ export default function DockDetail() {
         setError(t('Failed to load dock.'));
       }
     }
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
+    listAllVessels().then(setVessels).catch(() => {});
   }, [id, t]);
 
   useEffect(() => { void load(); }, [load]);

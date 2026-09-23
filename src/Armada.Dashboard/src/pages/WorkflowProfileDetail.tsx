@@ -4,10 +4,10 @@ import {
   createWorkflowProfile,
   deleteWorkflowProfile,
   getWorkflowProfile,
-  listFleets,
-  listVessels,
   updateWorkflowProfile,
   validateWorkflowProfile,
+  listAllFleets,
+  listAllVessels,
 } from '../api/client';
 import type { Fleet, Vessel, WorkflowEnvironmentProfile, WorkflowInputReference, WorkflowProfile, WorkflowProfileValidationResult } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -129,11 +129,11 @@ export default function WorkflowProfileDetail() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 })])
+    Promise.all([listAllFleets(), listAllVessels()])
       .then(([fleetResult, vesselResult]) => {
         if (cancelled) return;
-        setFleets(fleetResult.objects || []);
-        setVessels(vesselResult.objects || []);
+        setFleets(fleetResult);
+        setVessels(vesselResult);
       })
       .catch(() => {
         if (!cancelled) setError(t('Failed to load fleets and vessels.'));

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, listVessels, getMissionDiff, getMissionLog, getVesselLandingPreview } from '../api/client';
+import { getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, getMissionDiff, getMissionLog, getVesselLandingPreview, listAllVessels } from '../api/client';
 import type { MergeEntry, Vessel, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -63,11 +63,11 @@ export default function MergeQueueDetail() {
       setError('');
     }
     try {
-      const [e, vResult] = await Promise.all([getMergeEntry(id), listVessels({ pageSize: 1000 })]);
+      const [e, vResult] = await Promise.all([getMergeEntry(id), listAllVessels()]);
       if (!request.isCurrent()) return;
       setEntry(e);
       request.markLoaded();
-      setVessels(vResult.objects);
+      setVessels(vResult);
       if (e.vesselId) {
         if (isInitialLoad) setLoadingLandingPreview(true);
         getVesselLandingPreview(e.vesselId, e.branchName)

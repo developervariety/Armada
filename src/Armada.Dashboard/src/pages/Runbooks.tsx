@@ -4,10 +4,10 @@ import PageHeader from '../components/shared/PageHeader';
 import {
   createRunbook,
   deleteRunbook,
-  listEnvironments,
   listRunbookExecutions,
-  listRunbooks,
-  listWorkflowProfiles,
+  listAllEnvironments,
+  listAllRunbooks,
+  listAllWorkflowProfiles,
 } from '../api/client';
 import type {
   CheckRunType,
@@ -31,7 +31,6 @@ import StatusBadge from '../components/shared/StatusBadge';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildRunbookDuplicatePayload } from '../lib/duplicates';
-import { listAllPages } from '../lib/listAllPages';
 
 const RUNBOOK_CHECK_TYPES: CheckRunType[] = [
   'Build',
@@ -153,11 +152,11 @@ export default function Runbooks() {
       const countOf = async (query: { runbookId?: string; status?: RunbookExecution['status'] }) =>
         (await listRunbookExecutions({ ...query, pageSize: 1 })).totalRecords || 0;
       const [allRunbooks, total, running, profileResult, environmentResult] = await Promise.all([
-        listAllPages((pageNumber) => listRunbooks({ pageNumber, pageSize: 500 })),
+        listAllRunbooks(),
         countOf({}),
         countOf({ status: 'Running' }),
-        listWorkflowProfiles({ pageSize: 1000 }),
-        listEnvironments({ pageSize: 500 }),
+        listAllWorkflowProfiles(),
+        listAllEnvironments(),
       ]);
       const perRunbook = await Promise.all(allRunbooks.map(async (runbook) => {
         const [runbookTotal, runbookRunning] = await Promise.all([
@@ -169,8 +168,8 @@ export default function Runbooks() {
       setRunbooks(allRunbooks);
       setExecutionTotals({ total, running });
       setExecutionCounts(new Map(perRunbook));
-      setProfiles(profileResult.objects || []);
-      setEnvironments(environmentResult.objects || []);
+      setProfiles(profileResult);
+      setEnvironments(environmentResult);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load runbooks.'));

@@ -4,7 +4,7 @@ import Captains from './Captains';
 import { createCaptain, listCaptains, listModelEndpoints, stopAllCaptains } from '../api/client';
 import { useNotifications } from '../context/NotificationContext';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listCaptains: vi.fn(),
   createCaptain: vi.fn(),
   updateCaptain: vi.fn(),

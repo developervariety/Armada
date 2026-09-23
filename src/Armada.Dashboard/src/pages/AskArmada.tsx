@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { chatWithCaptain, getCaptainAskTools, listCaptains } from '../api/client';
+import { chatWithCaptain, getCaptainAskTools, listAllCaptains } from '../api/client';
 import type { Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -60,9 +60,9 @@ export default function AskArmada() {
   }, [busy]);
 
   useEffect(() => {
-    listCaptains({ pageSize: 200 })
+    listAllCaptains()
       .then((result) => {
-        const chattable = result.objects.filter(isChattable);
+        const chattable = result.filter(isChattable);
         setCaptains(chattable);
         if (chattable.length > 0) setCaptainId((current) => current || chattable[0].id);
       })

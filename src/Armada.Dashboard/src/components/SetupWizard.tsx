@@ -7,11 +7,11 @@ import {
   dispatchMission,
   getVesselReadiness,
   getMission,
-  listCaptains,
-  listEnvironments,
-  listFleets,
-  listVessels,
-  listWorkflowProfiles,
+  listAllCaptains,
+  listAllEnvironments,
+  listAllFleets,
+  listAllVessels,
+  listAllWorkflowProfiles,
 } from '../api/client';
 import MuxRuntimeFields from './captains/MuxRuntimeFields';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
@@ -296,24 +296,24 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     try {
       setLoading(true);
       const [fleetResult, vesselResult, captainResult] = await Promise.all([
-        listFleets({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listCaptains({ pageSize: 9999 }),
+        listAllFleets(),
+        listAllVessels(),
+        listAllCaptains(),
       ]);
 
-      setFleets(fleetResult.objects);
-      setVessels(vesselResult.objects);
-      setCaptains(captainResult.objects);
+      setFleets(fleetResult);
+      setVessels(vesselResult);
+      setCaptains(captainResult);
 
-      if (fleetResult.objects.length > 0) {
+      if (fleetResult.length > 0) {
         setFleetMode('existing');
-        setSelectedFleetId((currentId) => currentId || fleetResult.objects[0].id);
+        setSelectedFleetId((currentId) => currentId || fleetResult[0].id);
       }
-      if (vesselResult.objects.length > 0) {
+      if (vesselResult.length > 0) {
         setVesselMode('existing');
-        setSelectedVesselId((currentId) => currentId || vesselResult.objects[0].id);
+        setSelectedVesselId((currentId) => currentId || vesselResult[0].id);
       }
-      const idleCaptainOptions = captainResult.objects.filter((captain) => String(captain.state || '').toLowerCase() === 'idle');
+      const idleCaptainOptions = captainResult.filter((captain) => String(captain.state || '').toLowerCase() === 'idle');
       if (idleCaptainOptions.length > 0) {
         setCaptainMode('existing');
         setSelectedCaptainId((currentId) => currentId || idleCaptainOptions[0].id);
@@ -372,13 +372,13 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         setNextSetupLoading(true);
         const [loadedReadiness, profileResult, environmentResult] = await Promise.all([
           getVesselReadiness(activeVesselId),
-          listWorkflowProfiles({ pageSize: 9999 }),
-          listEnvironments({ pageSize: 9999, vesselId: activeVesselId }),
+          listAllWorkflowProfiles(),
+          listAllEnvironments({ vesselId: activeVesselId }),
         ]);
 
         if (!mounted) return;
 
-        const relevantProfiles = (profileResult.objects || []).filter((profile) => {
+        const relevantProfiles = profileResult.filter((profile) => {
           if (profile.scope === 'Global') return true;
           if (profile.scope === 'Fleet' && activeFleetId) return profile.fleetId === activeFleetId;
           if (profile.scope === 'Vessel') return profile.vesselId === activeVesselId;
@@ -387,7 +387,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
 
         setReadiness(loadedReadiness);
         setMatchingProfiles(relevantProfiles);
-        setMatchingEnvironments(environmentResult.objects || []);
+        setMatchingEnvironments(environmentResult);
       } catch {
         if (!mounted) return;
         setReadiness(null);

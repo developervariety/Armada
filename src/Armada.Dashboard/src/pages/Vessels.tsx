@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVessels, listFleets, listPipelines, createVessel, updateVessel, deleteVessel, getVesselGitStatus } from '../api/client';
+import { createVessel, updateVessel, deleteVessel, getVesselGitStatus, listAllFleets, listAllPipelines, listAllVessels } from '../api/client';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -127,15 +127,15 @@ export default function Vessels() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [vResult, fResult, pResult] = await Promise.all([listVessels({ pageSize: 9999 }), listFleets({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
-      setVessels(vResult.objects);
-      setFleets(fResult.objects);
-      setPipelines(pResult.objects);
+      const [vResult, fResult, pResult] = await Promise.all([listAllVessels(), listAllFleets(), listAllPipelines()]);
+      setVessels(vResult);
+      setFleets(fResult);
+      setPipelines(pResult);
       setError('');
 
       // Fetch git status for each vessel in the background (non-blocking)
       const statusMap: Record<string, { ahead: number | null; behind: number | null }> = {};
-      await Promise.all(vResult.objects.map(async (v: Vessel) => {
+      await Promise.all(vResult.map(async (v: Vessel) => {
         try {
           const gs = await getVesselGitStatus(v.id);
           statusMap[v.id] = { ahead: gs.commitsAhead, behind: gs.commitsBehind };

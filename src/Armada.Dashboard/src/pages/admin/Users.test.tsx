@@ -21,7 +21,7 @@ vi.mock('../../context/NotificationContext', () => ({
 
 vi.mock('../../lib/useProxySessionContext', () => ({ useProxySessionContext: () => null }));
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async () => (await import('../../test/clientMock')).withAllPages({
   listUsers: vi.fn(),
   listTenants: vi.fn(),
   createUser: vi.fn(),

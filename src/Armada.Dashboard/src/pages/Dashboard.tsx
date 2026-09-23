@@ -4,11 +4,11 @@ import {
   getStatus,
   getVoyageMissionSummary,
   listMissionSummaries,
-  listVessels,
-  listCaptains,
-  listFleets,
   deleteMission,
   restartMission,
+  listAllCaptains,
+  listAllFleets,
+  listAllVessels,
 } from '../api/client';
 import type { MissionSummary, Vessel, Captain, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -155,17 +155,17 @@ export default function Dashboard() {
               return null;
             }),
         listMissionSummaries({ pageSize: RECENT_MISSION_COUNT }).catch(() => null),
-        listVessels({ pageSize: 9999 }).catch(() => null),
-        listCaptains({ pageSize: 9999 }).catch(() => null),
-        listFleets({ pageSize: 9999 }).catch(() => null),
+        listAllVessels().catch(() => null),
+        listAllCaptains().catch(() => null),
+        listAllFleets().catch(() => null),
       ]);
       const statusData = statusRes as unknown as StatusData | null;
       if (statusData) setStatus(statusData);
       // The summaries endpoint returns the newest missions first, so no client-side sort is needed.
       if (missionRes) setRecentMissions(missionRes.objects);
-      if (vesselRes) setVessels(vesselRes.objects);
-      if (fleetRes) setFleets(fleetRes.objects);
-      if (captainRes) setCaptains(captainRes.objects);
+      if (vesselRes) setVessels(vesselRes);
+      if (fleetRes) setFleets(fleetRes);
+      if (captainRes) setCaptains(captainRes);
       if (!statusRes && !missionRes) setError(t('Failed to load dashboard data.'));
 
       // Voyage vessels come from the voyage's own mission summary, so a voyage whose missions are older than

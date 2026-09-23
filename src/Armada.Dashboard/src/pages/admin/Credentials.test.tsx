@@ -21,7 +21,7 @@ vi.mock('../../context/NotificationContext', () => ({
 
 vi.mock('../../lib/useProxySessionContext', () => ({ useProxySessionContext: () => null }));
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async () => (await import('../../test/clientMock')).withAllPages({
   listCredentials: vi.fn(),
   createCredential: vi.fn(),
   updateCredential: vi.fn(),

@@ -6,9 +6,9 @@ import {
   deleteBacklogItem,
   importObjectiveFromGitHub,
   listAllBacklog,
-  listFleets,
-  listVessels,
   reorderBacklog,
+  listAllFleets,
+  listAllVessels,
 } from '../api/client';
 import type {
   Fleet,
@@ -90,13 +90,13 @@ export default function Objectives() {
       // Counts, filters and rank moves work on the whole backlog, so read every page, not the first 500.
       const [loadedObjectives, fleetResult, vesselResult] = await Promise.all([
         listAllBacklog(),
-        listFleets({ pageSize: 1000 }),
-        listVessels({ pageSize: 1000 }),
+        listAllFleets(),
+        listAllVessels(),
       ]);
 
       setObjectives(loadedObjectives);
-      setFleets(fleetResult.objects || []);
-      setVessels(vesselResult.objects || []);
+      setFleets(fleetResult);
+      setVessels(vesselResult);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load backlog.'));

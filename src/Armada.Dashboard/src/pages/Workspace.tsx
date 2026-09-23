@@ -7,10 +7,10 @@ import {
   getWorkspaceFile,
   getWorkspaceStatus,
   getWorkspaceTree,
-  listVessels,
   renameWorkspaceEntry,
   saveWorkspaceFile,
   updateVesselContext,
+  listAllVessels,
 } from '../api/client';
 import type {
   Vessel,
@@ -160,10 +160,10 @@ export default function Workspace() {
 
   useEffect(() => {
     let cancelled = false;
-    listVessels({ pageSize: 9999 })
+    listAllVessels()
       .then((result) => {
         if (cancelled) return;
-        setVessels(result.objects);
+        setVessels(result);
       })
       .catch((error: unknown) => {
         if (cancelled) return;

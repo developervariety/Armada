@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getSettings, listCaptains, listPersonas, updateSettings } from '../api/client';
+import { getSettings, updateSettings, listAllCaptains, listAllPersonas } from '../api/client';
 import type { Captain } from '../types/models';
 import UsageRoutingEditor, { emptyUsageRouting } from '../components/UsageRoutingEditor';
 import RoutingPolicyEditor from '../components/RoutingPolicyEditor';
@@ -92,11 +92,11 @@ export default function RoutingSettings() {
   // Captains and personas only feed the model options and pickers; a failure leaves them empty.
   const loadRoster = useCallback(async () => {
     const [captainResult, personaResult] = await Promise.all([
-      listCaptains({ pageSize: 9999 }).catch(() => null),
-      listPersonas({ pageSize: 9999 }).catch(() => null),
+      listAllCaptains().catch(() => null),
+      listAllPersonas().catch(() => null),
     ]);
-    if (captainResult?.objects) setCaptains(captainResult.objects);
-    if (personaResult?.objects) setPersonas(personaResult.objects.filter(p => p.active !== false).map(p => p.name));
+    if (captainResult) setCaptains(captainResult);
+    if (personaResult) setPersonas(personaResult.filter(p => p.active !== false).map(p => p.name));
   }, []);
 
   useEffect(() => { void loadRoster(); }, [loadRoster]);

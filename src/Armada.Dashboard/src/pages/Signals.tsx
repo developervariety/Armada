@@ -5,7 +5,7 @@ import {
   sendSignal,
   markSignalRead,
   deleteSignalsBatch,
-  listCaptains,
+  listAllCaptains,
 } from '../api/client';
 import type { Signal, Captain, SendSignalRequest } from '../types/models';
 import Pagination from '../components/shared/Pagination';
@@ -105,7 +105,7 @@ export default function Signals() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('signals', load);
 
   useEffect(() => {
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAllCaptains().then(setCaptains).catch(() => {});
   }, []);
 
   // Column filtering

@@ -3,14 +3,14 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createRelease,
   deleteRelease,
+  getCheckRun,
   getRelease,
   getReleaseGitHubPullRequests,
-  listCheckRuns,
-  listDeployments,
-  listObjectives,
-  listVessels,
-  listVoyages,
-  listWorkflowProfiles,
+  listAllDeployments,
+  listAllObjectives,
+  listAllVessels,
+  listAllVoyages,
+  listAllWorkflowProfiles,
   refreshRelease,
   updateRelease,
 } from '../api/client';
@@ -91,18 +91,14 @@ export default function ReleaseDetail() {
     let cancelled = false;
 
     Promise.all([
-      listVessels({ pageSize: 9999 }),
-      listWorkflowProfiles({ pageSize: 9999 }),
-      listVoyages({ pageSize: 9999 }),
-      listCheckRuns({ pageSize: 9999 }),
-      listDeployments({ pageSize: 9999 }),
-    ]).then(([vesselResult, profileResult, voyageResult, checkRunResult, deploymentResult]) => {
+      listAllVessels(),
+      listAllWorkflowProfiles(),
+      listAllVoyages(),
+    ]).then(([allVessels, allProfiles, allVoyages]) => {
       if (cancelled) return;
-      setVessels(vesselResult.objects || []);
-      setProfiles(profileResult.objects || []);
-      setVoyages(voyageResult.objects || []);
-      setCheckRuns(checkRunResult.objects || []);
-      setDeployments(deploymentResult.objects || []);
+      setVessels(allVessels);
+      setProfiles(allProfiles);
+      setVoyages(allVoyages);
     }).catch(() => {
       if (!cancelled) setError(t('Failed to load release reference data.'));
     });
@@ -163,6 +159,39 @@ export default function ReleaseDetail() {
     return () => { mounted = false; };
   }, [createMode, id, t]);
 
+  // Linked deployments come from the server's release filter, so none is missed however many deployments exist.
+  useEffect(() => {
+    if (createMode || !id) {
+      setDeployments([]);
+      return;
+    }
+
+    let cancelled = false;
+    listAllDeployments({ releaseId: id }).then((linked) => {
+      if (!cancelled) setDeployments(linked);
+    }).catch(() => {
+      if (!cancelled) setError(t('Failed to load release reference data.'));
+    });
+
+    return () => { cancelled = true; };
+  }, [createMode, id, t]);
+
+  // Linked check runs are read one by one: a check run carries its output, so the page never reads every run.
+  const linkedCheckRunIds = release?.checkRunIds;
+  useEffect(() => {
+    if (!linkedCheckRunIds || linkedCheckRunIds.length === 0) {
+      setCheckRuns([]);
+      return;
+    }
+
+    let cancelled = false;
+    void Promise.all(linkedCheckRunIds.map((checkRunId) => getCheckRun(checkRunId).catch(() => null))).then((runs) => {
+      if (!cancelled) setCheckRuns(runs.filter((run): run is CheckRun => run !== null));
+    });
+
+    return () => { cancelled = true; };
+  }, [linkedCheckRunIds]);
+
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
   const workflowProfileMap = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile.name])), [profiles]);
   const voyageMap = useMemo(() => new Map(voyages.map((voyage) => [voyage.id, voyage.title || voyage.id])), [voyages]);
@@ -178,8 +207,8 @@ export default function ReleaseDetail() {
 
     let cancelled = false;
 
-    void listObjectives({ pageSize: 9999, releaseId: id }).then((result) => {
-      if (!cancelled) setObjectives(result.objects || []);
+    void listAllObjectives({ releaseId: id }).then((linked) => {
+      if (!cancelled) setObjectives(linked);
     }).catch(() => {
       if (!cancelled) setError(t('Failed to load linked objectives.'));
     });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { enumerateHistoryTimeline, listObjectives, listVessels, deleteRequestHistoryEntry } from '../api/client';
+import { enumerateHistoryTimeline, deleteRequestHistoryEntry, listAllObjectives, listAllVessels } from '../api/client';
 import type { HistoricalTimelineEntry, HistoricalTimelineQuery, Objective, Vessel } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -234,13 +234,13 @@ export default function History() {
       setLoading(true);
       const [historyResult, vesselResult, allObjectives] = await Promise.all([
         enumerateHistoryTimeline(appliedQuery),
-        listVessels({ pageSize: 1000 }),
-        listAllPages((pageNumber) => listObjectives({ pageNumber, pageSize: 500 })),
+        listAllVessels(),
+        listAllObjectives(),
       ]);
 
       setEntries(historyResult.objects || []);
       setTotalRecords(historyResult.totalRecords || 0);
-      setVessels(vesselResult.objects || []);
+      setVessels(vesselResult);
       setObjectives(allObjectives);
       setError('');
     } catch (err: unknown) {

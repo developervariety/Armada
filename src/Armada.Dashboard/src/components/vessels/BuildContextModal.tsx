@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Vessel, Captain } from '../../types/models';
-import { buildVesselContext, listCaptains } from '../../api/client';
+import { buildVesselContext, listAllCaptains } from '../../api/client';
 import { useLocale } from '../../context/LocaleContext';
 
 interface BuildContextModalProps {
@@ -26,10 +26,10 @@ export default function BuildContextModal({ vessel, onClose, onBuilt }: BuildCon
   const [error, setError] = useState('');
 
   useEffect(() => {
-    listCaptains({ pageSize: 200 })
+    listAllCaptains()
       .then((result) => {
-        setCaptains(result.objects);
-        if (result.objects.length > 0) setCaptainId((current) => current || result.objects[0].id);
+        setCaptains(result);
+        if (result.length > 0) setCaptainId((current) => current || result[0].id);
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load captains.')));
   }, [t]);
