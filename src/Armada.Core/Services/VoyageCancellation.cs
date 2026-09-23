@@ -21,7 +21,7 @@ namespace Armada.Core.Services
         public const string OperatorCancelReason = "Voyage cancelled by operator.";
 
         /// <summary>
-        /// Mark the voyage Cancelled and cancel every mission that is Pending, Assigned, or InProgress.
+        /// Mark the voyage Cancelled and cancel every mission that is Pending, Assigned, InProgress, Testing, or Review.
         /// This helper is used to retire a newly created voyage that cannot be admitted or linked, so
         /// no mission from that orphan may remain active in the database.
         /// </summary>
@@ -41,12 +41,14 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Cancel a voyage and every mission in it that is Pending, Assigned, or InProgress, and report
-        /// what changed.
+        /// Cancel a voyage and every mission in it that is Pending, Assigned, InProgress, Testing, or
+        /// Review, and report what changed.
         /// <para>
-        /// When <paramref name="recallCaptain"/> is supplied, every captain holding an Assigned or
-        /// InProgress mission of the voyage is recalled first, which stops its agent process, and the
-        /// voyage stays active if a recall throws. Without it, running agent processes are not stopped,
+        /// When <paramref name="recallCaptain"/> is supplied, every captain working a mission of the voyage
+        /// is recalled first, which stops its agent process, and the voyage stays active if a recall
+        /// throws. That is the captain of an Assigned or InProgress mission, and the captain of a Testing
+        /// or Review mission it still holds; a mission waiting for a review decision has no running
+        /// captain, so its former captain, now on other work, is not recalled. Without it, running agent processes are not stopped,
         /// so an operator cancel always supplies it. A voyage that is already Cancelled or Complete is
         /// returned unchanged with no cancelled missions.
         /// </para>
@@ -74,13 +76,18 @@ namespace Armada.Core.Services
             List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
             if (recallCaptain != null)
             {
-                string[] assignedCaptains = missions
-                    .Where(mission => !String.IsNullOrEmpty(mission.CaptainId)
-                        && (mission.Status == MissionStatusEnum.Assigned
-                            || mission.Status == MissionStatusEnum.InProgress))
-                    .Select(mission => mission.CaptainId!)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
+                List<string> assignedCaptains = new List<string>();
+                foreach (Mission mission in missions)
+                {
+                    if (String.IsNullOrEmpty(mission.CaptainId) || !MissionStateMachine.IsActive(mission.Status)) continue;
+                    if (assignedCaptains.Contains(mission.CaptainId!, StringComparer.OrdinalIgnoreCase)) continue;
+                    if (mission.Status == MissionStatusEnum.Testing || mission.Status == MissionStatusEnum.Review)
+                    {
+                        Captain? holder = await database.Captains.ReadAsync(mission.CaptainId!, token).ConfigureAwait(false);
+                        if (holder == null || !String.Equals(holder.CurrentMissionId, mission.Id, StringComparison.Ordinal)) continue;
+                    }
+                    assignedCaptains.Add(mission.CaptainId!);
+                }
                 foreach (string captainId in assignedCaptains)
                 {
                     // Keep the voyage nonterminal until every live writer is stopped. If recall

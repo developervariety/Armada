@@ -2176,6 +2176,61 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(CaptainStateEnum.Idle, storedCaptain.State);
             });
 
+            await RunTest("VoyageCancellation_CancelsTestingAndReviewMissionsAndRecallsOnlyTheCaptainStillHoldingOne", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Testing and review")
+                {
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Captain testingCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("testing-captain")
+                {
+                    State = CaptainStateEnum.Working
+                }).ConfigureAwait(false);
+                Captain formerReviewCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("moved-on-captain")
+                {
+                    State = CaptainStateEnum.Working,
+                    CurrentMissionId = "msn_other_work"
+                }).ConfigureAwait(false);
+                Mission testing = await testDb.Driver.Missions.CreateAsync(new Mission("Testing", "Captain still running.")
+                {
+                    VoyageId = voyage.Id,
+                    CaptainId = testingCaptain.Id,
+                    Status = MissionStatusEnum.Testing
+                }).ConfigureAwait(false);
+                testingCaptain.CurrentMissionId = testing.Id;
+                await testDb.Driver.Captains.UpdateAsync(testingCaptain).ConfigureAwait(false);
+                Mission awaitingDecision = await testDb.Driver.Missions.CreateAsync(new Mission("Awaiting review", "Held for a review decision.")
+                {
+                    VoyageId = voyage.Id,
+                    CaptainId = formerReviewCaptain.Id,
+                    Status = MissionStatusEnum.Review,
+                    RequiresReview = true
+                }).ConfigureAwait(false);
+                List<string> recalled = new List<string>();
+
+                await VoyageCancellation.CancelVoyageAsync(
+                    testDb.Driver,
+                    voyage,
+                    "operator cancel",
+                    recallCaptain: (captainId, _) =>
+                    {
+                        recalled.Add(captainId);
+                        return Task.CompletedTask;
+                    }).ConfigureAwait(false);
+
+                Mission storedTesting = (await testDb.Driver.Missions.ReadAsync(testing.Id).ConfigureAwait(false))!;
+                Mission storedReview = (await testDb.Driver.Missions.ReadAsync(awaitingDecision.Id).ConfigureAwait(false))!;
+                AssertEqual(MissionStatusEnum.Cancelled, storedTesting.Status, "A Testing mission ends with its voyage");
+                AssertEqual(MissionStatusEnum.Cancelled, storedReview.Status, "A mission waiting for a review decision ends with its voyage");
+                AssertEqual(1, recalled.Count, "Only the captain still holding a Testing or Review mission is recalled");
+                AssertEqual(testingCaptain.Id, recalled[0]);
+                Captain storedFormer = (await testDb.Driver.Captains.ReadAsync(formerReviewCaptain.Id).ConfigureAwait(false))!;
+                AssertEqual("msn_other_work", storedFormer.CurrentMissionId, "A captain that moved on keeps its current work");
+                Captain storedTestingCaptain = (await testDb.Driver.Captains.ReadAsync(testingCaptain.Id).ConfigureAwait(false))!;
+                AssertEqual(CaptainStateEnum.Idle, storedTestingCaptain.State, "The recalled captain is released");
+            });
+
             await RunTest("VoyageCancellation_RecallFailureLeavesVoyageActiveAndEscapes", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

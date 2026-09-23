@@ -1673,7 +1673,7 @@ Create a new voyage. Optionally include a `vesselId` and `missions[]` array for 
 
 #### cancel_voyage
 
-Cancel a voyage. Every `Pending`, `Assigned`, or `InProgress` mission is also cancelled, and the agent process of each running mission is stopped first. This is the same operation as `DELETE /api/v1/voyages/{id}`.
+Cancel a voyage. Every `Pending`, `Assigned`, `InProgress`, `Testing`, or `Review` mission is also cancelled, and the agent process of each running mission is stopped first. This is the same operation as `DELETE /api/v1/voyages/{id}`.
 
 **Request:**
 
@@ -2737,8 +2737,8 @@ Not all status transitions are valid. The following table documents the allowed 
 | `InProgress` | `WorkProduced`, `Testing`, `Review`, `Complete`, `Failed`, `Cancelled` |
 | `WorkProduced` | `PullRequestOpen`, `Complete`, `LandingFailed`, `Cancelled` |
 | `PullRequestOpen` | `Complete`, `LandingFailed`, `Cancelled` |
-| `Testing` | `Review`, `InProgress`, `Complete`, `Failed` |
-| `Review` | `Complete`, `InProgress`, `Failed` |
+| `Testing` | `Review`, `InProgress`, `Complete`, `Failed`, `Cancelled` |
+| `Review` | `Complete`, `InProgress`, `Failed`, `Cancelled` |
 | `LandingFailed` | `WorkProduced`, `Failed`, `Cancelled` |
 
 Invalid transitions will return a `command.error` response.

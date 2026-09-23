@@ -56,12 +56,16 @@ namespace Armada.Core.Services
                     return target == MissionStatusEnum.Review
                         || target == MissionStatusEnum.InProgress
                         || target == MissionStatusEnum.Complete
-                        || target == MissionStatusEnum.Failed;
+                        || target == MissionStatusEnum.Failed
+                        || target == MissionStatusEnum.Cancelled;
 
                 case MissionStatusEnum.Review:
+                    // Cancelled covers a captain still reporting Review and a mission waiting for an
+                    // explicit review decision; either one ends with its voyage.
                     return target == MissionStatusEnum.Complete
                         || target == MissionStatusEnum.InProgress
-                        || target == MissionStatusEnum.Failed;
+                        || target == MissionStatusEnum.Failed
+                        || target == MissionStatusEnum.Cancelled;
 
                 case MissionStatusEnum.LandingFailed:
                     return target == MissionStatusEnum.WorkProduced
@@ -122,7 +126,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Whether cancelling a mission's voyage also cancels the mission: the transition to
-        /// Cancelled is legal and the mission has not produced work (Pending, Assigned, InProgress).
+        /// Cancelled is legal and the mission is not terminal or post-work (Pending, Assigned,
+        /// InProgress, Testing, Review).
         /// A finished mission keeps its outcome, and produced work under an ended voyage takes its
         /// status from landing evidence through <see cref="TerminalVoyageMissionRule"/>.
         /// </summary>

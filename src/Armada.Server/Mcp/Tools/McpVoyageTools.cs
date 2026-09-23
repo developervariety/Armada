@@ -314,7 +314,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_cancel_voyage",
-                "Cancel an entire voyage and every Pending, Assigned, or InProgress mission in it. The agent process of each running mission is stopped first.",
+                "Cancel an entire voyage and every Pending, Assigned, InProgress, Testing, or Review mission in it. The agent process of each running mission is stopped first.",
                 new
                 {
                     type = "object",

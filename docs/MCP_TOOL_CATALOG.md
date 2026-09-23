@@ -373,8 +373,9 @@ cancelled, recovery closes every active incident of its failed mission.
 Autonomous recovery skips failures in voyages that ended `Complete` or
 `Cancelled`. A failure in a `Failed` voyage stays eligible, because a mission
 failure is what ends a voyage `Failed`. Cancelling a voyage cancels only its
-`Pending`, `Assigned` and `InProgress` missions, including when captain
-recovery finds the voyage cancelled. Finished missions keep their status, and
+`Pending`, `Assigned`, `InProgress`, `Testing` and `Review` missions, including
+a mission waiting for a review decision and when captain recovery finds the
+voyage cancelled. Finished missions keep their status, and
 produced work takes its status from landing evidence (section 8.26).
 
 ### 8.11 Releases

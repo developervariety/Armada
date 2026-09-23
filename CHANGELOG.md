@@ -105,7 +105,9 @@ upstream integrations and excludes changes already present at that baseline.
   so a message or papercut cannot hide a result or verdict. A captain's
   `[ARMADA:STATUS]` marker sets only InProgress, Testing, or Review, so post-work
   and terminal states always pass the completion and landing checks. Interrupted
-  and duplicate completions retain launch identity.
+  and duplicate completions retain launch identity. Cancelling a voyage also
+  cancels its Testing and Review missions, including one waiting for a review
+  decision, and recalls a captain that still holds one.
 - **Dispatch hold:** automatic Checks obey the hold. The heartbeat runs no
   Pending Check while the hold is engaged, records one named deferral event per
   engagement, and runs the waiting Checks after the hold clears. Operator check

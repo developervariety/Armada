@@ -1539,7 +1539,7 @@ or invisible voyage.
 
 #### DELETE /api/v1/voyages/{id}
 
-Cancel a voyage. Sets the voyage status to `Cancelled` and cancels every `Pending`, `Assigned`, or `InProgress` mission in it. The captain of each `Assigned` or `InProgress` mission is recalled first, which stops its agent process; if a recall fails, the voyage stays active and the request fails. A voyage that is already `Cancelled` or `Complete` is returned unchanged with `CancelledMissions: 0`. The REST route, the WebSocket `cancel_voyage` command, the MCP `armada_cancel_voyage` tool, and the remote-control cancel all use this one operation.
+Cancel a voyage. Sets the voyage status to `Cancelled` and cancels every `Pending`, `Assigned`, `InProgress`, `Testing`, or `Review` mission in it, including a mission waiting for a review decision. The captain of each `Assigned` or `InProgress` mission, and of each `Testing` or `Review` mission it still holds, is recalled first, which stops its agent process; if a recall fails, the voyage stays active and the request fails. A voyage that is already `Cancelled` or `Complete` is returned unchanged with `CancelledMissions: 0`. The REST route, the WebSocket `cancel_voyage` command, the MCP `armada_cancel_voyage` tool, and the remote-control cancel all use this one operation.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -1774,8 +1774,8 @@ mission unchanged.
 | `InProgress` | `WorkProduced`, `Testing`, `Review`, `Complete`, `Failed`, `Cancelled` |
 | `WorkProduced` | `PullRequestOpen`, `Complete`, `LandingFailed`, `Cancelled` |
 | `PullRequestOpen` | `Complete`, `LandingFailed`, `Cancelled` |
-| `Testing` | `Review`, `InProgress`, `Complete`, `Failed` |
-| `Review` | `Complete`, `InProgress`, `Failed` |
+| `Testing` | `Review`, `InProgress`, `Complete`, `Failed`, `Cancelled` |
+| `Review` | `Complete`, `InProgress`, `Failed`, `Cancelled` |
 | `LandingFailed` | `WorkProduced`, `Failed`, `Cancelled` |
 | `Complete` | (terminal) |
 | `Failed` | (terminal) |
