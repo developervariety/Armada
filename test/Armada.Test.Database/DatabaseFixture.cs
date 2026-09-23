@@ -276,10 +276,12 @@ namespace Armada.Test.Database
             string? workflowProfileId = null,
             string? missionId = null,
             string? voyageId = null,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            DateTime? createdUtc = null)
         {
             CheckRun run = new CheckRun
             {
+                CreatedUtc = createdUtc ?? DateTime.UtcNow,
                 TenantId = tenantId,
                 UserId = userId,
                 WorkflowProfileId = workflowProfileId,
@@ -322,10 +324,12 @@ namespace Armada.Test.Database
             IEnumerable<string>? voyageIds = null,
             IEnumerable<string>? missionIds = null,
             IEnumerable<string>? checkRunIds = null,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            DateTime? createdUtc = null)
         {
             Release release = new Release
             {
+                CreatedUtc = createdUtc ?? DateTime.UtcNow,
                 TenantId = tenantId,
                 UserId = userId,
                 VesselId = vesselId,
@@ -398,7 +402,8 @@ namespace Armada.Test.Database
             string? releaseId = null,
             string? missionId = null,
             string? voyageId = null,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            DateTime? createdUtc = null)
         {
             Deployment deployment = new Deployment
             {
@@ -426,7 +431,7 @@ namespace Armada.Test.Database
                 DeploymentVerificationCheckRunId = null,
                 RollbackCheckRunId = null,
                 RollbackVerificationCheckRunId = null,
-                CreatedUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedUtc = createdUtc ?? DateTime.UtcNow.AddMinutes(-5),
                 StartedUtc = DateTime.UtcNow.AddMinutes(-4),
                 CompletedUtc = DateTime.UtcNow.AddMinutes(-3),
                 VerifiedUtc = DateTime.UtcNow.AddMinutes(-3),

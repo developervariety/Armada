@@ -2491,8 +2491,10 @@ namespace Armada.Test.Database
             {
                 OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
                 WorkflowProfile profile = await fixture.CreateWorkflowProfileAsync(graph.Tenant.Id, graph.User.Id, "checkrun-profile", graph.Fleet.Id, graph.Vessel.Id, token).ConfigureAwait(false);
-                CheckRun runA = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token).ConfigureAwait(false);
-                CheckRun runB = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token).ConfigureAwait(false);
+                DateTime firstCreatedUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+                DateTime secondCreatedUtc = firstCreatedUtc.AddHours(1);
+                CheckRun runA = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token, createdUtc: firstCreatedUtc).ConfigureAwait(false);
+                CheckRun runB = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token, createdUtc: secondCreatedUtc).ConfigureAwait(false);
 
                 CheckRun? read = await _Driver.CheckRuns.ReadAsync(runA.Id, null, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Check run read returned null");
@@ -2521,6 +2523,45 @@ namespace Armada.Test.Database
                 }, token).ConfigureAwait(false);
                 DatabaseAssert.True(page.TotalRecords >= 2, "Check run enumeration should include created check runs");
                 DatabaseAssert.ContainsIds(page.Objects, item => item.Id, runA.Id, runB.Id);
+
+                CheckRunQuery dateQuery = new CheckRunQuery
+                {
+                    TenantId = graph.Tenant.Id,
+                    VesselId = graph.Vessel.Id,
+                    FromUtc = firstCreatedUtc,
+                    ToUtc = secondCreatedUtc,
+                    PageNumber = 1,
+                    PageSize = 1
+                };
+                EnumerationResult<CheckRun> datedPage = await _Driver.CheckRuns.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2L, datedPage.TotalRecords, "CheckRun inclusive date range total before pagination");
+                DatabaseAssert.Equal(1, datedPage.Objects.Count, "CheckRun date range page size");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, runB.Id);
+
+                dateQuery.PageNumber = 2;
+                datedPage = await _Driver.CheckRuns.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2L, datedPage.TotalRecords, "CheckRun date range second-page total");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, runA.Id);
+
+                dateQuery.PageNumber = 1;
+                dateQuery.PageSize = 10;
+                dateQuery.FromUtc = secondCreatedUtc;
+                dateQuery.ToUtc = null;
+                datedPage = await _Driver.CheckRuns.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, datedPage.TotalRecords, "CheckRun lower bound excludes older row");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, runB.Id);
+
+                dateQuery.FromUtc = null;
+                dateQuery.ToUtc = firstCreatedUtc;
+                datedPage = await _Driver.CheckRuns.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, datedPage.TotalRecords, "CheckRun upper bound excludes newer row");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, runA.Id);
+
+                dateQuery.FromUtc = firstCreatedUtc.AddSeconds(1);
+                dateQuery.ToUtc = secondCreatedUtc.AddSeconds(-1);
+                datedPage = await _Driver.CheckRuns.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(0L, datedPage.TotalRecords, "CheckRun date range excludes both rows");
+                DatabaseAssert.Equal(0, datedPage.Objects.Count, "CheckRun empty date range has no rows");
             }
             finally
             {
@@ -2592,6 +2633,8 @@ namespace Armada.Test.Database
                 OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
                 WorkflowProfile profile = await fixture.CreateWorkflowProfileAsync(graph.Tenant.Id, graph.User.Id, "release-profile", graph.Fleet.Id, graph.Vessel.Id, token).ConfigureAwait(false);
                 CheckRun checkRun = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, graph.Mission.Id, graph.Voyage.Id, token).ConfigureAwait(false);
+                DateTime firstCreatedUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+                DateTime secondCreatedUtc = firstCreatedUtc.AddHours(1);
                 Release releaseA = await fixture.CreateReleaseAsync(
                     graph.Tenant.Id,
                     graph.User.Id,
@@ -2600,8 +2643,8 @@ namespace Armada.Test.Database
                     new[] { graph.Voyage.Id },
                     new[] { graph.Mission.Id },
                     new[] { checkRun.Id },
-                    token).ConfigureAwait(false);
-                Release releaseB = await fixture.CreateReleaseAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, null, null, null, token).ConfigureAwait(false);
+                    token, createdUtc: firstCreatedUtc).ConfigureAwait(false);
+                Release releaseB = await fixture.CreateReleaseAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, profile.Id, null, null, null, token, createdUtc: secondCreatedUtc).ConfigureAwait(false);
 
                 Release? read = await _Driver.Releases.ReadAsync(releaseA.Id, null, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Release read returned null");
@@ -2630,6 +2673,45 @@ namespace Armada.Test.Database
                 }, token).ConfigureAwait(false);
                 DatabaseAssert.True(page.TotalRecords >= 2, "Release enumeration should include created releases");
                 DatabaseAssert.ContainsIds(page.Objects, item => item.Id, releaseA.Id, releaseB.Id);
+
+                ReleaseQuery dateQuery = new ReleaseQuery
+                {
+                    TenantId = graph.Tenant.Id,
+                    VesselId = graph.Vessel.Id,
+                    FromUtc = firstCreatedUtc,
+                    ToUtc = secondCreatedUtc,
+                    PageNumber = 1,
+                    PageSize = 1
+                };
+                EnumerationResult<Release> datedPage = await _Driver.Releases.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Release inclusive date range total before pagination");
+                DatabaseAssert.Equal(1, datedPage.Objects.Count, "Release date range page size");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, releaseB.Id);
+
+                dateQuery.PageNumber = 2;
+                datedPage = await _Driver.Releases.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Release date range second-page total");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, releaseA.Id);
+
+                dateQuery.PageNumber = 1;
+                dateQuery.PageSize = 10;
+                dateQuery.FromUtc = secondCreatedUtc;
+                dateQuery.ToUtc = null;
+                datedPage = await _Driver.Releases.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, datedPage.TotalRecords, "Release lower bound excludes older row");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, releaseB.Id);
+
+                dateQuery.FromUtc = null;
+                dateQuery.ToUtc = firstCreatedUtc;
+                datedPage = await _Driver.Releases.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, datedPage.TotalRecords, "Release upper bound excludes newer row");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, releaseA.Id);
+
+                dateQuery.FromUtc = firstCreatedUtc.AddSeconds(1);
+                dateQuery.ToUtc = secondCreatedUtc.AddSeconds(-1);
+                datedPage = await _Driver.Releases.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(0L, datedPage.TotalRecords, "Release date range excludes both rows");
+                DatabaseAssert.Equal(0, datedPage.Objects.Count, "Release empty date range has no rows");
             }
             finally
             {
@@ -2653,6 +2735,8 @@ namespace Armada.Test.Database
                     EnvironmentKindEnum.Staging,
                     true,
                     token).ConfigureAwait(false);
+                DateTime firstCreatedUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+                DateTime secondCreatedUtc = firstCreatedUtc.AddHours(1);
                 Deployment deploymentA = await fixture.CreateDeploymentAsync(
                     graph.Tenant.Id,
                     graph.User.Id,
@@ -2663,7 +2747,7 @@ namespace Armada.Test.Database
                     release.Id,
                     graph.Mission.Id,
                     graph.Voyage.Id,
-                    token).ConfigureAwait(false);
+                    token, createdUtc: firstCreatedUtc).ConfigureAwait(false);
                 Deployment deploymentB = await fixture.CreateDeploymentAsync(
                     graph.Tenant.Id,
                     graph.User.Id,
@@ -2674,7 +2758,7 @@ namespace Armada.Test.Database
                     null,
                     null,
                     null,
-                    token).ConfigureAwait(false);
+                    token, createdUtc: secondCreatedUtc).ConfigureAwait(false);
 
                 Deployment? read = await _Driver.Deployments.ReadAsync(deploymentA.Id, null, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Deployment read returned null");
@@ -2705,6 +2789,45 @@ namespace Armada.Test.Database
                 }, token).ConfigureAwait(false);
                 DatabaseAssert.True(page.TotalRecords >= 2, "Deployment enumeration should include created deployments");
                 DatabaseAssert.ContainsIds(page.Objects, item => item.Id, deploymentA.Id, deploymentB.Id);
+
+                DeploymentQuery dateQuery = new DeploymentQuery
+                {
+                    TenantId = graph.Tenant.Id,
+                    VesselId = graph.Vessel.Id,
+                    FromUtc = firstCreatedUtc,
+                    ToUtc = secondCreatedUtc,
+                    PageNumber = 1,
+                    PageSize = 1
+                };
+                EnumerationResult<Deployment> datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Deployment inclusive date range total before pagination");
+                DatabaseAssert.Equal(1, datedPage.Objects.Count, "Deployment date range page size");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, deploymentB.Id);
+
+                dateQuery.PageNumber = 2;
+                datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2L, datedPage.TotalRecords, "Deployment date range second-page total");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, deploymentA.Id);
+
+                dateQuery.PageNumber = 1;
+                dateQuery.PageSize = 10;
+                dateQuery.FromUtc = secondCreatedUtc;
+                dateQuery.ToUtc = null;
+                datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, datedPage.TotalRecords, "Deployment lower bound excludes older row");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, deploymentB.Id);
+
+                dateQuery.FromUtc = null;
+                dateQuery.ToUtc = firstCreatedUtc;
+                datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, datedPage.TotalRecords, "Deployment upper bound excludes newer row");
+                DatabaseAssert.ContainsIds(datedPage.Objects, item => item.Id, deploymentA.Id);
+
+                dateQuery.FromUtc = firstCreatedUtc.AddSeconds(1);
+                dateQuery.ToUtc = secondCreatedUtc.AddSeconds(-1);
+                datedPage = await _Driver.Deployments.EnumerateAsync(dateQuery, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(0L, datedPage.TotalRecords, "Deployment date range excludes both rows");
+                DatabaseAssert.Equal(0, datedPage.Objects.Count, "Deployment empty date range has no rows");
             }
             finally
             {
