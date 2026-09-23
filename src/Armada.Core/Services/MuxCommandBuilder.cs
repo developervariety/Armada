@@ -7,7 +7,49 @@ namespace Armada.Core.Services
     /// </summary>
     public static class MuxCommandBuilder
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Environment variable Mux reads to select its active config directory. The --config-dir flag
+        /// outranks it, and with neither set Mux uses ~/.mux.
+        /// </summary>
+        public const string ConfigDirectoryEnvironmentVariable = "MUX_CONFIG_DIR";
+
+        /// <summary>
+        /// Flag that selects the active Mux config directory (endpoints, settings, skills, hooks).
+        /// </summary>
+        public const string ConfigDirectoryFlag = "--config-dir";
+
+        /// <summary>
+        /// Flag naming the file of MCP servers a `mux print` run loads. Without it `mux print` loads no MCP server.
+        /// </summary>
+        public const string McpConfigFlag = "--mcp-config";
+
+        /// <summary>
+        /// Flag that makes a `mux print` run use only the --mcp-config servers and ignore the config
+        /// directory's mcp-servers.json.
+        /// </summary>
+        public const string StrictMcpConfigFlag = "--strict-mcp-config";
+
+        /// <summary>
+        /// File name of the per-launch MCP servers document inside a scoped launch directory.
+        /// </summary>
+        public const string ScopedMcpConfigFileName = "mux-mcp.json";
+
+        #endregion
+
         #region Public-Methods
+
+        /// <summary>
+        /// Build the arguments that make a `mux print` run load exactly the MCP servers in one file.
+        /// </summary>
+        /// <param name="mcpConfigPath">Path of a servers document in the mcp-servers.json shape.</param>
+        /// <returns>The --mcp-config and --strict-mcp-config arguments.</returns>
+        public static List<string> BuildStrictMcpConfigArguments(string mcpConfigPath)
+        {
+            if (String.IsNullOrWhiteSpace(mcpConfigPath)) throw new ArgumentNullException(nameof(mcpConfigPath));
+            return new List<string> { McpConfigFlag, mcpConfigPath, StrictMcpConfigFlag };
+        }
 
         /// <summary>
         /// Build single-shot arguments for jchristn/Mux (`mux print &lt;prompt&gt;`). Uses the
@@ -44,7 +86,7 @@ namespace Armada.Core.Services
             {
                 if (!String.IsNullOrWhiteSpace(options.ConfigDirectory))
                 {
-                    args.Add("--config-dir");
+                    args.Add(ConfigDirectoryFlag);
                     args.Add(options.ConfigDirectory!);
                 }
                 if (!String.IsNullOrWhiteSpace(options.Endpoint))

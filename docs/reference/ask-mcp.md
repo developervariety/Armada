@@ -2,7 +2,8 @@
 
 Ask launches a temporary runtime for each chat turn. The launch receives a
 runtime-specific isolated MCP plan. Claude, Gemini, Cursor, and Mux receive a
-scoped configuration file. Codex receives its inline MCP override. OpenCode
+scoped configuration file; Claude Code and Mux load it through `--mcp-config` in
+strict mode, so no other MCP server reaches the turn. Codex receives its inline MCP override. OpenCode
 receives an MCP-only `OPENCODE_CONFIG_CONTENT` overlay; provider settings and
 existing MCP entries remain intact, and no filesystem permission is granted by
 this overlay.

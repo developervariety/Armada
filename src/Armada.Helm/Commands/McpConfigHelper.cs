@@ -5,6 +5,7 @@ namespace Armada.Helm.Commands
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Nodes;
+    using Armada.Core.Services;
 
     internal static class McpConfigHelper
     {
@@ -96,7 +97,7 @@ namespace Armada.Helm.Commands
         /// </summary>
         internal static string GetMuxConfigDirectory()
         {
-            string? envDir = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
+            string? envDir = Environment.GetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable);
             if (!String.IsNullOrWhiteSpace(envDir))
                 return Path.GetFullPath(Environment.ExpandEnvironmentVariables(envDir.Trim()));
 
