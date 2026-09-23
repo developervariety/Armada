@@ -68,6 +68,12 @@ upstream integrations and excludes changes already present at that baseline.
   transition service against the whole transition table, the Claude Code launch
   environment, and the OpenCode output transform. Source files hold no literal
   NUL bytes, and the solution gives each automated test project its own name.
+- The unused `jobs` table and its `idx_jobs_created` index. Nothing read or
+  wrote it: long-running Admiral jobs live in the job journal under the data
+  directory, and Harbor and landing jobs keep their own tables. A schema
+  migration on every provider (SQLite v106, PostgreSQL v109, MySQL v98,
+  SQL Server v101) drops the table with any rows it still holds, so upgraded
+  and fresh databases end with the same schema.
 - The code-index `signatureModel` setting. Nothing read it: file signatures use
   the summarizer model. A settings file that still carries the key loads
   normally, and the next save drops it.

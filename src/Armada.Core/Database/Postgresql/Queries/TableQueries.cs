@@ -1185,7 +1185,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_planning_sessions_last_update ON planning_sessions(last_update_utc DESC);",
                     @"CREATE INDEX IF NOT EXISTS idx_planning_session_messages_session ON planning_session_messages(planning_session_id);",
                     @"CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_session_messages_session_sequence ON planning_session_messages(planning_session_id, sequence);"
-                )
+                ),
+                new SchemaMigration(109, "Drop the unused jobs table", JobsTableDropSchema.PostgresqlStatements)
             };
         }
 

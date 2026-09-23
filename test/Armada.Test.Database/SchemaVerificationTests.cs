@@ -3,14 +3,17 @@ namespace Armada.Test.Database
     using System;
     using System.Collections.Generic;
     using System.Data.Common;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Settings;
     using Microsoft.Data.Sqlite;
     using Microsoft.Data.SqlClient;
     using MySqlConnector;
     using Npgsql;
+    using SyslogLogging;
 
     internal class SchemaVerificationTests
     {
@@ -103,6 +106,8 @@ namespace Armada.Test.Database
             DatabaseAssert.True(await TableExistsAsync(conn, "judge_follow_ups", token).ConfigureAwait(false), "judge_follow_ups table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "memories", token).ConfigureAwait(false), "memories table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "memory_tags", token).ConfigureAwait(false), "memory_tags table missing");
+            DatabaseAssert.True(!await TableExistsAsync(conn, "jobs", token).ConfigureAwait(false), "jobs table is absent");
+            DatabaseAssert.True(!await IndexExistsAsync(conn, "idx_jobs_created", token).ConfigureAwait(false), "idx_jobs_created index is absent");
 
             foreach (string table in new[] { "fleets", "vessels", "captains", "voyages", "missions", "docks", "signals", "events", "merge_entries" })
             {
@@ -150,6 +155,138 @@ namespace Armada.Test.Database
                 {
                     DatabaseAssert.True(await IndexExistsAsync(conn, indexName, token).ConfigureAwait(false), "Missing index " + indexName);
                 }
+            }
+        }
+
+        /// <summary>
+        /// An upgraded database that still holds the <c>jobs</c> table, with a row in it, loses the table and its index
+        /// when the drop migration runs. The table is recreated with its original creation statements, the ledger is
+        /// rewound to just below the drop version, and startup stops right after the drop commits, so no later
+        /// migration runs twice. The ledger rows above the drop are then restored exactly.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Task.</returns>
+        public async Task VerifyJobsTableDroppedOnUpgradeAsync(CancellationToken token = default)
+        {
+            int dropVersion = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => 106, DatabaseTypeEnum.Postgresql => 109,
+                DatabaseTypeEnum.Mysql => 98, DatabaseTypeEnum.SqlServer => 101,
+                _ => throw new NotSupportedException("Unsupported database provider")
+            };
+
+            MigrationScenarioRunner history = new MigrationScenarioRunner(_Settings);
+            Dictionary<int, string> installed = await history.ReadHistoryAsync(token).ConfigureAwait(false);
+            List<LedgerRow> later = new List<LedgerRow>();
+
+            using (DbConnection conn = CreateConnection())
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                foreach (string statement in JobsTableCreationStatements())
+                    await ExecuteAsync(conn, statement, token).ConfigureAwait(false);
+                await ExecuteAsync(conn, "INSERT INTO jobs (id, tenant_id, user_id, name, kind, status, progress, created_utc, last_update_utc) "
+                    + "VALUES ('job_upgrade_example', NULL, NULL, 'held row', 'Example', 'Running', 0, '2026-01-02 03:04:05', '2026-01-02 03:04:05');", token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, await ScalarCountAsync(conn, "SELECT COUNT(*) FROM jobs WHERE id = @id;", new KeyValuePair<string, object>("@id", "job_upgrade_example"), token).ConfigureAwait(false), "The upgraded database holds a jobs row");
+                DatabaseAssert.True(await IndexExistsAsync(conn, "idx_jobs_created", token).ConfigureAwait(false), "The upgraded database holds idx_jobs_created");
+
+                using (DbCommand read = conn.CreateCommand())
+                {
+                    read.CommandText = "SELECT version, description, applied_utc FROM schema_migrations WHERE version > " + dropVersion + " ORDER BY version;";
+                    using (DbDataReader reader = await read.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                            later.Add(new LedgerRow { Version = Convert.ToInt32(reader.GetValue(0)), Description = reader.GetValue(1), AppliedUtc = reader.GetValue(2) });
+                    }
+                }
+                await ExecuteAsync(conn, "DELETE FROM schema_migrations WHERE version >= " + dropVersion + ";", token).ConfigureAwait(false);
+            }
+
+            try
+            {
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                using (DatabaseDriver upgrade = DatabaseDriverFactory.Create(_Settings, logging))
+                {
+                    upgrade.MigrationCheckpoint = (version, ordinal) =>
+                    {
+                        if (version == dropVersion && ordinal == -2) throw new StopAfterDropException();
+                    };
+                    try { await upgrade.InitializeAsync(token).ConfigureAwait(false); }
+                    catch (StopAfterDropException) { }
+                }
+            }
+            finally
+            {
+                await RestoreLedgerRowsAsync(later, token).ConfigureAwait(false);
+            }
+
+            using (DbConnection conn = CreateConnection())
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                DatabaseAssert.True(!await TableExistsAsync(conn, "jobs", token).ConfigureAwait(false), "jobs table is absent after the upgrade");
+                DatabaseAssert.True(!await IndexExistsAsync(conn, "idx_jobs_created", token).ConfigureAwait(false), "idx_jobs_created index is absent after the upgrade");
+            }
+
+            Dictionary<int, string> upgraded = await history.ReadHistoryAsync(token).ConfigureAwait(false);
+            DatabaseAssert.True(upgraded.ContainsKey(dropVersion), "The upgrade records the jobs table drop version");
+            DatabaseAssert.Equal(installed.Count, upgraded.Count, "The upgraded ledger holds every installed version");
+            // The drop version is applied again, so only its own row carries a new timestamp.
+            MigrationScenarioRunner.AssertHistory(installed.Where(row => row.Key != dropVersion).ToDictionary(row => row.Key, row => row.Value), upgraded);
+        }
+
+        private string[] JobsTableCreationStatements()
+        {
+            switch (_Settings.Type)
+            {
+                case DatabaseTypeEnum.Sqlite:
+                    return Armada.Core.Database.Sqlite.Queries.TableQueries.GetMigrations().Single(migration => migration.Version == 66).Statements.ToArray();
+                case DatabaseTypeEnum.Postgresql:
+                    return Armada.Core.Database.Postgresql.Queries.TableQueries.GetMigrations().Single(migration => migration.Version == 66).Statements.ToArray();
+                case DatabaseTypeEnum.Mysql:
+                    return Armada.Core.Database.Mysql.Queries.TableQueries.MigrationV65Statements;
+                case DatabaseTypeEnum.SqlServer:
+                    return Armada.Core.Database.SqlServer.Queries.TableQueries.GetMigrations().Single(migration => migration.Version == 66).Statements.ToArray();
+                default:
+                    throw new NotSupportedException("Unsupported database provider");
+            }
+        }
+
+        private async Task RestoreLedgerRowsAsync(List<LedgerRow> rows, CancellationToken token)
+        {
+            using (DbConnection conn = CreateConnection())
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                foreach (LedgerRow row in rows)
+                {
+                    long present = await ScalarCountAsync(conn, "SELECT COUNT(*) FROM schema_migrations WHERE version = @v;", new KeyValuePair<string, object>("@v", row.Version), token).ConfigureAwait(false);
+                    if (present > 0) continue;
+                    using (DbCommand insert = conn.CreateCommand())
+                    {
+                        insert.CommandText = "INSERT INTO schema_migrations (version, description, applied_utc) VALUES (@v, @d, @t);";
+                        foreach (KeyValuePair<string, object> parameter in new[]
+                        {
+                            new KeyValuePair<string, object>("@v", row.Version),
+                            new KeyValuePair<string, object>("@d", row.Description),
+                            new KeyValuePair<string, object>("@t", row.AppliedUtc)
+                        })
+                        {
+                            DbParameter dbParameter = insert.CreateParameter();
+                            dbParameter.ParameterName = parameter.Key;
+                            dbParameter.Value = parameter.Value;
+                            insert.Parameters.Add(dbParameter);
+                        }
+                        await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        private static async Task ExecuteAsync(DbConnection conn, string sql, CancellationToken token)
+        {
+            using (DbCommand cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = sql;
+                await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
 
@@ -286,6 +423,15 @@ namespace Armada.Test.Database
                 object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
                 return Convert.ToInt64(result);
             }
+        }
+
+        private sealed class StopAfterDropException : Exception { }
+
+        private sealed class LedgerRow
+        {
+            internal int Version { get; set; }
+            internal object Description { get; set; } = "";
+            internal object AppliedUtc { get; set; } = "";
         }
     }
 }

@@ -1654,7 +1654,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(102, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.SqliteStatements),
                 new SchemaMigration(103, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.SqliteStatements),
                 new SchemaMigration(104, "Persist memory proposals", MemoryProposalSchema.SqliteStatements),
-                new SchemaMigration(105, "Persist captain preference ranks and persona specialist flags", TierRoutingPersistence.SqliteStatements)
+                new SchemaMigration(105, "Persist captain preference ranks and persona specialist flags", TierRoutingPersistence.SqliteStatements),
+                new SchemaMigration(106, "Drop the unused jobs table", JobsTableDropSchema.SqliteStatements)
             };
         }
 

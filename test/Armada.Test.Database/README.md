@@ -43,6 +43,15 @@ and the `pg_restore` input between the host and the container. Set `ARMADA_DATA_
 so the archive never includes a real `settings.json`. A SQL Server backup file stays in the container directory;
 remove it after the run.
 
+### Jobs table drop case
+
+`Schema_Upgrade_Drops_Jobs_Table_Holding_Rows` recreates the unused `jobs` table with its original creation
+statements, writes a row into it, and rewinds the applied-version ledger to just below the drop migration. Startup
+then stops right after that migration commits, so no later migration runs twice, and the ledger rows above it are
+restored unchanged. The case requires the table and its `idx_jobs_created` index to be gone and every other ledger
+row to keep its description and timestamp. `Schema_Verify_Core_Columns_And_Indexes` requires the same absence on a
+fresh install, so an upgraded and a fresh database end with the same schema.
+
 Every migration scenario refuses a nonempty database. Use a different empty
 database for each invocation. A failed scenario leaves its database available
 for diagnosis; do not rerun fixture setup against it. To check a saved database
