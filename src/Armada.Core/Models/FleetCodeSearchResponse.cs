@@ -29,6 +29,11 @@ namespace Armada.Core.Models
         /// </summary>
         public List<string> Warnings { get; set; } = new List<string>();
 
+        /// <summary>
+        /// Fleet vessels that have no code index and so were not searched.
+        /// </summary>
+        public List<string> NotIndexedVesselIds { get; set; } = new List<string>();
+
         #endregion
     }
 

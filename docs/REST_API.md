@@ -2911,7 +2911,7 @@ Vessel-scoped repository search and symbol graph endpoints. All routes are authe
 
 #### GET /api/v1/vessels/{vesselId}/code-index/status
 
-Return persisted code-index status for one vessel. `Freshness` describes the lexical index against the default branch. `EmbeddingState` describes the semantic vectors separately: `Disabled` (semantic search off), `Unavailable` (no embedding client), `Complete` (every chunk has a vector from the current provider), or `Incomplete` (`MissingEmbeddingCount` chunks have no vector; the next update retries them). `EmbeddedChunkCount` and `EmbeddingDimensions` give the vector count and length. When a refresh is active, the response includes `UpdateStartedUtc`, `UpdateHeartbeatUtc`, `UpdateStage`, `UpdateProgressDone`, `UpdateProgressTotal`, and `UpdateProgressPercent` in addition to `UpdateInProgress` so clients can show live progress without waiting on the update call.
+Return persisted code-index status for one vessel. `Freshness` describes the lexical index against the default branch. `EmbeddingState` describes the semantic vectors separately: `Disabled` (semantic search off), `Unavailable` (no embedding client), `Complete` (every chunk has a vector from the current provider), or `Incomplete` (`MissingEmbeddingCount` chunks have no vector; the next update retries them). `EmbeddedChunkCount` and `EmbeddingDimensions` give the vector count and length. When a refresh is active, the response includes `UpdateStartedUtc`, `UpdateHeartbeatUtc`, `UpdateStage`, `UpdateProgressDone`, `UpdateProgressTotal`, and `UpdateProgressPercent` in addition to `UpdateInProgress` so clients can show live progress without waiting on the update call. After a failed update, `Freshness` is `Error` and `LastError` holds the failure, while `IndexedCommitSha` and the counts still describe the last successful index.
 
 **Response:** `200 OK` - `CodeIndexStatus`
 
@@ -2927,7 +2927,7 @@ Refresh chunks and supported-language graph sidecars for the vessel default bran
 
 #### POST /api/v1/vessels/{vesselId}/code-index/search
 
-Search indexed chunks with lexical, semantic, file-signature, and graph-aware ranking signals.
+Search indexed chunks with lexical, semantic, file-signature, and graph-aware ranking signals. Search never creates an index. For a vessel that has never been indexed, the response has `Available: false`, `UnavailableReason: "not_indexed"`, a `Message`, and no results, and nothing is sent to the embedding provider; run the update route to index the vessel.
 
 **Request Body:**
 

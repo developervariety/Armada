@@ -51,6 +51,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
                         CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
 
                         ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
                         {
@@ -87,6 +88,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
                         CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
 
                         ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
                         {

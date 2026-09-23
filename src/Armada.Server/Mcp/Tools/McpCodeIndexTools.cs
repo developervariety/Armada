@@ -101,7 +101,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_code_search",
-                "Search a vessel's Admiral-owned code index. Results include vesselId, repo-relative path, commit SHA, content hash, language, line range, and freshness.",
+                "Search a vessel's Admiral-owned code index. Results include vesselId, repo-relative path, commit SHA, content hash, language, line range, and freshness. Search never creates an index: on a vessel with no index it returns Available=false with UnavailableReason not_indexed; run armada_index_update to index it.",
                 new
                 {
                     type = "object",
@@ -166,7 +166,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_context_pack",
-                "Build dispatch-ready code context for a vessel and mission goal. Returns markdown plus a prestagedFiles entry for _briefing/context-pack.md.",
+                "Build dispatch-ready code context for a vessel and mission goal. Returns markdown plus a prestagedFiles entry for _briefing/context-pack.md. On a vessel with no index it builds nothing and returns Available=false with UnavailableReason not_indexed and no prestaged file.",
                 new
                 {
                     type = "object",
@@ -209,7 +209,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_fleet_code_search",
-                "Search all vessels in a fleet in one call. Results are merged, re-ranked by score, and include vessel attribution.",
+                "Search all vessels in a fleet in one call. Results are merged, re-ranked by score, and include vessel attribution. Vessels with no index are not searched or indexed; they are listed in NotIndexedVesselIds and named in Warnings.",
                 new
                 {
                     type = "object",
@@ -238,7 +238,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_fleet_context_pack",
-                "Build a dispatch-ready context pack across all vessels in a fleet. Returns markdown plus a prestagedFiles entry for _briefing/context-pack.md.",
+                "Build a dispatch-ready context pack across all vessels in a fleet. Returns markdown plus a prestagedFiles entry for _briefing/context-pack.md. Vessels with no index contribute no code context and are listed in NotIndexedVesselIds.",
                 new
                 {
                     type = "object",
@@ -478,6 +478,9 @@ namespace Armada.Server.Mcp.Tools
             {
                 response.Status,
                 response.Query,
+                response.Available,
+                response.UnavailableReason,
+                response.Message,
                 Results = response.Results.Select(r => new
                 {
                     r.Score,
@@ -553,7 +556,8 @@ namespace Armada.Server.Mcp.Tools
                     Record = ShapeRecordWithoutEmbedding(r.Record),
                     r.Excerpt
                 }).ToList(),
-                response.Warnings
+                response.Warnings,
+                response.NotIndexedVesselIds
             };
         }
 

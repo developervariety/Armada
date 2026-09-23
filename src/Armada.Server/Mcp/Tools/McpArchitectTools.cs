@@ -338,6 +338,16 @@ namespace Armada.Server.Mcp.Tools
                     MaxResults = maxResults
                 }).ConfigureAwait(false);
 
+                if (!contextPack.Available)
+                {
+                    string unavailable = contextPack.UnavailableReason + ": " + contextPack.Message;
+                    if (String.Equals(mode, CodeContextModeForce, StringComparison.Ordinal))
+                        return "code context force requested for architect mission but no code context is available (" + unavailable + ")";
+
+                    LogCodeContextWarning(logging, "code context skipped for architect mission: " + unavailable + "; dispatch continues without code context");
+                    return null;
+                }
+
                 if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
                 {
                     if (String.Equals(mode, CodeContextModeForce, StringComparison.Ordinal))

@@ -1353,6 +1353,92 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("AutoMode_NeverIndexedVessel_DispatchesWithoutCodeContextAndCreatesNoIndex", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-dispatch-noindex-" + Guid.NewGuid().ToString("N"));
+                string repo = Path.Combine(root, "repo");
+                Directory.CreateDirectory(Path.Combine(repo, "src"));
+                File.WriteAllText(Path.Combine(repo, "src", "Worker.cs"), "namespace Sample { public class Worker { public void FixSomething() { } } }\n");
+                string logPath = Path.Combine(root, "dispatch.log");
+
+                try
+                {
+                    await TestGit.InitializeAsync(repo).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                            new Vessel("noindex-dispatch-vessel", repo)
+                            {
+                                TenantId = Constants.DefaultTenantId,
+                                UserId = Constants.DefaultUserId,
+                                WorkingDirectory = repo,
+                                DefaultBranch = "main"
+                            }).ConfigureAwait(false);
+
+                        // Default settings require a context pack whenever indexing is enabled.
+                        ArmadaSettings settings = new ArmadaSettings
+                        {
+                            DataDirectory = Path.Combine(root, "data"),
+                            ReposDirectory = Path.Combine(root, "repos")
+                        };
+                        settings.CodeIndex.IndexDirectory = Path.Combine(root, "code-index");
+                        settings.CodeIndex.UseSemanticSearch = true;
+                        settings.CodeIndex.UseSummarizer = false;
+                        AssertTrue(settings.CodeIndex.RequireContextPackWhenEnabled, "the default requires a context pack");
+
+                        CountingEmbeddingClient embeddingClient = new CountingEmbeddingClient();
+                        string autoError;
+                        string forceError;
+                        int createdMissions;
+                        List<PrestagedFile>? prestaged;
+                        using (LoggingModule logging = new LoggingModule(logPath, FileLoggingMode.SingleLogFile, false))
+                        {
+                            CodeIndexService codeIndex = new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), embeddingClient, null);
+                            RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                            VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, logging, codeIndex, null, settings);
+
+                            VoyageDispatchResult auto = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                            {
+                                Title = "never indexed auto voyage",
+                                VesselId = vessel.Id,
+                                CodeContextMode = "auto",
+                                Missions = new List<MissionDescription> { new MissionDescription("auto worker", "fix something in the worker") }
+                            }).ConfigureAwait(false);
+                            autoError = auto.Succeeded ? "" : JsonSerializer.Serialize(auto);
+                            createdMissions = admiral.CreatedMissions.Count;
+                            prestaged = createdMissions > 0
+                                ? (await testDb.Driver.Missions.ReadAsync(admiral.CreatedMissions[0].Id).ConfigureAwait(false))?.PrestagedFiles
+                                : null;
+
+                            VoyageDispatchResult force = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                            {
+                                Title = "never indexed force voyage",
+                                VesselId = vessel.Id,
+                                CodeContextMode = "force",
+                                Missions = new List<MissionDescription> { new MissionDescription("force worker", "fix something in the worker") }
+                            }).ConfigureAwait(false);
+                            forceError = force.Succeeded ? "" : JsonSerializer.Serialize(force);
+
+                            await logging.FlushAsync().ConfigureAwait(false);
+                        }
+
+                        AssertFalse(Directory.Exists(Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id)), "dispatch must not index a never-indexed vessel");
+                        AssertEqual(0, embeddingClient.CallCount, "dispatch on a never-indexed vessel must send nothing to the embedding provider");
+                        AssertEqual("", autoError, "an auto dispatch on a never-indexed vessel proceeds without code context");
+                        AssertEqual(1, createdMissions, "the auto dispatch creates its mission");
+                        AssertTrue(prestaged == null || prestaged.Count == 0, "the mission carries no code context");
+                        AssertContains(CodeSearchResponse.NotIndexedReason, forceError, "a force dispatch names why no code context exists");
+                        string log = File.ReadAllText(logPath);
+                        AssertTrue(log.Contains("code context skipped", StringComparison.Ordinal) && log.Contains(CodeSearchResponse.NotIndexedReason, StringComparison.Ordinal),
+                            "the dispatch records why it has no code context; log was: " + log);
+                    }
+                }
+                finally
+                {
+                    try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("AutoMode_PipelineWorkerStage_AttachesContextPack", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2299,6 +2385,19 @@ namespace Armada.Test.Unit.Suites.Services
                 BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
                 VesselIds = new List<string> { vesselId }
             }).ConfigureAwait(false);
+        }
+
+        private sealed class CountingEmbeddingClient : IEmbeddingClient
+        {
+            private int _CallCount;
+
+            public int CallCount => Volatile.Read(ref _CallCount);
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                Interlocked.Increment(ref _CallCount);
+                return Task.FromResult(new[] { 1F, 0F });
+            }
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService

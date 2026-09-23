@@ -201,6 +201,97 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Fleet search and fleet context pack skip a never-indexed vessel without indexing it", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fleet-noindex-");
+                string repositoryRoot = NewTempDirectory("armada-fleet-noindex-repo-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Fleet fleet = await testDb.Driver.Fleets.CreateAsync(new Fleet("fleet-noindex")).ConfigureAwait(false);
+                        Vessel indexedVessel = await CreateFleetVesselAsync(testDb, fleet.Id, "noindex-indexed").ConfigureAwait(false);
+
+                        // The never-indexed vessel has a real local repository, so any automatic index
+                        // attempt would succeed and be visible.
+                        string repositoryPath = await CreateLocalRepositoryAsync(repositoryRoot, "needle never indexed source").ConfigureAwait(false);
+                        Vessel neverIndexed = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                        {
+                            Name = "noindex-never",
+                            RepoUrl = repositoryPath,
+                            WorkingDirectory = repositoryPath,
+                            DefaultBranch = "main",
+                            FleetId = fleet.Id
+                        }).ConfigureAwait(false);
+
+                        ArmadaSettings settings = BuildSettings(dataRoot, codeIndex => codeIndex.UseSemanticSearch = true);
+                        await WritePersistedIndexAsync(
+                            settings,
+                            indexedVessel,
+                            new List<CodeIndexRecord>
+                            {
+                                new CodeIndexRecord
+                                {
+                                    VesselId = indexedVessel.Id,
+                                    Path = "src/a.cs",
+                                    CommitSha = "abc1",
+                                    ContentHash = "h1",
+                                    Language = "csharp",
+                                    StartLine = 1,
+                                    EndLine = 10,
+                                    Freshness = "Fresh",
+                                    IndexedAtUtc = DateTime.UtcNow,
+                                    IsReferenceOnly = false,
+                                    Content = "needle indexed source"
+                                }
+                            }).ConfigureAwait(false);
+
+                        CountingEmbeddingClient embeddingClient = new CountingEmbeddingClient();
+                        LoggingModule logging = SilentLogging();
+                        CodeIndexService service = new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), embeddingClient, null);
+                        string neverIndexedDirectory = Path.Combine(settings.CodeIndex.IndexDirectory, neverIndexed.Id);
+
+                        FleetCodeSearchResponse search = await service.SearchFleetAsync(new FleetCodeSearchRequest
+                        {
+                            FleetId = fleet.Id,
+                            Query = "needle",
+                            Limit = 10
+                        }).ConfigureAwait(false);
+                        FleetContextPackResponse pack = await service.BuildFleetContextPackAsync(new FleetContextPackRequest
+                        {
+                            FleetId = fleet.Id,
+                            Goal = "needle",
+                            TokenBudget = 4000
+                        }).ConfigureAwait(false);
+
+                        AssertFalse(Directory.Exists(neverIndexedDirectory), "fleet search and packs must not index a never-indexed vessel");
+                        AssertFalse(
+                            embeddingClient.Inputs.Any(i => i.Contains("never indexed source", StringComparison.Ordinal)),
+                            "no source of a never-indexed vessel may reach the embedding provider");
+                        AssertTrue(embeddingClient.Inputs.All(i => i == "needle"), "only query text reaches the embedding provider");
+
+                        AssertEqual(1, search.Results.Count, "only the indexed vessel is searched");
+                        AssertEqual(indexedVessel.Id, search.Results[0].VesselId);
+                        AssertEqual(1, search.NotIndexedVesselIds.Count);
+                        AssertEqual(neverIndexed.Id, search.NotIndexedVesselIds[0]);
+                        AssertTrue(search.Warnings.Any(w => w.Contains(neverIndexed.Id, StringComparison.Ordinal) && w.Contains(CodeSearchResponse.NotIndexedReason, StringComparison.Ordinal)),
+                            "the fleet search names the skipped vessel and why");
+
+                        AssertEqual(1, pack.NotIndexedVesselIds.Count);
+                        AssertEqual(neverIndexed.Id, pack.NotIndexedVesselIds[0]);
+                        AssertContains("## Vessel: noindex-never", pack.Markdown);
+                        AssertContains("No code context", pack.Markdown);
+                        AssertTrue(pack.Metrics.IncludedFiles.Contains(indexedVessel.Id + ":src/a.cs"), "the indexed vessel still contributes code context");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(dataRoot);
+                    TryDeleteDirectory(repositoryRoot);
+                }
+            });
+
             await RunTest("McpToolRegistrar RegisterAll includes fleet code index tools", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -307,6 +398,28 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     await writer.WriteLineAsync(JsonSerializer.Serialize(record, _IndexJsonOptions)).ConfigureAwait(false);
                 }
+            }
+        }
+
+        private static async Task<string> CreateLocalRepositoryAsync(string root, string content)
+        {
+            string repo = Path.Combine(root, "repo");
+            Directory.CreateDirectory(Path.Combine(repo, "src"));
+            await File.WriteAllTextAsync(
+                Path.Combine(repo, "src", "Never.cs"),
+                "namespace Sample\n{\n    // " + content + "\n    public class Never { }\n}\n").ConfigureAwait(false);
+            await TestGit.InitializeAsync(repo).ConfigureAwait(false);
+            return repo;
+        }
+
+        private sealed class CountingEmbeddingClient : IEmbeddingClient
+        {
+            public List<string> Inputs { get; } = new List<string>();
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                lock (Inputs) Inputs.Add(text ?? "");
+                return Task.FromResult(new[] { 1F, 0F });
             }
         }
 

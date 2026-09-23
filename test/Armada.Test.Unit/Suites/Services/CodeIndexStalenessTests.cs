@@ -123,6 +123,61 @@ namespace Armada.Test.Unit.Suites.Services
                     Cleanup(fresh.Source, fresh.Bare);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("A failed update keeps the last indexed commit so the sweep still compares it", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+                // The sweep only schedules here: the debounce keeps the scheduled worker waiting.
+                settings.CodeIndex.PostLandRefreshDebounceSeconds = 3600;
+                GitService git = new GitService(logging);
+                CodeIndexService svc = new CodeIndexService(logging, testDb.Driver, settings, git);
+                StalenessRepo repo = await CreateRepoWithBareAsync().ConfigureAwait(false);
+
+                try
+                {
+                    Vessel vessel = new Vessel("failed-update-vessel", repo.Source);
+                    vessel.DefaultBranch = "main";
+                    vessel.LocalPath = repo.Bare;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    CodeIndexStatus indexed = await svc.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual(repo.FirstCommitSha, indexed.IndexedCommitSha, "the first update indexes the first commit");
+
+                    repo.SecondCommitSha = await AddCommitAndPushAsync(repo.Source, repo.Bare).ConfigureAwait(false);
+
+                    // Make the next update fail while it writes its output.
+                    string edgesPath = Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id, "edges.jsonl");
+                    File.Delete(edgesPath);
+                    Directory.CreateDirectory(edgesPath);
+                    await AssertThrowsAsync<Exception>(() => svc.UpdateAsync(vessel.Id)).ConfigureAwait(false);
+
+                    CodeIndexStatus failed = await svc.GetStatusAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual("Error", failed.Freshness, "a failed update reports Error");
+                    AssertFalse(String.IsNullOrWhiteSpace(failed.LastError), "a failed update records its error");
+                    AssertEqual(repo.FirstCommitSha, failed.IndexedCommitSha, "a failed update must keep the last successfully indexed commit");
+                    AssertTrue(await svc.IsIndexedAsync(vessel.Id).ConfigureAwait(false), "a failed update keeps the vessel enrolled");
+
+                    CodeIndexStalenessSummary summary = await svc.GetStalenessSummaryAsync(CancellationToken.None).ConfigureAwait(false);
+                    CodeIndexStaleVessel? entry = summary.StaleVessels.FirstOrDefault(v => v.VesselId == vessel.Id);
+                    AssertNotNull(entry, "the staleness summary must still compare the last indexed commit after a failure");
+                    AssertEqual(repo.FirstCommitSha, entry!.IndexedCommitSha);
+                    AssertEqual(repo.SecondCommitSha, entry.CurrentCommitSha);
+                    AssertEqual(1, await svc.SweepStalenessAsync(CancellationToken.None).ConfigureAwait(false), "the sweep must still schedule the vessel after a failed update");
+
+                    Directory.Delete(edgesPath);
+                    CodeIndexStatus recovered = await svc.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual(repo.SecondCommitSha, recovered.IndexedCommitSha, "the next successful update indexes the new commit");
+                    AssertNull(recovered.LastError, "a successful update clears the error");
+                    AssertEqual("Fresh", (await svc.GetStatusAsync(vessel.Id).ConfigureAwait(false)).Freshness);
+                }
+                finally
+                {
+                    Cleanup(repo.Source, repo.Bare);
+                    try { if (Directory.Exists(settings.DataDirectory)) Directory.Delete(settings.DataDirectory, true); } catch { }
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods

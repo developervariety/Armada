@@ -54,7 +54,8 @@ namespace Armada.Core.Services.Interfaces
         Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default);
 
         /// <summary>
-        /// Search indexed vessel code.
+        /// Search indexed vessel code. Search never creates an index: a vessel with no index returns an
+        /// unavailable response with reason <see cref="CodeSearchResponse.NotIndexedReason"/>.
         /// </summary>
         Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default);
 
@@ -97,7 +98,9 @@ namespace Armada.Core.Services.Interfaces
         Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default);
 
         /// <summary>
-        /// Build a dispatch-ready context pack for a mission goal.
+        /// Build a dispatch-ready context pack for a mission goal. A vessel with no index gets an
+        /// unavailable pack with reason <see cref="CodeSearchResponse.NotIndexedReason"/> and no staged
+        /// file; building a pack never creates an index.
         /// </summary>
         Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default);
 

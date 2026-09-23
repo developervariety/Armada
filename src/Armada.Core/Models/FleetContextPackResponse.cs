@@ -59,6 +59,11 @@ namespace Armada.Core.Models
         /// </summary>
         public ContextPackMetrics Metrics { get; set; } = new ContextPackMetrics();
 
+        /// <summary>
+        /// Fleet vessels that have no code index and so contributed no code context.
+        /// </summary>
+        public List<string> NotIndexedVesselIds { get; set; } = new List<string>();
+
         #endregion
     }
 }

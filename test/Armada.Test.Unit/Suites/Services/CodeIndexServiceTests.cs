@@ -111,6 +111,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
                         CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
 
                         CodeSearchResponse response = await service.SearchAsync(new CodeSearchRequest
                         {
@@ -154,6 +155,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
                         CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
 
                         ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
                         {
@@ -1975,6 +1977,109 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(cached != null, "Warm-up over corrupt metadata should regenerate a usable cache");
                         AssertTrue(cached!.Metrics.CacheHit, "Regenerated cache should report a cache hit");
                         AssertEqual(repository.CommitSha, cached.Metrics.CacheKey, "Regenerated cache should key on the indexed commit SHA");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("SearchAsync_NeverIndexedVessel_CreatesNoIndexAndCallsNoEmbeddingProvider", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-search-noindex-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient embeddingClient = new RecordingEmbeddingClient(new[] { 1F, 0F });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            embeddingClient,
+                            settings => settings.UseSemanticSearch = true);
+                        string vesselIndexDirectory = Path.Combine(dataRoot, "code-index", vessel.Id);
+
+                        CodeSearchResponse search = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "SearchKeyword"
+                        }).ConfigureAwait(false);
+
+                        AssertFalse(Directory.Exists(vesselIndexDirectory), "search must not create an index for a never-indexed vessel");
+                        AssertEqual(0, embeddingClient.CallCount, "search on a never-indexed vessel must send nothing to the embedding provider");
+                        AssertFalse(search.Available, "a search that did not run must say so");
+                        AssertEqual(CodeSearchResponse.NotIndexedReason, search.UnavailableReason);
+                        AssertFalse(String.IsNullOrWhiteSpace(search.Message), "the not-indexed response must explain itself");
+                        AssertEqual("Missing", search.Status.Freshness);
+                        AssertFalse(await service.IsIndexedAsync(vessel.Id).ConfigureAwait(false), "search must not enroll the vessel");
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        int callsAfterUpdate = embeddingClient.CallCount;
+                        CodeSearchResponse indexedSearch = await service.SearchAsync(new CodeSearchRequest
+                        {
+                            VesselId = vessel.Id,
+                            Query = "SearchKeyword"
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(indexedSearch.Available, "an indexed vessel searches normally");
+                        AssertNull(indexedSearch.UnavailableReason);
+                        AssertTrue(indexedSearch.Results.Count > 0, "an indexed vessel returns matches");
+                        AssertEqual(callsAfterUpdate + 1, embeddingClient.CallCount, "an indexed search embeds only its query");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_NeverIndexedVessel_ReturnsNamedUnavailablePackAndCreatesNoIndex", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-pack-noindex-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient embeddingClient = new RecordingEmbeddingClient(new[] { 1F, 0F });
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            embeddingClient,
+                            settings => settings.UseSemanticSearch = true);
+                        string vesselIndexDirectory = Path.Combine(dataRoot, "code-index", vessel.Id);
+                        ContextPackRequest request = new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "dispatch evidence",
+                            TokenBudget = 2000
+                        };
+
+                        ContextPackResponse pack = await service.BuildContextPackAsync(request).ConfigureAwait(false);
+                        await service.WarmBaselineCacheAsync(vessel.Id).ConfigureAwait(false);
+                        ContextPackResponse? cached = await service.TryGetCachedContextPackAsync(request).ConfigureAwait(false);
+
+                        AssertFalse(Directory.Exists(vesselIndexDirectory), "a context pack must not create an index for a never-indexed vessel");
+                        AssertEqual(0, embeddingClient.CallCount, "a context pack on a never-indexed vessel must send nothing to the embedding provider");
+                        AssertFalse(pack.Available, "a pack with no code context must say so");
+                        AssertEqual(CodeSearchResponse.NotIndexedReason, pack.UnavailableReason);
+                        AssertEqual(0, pack.PrestagedFiles.Count, "a pack with no code context stages no file");
+                        AssertTrue(pack.Warnings.Any(w => w.StartsWith(CodeSearchResponse.NotIndexedReason, StringComparison.Ordinal)), "the pack records why it has no code context");
+                        AssertNull(cached, "a never-indexed vessel has no cached pack");
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        ContextPackResponse indexedPack = await service.BuildContextPackAsync(request).ConfigureAwait(false);
+                        AssertTrue(indexedPack.Available, "an indexed vessel builds a pack");
+                        AssertEqual(1, indexedPack.PrestagedFiles.Count, "an indexed vessel stages its pack");
+                        AssertTrue(indexedPack.Results.Count > 0, "an indexed vessel's pack carries search results");
                     }
                 }
                 finally

@@ -953,6 +953,19 @@ namespace Armada.Server
                         + " summarizerMs=" + contextPack.Metrics?.SummarizerElapsedMs
                         + " timeoutMs=" + (int)usedTimeout.TotalMilliseconds);
 
+                    // A vessel with no code index has no code context to give, and generating a pack
+                    // never indexes it. Auto (and require-when-enabled) dispatches continue without code
+                    // context and log the reason; force still demands code context.
+                    if (!contextPack.Available)
+                    {
+                        string unavailable = contextPack.UnavailableReason + ": " + contextPack.Message;
+                        if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
+                            return "code context force requested for mission '" + mission.Title + "' but no code context is available (" + unavailable + ")";
+
+                        LogCodeContextWarning("code context skipped for mission '" + mission.Title + "': " + unavailable + "; dispatch continues without code context");
+                        continue;
+                    }
+
                     if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
                     {
                         if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)

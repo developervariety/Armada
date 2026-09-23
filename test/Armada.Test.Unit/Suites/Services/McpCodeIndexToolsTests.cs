@@ -1158,6 +1158,68 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("b", service.LastSearchRequest.Query, "the over-budget call runs no search");
                 }
             });
+
+            await RunTest("Mission code search on a never-indexed vessel creates no index and calls no embedding provider", async () =>
+            {
+                string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada-mission-search-noindex-" + Guid.NewGuid().ToString("N"));
+                string repo = System.IO.Path.Combine(root, "repo");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(repo, "src"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(repo, "src", "Needle.cs"), "namespace Sample { public class Needle { } }\n");
+
+                try
+                {
+                    await TestGit.InitializeAsync(repo).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = new ArmadaSettings
+                        {
+                            DataDirectory = System.IO.Path.Combine(root, "data"),
+                            ReposDirectory = System.IO.Path.Combine(root, "repos")
+                        };
+                        settings.CodeIndex.IndexDirectory = System.IO.Path.Combine(root, "code-index");
+                        settings.CodeIndex.UseSemanticSearch = true;
+                        CountingEmbeddingClient embeddingClient = new CountingEmbeddingClient();
+                        SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                        logging.Settings.EnableConsole = false;
+                        Armada.Core.Services.CodeIndexService codeIndex = new Armada.Core.Services.CodeIndexService(
+                            logging, testDb.Driver, settings, new Armada.Core.Services.GitService(logging), embeddingClient, null);
+
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("NeverIndexedVessel", repo)
+                        {
+                            WorkingDirectory = repo,
+                            DefaultBranch = "main"
+                        }).ConfigureAwait(false);
+                        Mission mission = new Mission();
+                        mission.TenantId = Constants.DefaultTenantId;
+                        mission.UserId = Constants.DefaultUserId;
+                        mission.VesselId = vessel.Id;
+                        mission.Title = "code search mission";
+                        mission.Status = MissionStatusEnum.InProgress;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        McpMissionCodeSearchTools.ResetBudgetForTests();
+                        Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                        McpMissionCodeSearchTools.Register((name, _, _, handler) => { handlers[name] = handler; }, codeIndex, testDb.Driver, settings);
+
+                        string json;
+                        using (McpCallerContext.Begin(AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer")))
+                        {
+                            object result = await handlers[McpMissionCodeSearchTools.ToolName](
+                                JsonSerializer.SerializeToElement(new { missionId = mission.Id, query = "Needle" })).ConfigureAwait(false);
+                            json = JsonSerializer.Serialize(result);
+                        }
+
+                        AssertFalse(System.IO.Directory.Exists(System.IO.Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id)), "mission code search must not index a never-indexed vessel");
+                        AssertEqual(0, embeddingClient.CallCount, "mission code search on a never-indexed vessel must send nothing to the embedding provider");
+                        AssertContains("\"Available\":false", json);
+                        AssertContains("\"UnavailableReason\":\"index_missing\"", json);
+                    }
+                }
+                finally
+                {
+                    try { if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true); } catch { }
+                }
+            });
         }
 
         private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterHandlers(RecordingCodeIndexService service)
@@ -1246,6 +1308,19 @@ namespace Armada.Test.Unit.Suites.Services
                 ChunkCount = 1,
                 IndexDirectory = "C:/tmp/index"
             };
+        }
+
+        private sealed class CountingEmbeddingClient : IEmbeddingClient
+        {
+            private int _CallCount;
+
+            public int CallCount => Volatile.Read(ref _CallCount);
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                Interlocked.Increment(ref _CallCount);
+                return Task.FromResult(new[] { 1F, 0F });
+            }
         }
 
         private sealed class MissionSearchHarness

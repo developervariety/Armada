@@ -70,6 +70,23 @@ namespace Armada.Core.Models
         /// </summary>
         public bool IsSummarized { get; set; } = false;
 
+        /// <summary>
+        /// False when no pack was built. An unavailable pack stages no files, and the reason and
+        /// message say why it carries no code context.
+        /// </summary>
+        public bool Available { get; set; } = true;
+
+        /// <summary>
+        /// Machine-readable reason no pack was built, for example <c>not_indexed</c> when the vessel
+        /// has no code index. Null when the pack was built.
+        /// </summary>
+        public string? UnavailableReason { get; set; } = null;
+
+        /// <summary>
+        /// Human-readable explanation when no pack was built. Null when the pack was built.
+        /// </summary>
+        public string? Message { get; set; } = null;
+
         #endregion
     }
 

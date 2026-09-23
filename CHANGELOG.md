@@ -168,6 +168,14 @@ upstream integrations and excludes changes already present at that baseline.
   check and never indexes a vessel for the first time; only an explicit update
   does. The Admiral and the stdio MCP host select the inference client through one
   factory.
+- **Search never indexes a vessel:** code search, fleet search, context packs and
+  the baseline pack cache create no index for a vessel that has never been
+  indexed and send nothing to the embedding provider. Vessel search and context
+  packs return `Available: false` with `UnavailableReason: not_indexed`; fleet
+  search and fleet packs list such vessels in `NotIndexedVesselIds`. An `auto`
+  dispatch proceeds without code context and logs the reason; `force` fails and
+  names it. A failed index update keeps the last successfully indexed commit, so
+  the vessel stays enrolled and the staleness sweep still compares it.
 - **Persistence and operations:** all database providers preserve delivery and
   ownership fields, validate migration prerequisites, and support expiry and backup
   evidence. Restore checks provider compatibility and retains local secrets.

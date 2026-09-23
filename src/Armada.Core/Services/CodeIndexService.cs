@@ -301,6 +301,7 @@ namespace Armada.Core.Services
                 {
                     previousStatus!.CurrentCommitSha = commitSha;
                     previousStatus.Freshness = "Fresh";
+                    previousStatus.LastError = null;
                     previousStatus.IndexDirectory = vesselIndexDirectory;
                     await WriteStatusAsync(vesselIndexDirectory, previousStatus, token).ConfigureAwait(false);
                     return previousStatus;
@@ -452,9 +453,22 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    CodeIndexStatus errorStatus = BuildMissingStatus(vessel);
+                    // A failed update keeps the last successful index description (indexed commit,
+                    // fingerprints, counts), so the vessel stays enrolled and staleness can still be
+                    // measured against the commit its records describe.
+                    CodeIndexStatus errorStatus;
+                    if (previousStatus != null && !String.IsNullOrWhiteSpace(previousStatus.IndexedCommitSha))
+                    {
+                        errorStatus = previousStatus;
+                    }
+                    else
+                    {
+                        errorStatus = BuildMissingStatus(vessel);
+                        errorStatus.IndexedAtUtc = DateTime.UtcNow;
+                    }
+
                     errorStatus.CurrentCommitSha = commitSha;
-                    errorStatus.IndexedAtUtc = DateTime.UtcNow;
+                    errorStatus.IndexDirectory = vesselIndexDirectory;
                     errorStatus.Freshness = "Error";
                     errorStatus.LastError = ex.Message;
                     await WriteStatusAsync(vesselIndexDirectory, errorStatus, token).ConfigureAwait(false);
@@ -478,9 +492,11 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Search the vessel index. A lexical-only search reads the existing local index and scores it
-        /// lexically: it starts no index update, query embedding or graph boost, so its cost is bounded
-        /// by one local read even when the caller has no time budget left for the optional stages.
+        /// Search the vessel index. Search never creates or refreshes an index: a vessel with no index
+        /// returns a <see cref="CodeSearchResponse.NotIndexedReason"/> response and nothing reaches the
+        /// embedding provider. A lexical-only search reads the existing local index and scores it
+        /// lexically: it starts no query embedding or graph boost, so its cost is bounded by one local
+        /// read even when the caller has no time budget left for the optional stages.
         /// </summary>
         private async Task<CodeSearchResponse> SearchCoreAsync(CodeSearchRequest request, bool lexicalOnly, CancellationToken token)
         {
@@ -489,11 +505,20 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
 
-            CodeIndexStatus status = await GetStatusAsync(request.VesselId, token).ConfigureAwait(false);
-            if (!lexicalOnly && (status.IndexedAtUtc == null || String.Equals(status.Freshness, "Missing", StringComparison.Ordinal)))
+            if (!HasIndexStatus(request.VesselId))
             {
-                status = await UpdateAsync(request.VesselId, token).ConfigureAwait(false);
+                Vessel notIndexedVessel = await ReadVesselOrThrowAsync(request.VesselId, token).ConfigureAwait(false);
+                return new CodeSearchResponse
+                {
+                    Status = BuildMissingStatus(notIndexedVessel),
+                    Query = request.Query,
+                    Available = false,
+                    UnavailableReason = CodeSearchResponse.NotIndexedReason,
+                    Message = BuildNotIndexedMessage(notIndexedVessel)
+                };
             }
+
+            CodeIndexStatus status = await GetStatusAsync(request.VesselId, token).ConfigureAwait(false);
 
             List<CodeIndexRecord> records = await ReadRecordsAsync(request.VesselId, status.Freshness, token).ConfigureAwait(false);
             string[] terms = SplitQueryTerms(request.Query);
@@ -718,6 +743,7 @@ namespace Armada.Core.Services
 
             List<FleetCodeSearchResult> merged = new List<FleetCodeSearchResult>();
             List<string> warnings = new List<string>();
+            List<string> notIndexed = new List<string>();
 
             foreach (Vessel vessel in vessels)
             {
@@ -735,6 +761,13 @@ namespace Armada.Core.Services
                     };
 
                     CodeSearchResponse search = await SearchAsync(vesselRequest, token).ConfigureAwait(false);
+                    if (!search.Available)
+                    {
+                        if (String.Equals(search.UnavailableReason, CodeSearchResponse.NotIndexedReason, StringComparison.Ordinal))
+                            notIndexed.Add(vessel.Id);
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") " + search.UnavailableReason + ": " + search.Message);
+                        continue;
+                    }
 
                     if (!String.Equals(search.Status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
                     {
@@ -776,7 +809,8 @@ namespace Armada.Core.Services
                 FleetId = request.FleetId,
                 Query = request.Query,
                 Results = results,
-                Warnings = warnings
+                Warnings = warnings,
+                NotIndexedVesselIds = notIndexed
             };
         }
 
@@ -787,6 +821,12 @@ namespace Armada.Core.Services
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Goal)) throw new ArgumentNullException(nameof(request.Goal));
+
+            if (!HasIndexStatus(request.VesselId))
+            {
+                Vessel notIndexedVessel = await ReadVesselOrThrowAsync(request.VesselId, token).ConfigureAwait(false);
+                return BuildNotIndexedContextPack(notIndexedVessel, request.Goal);
+            }
 
             long totalStarted = _TimeProvider.GetTimestamp();
 
@@ -1027,6 +1067,7 @@ namespace Armada.Core.Services
 
             List<string> warnings = new List<string>();
             List<string> includedFiles = new List<string>();
+            List<string> notIndexed = new List<string>();
             int resultCount = 0;
             bool graphExpansionUsed = false;
             foreach (Vessel vessel in vessels)
@@ -1041,6 +1082,17 @@ namespace Armada.Core.Services
                         MaxResults = request.MaxResultsPerVessel
                     };
                     ContextPackResponse vesselPack = await BuildContextPackAsync(vesselRequest, token).ConfigureAwait(false);
+                    if (!vesselPack.Available)
+                    {
+                        if (String.Equals(vesselPack.UnavailableReason, CodeSearchResponse.NotIndexedReason, StringComparison.Ordinal))
+                            notIndexed.Add(vessel.Id);
+                        builder.AppendLine();
+                        builder.AppendLine("## Vessel: " + vessel.Name);
+                        builder.AppendLine();
+                        builder.AppendLine("No code context: " + vesselPack.Message);
+                        warnings.Add("vessel " + vessel.Id + " (" + vessel.Name + ") " + vesselPack.UnavailableReason + ": " + vesselPack.Message);
+                        continue;
+                    }
 
                     builder.AppendLine();
                     builder.AppendLine("## Vessel: " + vessel.Name);
@@ -1104,7 +1156,8 @@ namespace Armada.Core.Services
                 IsSummarized = isSummarized,
                 EstimatedTokens = EstimateTokens(markdown),
                 MaterializedPath = materializedPath,
-                Warnings = warnings
+                Warnings = warnings,
+                NotIndexedVesselIds = notIndexed
             };
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
             response.Metrics = new ContextPackMetrics
@@ -1510,6 +1563,12 @@ namespace Armada.Core.Services
             EnsureEnabled();
             if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
 
+            if (!HasIndexStatus(vesselId))
+            {
+                _Logging.Info(_Header + "skipping baseline cache warm-up for vessel " + vesselId + ": " + CodeSearchResponse.NotIndexedReason);
+                return;
+            }
+
             CodeIndexStatus status = await GetStatusAsync(vesselId, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(status.IndexedCommitSha))
             {
@@ -1579,6 +1638,7 @@ namespace Armada.Core.Services
             EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+            if (!HasIndexStatus(request.VesselId)) return null;
 
             CodeIndexStatus status = await GetStatusAsync(request.VesselId, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(status.IndexedCommitSha)) return null;
@@ -1799,6 +1859,37 @@ namespace Armada.Core.Services
                 Freshness = "Missing",
                 IndexDirectory = GetVesselIndexDirectory(vessel.Id)
             };
+        }
+
+        private static string BuildNotIndexedMessage(Vessel vessel)
+        {
+            return "Vessel " + vessel.Id + " (" + vessel.Name + ") has no code index, so no code was searched. "
+                + "Only an explicit index update (armada_index_update) indexes a vessel.";
+        }
+
+        /// <summary>
+        /// The context pack for a vessel with no code index: no search, no staged file, and a named
+        /// reason, so a dispatch proceeds without code context and records why.
+        /// </summary>
+        private ContextPackResponse BuildNotIndexedContextPack(Vessel vessel, string goal)
+        {
+            string message = BuildNotIndexedMessage(vessel);
+            _Logging.Info(_Header + "context pack for vessel " + vessel.Id + " has no code context: " + CodeSearchResponse.NotIndexedReason);
+            ContextPackResponse response = new ContextPackResponse
+            {
+                Status = BuildMissingStatus(vessel),
+                Goal = goal,
+                Available = false,
+                UnavailableReason = CodeSearchResponse.NotIndexedReason,
+                Message = message
+            };
+            response.Warnings.Add(CodeSearchResponse.NotIndexedReason + ": " + message);
+            response.Metrics = new ContextPackMetrics
+            {
+                WarningCount = response.Warnings.Count,
+                VesselCount = 1
+            };
+            return response;
         }
 
         private string ResolveFreshness(CodeIndexStatus status)
