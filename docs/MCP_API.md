@@ -282,6 +282,10 @@ objective). Finished records are kept for 14 days. `armada_dispatch_hold`
 `status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose;
 wait for that list to empty before restarting the admiral.
 
+A global administrator can also list every job, newest first, through REST
+`GET /api/v1/jobs` and the dashboard Jobs page, and read one through
+`GET /api/v1/jobs/{id}`. Jobs have no cancel operation.
+
 A job that stays `Accepted` or `Running` for 30 minutes is reaped as `Failed`
 with the reason `reaped as stale`, and its operation is cancelled. A terminal
 status is final: an operation that finishes after its job was reaped does not

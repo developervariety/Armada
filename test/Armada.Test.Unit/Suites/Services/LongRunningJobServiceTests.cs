@@ -245,6 +245,65 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("8", JsonSerializer.Serialize(read.Result), "the result survives");
             });
 
+            await RunTest("ListJobs returns memory and journalled jobs newest first, leaves out expired records, and counts an unreadable record", async () =>
+            {
+                string journal = NewJournalDirectory();
+                LongRunningJobService previous = new LongRunningJobService(journalDirectory: journal);
+                LongRunningJob oldest = previous.Start("probe", _ => Task.FromResult<object?>(null));
+                await WaitTerminalAsync(previous, oldest.JobId);
+                await Task.Delay(20);
+                LongRunningJob middle = previous.Start("probe", _ => throw new InvalidOperationException("boom"), "obj_example", "vsl_example");
+                await WaitTerminalAsync(previous, middle.JobId);
+                await Task.Delay(20);
+
+                string expiredId = "job_" + Guid.NewGuid().ToString("N").Substring(0, 20);
+                File.WriteAllText(Path.Combine(journal, expiredId + ".json"), JsonSerializer.Serialize(new
+                {
+                    JobId = expiredId,
+                    Operation = "probe",
+                    Status = "Succeeded",
+                    SubmittedAtUtc = DateTime.UtcNow.AddDays(-20),
+                    CompletedAtUtc = DateTime.UtcNow.AddDays(-20)
+                }));
+                File.WriteAllText(Path.Combine(journal, "job_unreadable.json"), "{ not json");
+
+                List<string> warnings = new List<string>();
+                LongRunningJobService current = new LongRunningJobService(journalDirectory: journal, warn: message => { lock (warnings) warnings.Add(message); });
+                TaskCompletionSource<object?> gate = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                LongRunningJob newest = current.Start("probe", _ => gate.Task);
+                await WaitStatusAsync(current, newest.JobId, LongRunningJobStatusEnum.Running);
+
+                List<LongRunningJob> listed = current.ListJobs(out int unreadable);
+                AssertEqual(
+                    String.Join(",", new[] { newest.JobId, middle.JobId, oldest.JobId }),
+                    String.Join(",", listed.Select(job => job.JobId)),
+                    "the running job from memory and the journalled jobs of the previous process, newest first, each once, without the expired record");
+                AssertEqual(LongRunningJobStatusEnum.Running, listed[0].Status);
+                AssertEqual(LongRunningJobStatusEnum.Failed, listed[1].Status);
+                AssertEqual("boom", listed[1].FailureMessage);
+                AssertEqual("vsl_example", listed[1].VesselId);
+                AssertEqual(1, unreadable, "the unreadable record is counted, not skipped silently");
+                AssertEqual(1, current.JournalFailures, "and counted as a journal failure");
+                AssertTrue(warnings.Any(w => w.Contains("job_unreadable.json", StringComparison.Ordinal)), "and reported through the warning callback: " + String.Join(" | ", warnings));
+
+                AssertTrue(current.TryGetStatus(newest.JobId, out LongRunningJob? stillRunning), "listing leaves the tracked job in place");
+                AssertEqual(LongRunningJobStatusEnum.Running, stillRunning!.Status);
+                gate.TrySetResult(null);
+                await WaitTerminalAsync(current, newest.JobId);
+            });
+
+            await RunTest("ListJobs without a journal lists the jobs in memory", async () =>
+            {
+                LongRunningJobService service = new LongRunningJobService();
+                LongRunningJob job = service.Start("probe", _ => Task.FromResult<object?>(null));
+                await WaitTerminalAsync(service, job.JobId);
+                List<LongRunningJob> listed = service.ListJobs(out int unreadable);
+                AssertEqual(1, listed.Count);
+                AssertEqual(job.JobId, listed[0].JobId);
+                AssertEqual(LongRunningJobStatusEnum.Succeeded, listed[0].Status);
+                AssertEqual(0, unreadable);
+            });
+
             await RunTest("A failed job is reported with its objective", async () =>
             {
                 string journal = NewJournalDirectory();
@@ -326,28 +385,8 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string tempDir = Path.Combine(Path.GetTempPath(), "armada_job_restart_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir);
-                DatabaseSettings dbSettings = new DatabaseSettings
-                {
-                    Type = DatabaseTypeEnum.Sqlite,
-                    Filename = Path.Combine(tempDir, "armada.db")
-                };
-                ArmadaSettings settings = new ArmadaSettings
-                {
-                    DataDirectory = tempDir,
-                    DatabasePath = dbSettings.Filename,
-                    Database = dbSettings,
-                    LogDirectory = Path.Combine(tempDir, "logs"),
-                    DocksDirectory = Path.Combine(tempDir, "docks"),
-                    ReposDirectory = Path.Combine(tempDir, "repos"),
-                    AdmiralPort = FreePort(),
-                    McpPort = FreePort(),
-                    ApiKey = "test-key-" + Guid.NewGuid().ToString("N"),
-                    HeartbeatIntervalSeconds = 300
-                };
-                settings.Rest.Hostname = "127.0.0.1";
-                settings.AutonomousObjectiveScheduler.Enabled = false;
-                settings.SettingsFilePath = Path.Combine(tempDir, "settings.json");
-                settings.InitializeDirectories();
+                ArmadaSettings settings = NewServerSettings(tempDir);
+                DatabaseSettings dbSettings = settings.Database;
 
                 Objective objective;
                 using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(dbSettings))
@@ -422,6 +461,81 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+            await RunTest("A restarted admiral serves a journalled finished job through GET /api/v1/jobs and GET /api/v1/jobs/{id}", async () =>
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "armada_job_routes_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
+                ArmadaSettings settings = NewServerSettings(tempDir);
+
+                // The previous admiral process ran a job to completion; the new process knows it only from
+                // the journal in the data directory.
+                LongRunningJobService previous = new LongRunningJobService(journalDirectory: Path.Combine(tempDir, "jobs"));
+                LongRunningJob finished = previous.Start("code_index_update", _ => Task.FromResult<object?>(new { Value = 7 }), "obj_example", "vsl_example");
+                await WaitTerminalAsync(previous, finished.JobId);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
+                try
+                {
+                    await server.StartAsync();
+                    using (HttpClient client = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + settings.AdmiralPort), Timeout = TimeSpan.FromSeconds(30) })
+                    {
+                        client.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
+
+                        HttpResponseMessage listResponse = await client.GetAsync("/api/v1/jobs");
+                        string list = await listResponse.Content.ReadAsStringAsync();
+                        AssertEqual(HttpStatusCode.OK, listResponse.StatusCode, "the job list is served: " + list);
+                        AssertContains(finished.JobId, list, "the job list shows the journalled job: " + list);
+                        AssertTrue(list.Contains("\"TotalRecords\":1", StringComparison.OrdinalIgnoreCase), "the envelope counts it: " + list);
+
+                        HttpResponseMessage readResponse = await client.GetAsync("/api/v1/jobs/" + finished.JobId);
+                        string read = await readResponse.Content.ReadAsStringAsync();
+                        AssertEqual(HttpStatusCode.OK, readResponse.StatusCode, "the journalled job is read back after the restart: " + read);
+                        AssertContains("Succeeded", read, "with its final status: " + read);
+                        AssertContains("vsl_example", read, "and its vessel: " + read);
+                    }
+                }
+                finally
+                {
+                    server.Stop();
+                    try
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                    catch (IOException)
+                    {
+                        // A stopped server can briefly hold log handles; the temporary directory is disposable.
+                    }
+                }
+            });
+        }
+
+        private static ArmadaSettings NewServerSettings(string tempDir)
+        {
+            DatabaseSettings dbSettings = new DatabaseSettings
+            {
+                Type = DatabaseTypeEnum.Sqlite,
+                Filename = Path.Combine(tempDir, "armada.db")
+            };
+            ArmadaSettings settings = new ArmadaSettings
+            {
+                DataDirectory = tempDir,
+                DatabasePath = dbSettings.Filename,
+                Database = dbSettings,
+                LogDirectory = Path.Combine(tempDir, "logs"),
+                DocksDirectory = Path.Combine(tempDir, "docks"),
+                ReposDirectory = Path.Combine(tempDir, "repos"),
+                AdmiralPort = FreePort(),
+                McpPort = FreePort(),
+                ApiKey = "test-key-" + Guid.NewGuid().ToString("N"),
+                HeartbeatIntervalSeconds = 300
+            };
+            settings.Rest.Hostname = "127.0.0.1";
+            settings.AutonomousObjectiveScheduler.Enabled = false;
+            settings.SettingsFilePath = Path.Combine(tempDir, "settings.json");
+            settings.InitializeDirectories();
+            return settings;
         }
 
         private static string NewJournalDirectory()

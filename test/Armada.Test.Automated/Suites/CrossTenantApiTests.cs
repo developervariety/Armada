@@ -1413,6 +1413,7 @@ using System.IO;
                     new AuthRefusalProbe("IncidentRoutes", "GET", "/api/v1/incidents", false),
                     new AuthRefusalProbe("IncidentRoutes", "POST", "/api/v1/incidents", true),
                     new AuthRefusalProbe("JobRoutes", "GET", "/api/v1/jobs", false),
+                    new AuthRefusalProbe("JobRoutes", "GET", "/api/v1/jobs", true),
                     new AuthRefusalProbe("MergeQueueRoutes", "GET", "/api/v1/merge-queue", false),
                     new AuthRefusalProbe("MergeQueueRoutes", "POST", "/api/v1/merge-queue/process", true),
                     new AuthRefusalProbe("MissionRoutes", "GET", "/api/v1/missions", false),
@@ -1792,6 +1793,29 @@ using System.IO;
             {
                 HttpResponseMessage response = await _AdminClient.GetAsync("/api/v1/inbox").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still reads the inbox");
+            }).ConfigureAwait(false);
+
+            // Background jobs carry no tenant or user, so only a global administrator reads them, as with
+            // the armada_job_status tool.
+            await RunTest("Jobs_FromTenantAdminOrUser_Returns403", async () =>
+            {
+                foreach (HttpClient client in new[] { _ClientA!, _ClientA3! })
+                {
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/jobs").ConfigureAwait(false)).StatusCode, "job list");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/jobs/job_missing").ConfigureAwait(false)).StatusCode, "job read");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Jobs_FromGlobalAdmin_ListEnvelopeAndUnknownJob404", async () =>
+            {
+                HttpResponseMessage list = await _AdminClient.GetAsync("/api/v1/jobs").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, list.StatusCode, "A global administrator reads the job list");
+                string body = await list.Content.ReadAsStringAsync().ConfigureAwait(false);
+                foreach (string field in new[] { "\"Success\":true", "\"Objects\":", "\"TotalRecords\":" })
+                    AssertTrue(body.Contains(field, StringComparison.OrdinalIgnoreCase), "The list keeps its envelope field " + field + ": " + body);
+
+                HttpResponseMessage missing = await _AdminClient.GetAsync("/api/v1/jobs/job_missing").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, missing.StatusCode, "An unknown job reads 404");
             }).ConfigureAwait(false);
 
             // The status intent reads fleet status only and starts no captain runtime.

@@ -1114,16 +1114,10 @@ namespace Armada.Core.Client
             await DeleteAsync("/api/v1/check-runs/" + EscapePathSegment(id), token).ConfigureAwait(false);
         }
 
-        /// <summary>Calls the corresponding fork REST API contract.</summary>
-        public async Task<Job?> GetJobAsync(string id, CancellationToken token = default)
+        /// <summary>Read one long-running background job. Requires a global administrator.</summary>
+        public async Task<LongRunningJob?> GetJobAsync(string id, CancellationToken token = default)
         {
-            return await GetAsync<Job>("/api/v1/jobs/" + EscapePathSegment(id), token).ConfigureAwait(false);
-        }
-
-        /// <summary>Calls the corresponding fork REST API contract.</summary>
-        public async Task<Job?> CancelJobAsync(string id, CancellationToken token = default)
-        {
-            return await PostAsync<Job>("/api/v1/jobs/" + EscapePathSegment(id) + "/cancel", new { }, token).ConfigureAwait(false);
+            return await GetAsync<LongRunningJob>("/api/v1/jobs/" + EscapePathSegment(id), token).ConfigureAwait(false);
         }
 
         #endregion
@@ -1419,10 +1413,10 @@ namespace Armada.Core.Client
 
         #region Public-Methods-Background
 
-        /// <summary>List background jobs.</summary>
-        public async Task<EnumerationResult<Job>?> ListJobsAsync(CancellationToken token = default)
+        /// <summary>List long-running background jobs, newest first, without their results. Requires a global administrator.</summary>
+        public async Task<EnumerationResult<LongRunningJob>?> ListJobsAsync(CancellationToken token = default)
         {
-            return await GetAsync<EnumerationResult<Job>>("/api/v1/jobs", token).ConfigureAwait(false);
+            return await GetAsync<EnumerationResult<LongRunningJob>>("/api/v1/jobs", token).ConfigureAwait(false);
         }
 
         /// <summary>List token usage records with optional filters.</summary>

@@ -7,20 +7,20 @@ namespace Armada.Server.Routes
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
     using Armada.Server;
-    using Armada.Core.Database;
     using Armada.Core.Models;
-    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
-    /// REST API routes for background jobs: list, read, and cancel for status polling.
+    /// REST API routes that read the Admiral's long-running background jobs: dispatch, code-index
+    /// refresh, merge processing, disk lifecycle and the other operations that return an accepted job.
+    /// A job carries no tenant or user, so both routes require a global administrator, as the
+    /// armada_job_status tool does.
     /// </summary>
     public class JobRoutes
     {
         #region Private-Members
 
-        private readonly DatabaseDriver _database;
-        private readonly JobService _jobs;
+        private readonly LongRunningJobService _Jobs;
 
         #endregion
 
@@ -29,12 +29,10 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Instantiate.
         /// </summary>
-        /// <param name="database">Database driver.</param>
-        /// <param name="jobs">Job service.</param>
-        public JobRoutes(DatabaseDriver database, JobService jobs)
+        /// <param name="jobs">The Admiral's long-running job service.</param>
+        public JobRoutes(LongRunningJobService jobs)
         {
-            _database = database ?? throw new ArgumentNullException(nameof(database));
-            _jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
+            _Jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
         }
 
         #endregion
@@ -60,17 +58,22 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
-                List<Job> jobs = ctx.IsAdmin
-                    ? await _database.Jobs.EnumerateAsync().ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Jobs.EnumerateAsync(ctx.TenantId!).ConfigureAwait(false)
-                        : await _database.Jobs.EnumerateAsync(ctx.TenantId!, ctx.UserId!).ConfigureAwait(false);
-                return (object)new { Success = true, Objects = jobs, TotalRecords = jobs.Count };
+                List<LongRunningJob> jobs = _Jobs.ListJobs(out int unreadableRecords);
+
+                // A result can be large; the list carries status only and a single read returns it.
+                foreach (LongRunningJob job in jobs) job.Result = null;
+                return (object)new
+                {
+                    Success = true,
+                    Objects = jobs,
+                    TotalRecords = jobs.Count,
+                    UnreadableJournalRecords = unreadableRecords
+                };
             },
             api => api
                 .WithTag("Jobs")
                 .WithSummary("List background jobs")
-                .WithDescription("Returns background jobs newest first, scoped to the caller.")
+                .WithDescription("Returns the Admiral's long-running jobs newest first: jobs held in memory and journalled jobs kept for 14 days. List entries omit Result; UnreadableJournalRecords counts journal records that could not be read. Requires a global administrator.")
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/jobs/{id}", async (ApiRequest req) =>
@@ -80,50 +83,19 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+
                 string id = req.Parameters["id"];
-                Job? job = ctx.IsAdmin
-                    ? await _database.Jobs.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Jobs.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Jobs.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                if (job == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Job not found" }; }
+                if (!_Jobs.TryGetStatus(id, out LongRunningJob? job) || job == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Job not found" };
+                }
                 return (object)job;
             },
             api => api
                 .WithTag("Jobs")
                 .WithSummary("Get a background job")
-                .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithSecurity("ApiKey"));
-
-            app.Post("/api/v1/jobs/{id}/cancel", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    return RouteAuthRefusal.Refuse(req, ctx);
-                }
-                string id = req.Parameters["id"];
-                Job? job = ctx.IsAdmin
-                    ? await _database.Jobs.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Jobs.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Jobs.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                if (job == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Job not found" }; }
-
-                try
-                {
-                    Job cancelled = await _jobs.CancelAsync(job).ConfigureAwait(false);
-                    return (object)cancelled;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
-                }
-            },
-            api => api
-                .WithTag("Jobs")
-                .WithSummary("Cancel a background job")
+                .WithDescription("Returns one long-running job, including its Result when it succeeded and its FailureMessage when it failed or was lost. Requires a global administrator.")
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
         }

@@ -100,7 +100,6 @@ namespace Armada.Core.Database.SqlServer
             ProjectProfiles = new ProjectProfileMethods(this);
             Skills = new SkillMethods(this);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
-            Jobs = new JobMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(this);
             ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
         }

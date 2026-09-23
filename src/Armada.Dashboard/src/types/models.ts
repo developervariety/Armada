@@ -2384,20 +2384,31 @@ export interface Skill {
 }
 
 /** A long-running background operation, polled for status rather than blocking a request. */
-export interface Job {
-  id: string;
-  tenantId: string | null;
-  userId: string | null;
-  name: string;
-  kind: string;
-  status: string;
-  progress: number;
-  resultJson: string | null;
-  errorReason: string | null;
-  createdUtc: string;
-  startedUtc: string | null;
-  completedUtc: string | null;
-  lastUpdateUtc: string;
+/** Lifecycle status of a long-running Admiral job. */
+export type LongRunningJobStatus = 'Accepted' | 'Running' | 'Succeeded' | 'Failed' | 'Lost';
+
+/** A long-running Admiral job (dispatch, code-index refresh, merge processing, disk lifecycle and
+ *  similar), from GET /api/v1/jobs and GET /api/v1/jobs/{id}. The list omits result. */
+export interface LongRunningJob {
+  jobId: string;
+  operation: string;
+  status: LongRunningJobStatus;
+  submittedAtUtc: string;
+  startedAtUtc: string | null;
+  completedAtUtc: string | null;
+  result?: unknown;
+  failureMessage: string | null;
+  objectiveId: string | null;
+  vesselId: string | null;
+}
+
+/** GET /api/v1/jobs: every job newest first. unreadableJournalRecords counts journal records the
+ *  Admiral could not read, so a shorter list is never silent. */
+export interface LongRunningJobList {
+  success: boolean;
+  objects: LongRunningJob[];
+  totalRecords: number;
+  unreadableJournalRecords: number;
 }
 
 /** One time bucket of the token-usage summary. Bucket totals carry a single cachedTokens figure;

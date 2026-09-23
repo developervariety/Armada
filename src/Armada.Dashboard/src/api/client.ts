@@ -121,7 +121,8 @@ import type {
   ProjectProfileResolutionResult,
   PersonaPromptPreview,
   Skill,
-  Job,
+  LongRunningJob,
+  LongRunningJobList,
   TokenUsageSummaryResult,
   TokenUsageSummaryQuery,
   CaptainChatRequest,
@@ -1100,9 +1101,8 @@ export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/ap
 export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURIComponent(id)}`);
 
 // ==================== Background Jobs ====================
-export const listJobs = () => get<EnumerationResult<Job>>('/api/v1/jobs');
-export const getJob = (id: string) => get<Job>(`/api/v1/jobs/${encodeURIComponent(id)}`);
-export const cancelJob = (id: string) => post<Job>(`/api/v1/jobs/${encodeURIComponent(id)}/cancel`, {});
+export const listJobs = () => get<LongRunningJobList>('/api/v1/jobs');
+export const getJob = (id: string) => get<LongRunningJob>(`/api/v1/jobs/${encodeURIComponent(id)}`);
 
 /** Bucketed token-usage summary used by the Activity token-usage view. */
 export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery) => {

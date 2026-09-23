@@ -10,6 +10,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Client;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -95,7 +96,7 @@ namespace Test.Shared.Suites.Services
                 using (ArmadaApiClient client = CreateClient(handler))
                 using (CancellationTokenSource source = new CancellationTokenSource())
                 {
-                Task<Job?> request = client.GetJobAsync("job_test", source.Token);
+                Task<LongRunningJob?> request = client.GetJobAsync("job_test", source.Token);
                 source.CancelAfter(20);
                 await AssertThrowsAsync<OperationCanceledException>(() => request);
                 AssertTrue(handler.CancellationObserved, "The handler must receive the cancellation token.");
@@ -188,7 +189,7 @@ namespace Test.Shared.Suites.Services
             cases.Add(ContractCaseTyped("reorder_objectives", "POST", "/api/v1/objectives/reorder", "[{\"id\":\"obj_reordered\"}]", (c,t) => c.ReorderObjectivesAsync(new ObjectiveReorderRequest { Items = new List<ObjectiveReorderItem> { new ObjectiveReorderItem { ObjectiveId = "obj_test", Rank = 3 } } }, t), r => AssertEqual("obj_reordered", r[0].Id), AssertReorderBody));
             cases.Add(ContractCaseTyped("list_backlog_refinement_sessions", "GET", "/api/v1/backlog/obj_test/refinement-sessions", "[{\"id\":\"ses_list\"}]", (c,t) => c.ListBacklogRefinementSessionsAsync("obj_test", t), r => AssertEqual("ses_list", r[0].Id), null));
             cases.Add(ContractCaseTyped("list_objective_refinement_sessions", "GET", "/api/v1/objectives/obj_test/refinement-sessions", "[{\"id\":\"ses_list\"}]", (c,t) => c.ListObjectiveRefinementSessionsAsync("obj_test", t), r => AssertEqual("ses_list", r[0].Id), null));
-            cases.Add(ContractCaseTyped("list_jobs", "GET", "/api/v1/jobs", "{\"totalRecords\":1,\"objects\":[{\"id\":\"job_list\"}]}", (c,t) => c.ListJobsAsync(t), r => AssertEqual("job_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("list_jobs", "GET", "/api/v1/jobs", "{\"totalRecords\":1,\"objects\":[{\"jobId\":\"job_list\",\"status\":\"Running\"}]}", (c,t) => c.ListJobsAsync(t), r => { AssertEqual("job_list", r.Objects[0].JobId); AssertEqual(LongRunningJobStatusEnum.Running, r.Objects[0].Status); }, null));
             cases.Add(ContractCaseTyped("list_token_usage", "GET", "/api/v1/token-usage?pageSize=7&model=model%2Ftest&runtime=runtime%2Ftest&source=chat&vesselId=vsl%2Ftest&captainId=cap%2Ftest", "{\"totalRecords\":1,\"objects\":[{\"id\":\"tok_list\"}]}", (c,t) => c.ListTokenUsageAsync(new TokenUsageQuery { Model = "model/test", Runtime = "runtime/test", Source = "chat", VesselId = "vsl/test", CaptainId = "cap/test", PageSize = 7 }, t), r => AssertEqual("tok_list", r.Objects[0].Id), null));
             cases.Add(ContractCase("vessel_landing_preview", "GET", "/api/v1/vessels/vsl_test/landing-preview?sourceBranch=feature%2Ftest", (client, token) => client.GetVesselLandingPreviewAsync("vsl_test", "feature/test", token)));
             cases.Add(ContractCase("environment_get", "GET", "/api/v1/environments/env_test", (client, token) => client.GetEnvironmentAsync("env_test", token)));
@@ -217,7 +218,6 @@ namespace Test.Shared.Suites.Services
             cases.Add(ContractCase("check_retry", "POST", "/api/v1/check-runs/chk_test/retry", (client, token) => client.RetryCheckRunAsync("chk_test", token)));
             cases.Add(ContractCaseVoid("check_delete", "DELETE", "/api/v1/check-runs/chk_test", async (client, token) => { await client.DeleteCheckRunAsync("chk_test", token); }));
             cases.Add(ContractCase("job_get", "GET", "/api/v1/jobs/job_test", (client, token) => client.GetJobAsync("job_test", token)));
-            cases.Add(ContractCase("job_cancel", "POST", "/api/v1/jobs/job_test/cancel", (client, token) => client.CancelJobAsync("job_test", token)));
         }
 
         private static void AddProfileObjectiveCases(List<TestCaseDescriptor> cases)
@@ -379,7 +379,7 @@ namespace Test.Shared.Suites.Services
             if (type == typeof(Deployment)) return "{\"id\":\"dpl_response\",\"title\":\"typed deployment\"}";
             if (type == typeof(Release)) return "{\"id\":\"rel_response\",\"title\":\"typed release\"}";
             if (type == typeof(CheckRun)) return "{\"id\":\"chk_response\",\"label\":\"typed check\"}";
-            return "{\"id\":\"job_response\",\"name\":\"typed job\"}";
+            return "{\"jobId\":\"job_response\",\"operation\":\"typed job\"}";
         }
 
         private static void AssertTypedResponse<T>(T? result)
@@ -415,8 +415,8 @@ namespace Test.Shared.Suites.Services
                 case CheckRun check:
                     AssertEqual("chk_response", check.Id);
                     break;
-                case Job job:
-                    AssertEqual("job_response", job.Id);
+                case LongRunningJob job:
+                    AssertEqual("job_response", job.JobId);
                     break;
             }
         }

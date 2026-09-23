@@ -232,6 +232,13 @@ upstream integrations and excludes changes already present at that baseline.
   the journal; each job status is journalled before it is visible. Admiral stop runs once, waits (bounded) for its background loops
   before disposing the database, and disposes it even when an earlier shutdown
   step fails.
+- **Background jobs page:** the dashboard Jobs page and REST `GET /api/v1/jobs`
+  and `GET /api/v1/jobs/{id}` read the Admiral's long-running jobs (dispatch,
+  code index, merge processing, disk lifecycle and similar) from memory and the
+  job journal, newest first, and require a global administrator, as
+  `armada_job_status` does. The list counts journal records it could not read.
+  The job-table service that nothing enqueued into, and
+  `POST /api/v1/jobs/{id}/cancel`, are removed; long-running jobs have no cancel.
 - **Capacity admission:** one global workload reservation covers the active-workload
   count through the durable Assigned write, so parallel assignments in different lanes
   launch no more captains than `MaxConcurrentCaptainWorkloads`. Fleet-capacity

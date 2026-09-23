@@ -1,30 +1,40 @@
-import { useCallback, useEffect, useState } from 'react';
-import { listJobs, cancelJob } from '../api/client';
-import type { Job } from '../types/models';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { listJobs } from '../api/client';
+import type { LongRunningJob } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
-import { useNotifications } from '../context/NotificationContext';
 import StatusBadge from '../components/shared/StatusBadge';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 
-const TERMINAL = ['Succeeded', 'Failed', 'Cancelled'];
-
 export default function Jobs() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
-  const { pushToast } = useNotifications();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<LongRunningJob[]>([]);
+  const [unreadable, setUnreadable] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refused, setRefused] = useState(false);
+  // Jobs carry no tenant or user, so the routes need a global administrator. Once refused, the page
+  // stops requesting them instead of polling into repeated 403s.
+  const refusedRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (refusedRef.current) return;
     setLoading(true);
     try {
       const result = await listJobs();
       setJobs(result.objects || []);
+      setUnreadable(result.unreadableJournalRecords || 0);
       setError('');
-    } catch {
-      setError(t('Failed to load jobs.'));
+    } catch (err) {
+      if ((err as { status?: number } | null)?.status === 403) {
+        refusedRef.current = true;
+        setRefused(true);
+        setError('');
+      } else {
+        setError(t('Failed to load jobs.'));
+      }
     } finally {
       setLoading(false);
     }
@@ -34,14 +44,9 @@ export default function Jobs() {
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('jobs', load);
 
-  async function handleCancel(job: Job) {
-    try {
-      await cancelJob(job.id);
-      pushToast('warning', t('Job "{{name}}" cancelled.', { name: job.name }));
-      load();
-    } catch {
-      setError(t('Failed to cancel job.'));
-    }
+  function time(value: string | null) {
+    if (!value) return <span className="text-dim">-</span>;
+    return <span className="text-dim" title={formatDateTime(value)}>{formatRelativeTime(value)}</span>;
   }
 
   return (
@@ -49,7 +54,9 @@ export default function Jobs() {
       <div className="view-header">
         <div>
           <h2>{t('Jobs')}</h2>
-          <p className="text-dim view-subtitle">{t('Background jobs and their status.')}</p>
+          <p className="text-dim view-subtitle">
+            {t('Long-running Admiral jobs: dispatch, code-index refresh, merge processing, disk lifecycle and similar operations. Finished jobs are kept for 14 days.')}
+          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
@@ -58,8 +65,17 @@ export default function Jobs() {
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
+      {unreadable > 0 && (
+        <div className="alert alert-warning" role="status">
+          {t('{{count}} job journal records could not be read and are not listed. The Admiral log names each one.', { count: unreadable })}
+        </div>
+      )}
 
-      {loading ? (
+      {refused ? (
+        <div className="card" style={{ padding: '1.25rem' }}>
+          <p className="text-muted">{t('Background jobs are available to global administrators.')}</p>
+        </div>
+      ) : loading && jobs.length === 0 ? (
         <p className="text-dim">{t('Loading...')}</p>
       ) : jobs.length === 0 ? (
         <div className="card" style={{ padding: '1.25rem' }}>
@@ -70,32 +86,29 @@ export default function Jobs() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>{t('Name')}</th>
-                <th>{t('Kind')}</th>
+                <th>{t('Operation')}</th>
                 <th>{t('Status')}</th>
-                <th>{t('Progress')}</th>
-                <th>{t('Created')}</th>
-                <th>{t('Updated')}</th>
-                <th></th>
+                <th>{t('Objective')}</th>
+                <th>{t('Vessel')}</th>
+                <th>{t('Submitted')}</th>
+                <th>{t('Started')}</th>
+                <th>{t('Completed')}</th>
               </tr>
             </thead>
             <tbody>
               {jobs.map((job) => (
-                <tr key={job.id}>
+                <tr key={job.jobId}>
                   <td>
-                    {job.name}
-                    {job.errorReason && <div className="text-dim" style={{ fontSize: '0.72rem' }}>{job.errorReason}</div>}
+                    {job.operation}
+                    <div className="text-dim mono" style={{ fontSize: '0.72rem' }}>{job.jobId}</div>
+                    {job.failureMessage && <div className="text-dim" style={{ fontSize: '0.72rem' }}>{job.failureMessage}</div>}
                   </td>
-                  <td>{job.kind}</td>
                   <td><StatusBadge status={job.status} /></td>
-                  <td className="mono">{job.progress}%</td>
-                  <td className="text-dim" title={formatDateTime(job.createdUtc)}>{formatRelativeTime(job.createdUtc)}</td>
-                  <td className="text-dim" title={formatDateTime(job.lastUpdateUtc)}>{formatRelativeTime(job.lastUpdateUtc)}</td>
-                  <td>
-                    {!TERMINAL.includes(job.status) && (
-                      <button type="button" className="btn btn-sm" onClick={() => handleCancel(job)}>{t('Cancel')}</button>
-                    )}
-                  </td>
+                  <td className="mono">{job.objectiveId ? <Link to={`/objectives/${job.objectiveId}`}>{job.objectiveId}</Link> : '-'}</td>
+                  <td className="mono">{job.vesselId ? <Link to={`/vessels/${job.vesselId}`}>{job.vesselId}</Link> : '-'}</td>
+                  <td>{time(job.submittedAtUtc)}</td>
+                  <td>{time(job.startedAtUtc)}</td>
+                  <td>{time(job.completedAtUtc)}</td>
                 </tr>
               ))}
             </tbody>

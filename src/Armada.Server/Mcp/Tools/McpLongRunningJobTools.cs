@@ -3,6 +3,8 @@ namespace Armada.Server.Mcp.Tools
     using System;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Registers MCP tools for querying journalled long-running jobs.

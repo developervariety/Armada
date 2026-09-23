@@ -74,6 +74,13 @@ namespace Test.Shared.Suites.Services
 
             // --- AdminOnly endpoints ---
 
+            cases.Add(Case("jobs_are_admin_only", "Jobs list and read IsAdminOnly, Harbor runner jobs are not", TestTags.Positive, () =>
+            {
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/jobs"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/jobs/job_example"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/harbor-runners/jobs"));
+            }));
+
             cases.Add(Case("tenants_get_is_admin_only", "Tenants GET IsAdminOnly", TestTags.Positive, () =>
             {
                 PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/tenants");

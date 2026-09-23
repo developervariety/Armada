@@ -233,7 +233,7 @@ namespace Armada.Test.Unit
                         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                         .Where(property => property.PropertyType.IsInterface && property.PropertyType.Name.EndsWith("Methods", StringComparison.Ordinal))
                         .ToList();
-                    foreach (string required in new[] { "Jobs", "TokenUsage", "ModelEndpoints", "Pipelines", "Fleets" })
+                    foreach (string required in new[] { "LandingJobs", "TokenUsage", "ModelEndpoints", "Pipelines", "Fleets" })
                         Assert(methodSets.Exists(property => property.Name == required), "method set " + required + " is declared");
 
                     foreach (PropertyInfo methodSet in methodSets)

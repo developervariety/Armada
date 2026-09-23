@@ -42,6 +42,7 @@
   - [Workspace](#workspace)
   - [Planning Sessions](#planning-sessions)
   - [Inbox](#inbox)
+  - [Background Jobs](#background-jobs)
   - [Backup and Restore](#backup-and-restore)
 - [Data Types](#data-types)
   - [Models](#models)
@@ -133,6 +134,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the persona inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant |
 | `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
+| `/api/v1/jobs` | GET | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
 | `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
@@ -3812,6 +3814,66 @@ captains, merges and incidents, so a narrower caller receives `403`.
 ```bash
 curl http://localhost:7890/api/v1/inbox
 ```
+
+---
+
+### Background Jobs
+
+Dispatch, code-index refresh, merge processing, disk lifecycle, terminal-voyage
+reconciliation and similar operations run as long-running Admiral jobs. The
+MCP tool that starts one returns its job ID; `armada_job_status` and these
+routes read it. A job carries no tenant or user, so both routes require a
+global administrator and a narrower caller receives `403`.
+
+A job's `Status` is `Accepted`, `Running`, `Succeeded`, `Failed` or `Lost`.
+Every job is written to the job journal in the data directory, so a job
+outlives the admiral process that accepted it. A job that process never
+finished reads `Lost` after the next start, with `job_lost_on_restart` in its
+`FailureMessage`. Finished jobs are kept for 14 days. Jobs have no cancel
+operation; a job that stays `Accepted` or `Running` for 30 minutes is reaped
+as `Failed`.
+
+#### GET /api/v1/jobs
+
+List every job the Admiral knows, newest submitted first: the jobs held in
+memory and the journalled jobs, including those a previous admiral process
+accepted.
+
+**Response:** `200 OK`
+
+```json
+{
+  "Success": true,
+  "Objects": [
+    {
+      "JobId": "job_abc123",
+      "Operation": "voyage_dispatch",
+      "Status": "Failed",
+      "SubmittedAtUtc": "2026-01-01T00:00:00Z",
+      "StartedAtUtc": "2026-01-01T00:00:01Z",
+      "CompletedAtUtc": "2026-01-01T00:00:02Z",
+      "Result": null,
+      "FailureMessage": "dispatch_hold_active: ...",
+      "ObjectiveId": "obj_abc123",
+      "VesselId": "vsl_abc123"
+    }
+  ],
+  "TotalRecords": 1,
+  "UnreadableJournalRecords": 0
+}
+```
+
+List entries omit `Result`; read one job for it. `UnreadableJournalRecords`
+counts journal records the Admiral could not read. Each one is also written to
+the Admiral log as a warning, so a shorter list is never silent.
+
+#### GET /api/v1/jobs/{id}
+
+Read one job, including `Result` when it succeeded and `FailureMessage` when it
+failed or was lost.
+
+**Response:** `200 OK` — the job. **Errors:** `404` when the job is unknown or
+its journal record has expired.
 
 ---
 

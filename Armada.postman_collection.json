@@ -11066,7 +11066,7 @@
 		},
 		{
 			"name": "Jobs",
-			"description": "Background job status and cancellation.",
+			"description": "Long-running background job status. Requires a global administrator.",
 			"item": [
 				{
 					"name": "List Background Jobs",
@@ -11084,7 +11084,7 @@
 								"jobs"
 							]
 						},
-						"description": "Returns background jobs newest first, scoped to the caller."
+						"description": "Returns the Admiral's long-running jobs newest first, without their results. UnreadableJournalRecords counts journal records that could not be read. Requires a global administrator."
 					}
 				},
 				{
@@ -11104,28 +11104,7 @@
 								"{{jobId}}"
 							]
 						},
-						"description": "Get a background job."
-					}
-				},
-				{
-					"name": "Cancel a Background Job",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}/cancel",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"jobs",
-								"{{jobId}}",
-								"cancel"
-							]
-						},
-						"description": "Cancel a background job."
+						"description": "Returns one long-running job with its Result or FailureMessage. Requires a global administrator."
 					}
 				}
 			]

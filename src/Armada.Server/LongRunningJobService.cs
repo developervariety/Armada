@@ -9,6 +9,8 @@ namespace Armada.Server
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Tracks bounded background jobs independently of initiating requests.
@@ -205,6 +207,61 @@ namespace Armada.Server
                 .OrderBy(job => job.SubmittedAtUtc)
                 .ThenBy(job => job.JobId, StringComparer.Ordinal)
                 .Select(job => job.CreateSnapshot())
+                .ToList();
+        }
+
+        /// <summary>
+        /// Every job this service knows, newest submitted first: the jobs held in memory plus the
+        /// journalled jobs not held in memory, which include jobs a previous process accepted. A
+        /// finished journal record older than <see cref="JournalRetention"/> is left out, as pruning
+        /// would remove it. A journal record that cannot be read is reported through the warning
+        /// callback, counted in <see cref="JournalFailures"/>, and counted in
+        /// <paramref name="unreadableRecords"/>, so a shorter list is never silent.
+        /// </summary>
+        /// <param name="unreadableRecords">Number of journal records, or journal listings, that could not be read.</param>
+        /// <returns>Snapshots of every known job.</returns>
+        public List<LongRunningJob> ListJobs(out int unreadableRecords)
+        {
+            unreadableRecords = 0;
+            Dictionary<string, LongRunningJob> jobs = new Dictionary<string, LongRunningJob>(StringComparer.Ordinal);
+            foreach (LongRunningJob tracked in _Jobs.Values)
+                jobs[tracked.JobId] = tracked.CreateSnapshot();
+
+            if (_JournalDirectory != null)
+            {
+                DateTime cutoff = DateTime.UtcNow - JournalRetention;
+                List<string> paths;
+                try
+                {
+                    paths = Directory.EnumerateFiles(_JournalDirectory, "job_*" + _JournalExtension).ToList();
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    ReportFailure("job journal directory could not be listed: " + ex.Message);
+                    unreadableRecords++;
+                    paths = new List<string>();
+                }
+
+                foreach (string path in paths)
+                {
+                    if (jobs.ContainsKey(Path.GetFileNameWithoutExtension(path))) continue;
+
+                    LongRunningJob? journalled = ReadJournalFile(path);
+                    if (journalled == null)
+                    {
+                        unreadableRecords++;
+                        continue;
+                    }
+                    if (jobs.ContainsKey(journalled.JobId)) continue;
+                    if (LongRunningJob.IsTerminal(journalled.Status)
+                        && (journalled.CompletedAtUtc ?? journalled.SubmittedAtUtc) < cutoff) continue;
+                    jobs[journalled.JobId] = journalled;
+                }
+            }
+
+            return jobs.Values
+                .OrderByDescending(job => job.SubmittedAtUtc)
+                .ThenByDescending(job => job.JobId, StringComparer.Ordinal)
                 .ToList();
         }
 

@@ -93,7 +93,6 @@ namespace Armada.Core.Database.Mysql
             ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
             Skills = new SkillMethods(_ConnectionString);
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
-            Jobs = new JobMethods(_ConnectionString);
             TokenUsage = new TokenUsageMethods(_ConnectionString);
             ModelEndpoints = new ModelEndpointMethods(_ConnectionString);
         }

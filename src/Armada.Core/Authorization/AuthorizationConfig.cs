@@ -76,6 +76,10 @@ namespace Armada.Core.Authorization
             if (path == "/api/v1/inbox" || path.StartsWith("/api/v1/inbox/")) return PermissionLevel.AdminOnly;
             if (path == "/api/v1/ask" || path.StartsWith("/api/v1/ask/")) return PermissionLevel.AdminOnly;
 
+            // Long-running background jobs carry no tenant or user scope, so only a global administrator
+            // may read them, as with the armada_job_status tool.
+            if (path == "/api/v1/jobs" || path.StartsWith("/api/v1/jobs/")) return PermissionLevel.AdminOnly;
+
             // Coordination rooms are found by key alone, so every tenant shares every room and its
             // messages, claims and participants. Only a global administrator may use the board.
             if (path == "/api/v1/coordination" || path.StartsWith("/api/v1/coordination/")) return PermissionLevel.AdminOnly;

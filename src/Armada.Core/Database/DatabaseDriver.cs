@@ -252,11 +252,6 @@ namespace Armada.Core.Database
         public ICoordinationLeaseMethods CoordinationLeases { get; protected set; } = null!;
 
         /// <summary>
-        /// Background job operations.
-        /// </summary>
-        public IJobMethods Jobs { get; protected set; } = null!;
-
-        /// <summary>
         /// Per-model token accounting operations.
         /// </summary>
         public ITokenUsageMethods TokenUsage { get; protected set; } = null!;

@@ -103,7 +103,6 @@ namespace Armada.Server
         private MissionStatusTransitionService _StatusTransitions = null!;
 
         private IMergeQueueService _MergeQueue = null!;
-        private Armada.Core.Services.JobService _JobService = null!;
         private IMergeRecoveryHandler _MergeRecoveryHandler = null!;
         private IAutoLandEvaluator _AutoLandEvaluator = null!;
         private IConventionChecker _ConventionChecker = null!;
@@ -365,7 +364,6 @@ namespace Armada.Server
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
-            _JobService = new Armada.Core.Services.JobService(_Database, _Logging);
 
             // Auto-recovery wiring: classifier -> router -> handler. The handler reads
             // the persisted classification on a Failed entry and routes to redispatch,
@@ -1566,7 +1564,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Background jobs
-            new Routes.JobRoutes(_Database, _JobService)
+            new Routes.JobRoutes(_LongRunningJobs)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Prompt templates
@@ -2254,10 +2252,6 @@ namespace Armada.Server
         {
             return new List<HealthLoopMaintenanceStep>
             {
-                // Reap background jobs whose worker died so they do not hang in Running.
-                HealthLoopMaintenanceStep.EveryCycles("job maintenance", () => 1,
-                    async stepToken => await _JobService.MaintainAsync(stepToken).ConfigureAwait(false)),
-
                 // Close objective dispatch attempts whose process stopped between voyage creation and linking.
                 HealthLoopMaintenanceStep.EveryCycles("dispatch attempt reconciliation", () => 1, async stepToken =>
                 {
