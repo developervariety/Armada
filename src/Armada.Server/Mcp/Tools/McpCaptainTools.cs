@@ -111,6 +111,8 @@ namespace Armada.Server.Mcp.Tools
                     string? ownedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
                         JsonSerializer.Deserialize<CaptainServerOwnedFields>(args.Value, _JsonOptions), null);
                     if (ownedFieldError != null) return CreateToolErrorResponse(ownedFieldError);
+                    string? nameConflict = await CaptainNameRule.FindCreateConflictAsync(database.Captains, request.Name).ConfigureAwait(false);
+                    if (nameConflict != null) return CreateToolErrorResponse(nameConflict);
                     Captain captain = new Captain();
                     captain.Name = request.Name;
                     if (!String.IsNullOrEmpty(request.Runtime) && Enum.TryParse<AgentRuntimeEnum>(request.Runtime, true, out AgentRuntimeEnum rt))

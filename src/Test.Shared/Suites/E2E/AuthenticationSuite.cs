@@ -98,165 +98,24 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
             }));
 
-            cases.Add(CaseAsync("no_api_key_on_get_endpoint_returns_response", "NoApiKey_OnGetEndpoint_ReturnsResponse", TestTags.Negative, async () =>
+            foreach (AuthRefusalRoute route in AuthRefusalRoutes.NoApiKey)
             {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
+                cases.Add(CaseAsync("no_api_key_" + ToCaseId(route.Scenario) + "_is_refused_with_401", "NoApiKey_" + route.Scenario + "_IsRefusedWith401", TestTags.Negative, async () =>
+                {
+                    E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                    await AssertRefusedAsync(fx, fx.UnauthClient, route).ConfigureAwait(false);
+                }));
+            }
 
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_status_returns_response", "NoApiKey_OnStatus_ReturnsResponse", TestTags.Negative, async () =>
+            foreach (AuthRefusalRoute route in AuthRefusalRoutes.WrongApiKeyRoutes)
             {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_captains_returns_response", "NoApiKey_OnCaptains_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/captains").ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_missions_returns_response", "NoApiKey_OnMissions_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/missions?pageSize=1").ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_voyages_returns_response", "NoApiKey_OnVoyages_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/voyages").ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_signals_returns_response", "NoApiKey_OnSignals_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/signals").ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_post_fleets_returns_response", "NoApiKey_OnPostFleets_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "UnauthFleet" });
-                HttpResponseMessage response = await unauthClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_post_captains_returns_response", "NoApiKey_OnPostCaptains_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "UnauthCaptain" });
-                HttpResponseMessage response = await unauthClient.PostAsync("/api/v1/captains", content).ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("no_api_key_on_post_missions_returns_response", "NoApiKey_OnPostMissions_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                StringContent content = JsonHelper.ToJsonContent(new { Title = "UnauthMission" });
-                HttpResponseMessage response = await unauthClient.PostAsync("/api/v1/missions", content).ConfigureAwait(false);
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("wrong_api_key_on_get_endpoint_returns_response", "WrongApiKey_OnGetEndpoint_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                string baseUrl = fx.BaseUrl;
-
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(baseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "wrong-key-value");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }));
-
-            cases.Add(CaseAsync("wrong_api_key_on_captains_returns_response", "WrongApiKey_OnCaptains_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                string baseUrl = fx.BaseUrl;
-
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(baseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "definitely-not-the-right-key");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/captains").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }));
-
-            cases.Add(CaseAsync("wrong_api_key_on_missions_returns_response", "WrongApiKey_OnMissions_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                string baseUrl = fx.BaseUrl;
-
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(baseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "nope-wrong");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/missions?pageSize=1").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }));
-
-            cases.Add(CaseAsync("wrong_api_key_on_status_returns_response", "WrongApiKey_OnStatus_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                string baseUrl = fx.BaseUrl;
-
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(baseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "bad-key");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }));
-
-            cases.Add(CaseAsync("wrong_api_key_on_post_fleets_returns_response", "WrongApiKey_OnPostFleets_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                string baseUrl = fx.BaseUrl;
-
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(baseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "invalid");
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "WrongKeyFleet" });
-                HttpResponseMessage response = await wrongKeyClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }));
+                cases.Add(CaseAsync("wrong_api_key_" + ToCaseId(route.Scenario) + "_is_refused_with_401", "WrongApiKey_" + route.Scenario + "_IsRefusedWith401", TestTags.Negative, async () =>
+                {
+                    E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                    using (HttpClient wrongKeyClient = CreateClientWithKey(fx.BaseUrl, "X-Api-Key", AuthRefusalRoutes.WrongApiKey))
+                        await AssertRefusedAsync(fx, wrongKeyClient, route).ConfigureAwait(false);
+                }));
+            }
 
             cases.Add(CaseAsync("health_endpoint_accessible_without_key", "HealthEndpoint_AccessibleWithoutKey", TestTags.Positive, async () =>
             {
@@ -297,22 +156,6 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("healthy", health.Status);
             }));
 
-            cases.Add(CaseAsync("api_key_header_is_x_api_key", "ApiKeyHeader_IsXApiKey", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                string baseUrl = fx.BaseUrl;
-                string apiKey = fx.ApiKey;
-
-                HttpClient client = new HttpClient();
-                client.BaseAddress = new Uri(baseUrl);
-                client.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
-
-                HttpResponseMessage response = await client.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                client.Dispose();
-            }));
-
             cases.Add(CaseAsync("api_key_header_case_insensitive_lower_case", "ApiKeyHeader_CaseInsensitive_LowerCase", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -327,19 +170,6 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
                 client.Dispose();
-            }));
-
-            cases.Add(CaseAsync("cors_headers_present_in_response", "CorsHeaders_PresentInResponse", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage response = await authClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-
-                Assert(
-                    response.Headers.Contains("Access-Control-Allow-Origin") ||
-                    response.Content.Headers.Contains("Access-Control-Allow-Origin"),
-                    "Expected CORS Allow-Origin header in response");
             }));
 
             cases.Add(CaseAsync("cors_headers_allow_origin_is_wildcard", "CorsHeaders_AllowOriginIsWildcard", TestTags.Positive, async () =>
@@ -488,42 +318,11 @@ namespace Test.Shared.Suites.E2E
                     "Deleted captain should return error on read");
             }));
 
-            cases.Add(CaseAsync("empty_api_key_on_get_endpoint_returns_response", "EmptyApiKey_OnGetEndpoint_ReturnsResponse", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("empty_api_key_get_fleets_is_refused_with_401", "EmptyApiKey_GetFleets_IsRefusedWith401", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                string baseUrl = fx.BaseUrl;
-
-                HttpClient emptyKeyClient = new HttpClient();
-                emptyKeyClient.BaseAddress = new Uri(baseUrl);
-                emptyKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "");
-
-                HttpResponseMessage response = await emptyKeyClient.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                emptyKeyClient.Dispose();
-            }));
-
-            cases.Add(CaseAsync("multiple_endpoints_all_return_responses_without_auth", "MultipleEndpoints_AllReturnResponses_WithoutAuth", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                string[] endpoints = new string[]
-                {
-                    "/api/v1/fleets",
-                    "/api/v1/captains",
-                    "/api/v1/missions?pageSize=1",
-                    "/api/v1/voyages",
-                    "/api/v1/signals",
-                    "/api/v1/vessels",
-                    "/api/v1/status"
-                };
-
-                foreach (string endpoint in endpoints)
-                {
-                    HttpResponseMessage response = await unauthClient.GetAsync(endpoint).ConfigureAwait(false);
-                    AssertNotNull(response);
-                }
+                using (HttpClient emptyKeyClient = CreateClientWithKey(fx.BaseUrl, "X-Api-Key", ""))
+                    await AssertRefusedAsync(fx, emptyKeyClient, AuthRefusalRoutes.ListRoute("GetFleets", "/api/v1/fleets")).ConfigureAwait(false);
             }));
 
             cases.Add(CaseAsync("multiple_protected_endpoints_all_accessible_with_valid_key", "MultipleProtectedEndpoints_AllAccessibleWithValidKey", TestTags.Positive, async () =>
@@ -558,46 +357,18 @@ namespace Test.Shared.Suites.E2E
                 Assert(apiKey.Length > 20, "API key should be sufficiently long");
             }));
 
-            cases.Add(CaseAsync("unauth_client_post_endpoints_return_response", "UnauthClient_PostEndpoints_ReturnResponse", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("no_api_key_delete_fleet_is_refused_with_401_and_fleet_remains", "NoApiKey_DeleteFleet_IsRefusedWith401AndFleetRemains", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "UnauthTest" });
-
-                HttpResponseMessage fleetResp = await unauthClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                AssertNotNull(fleetResp);
+                Fleet fleet = await CreateFleetAsync(fx.AuthClient, "DeleteTarget").ConfigureAwait(false);
+                await AssertRefusedAsync(fx, fx.UnauthClient, AuthRefusalRoutes.DeleteFleet(fleet.Id)).ConfigureAwait(false);
             }));
 
-            cases.Add(CaseAsync("unauth_client_delete_endpoints_return_response", "UnauthClient_DeleteEndpoints_ReturnResponse", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("no_api_key_put_fleet_is_refused_with_401_and_name_unchanged", "NoApiKey_PutFleet_IsRefusedWith401AndNameUnchanged", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-                HttpClient unauthClient = fx.UnauthClient;
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "DeleteTarget" });
-                HttpResponseMessage createResp = await authClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                Fleet createdFleet = await JsonHelper.DeserializeAsync<Fleet>(createResp).ConfigureAwait(false);
-                string fleetId = createdFleet.Id;
-
-                HttpResponseMessage deleteResp = await unauthClient.DeleteAsync("/api/v1/fleets/" + fleetId).ConfigureAwait(false);
-                AssertNotNull(deleteResp);
-            }));
-
-            cases.Add(CaseAsync("unauth_client_put_endpoints_return_response", "UnauthClient_PutEndpoints_ReturnResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-                HttpClient unauthClient = fx.UnauthClient;
-
-                StringContent createContent = JsonHelper.ToJsonContent(new { Name = "UpdateTarget" });
-                HttpResponseMessage createResp = await authClient.PostAsync("/api/v1/fleets", createContent).ConfigureAwait(false);
-                Fleet createdFleet = await JsonHelper.DeserializeAsync<Fleet>(createResp).ConfigureAwait(false);
-                string fleetId = createdFleet.Id;
-
-                StringContent updateContent = JsonHelper.ToJsonContent(new { Name = "UpdatedTarget" });
-                HttpResponseMessage updateResp = await unauthClient.PutAsync("/api/v1/fleets/" + fleetId, updateContent).ConfigureAwait(false);
-                AssertNotNull(updateResp);
+                Fleet fleet = await CreateFleetAsync(fx.AuthClient, "UpdateTarget").ConfigureAwait(false);
+                await AssertRefusedAsync(fx, fx.UnauthClient, AuthRefusalRoutes.PutFleet(fleet.Id, fleet.Name)).ConfigureAwait(false);
             }));
 
             return new TestSuiteDescriptor(
@@ -609,6 +380,38 @@ namespace Test.Shared.Suites.E2E
         #endregion
 
         #region Private-Methods
+
+        private static async Task AssertRefusedAsync(E2EServerFixture fx, HttpClient caller, AuthRefusalRoute route)
+        {
+            string? failure = await AuthRefusalRoutes.DescribeRefusalFailureAsync(caller, fx.AuthClient, route).ConfigureAwait(false);
+            AssertTrue(failure == null, failure);
+        }
+
+        private static HttpClient CreateClientWithKey(string baseUrl, string headerName, string key)
+        {
+            HttpClient client = new HttpClient();
+            client.BaseAddress = new Uri(baseUrl);
+            client.DefaultRequestHeaders.Add(headerName, key);
+            return client;
+        }
+
+        private static async Task<Fleet> CreateFleetAsync(HttpClient authClient, string name)
+        {
+            HttpResponseMessage response = await authClient.PostAsync("/api/v1/fleets", JsonHelper.ToJsonContent(new { Name = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.Created, response.StatusCode);
+            return await JsonHelper.DeserializeAsync<Fleet>(response).ConfigureAwait(false);
+        }
+
+        private static string ToCaseId(string scenario)
+        {
+            System.Text.StringBuilder id = new System.Text.StringBuilder();
+            foreach (char c in scenario)
+            {
+                if (Char.IsUpper(c) && id.Length > 0) id.Append('_');
+                id.Append(Char.ToLowerInvariant(c));
+            }
+            return id.ToString();
+        }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
         {

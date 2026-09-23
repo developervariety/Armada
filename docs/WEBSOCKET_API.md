@@ -2169,7 +2169,9 @@ server-owned field (`Id`, `TenantId`, `UserId`, `State`, `CurrentMissionId`,
 `CurrentDockId`, `ProcessId`, `RecoveryAttempts`, `LastHeartbeatUtc`,
 `LastProcessAliveUtc`, `QuarantineUntilUtc`, `QuarantineReason`, `CreatedUtc`,
 `LastUpdateUtc`) with a non-default value returns `command.error` starting with
-`captain_server_owned_field:` and naming the field.
+`captain_server_owned_field:` and naming the field. A `Name` another captain
+already has returns `command.error` with `A captain with that name already exists.`
+and creates nothing.
 
 **Request:**
 

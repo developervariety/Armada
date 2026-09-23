@@ -10,6 +10,7 @@ namespace Armada.Test.Automated.Suites
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Test.Common;
 
     /// <summary>
@@ -1041,6 +1042,17 @@ namespace Armada.Test.Automated.Suites
                 }).ConfigureAwait(false);
                 string listText = GetToolResultText(listResult);
                 AssertContains(captainId, listText);
+            }).ConfigureAwait(false);
+
+            await RunTest("ArmadaCreateCaptain_DuplicateName_IsRefusedAsConflict", async () =>
+            {
+                string name = "mcp-duplicate-captain-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                JsonElement first = await CallToolAsync("armada_create_captain", new { name = name }).ConfigureAwait(false);
+                AssertFalse(first.TryGetProperty("isError", out JsonElement firstError) && firstError.GetBoolean(), "The first create succeeds: " + first);
+
+                JsonElement second = await CallToolAsync("armada_create_captain", new { name = name, runtime = "Codex" }).ConfigureAwait(false);
+                Assert(second.TryGetProperty("isError", out JsonElement secondError) && secondError.GetBoolean(), "A duplicate name is an error result: " + second);
+                AssertEqual(CaptainNameRule.NameTakenMessage, GetToolResultText(second));
             }).ConfigureAwait(false);
 
             // ArmadaGetCaptain

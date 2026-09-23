@@ -743,24 +743,6 @@ namespace Armada.Test.Automated.Suites
                 Assert(status.TimestampUtc != default, "TimestampUtc should be a valid datetime");
             }).ConfigureAwait(false);
 
-            await RunTest("GetStatus_WithoutAuth_ReturnsResponse", async () =>
-            {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("GetStatus_WrongApiKey_ReturnsResponse", async () =>
-            {
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = _AuthClient.BaseAddress;
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "wrong-api-key");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }).ConfigureAwait(false);
-
             #endregion
 
             #region Health-Check-Endpoint

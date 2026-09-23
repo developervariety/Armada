@@ -162,7 +162,6 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new VesselTests(authClient, unauthClient));
                 runner.AddSuite(new CaptainTests(authClient, unauthClient));
                 runner.AddSuite(new MissionTests(authClient, unauthClient));
-                runner.AddSuite(new MissionMetadataBindingTests(authClient));
                 runner.AddSuite(new VoyageTests(authClient, unauthClient));
                 runner.AddSuite(new SignalTests(authClient, unauthClient));
                 runner.AddSuite(new EventTests(authClient, unauthClient));

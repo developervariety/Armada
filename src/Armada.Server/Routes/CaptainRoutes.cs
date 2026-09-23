@@ -208,6 +208,12 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createOwnedFieldError };
                 }
+                string? nameConflict = await CaptainNameRule.FindCreateConflictAsync(_database.Captains, input.Name).ConfigureAwait(false);
+                if (nameConflict != null)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = nameConflict };
+                }
                 Captain captain = CaptainInputMapping.ForCreate(input);
                 captain.TenantId = ctx.TenantId;
                 captain.UserId = ctx.UserId;
@@ -232,10 +238,11 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Create a captain")
-                .WithDescription("Registers a new captain (AI agent). Accepts configuration fields only (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, PreferenceRank, DefaultPlaybooks). A server-owned field (Id, TenantId, UserId, State, CurrentMissionId, CurrentDockId, ProcessId, RecoveryAttempts, LastHeartbeatUtc, LastProcessAliveUtc, QuarantineUntilUtc, QuarantineReason, CreatedUtc, LastUpdateUtc) sent with a non-default value returns 400 captain_server_owned_field naming the field.")
+                .WithDescription("Registers a new captain (AI agent). Accepts configuration fields only (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, PreferenceRank, DefaultPlaybooks). A server-owned field (Id, TenantId, UserId, State, CurrentMissionId, CurrentDockId, ProcessId, RecoveryAttempts, LastHeartbeatUtc, LastProcessAliveUtc, QuarantineUntilUtc, QuarantineReason, CreatedUtc, LastUpdateUtc) sent with a non-default value returns 400 captain_server_owned_field naming the field. A name that another captain already has returns 409 Conflict and creates nothing.")
                 .WithRequestBody(OpenApiJson.BodyFor<Captain>("Captain data", true))
                 .WithResponse(201, OpenApiJson.For<Captain>("Created captain"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("A captain with that name already exists"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/captains/{id}", async (ApiRequest req) =>

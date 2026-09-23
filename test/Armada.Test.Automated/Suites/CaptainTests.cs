@@ -7,6 +7,7 @@ namespace Armada.Test.Automated.Suites
     using System.Net.Http;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Test.Common;
 
     /// <summary>
@@ -196,24 +197,14 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(0, fetched.RecoveryAttempts);
             });
 
-            await RunTest("Get Captain Not Found Returns Error", async () =>
+            await RunTest("Get Captain Not Found Returns 404 With NotFound Error", async () =>
             {
                 HttpResponseMessage response = await _Client.GetAsync("/api/v1/captains/cpt_nonexistent");
-                ArmadaErrorResponse error = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(response);
-                Assert(
-                    !string.IsNullOrEmpty(error.Error)
-                    || !string.IsNullOrEmpty(error.Message),
-                    "Should have Error or Message property");
-            });
-
-            await RunTest("Get Captain Not Found Status Code Is Not 200 Or Body Has Error", async () =>
-            {
-                HttpResponseMessage response = await _Client.GetAsync("/api/v1/captains/cpt_doesnotexist");
-                string body = await response.Content.ReadAsStringAsync();
-                Assert(
-                    response.StatusCode != HttpStatusCode.OK ||
-                    body.Contains("Error") || body.Contains("Message") || body.Contains("not found", StringComparison.OrdinalIgnoreCase),
-                    "Not-found captain should return non-200 status or error in body");
+                string raw = await response.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, raw);
+                ArmadaErrorResponse error = JsonHelper.Deserialize<ArmadaErrorResponse>(raw);
+                AssertEqual("NotFound", error.Error, raw);
+                AssertEqual("Captain not found", error.Message, raw);
             });
 
             await RunTest("Get Captain With Codex Runtime Returns Correct Runtime", async () =>
@@ -544,24 +535,14 @@ namespace Armada.Test.Automated.Suites
 
             #region Stop
 
-            await RunTest("Stop Captain Not Found Returns Error", async () =>
+            await RunTest("Stop Captain Not Found Returns 404 With NotFound Error", async () =>
             {
                 HttpResponseMessage response = await _Client.PostAsync("/api/v1/captains/cpt_nonexistent/stop", null);
-                ArmadaErrorResponse error = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(response);
-                Assert(
-                    !string.IsNullOrEmpty(error.Error)
-                    || !string.IsNullOrEmpty(error.Message),
-                    "Should have Error or Message property");
-            });
-
-            await RunTest("Stop Captain Not Found Status Code Is Not OK Or Body Has Error", async () =>
-            {
-                HttpResponseMessage response = await _Client.PostAsync("/api/v1/captains/cpt_doesnotexist/stop", null);
-                string body = await response.Content.ReadAsStringAsync();
-                Assert(
-                    response.StatusCode != HttpStatusCode.OK ||
-                    body.Contains("Error") || body.Contains("Message") || body.Contains("not found", StringComparison.OrdinalIgnoreCase),
-                    "Stop on non-existent captain should return non-200 status or error in body");
+                string raw = await response.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, raw);
+                ArmadaErrorResponse error = JsonHelper.Deserialize<ArmadaErrorResponse>(raw);
+                AssertEqual("NotFound", error.Error, raw);
+                AssertEqual("Captain not found", error.Message, raw);
             });
 
             await RunTest("Stop Captain Idle Returns Success", async () =>
@@ -1122,27 +1103,26 @@ namespace Armada.Test.Automated.Suites
 
             #region Edge Cases
 
-            await RunTest("Create Captain Same Name Second Creation Handled", async () =>
+            await RunTest("Create Captain Same Name Second Creation Returns Conflict And Keeps One Row", async () =>
             {
                 Captain captain1 = await CreateCaptainAsync("duplicate-name");
                 AssertStartsWith("cpt_", captain1.Id);
 
                 HttpResponseMessage resp = await _Client.PostAsync("/api/v1/captains",
-                    JsonHelper.ToJsonContent(new { Name = captain1.Name, Runtime = "ClaudeCode" }));
+                    JsonHelper.ToJsonContent(new { Name = captain1.Name, Runtime = "Codex" }));
+                string raw = await resp.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.Conflict, resp.StatusCode, raw);
+                ArmadaErrorResponse error = JsonHelper.Deserialize<ArmadaErrorResponse>(raw);
+                AssertEqual("Conflict", error.Error, raw);
+                AssertEqual(CaptainNameRule.NameTakenMessage, error.Message, raw);
 
-                if (resp.IsSuccessStatusCode)
-                {
-                    Captain captain2 = await JsonHelper.DeserializeAsync<Captain>(resp);
-                    _CreatedCaptainIds.Add(captain2.Id);
-                    AssertNotEqual(captain1.Id, captain2.Id);
-                }
-                else
-                {
-                    Assert(resp.StatusCode == HttpStatusCode.InternalServerError ||
-                                resp.StatusCode == HttpStatusCode.Conflict ||
-                                resp.StatusCode == HttpStatusCode.BadRequest,
-                        "Duplicate name should return error status");
-                }
+                HttpResponseMessage listResp = await _Client.GetAsync("/api/v1/captains?pageSize=1000");
+                AssertEqual(HttpStatusCode.OK, listResp.StatusCode);
+                EnumerationResult<Captain> list = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(listResp);
+                List<Captain> named = list.Objects.Where(c => c.Name == captain1.Name).ToList();
+                AssertEqual(1, named.Count, "A refused duplicate create stores no second captain");
+                AssertEqual(captain1.Id, named[0].Id, "The stored captain is the first one");
+                AssertEqual("ClaudeCode", named[0].Runtime.ToString(), "The refused create does not overwrite the stored captain");
             });
 
             await RunTest("List Captains Default PageSize Returns Results", async () =>

@@ -123,18 +123,12 @@ namespace Test.Shared.Suites.E2E
 
             #region Authentication
 
-            cases.Add(CaseAsync("list_docks_without_auth_returns_unauthorized_or_forbidden", "ListDocks_WithoutAuth_ReturnsUnauthorizedOrForbidden", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("list_docks_without_auth_returns_unauthorized", "ListDocks_WithoutAuth_ReturnsUnauthorized", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/docks");
-                Assert(response.StatusCode == HttpStatusCode.Unauthorized ||
-                       response.StatusCode == HttpStatusCode.Forbidden ||
-                       (int)response.StatusCode == 401 ||
-                       (int)response.StatusCode == 403 ||
-                       response.StatusCode == HttpStatusCode.OK,  // Server may not enforce auth on read endpoints
-                    "Should return valid response");
+                string? failure = await AuthRefusalRoutes.DescribeRefusalFailureAsync(
+                    fx.UnauthClient, fx.AuthClient, AuthRefusalRoutes.ListRoute("ListDocks", "/api/v1/docks")).ConfigureAwait(false);
+                AssertTrue(failure == null, failure);
             }));
 
             #endregion

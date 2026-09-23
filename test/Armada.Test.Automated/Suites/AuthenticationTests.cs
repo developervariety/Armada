@@ -7,6 +7,8 @@ namespace Armada.Test.Automated.Suites
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Test.Common;
+    using AuthRefusalRoute = global::Test.Shared.Infrastructure.AuthRefusalRoute;
+    using AuthRefusalRoutes = global::Test.Shared.Infrastructure.AuthRefusalRoutes;
 
     /// <summary>
     /// Tests for authentication, API key handling, and CORS headers.
@@ -99,127 +101,28 @@ namespace Armada.Test.Automated.Suites
 
             #region No-API-Key
 
-            await RunTest("NoApiKey_OnGetEndpoint_ReturnsResponse", async () =>
+            foreach (AuthRefusalRoute route in AuthRefusalRoutes.NoApiKey)
             {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnStatus_ReturnsResponse", async () =>
-            {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnCaptains_ReturnsResponse", async () =>
-            {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/captains").ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnMissions_ReturnsResponse", async () =>
-            {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/missions?pageSize=1").ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnVoyages_ReturnsResponse", async () =>
-            {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/voyages").ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnSignals_ReturnsResponse", async () =>
-            {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/signals").ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnPostFleets_ReturnsResponse", async () =>
-            {
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "UnauthFleet" });
-                HttpResponseMessage response = await _UnauthClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnPostCaptains_ReturnsResponse", async () =>
-            {
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "UnauthCaptain" });
-                HttpResponseMessage response = await _UnauthClient.PostAsync("/api/v1/captains", content).ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
-
-            await RunTest("NoApiKey_OnPostMissions_ReturnsResponse", async () =>
-            {
-                StringContent content = JsonHelper.ToJsonContent(new { Title = "UnauthMission" });
-                HttpResponseMessage response = await _UnauthClient.PostAsync("/api/v1/missions", content).ConfigureAwait(false);
-                AssertNotNull(response);
-            }).ConfigureAwait(false);
+                await RunTest("NoApiKey_" + route.Scenario + "_IsRefusedWith401", async () =>
+                {
+                    await AssertRefusedAsync(_UnauthClient, route).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+            }
 
             #endregion
 
             #region Wrong-API-Key
 
-            await RunTest("WrongApiKey_OnGetEndpoint_ReturnsResponse", async () =>
+            using (HttpClient wrongKeyClient = CreateClientWithKey("X-Api-Key", AuthRefusalRoutes.WrongApiKey))
             {
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(_BaseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "wrong-key-value");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }).ConfigureAwait(false);
-
-            await RunTest("WrongApiKey_OnCaptains_ReturnsResponse", async () =>
-            {
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(_BaseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "definitely-not-the-right-key");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/captains").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }).ConfigureAwait(false);
-
-            await RunTest("WrongApiKey_OnMissions_ReturnsResponse", async () =>
-            {
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(_BaseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "nope-wrong");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/missions?pageSize=1").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }).ConfigureAwait(false);
-
-            await RunTest("WrongApiKey_OnStatus_ReturnsResponse", async () =>
-            {
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(_BaseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "bad-key");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }).ConfigureAwait(false);
-
-            await RunTest("WrongApiKey_OnPostFleets_ReturnsResponse", async () =>
-            {
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = new Uri(_BaseUrl);
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "invalid");
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "WrongKeyFleet" });
-                HttpResponseMessage response = await wrongKeyClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }).ConfigureAwait(false);
+                foreach (AuthRefusalRoute route in AuthRefusalRoutes.WrongApiKeyRoutes)
+                {
+                    await RunTest("WrongApiKey_" + route.Scenario + "_IsRefusedWith401", async () =>
+                    {
+                        await AssertRefusedAsync(wrongKeyClient, route).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                }
+            }
 
             #endregion
 
@@ -259,43 +162,18 @@ namespace Armada.Test.Automated.Suites
 
             #region API-Key-Header-Name
 
-            await RunTest("ApiKeyHeader_IsXApiKey", async () =>
-            {
-                HttpClient client = new HttpClient();
-                client.BaseAddress = new Uri(_BaseUrl);
-                client.DefaultRequestHeaders.Add("X-Api-Key", _ApiKey);
-
-                HttpResponseMessage response = await client.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                client.Dispose();
-            }).ConfigureAwait(false);
-
             await RunTest("ApiKeyHeader_CaseInsensitive_LowerCase", async () =>
             {
-                HttpClient client = new HttpClient();
-                client.BaseAddress = new Uri(_BaseUrl);
-                client.DefaultRequestHeaders.Add("x-api-key", _ApiKey);
-
-                HttpResponseMessage response = await client.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                client.Dispose();
+                using (HttpClient client = CreateClientWithKey("x-api-key", _ApiKey))
+                {
+                    HttpResponseMessage response = await client.GetAsync("/api/v1/fleets").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                }
             }).ConfigureAwait(false);
 
             #endregion
 
             #region CORS-Headers
-
-            await RunTest("CorsHeaders_PresentInResponse", async () =>
-            {
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/status").ConfigureAwait(false);
-
-                Assert(
-                    response.Headers.Contains("Access-Control-Allow-Origin") ||
-                    response.Content.Headers.Contains("Access-Control-Allow-Origin"),
-                    "Expected CORS Allow-Origin header in response");
-            }).ConfigureAwait(false);
 
             await RunTest("CorsHeaders_AllowOriginIsWildcard", async () =>
             {
@@ -433,36 +311,10 @@ namespace Armada.Test.Automated.Suites
 
             #region Edge-Cases
 
-            await RunTest("EmptyApiKey_OnGetEndpoint_ReturnsResponse", async () =>
+            await RunTest("EmptyApiKey_GetFleets_IsRefusedWith401", async () =>
             {
-                HttpClient emptyKeyClient = new HttpClient();
-                emptyKeyClient.BaseAddress = new Uri(_BaseUrl);
-                emptyKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "");
-
-                HttpResponseMessage response = await emptyKeyClient.GetAsync("/api/v1/fleets").ConfigureAwait(false);
-                AssertNotNull(response);
-
-                emptyKeyClient.Dispose();
-            }).ConfigureAwait(false);
-
-            await RunTest("MultipleEndpoints_AllReturnResponses_WithoutAuth", async () =>
-            {
-                string[] endpoints = new string[]
-                {
-                    "/api/v1/fleets",
-                    "/api/v1/captains",
-                    "/api/v1/missions?pageSize=1",
-                    "/api/v1/voyages",
-                    "/api/v1/signals",
-                    "/api/v1/vessels",
-                    "/api/v1/status"
-                };
-
-                foreach (string endpoint in endpoints)
-                {
-                    HttpResponseMessage response = await _UnauthClient.GetAsync(endpoint).ConfigureAwait(false);
-                    AssertNotNull(response);
-                }
+                using (HttpClient emptyKeyClient = CreateClientWithKey("X-Api-Key", ""))
+                    await AssertRefusedAsync(emptyKeyClient, AuthRefusalRoutes.ListRoute("GetFleets", "/api/v1/fleets")).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
             await RunTest("MultipleProtectedEndpoints_AllAccessibleWithValidKey", async () =>
@@ -491,38 +343,44 @@ namespace Armada.Test.Automated.Suites
                 Assert(_ApiKey.Length > 20, "API key should be sufficiently long");
             }).ConfigureAwait(false);
 
-            await RunTest("UnauthClient_PostEndpoints_ReturnResponse", async () =>
+            await RunTest("NoApiKey_DeleteFleet_IsRefusedWith401AndFleetRemains", async () =>
             {
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "UnauthTest" });
-
-                HttpResponseMessage fleetResp = await _UnauthClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                AssertNotNull(fleetResp);
+                Fleet fleet = await CreateFleetAsync("DeleteTarget").ConfigureAwait(false);
+                await AssertRefusedAsync(_UnauthClient, AuthRefusalRoutes.DeleteFleet(fleet.Id)).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
-            await RunTest("UnauthClient_DeleteEndpoints_ReturnResponse", async () =>
+            await RunTest("NoApiKey_PutFleet_IsRefusedWith401AndNameUnchanged", async () =>
             {
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "DeleteTarget" });
-                HttpResponseMessage createResp = await _AuthClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false);
-                Fleet createdFleet = await JsonHelper.DeserializeAsync<Fleet>(createResp).ConfigureAwait(false);
-                string fleetId = createdFleet.Id;
-
-                HttpResponseMessage deleteResp = await _UnauthClient.DeleteAsync("/api/v1/fleets/" + fleetId).ConfigureAwait(false);
-                AssertNotNull(deleteResp);
-            }).ConfigureAwait(false);
-
-            await RunTest("UnauthClient_PutEndpoints_ReturnResponse", async () =>
-            {
-                StringContent createContent = JsonHelper.ToJsonContent(new { Name = "UpdateTarget" });
-                HttpResponseMessage createResp = await _AuthClient.PostAsync("/api/v1/fleets", createContent).ConfigureAwait(false);
-                Fleet createdFleet = await JsonHelper.DeserializeAsync<Fleet>(createResp).ConfigureAwait(false);
-                string fleetId = createdFleet.Id;
-
-                StringContent updateContent = JsonHelper.ToJsonContent(new { Name = "UpdatedTarget" });
-                HttpResponseMessage updateResp = await _UnauthClient.PutAsync("/api/v1/fleets/" + fleetId, updateContent).ConfigureAwait(false);
-                AssertNotNull(updateResp);
+                Fleet fleet = await CreateFleetAsync("UpdateTarget").ConfigureAwait(false);
+                await AssertRefusedAsync(_UnauthClient, AuthRefusalRoutes.PutFleet(fleet.Id, fleet.Name)).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
             #endregion
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task AssertRefusedAsync(HttpClient caller, AuthRefusalRoute route)
+        {
+            string? failure = await AuthRefusalRoutes.DescribeRefusalFailureAsync(caller, _AuthClient, route).ConfigureAwait(false);
+            AssertTrue(failure == null, failure);
+        }
+
+        private HttpClient CreateClientWithKey(string headerName, string key)
+        {
+            HttpClient client = new HttpClient();
+            client.BaseAddress = new Uri(_BaseUrl);
+            client.DefaultRequestHeaders.Add(headerName, key);
+            return client;
+        }
+
+        private async Task<Fleet> CreateFleetAsync(string name)
+        {
+            HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/fleets", JsonHelper.ToJsonContent(new { Name = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.Created, response.StatusCode);
+            return await JsonHelper.DeserializeAsync<Fleet>(response).ConfigureAwait(false);
         }
 
         #endregion

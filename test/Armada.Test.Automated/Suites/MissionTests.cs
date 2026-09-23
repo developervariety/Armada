@@ -5,6 +5,8 @@ namespace Armada.Test.Automated.Suites
     using System.Linq;
     using System.Net;
     using System.Net.Http;
+    using System.Text;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -37,6 +39,13 @@ namespace Armada.Test.Automated.Suites
         private List<string> _CreatedFleetIds = new List<string>();
         private int _ReleasedMissionCount;
         private int _ReleasedVoyageCount;
+
+        // The binding-update cases share one fleet, two vessels and two voyages, and keep their missions active,
+        // so they are tracked apart from the per-case release lists and removed together by their own cleanup.
+        private string? _BindingFleetId;
+        private List<string> _BindingVesselIds = new List<string>();
+        private List<string> _BindingVoyageIds = new List<string>();
+        private List<string> _BindingMissionIds = new List<string>();
 
         #endregion
 
@@ -369,6 +378,29 @@ namespace Armada.Test.Automated.Suites
                 Mission updated = await JsonHelper.DeserializeAsync<Mission>(response);
                 AssertEqual(missionId, updated.Id);
             });
+
+            // A metadata update sends title, description and priority together; vessel and voyage bindings may be
+            // absent, repeat the stored value, change, or be explicit null. Only absent or unchanged bindings (or a
+            // null voyage on an unbound mission) are accepted, and a refused update persists nothing.
+            await RunTest("UpdateMission_OmittedBindings_UpdatesMetadataAndPreservesBindings", () =>
+                AssertMetadataBindingUpdateAsync(false, null, false, null, HttpStatusCode.OK));
+            await RunTest("UpdateMission_SameVesselWithOmittedVoyage_AcceptsUpdate", () =>
+                AssertMetadataBindingUpdateAsync(true, "same", false, null, HttpStatusCode.OK));
+            await RunTest("UpdateMission_SameVoyageWithOmittedVessel_AcceptsUpdate", () =>
+                AssertMetadataBindingUpdateAsync(false, null, true, "same", HttpStatusCode.OK));
+            await RunTest("UpdateMission_SameBindings_AcceptsUpdate", () =>
+                AssertMetadataBindingUpdateAsync(true, "same", true, "same", HttpStatusCode.OK));
+            await RunTest("UpdateMission_ChangedVessel_RejectsWithoutPersistingChanges", () =>
+                AssertMetadataBindingUpdateAsync(true, "different", false, null, HttpStatusCode.Conflict));
+            await RunTest("UpdateMission_ChangedVoyage_RejectsWithoutPersistingChanges", () =>
+                AssertMetadataBindingUpdateAsync(false, null, true, "different", HttpStatusCode.Conflict));
+            await RunTest("UpdateMission_ExplicitNullVessel_RejectsWithoutPersistingChanges", () =>
+                AssertMetadataBindingUpdateAsync(true, null, false, null, HttpStatusCode.Conflict));
+            await RunTest("UpdateMission_ExplicitNullVoyage_RejectsWithoutPersistingChanges", () =>
+                AssertMetadataBindingUpdateAsync(false, null, true, null, HttpStatusCode.Conflict));
+            await RunTest("UpdateMission_ExplicitNullUnboundVoyage_AcceptsUpdate", () =>
+                AssertMetadataBindingUpdateAsync(false, null, true, null, HttpStatusCode.OK, false));
+            await RunTest("UpdateMission_MetadataBindingFixture_CleansUp", CleanupMetadataBindingFixtureAsync);
 
             #endregion
 
@@ -1871,6 +1903,110 @@ namespace Armada.Test.Automated.Suites
             Voyage voyage = JsonHelper.Deserialize<Voyage>(body);
             _CreatedVoyageIds.Add(voyage.Id);
             return voyage.Id;
+        }
+
+        private async Task AssertMetadataBindingUpdateAsync(bool includeVessel, string? vesselChoice, bool includeVoyage,
+            string? voyageChoice, HttpStatusCode expected, bool bindVoyage = true)
+        {
+            await EnsureMetadataBindingFixtureAsync().ConfigureAwait(false);
+            Dictionary<string, object?> create = new Dictionary<string, object?>
+            {
+                ["Title"] = "Binding original",
+                ["Description"] = "Original metadata",
+                ["Priority"] = 73,
+                ["VesselId"] = _BindingVesselIds[0]
+            };
+            if (bindVoyage) create["VoyageId"] = _BindingVoyageIds[0];
+            Mission before;
+            using (StringContent content = JsonHelper.ToJsonContent(create))
+            using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/missions", content).ConfigureAwait(false))
+            {
+                string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode, body);
+                MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+                before = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
+                AssertFalse(String.IsNullOrEmpty(before.Id));
+                _BindingMissionIds.Add(before.Id);
+            }
+            AssertEqual(_BindingVesselIds[0], before.VesselId);
+            AssertEqual(bindVoyage ? _BindingVoyageIds[0] : null, before.VoyageId);
+            Dictionary<string, object?> update = new Dictionary<string, object?>
+            {
+                ["title"] = "Binding updated",
+                ["description"] = "Updated metadata",
+                ["priority"] = 42
+            };
+            if (includeVessel) update["vesselId"] = vesselChoice == "same" ? before.VesselId : vesselChoice == "different" ? _BindingVesselIds[1] : null;
+            if (includeVoyage) update["voyageId"] = voyageChoice == "same" ? before.VoyageId : voyageChoice == "different" ? _BindingVoyageIds[1] : null;
+            // Default serialization retains explicit null; absent keys remain absent on the wire.
+            using (StringContent content = new StringContent(JsonSerializer.Serialize(update), Encoding.UTF8, "application/json"))
+            using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/missions/" + before.Id, content).ConfigureAwait(false))
+                AssertEqual(expected, response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+
+            using (HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions/" + before.Id).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                Mission stored = await JsonHelper.DeserializeAsync<Mission>(response).ConfigureAwait(false);
+                AssertEqual(before.VesselId, stored.VesselId, "Stored vessel binding");
+                AssertEqual(before.VoyageId, stored.VoyageId, "Stored voyage binding");
+                AssertEqual(expected == HttpStatusCode.OK ? "Binding updated" : before.Title, stored.Title, "Stored title");
+                AssertEqual(expected == HttpStatusCode.OK ? "Updated metadata" : before.Description, stored.Description, "Stored description");
+                AssertEqual(expected == HttpStatusCode.OK ? 42 : before.Priority, stored.Priority, "Stored priority");
+            }
+        }
+
+        private async Task EnsureMetadataBindingFixtureAsync()
+        {
+            if (_BindingFleetId == null)
+            {
+                using (StringContent content = JsonHelper.ToJsonContent(new { Name = "Metadata bindings " + Guid.NewGuid().ToString("N") }))
+                using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/fleets", content).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    _BindingFleetId = (await JsonHelper.DeserializeAsync<Fleet>(response).ConfigureAwait(false)).Id;
+                }
+            }
+            while (_BindingVesselIds.Count < 2)
+            {
+                using (StringContent content = JsonHelper.ToJsonContent(new { Name = "Binding vessel " + Guid.NewGuid().ToString("N"), FleetId = _BindingFleetId, RepoUrl = TestRepoHelper.GetLocalBareRepoUrl() }))
+                using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/vessels", content).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    _BindingVesselIds.Add((await JsonHelper.DeserializeAsync<Vessel>(response).ConfigureAwait(false)).Id);
+                }
+            }
+            while (_BindingVoyageIds.Count < 2)
+            {
+                using (StringContent content = JsonHelper.ToJsonContent(new { Title = "Binding voyage " + Guid.NewGuid().ToString("N") }))
+                using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/voyages", content).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    _BindingVoyageIds.Add((await JsonHelper.DeserializeAsync<Voyage>(response).ConfigureAwait(false)).Id);
+                }
+            }
+        }
+
+        private async Task CleanupMetadataBindingFixtureAsync()
+        {
+            foreach (string id in _BindingMissionIds) await DeleteBindingFixtureAsync("/api/v1/missions/" + id).ConfigureAwait(false);
+            foreach (string id in _BindingVoyageIds)
+            {
+                await DeleteBindingFixtureAsync("/api/v1/voyages/" + id).ConfigureAwait(false);
+                await DeleteBindingFixtureAsync("/api/v1/voyages/" + id + "/purge").ConfigureAwait(false);
+            }
+            foreach (string id in _BindingVesselIds) await DeleteBindingFixtureAsync("/api/v1/vessels/" + id).ConfigureAwait(false);
+            if (_BindingFleetId != null) await DeleteBindingFixtureAsync("/api/v1/fleets/" + _BindingFleetId).ConfigureAwait(false);
+            _BindingMissionIds.Clear();
+            _BindingVoyageIds.Clear();
+            _BindingVesselIds.Clear();
+            _BindingFleetId = null;
+        }
+
+        private async Task DeleteBindingFixtureAsync(string path)
+        {
+            using (HttpResponseMessage response = await _AuthClient.DeleteAsync(path).ConfigureAwait(false))
+                AssertTrue(response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound,
+                    "Fixture cleanup failed: " + await response.Content.ReadAsStringAsync().ConfigureAwait(false));
         }
 
         private async Task CleanupAsync()

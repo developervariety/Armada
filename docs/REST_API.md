@@ -2089,8 +2089,13 @@ refused with `400` and nothing is stored. The message starts with
 `captain_server_owned_field:` and names every refused field. Change captain state
 with `POST /api/v1/captains/{id}/stop`, `/quarantine` and `/unquarantine`.
 
+A captain name is unique across the admiral. A create whose `Name` another captain
+already has is refused with `409 Conflict`, error `Conflict` and the message
+`A captain with that name already exists.`; nothing is stored.
+
 **Response:** `201 Created` - [Captain](#captain)
 **Error:** `400 Bad Request` - Invalid or unavailable model, or a server-owned field (`captain_server_owned_field`)
+**Error:** `409 Conflict` - Another captain already has the requested name
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/captains \

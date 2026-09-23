@@ -7,6 +7,7 @@ namespace Armada.Test.Automated.Suites
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Test.Common;
+    using AuthRefusalRoutes = global::Test.Shared.Infrastructure.AuthRefusalRoutes;
 
     /// <summary>
     /// Tests for dock REST API endpoints.
@@ -120,15 +121,11 @@ namespace Armada.Test.Automated.Suites
 
             #region Authentication
 
-            await RunTest("ListDocks_WithoutAuth_ReturnsUnauthorizedOrForbidden", async () =>
+            await RunTest("ListDocks_WithoutAuth_ReturnsUnauthorized", async () =>
             {
-                HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/docks").ConfigureAwait(false);
-                Assert(response.StatusCode == HttpStatusCode.Unauthorized ||
-                       response.StatusCode == HttpStatusCode.Forbidden ||
-                       (int)response.StatusCode == 401 ||
-                       (int)response.StatusCode == 403 ||
-                       response.StatusCode == HttpStatusCode.OK,  // Server may not enforce auth on read endpoints
-                    "Should return valid response");
+                string? failure = await AuthRefusalRoutes.DescribeRefusalFailureAsync(
+                    _UnauthClient, _AuthClient, AuthRefusalRoutes.ListRoute("ListDocks", "/api/v1/docks")).ConfigureAwait(false);
+                AssertTrue(failure == null, failure);
             });
 
             #endregion

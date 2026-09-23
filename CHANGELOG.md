@@ -116,6 +116,10 @@ upstream integrations and excludes changes already present at that baseline.
   planning sessions and refinement sessions; a dependent that cannot be removed is
   logged, counted and named in the result. Restart resets runtime state in place
   and keeps the captain's identity, configuration, credentials and holds.
+- **Captain names:** captain create on REST, MCP and WebSocket applies one name
+  rule: a name another captain already has is refused before anything is written.
+  REST answers `409 Conflict` with a `Conflict` error instead of a database error,
+  and MCP and WebSocket return the same message as their error result.
 - **Dock and ref handling:** active owners protect their worktrees; idle orphan
   processes cannot block reclaim indefinitely. Persistent collisions expose the
   holding path and process IDs and fail after a bounded retry. Managed ref deletion
@@ -274,6 +278,14 @@ upstream integrations and excludes changes already present at that baseline.
   deleted instead of skipped. Seeded-persona, model-context and default Claude
   argument cases assert the current contract, and the shared runner records no
   named skips.
+- **Authentication and API contract tests:** the anonymous, wrong-key and
+  empty-key cases probe one shared protected-route table and require exactly 401
+  with a `NotAuthorized` body and no protected content; each refused write is
+  checked with an authenticated read to prove nothing was stored or changed. The
+  captain not-found cases require 404 with a `NotFound` error, the duplicate-name
+  case requires 409 and one stored row, and the mission metadata binding cases run
+  in the mission update section. Repeated CORS, valid-key and status auth cases
+  are removed.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

@@ -196,30 +196,6 @@ namespace Test.Shared.Suites.E2E
                 Assert(status.TimestampUtc != default, "TimestampUtc should be a valid datetime");
             }));
 
-            cases.Add(CaseAsync("get_status_without_auth_returns_response", "GetStatus_WithoutAuth_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.GetAsync("/api/v1/status");
-                AssertNotNull(response);
-            }));
-
-            cases.Add(CaseAsync("get_status_wrong_api_key_returns_response", "GetStatus_WrongApiKey_ReturnsResponse", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpClient wrongKeyClient = new HttpClient();
-                wrongKeyClient.BaseAddress = authClient.BaseAddress;
-                wrongKeyClient.DefaultRequestHeaders.Add("X-Api-Key", "wrong-api-key");
-
-                HttpResponseMessage response = await wrongKeyClient.GetAsync("/api/v1/status");
-                AssertNotNull(response);
-
-                wrongKeyClient.Dispose();
-            }));
-
             #endregion
 
             #region Health-Check-Endpoint

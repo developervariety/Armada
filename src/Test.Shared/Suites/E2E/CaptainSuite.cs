@@ -9,6 +9,7 @@ namespace Test.Shared.Suites.E2E
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -242,30 +243,17 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(0, fetched.RecoveryAttempts);
             }));
 
-            cases.Add(CaseAsync("get_captain_not_found_returns_error", "Get Captain Not Found Returns Error", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("get_captain_not_found_returns_404_with_not_found_error", "Get Captain Not Found Returns 404 With NotFound Error", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains/cpt_nonexistent");
-                ArmadaErrorResponse error = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(response);
-                Assert(
-                    !string.IsNullOrEmpty(error.Error)
-                    || !string.IsNullOrEmpty(error.Message),
-                    "Should have Error or Message property");
-            }));
-
-            cases.Add(CaseAsync("get_captain_not_found_status_code_is_not_200_or_body_has_error", "Get Captain Not Found Status Code Is Not 200 Or Body Has Error", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage response = await authClient.GetAsync("/api/v1/captains/cpt_doesnotexist");
-                string body = await response.Content.ReadAsStringAsync();
-                Assert(
-                    response.StatusCode != HttpStatusCode.OK ||
-                    body.Contains("Error") || body.Contains("Message") || body.Contains("not found", StringComparison.OrdinalIgnoreCase),
-                    "Not-found captain should return non-200 status or error in body");
+                string raw = await response.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, raw);
+                ArmadaErrorResponse error = JsonHelper.Deserialize<ArmadaErrorResponse>(raw);
+                AssertEqual("NotFound", error.Error, raw);
+                AssertEqual("Captain not found", error.Message, raw);
             }));
 
             cases.Add(CaseAsync("get_captain_with_codex_runtime_returns_correct_runtime", "Get Captain With Codex Runtime Returns Correct Runtime", TestTags.Positive, async () =>
@@ -547,30 +535,17 @@ namespace Test.Shared.Suites.E2E
 
             #region Stop
 
-            cases.Add(CaseAsync("stop_captain_not_found_returns_error", "Stop Captain Not Found Returns Error", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("stop_captain_not_found_returns_404_with_not_found_error", "Stop Captain Not Found Returns 404 With NotFound Error", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
                 HttpResponseMessage response = await authClient.PostAsync("/api/v1/captains/cpt_nonexistent/stop", null);
-                ArmadaErrorResponse error = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(response);
-                Assert(
-                    !string.IsNullOrEmpty(error.Error)
-                    || !string.IsNullOrEmpty(error.Message),
-                    "Should have Error or Message property");
-            }));
-
-            cases.Add(CaseAsync("stop_captain_not_found_status_code_is_not_ok_or_body_has_error", "Stop Captain Not Found Status Code Is Not OK Or Body Has Error", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage response = await authClient.PostAsync("/api/v1/captains/cpt_doesnotexist/stop", null);
-                string body = await response.Content.ReadAsStringAsync();
-                Assert(
-                    response.StatusCode != HttpStatusCode.OK ||
-                    body.Contains("Error") || body.Contains("Message") || body.Contains("not found", StringComparison.OrdinalIgnoreCase),
-                    "Stop on non-existent captain should return non-200 status or error in body");
+                string raw = await response.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, raw);
+                ArmadaErrorResponse error = JsonHelper.Deserialize<ArmadaErrorResponse>(raw);
+                AssertEqual("NotFound", error.Error, raw);
+                AssertEqual("Captain not found", error.Message, raw);
             }));
 
             cases.Add(CaseAsync("stop_captain_idle_returns_success", "Stop Captain Idle Returns Success", TestTags.Positive, async () =>
@@ -1175,7 +1150,7 @@ namespace Test.Shared.Suites.E2E
 
             #region Edge Cases
 
-            cases.Add(CaseAsync("create_captain_same_name_second_creation_handled", "Create Captain Same Name Second Creation Handled", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("create_captain_same_name_second_creation_returns_conflict_and_keeps_one_row", "Create Captain Same Name Second Creation Returns Conflict And Keeps One Row", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
@@ -1185,21 +1160,20 @@ namespace Test.Shared.Suites.E2E
                 AssertStartsWith("cpt_", captain1.Id);
 
                 HttpResponseMessage resp = await authClient.PostAsync("/api/v1/captains",
-                    JsonHelper.ToJsonContent(new { Name = captain1.Name, Runtime = "ClaudeCode" }));
+                    JsonHelper.ToJsonContent(new { Name = captain1.Name, Runtime = "Codex" }));
+                string raw = await resp.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.Conflict, resp.StatusCode, raw);
+                ArmadaErrorResponse error = JsonHelper.Deserialize<ArmadaErrorResponse>(raw);
+                AssertEqual("Conflict", error.Error, raw);
+                AssertEqual(CaptainNameRule.NameTakenMessage, error.Message, raw);
 
-                if (resp.IsSuccessStatusCode)
-                {
-                    Captain captain2 = await JsonHelper.DeserializeAsync<Captain>(resp);
-                    createdCaptainIds.Add(captain2.Id);
-                    AssertNotEqual(captain1.Id, captain2.Id);
-                }
-                else
-                {
-                    Assert(resp.StatusCode == HttpStatusCode.InternalServerError ||
-                                resp.StatusCode == HttpStatusCode.Conflict ||
-                                resp.StatusCode == HttpStatusCode.BadRequest,
-                        "Duplicate name should return error status");
-                }
+                HttpResponseMessage listResp = await authClient.GetAsync("/api/v1/captains?pageSize=1000");
+                AssertEqual(HttpStatusCode.OK, listResp.StatusCode);
+                EnumerationResult<Captain> list = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(listResp);
+                List<Captain> named = list.Objects.Where(c => c.Name == captain1.Name).ToList();
+                AssertEqual(1, named.Count, "A refused duplicate create stores no second captain");
+                AssertEqual(captain1.Id, named[0].Id, "The stored captain is the first one");
+                AssertEqual("ClaudeCode", named[0].Runtime.ToString(), "The refused create does not overwrite the stored captain");
             }));
 
             cases.Add(CaseAsync("list_captains_default_pagesize_returns_results", "List Captains Default PageSize Returns Results", TestTags.Positive, async () =>

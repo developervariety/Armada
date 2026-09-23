@@ -893,6 +893,9 @@ error that starts with `captain_server_owned_field:` and names every refused fie
 Nothing is written. Change captain state with `armada_stop_captain`,
 `armada_bench_captain` and `armada_unbench_captain`.
 
+`armada_create_captain` with a `name` another captain already has returns the tool
+error `A captain with that name already exists.` and creates nothing.
+
 ## Vessel Writes
 
 `armada_add_vessel` and `armada_update_vessel` accept `gitHubTokenOverride`, the

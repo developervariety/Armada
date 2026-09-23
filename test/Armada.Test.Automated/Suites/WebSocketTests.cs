@@ -9,6 +9,7 @@ namespace Armada.Test.Automated.Suites
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Test.Common;
 
     /// <summary>
@@ -841,6 +842,17 @@ namespace Armada.Test.Automated.Suites
                 string error = resp.GetProperty("error").GetString() ?? String.Empty;
                 AssertContains("State", error);
                 AssertContains("QuarantineReason", error);
+            }).ConfigureAwait(false);
+
+            await RunTest("CreateCaptain_DuplicateName_IsRefusedAsConflict", async () =>
+            {
+                string name = "ws-duplicate-captain-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                JsonElement first = await WsCommandAsync("create_captain", new { data = new { Name = name, Runtime = "ClaudeCode" } }).ConfigureAwait(false);
+                AssertEqual("command.result", first.GetProperty("type").GetString());
+
+                JsonElement second = await WsCommandAsync("create_captain", new { data = new { Name = name, Runtime = "Codex" } }).ConfigureAwait(false);
+                AssertEqual("command.error", second.GetProperty("type").GetString(), second.ToString());
+                AssertEqual(CaptainNameRule.NameTakenMessage, second.GetProperty("error").GetString());
             }).ConfigureAwait(false);
 
             await RunTest("GetCaptain_ExistingCaptain_ReturnsCaptain", async () =>

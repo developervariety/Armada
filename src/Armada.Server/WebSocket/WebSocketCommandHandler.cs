@@ -1145,6 +1145,9 @@ namespace Armada.Server.WebSocket
                 JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, null);
             if (createOwnedFieldError != null)
                 return new { type = "command.error", action = "create_captain", error = createOwnedFieldError };
+            string? nameConflict = await CaptainNameRule.FindCreateConflictAsync(_Database.Captains, newCaptainInput.Name).ConfigureAwait(false);
+            if (nameConflict != null)
+                return new { type = "command.error", action = "create_captain", error = nameConflict };
             Captain captainToCreate = CaptainInputMapping.ForCreate(newCaptainInput);
             captainToCreate.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             captainToCreate.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
