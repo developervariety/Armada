@@ -9914,9 +9914,7 @@ namespace Armada.Core.Services
             if (!literalPin && modelTierSettings != null
                 && !LegacyCaptainSelector.TierOrderFor(modelTierSettings, new Mission { Persona = missionPersona, PreferredModel = preferredModel })
                     .Contains(CaptainTierSelector.EffectiveTier(captain))) return false;
-            if (literalPin && modelTierSettings != null
-                && !PreferredModelTierSelector.TierOrder(modelTierSettings.MinimumTierForPersona(missionPersona), null)
-                    .Contains(CaptainTierSelector.EffectiveTier(captain))) return false;
+            if (literalPin && FailsPersonaMinimumTier(captain, missionPersona, modelTierSettings)) return false;
 
             if (!String.IsNullOrEmpty(missionPersona))
             {
@@ -9924,6 +9922,39 @@ namespace Armada.Core.Services
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Whether the persona's minimum tier excludes the captain. The minimum holds for every captain that
+        /// takes the persona, whatever model the mission pins and whichever captain it requests.
+        /// </summary>
+        /// <param name="captain">Captain being considered.</param>
+        /// <param name="missionPersona">Mission persona, if any.</param>
+        /// <param name="modelTierSettings">Settings naming the persona minimum tiers; null applies no minimum.</param>
+        /// <returns>True when the captain's effective tier is below the persona's minimum tier.</returns>
+        internal static bool FailsPersonaMinimumTier(Captain captain, string? missionPersona, ModelTierSettings? modelTierSettings)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (modelTierSettings == null) return false;
+            return !PreferredModelTierSelector.TierOrder(modelTierSettings.MinimumTierForPersona(missionPersona), null)
+                .Contains(CaptainTierSelector.EffectiveTier(captain));
+        }
+
+        /// <summary>
+        /// Whether a captain may work a mission of the supplied tenant. A mission is worked only by a captain
+        /// of its own tenant; a record with no tenant belongs to the default tenant. Assignment, the claim and
+        /// the dispatch preview all ask this rule.
+        /// </summary>
+        /// <param name="captain">Captain being considered.</param>
+        /// <param name="missionTenantId">The mission's tenant, or null for the default tenant.</param>
+        /// <returns>True when the captain belongs to the mission's tenant.</returns>
+        public static bool CaptainServesTenant(Captain captain, string? missionTenantId)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            return String.Equals(
+                Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(captain.TenantId),
+                Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(missionTenantId),
+                StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -10097,10 +10128,9 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<string?> DescribeUnassignableByConstructionAsync(Mission mission, CancellationToken token)
         {
-            string assignmentTenant = AssignmentTenantOf(mission);
             List<Captain> all = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
             List<Captain> tenantCaptains = all
-                .Where(item => String.Equals(Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(item.TenantId), assignmentTenant, StringComparison.Ordinal))
+                .Where(item => CaptainServesTenant(item, mission.TenantId))
                 .ToList();
             if (tenantCaptains.Count == 0)
                 return "no captain belongs to the mission's tenant";
@@ -10135,13 +10165,12 @@ namespace Armada.Core.Services
             if (idleCaptains.Count == 0 && !hasRequest)
                 return null;
 
-            string assignmentTenant = AssignmentTenantOf(mission!);
             List<Captain> assignableCaptains = new List<Captain>();
             foreach (Captain idleCaptain in idleCaptains)
             {
                 // A mission is worked only by a captain of its own tenant. The claim enforces the same
                 // rule, so a captain of another tenant is never provisioned a dock it could not claim.
-                if (!String.Equals(Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(idleCaptain.TenantId), assignmentTenant, StringComparison.Ordinal)) continue;
+                if (!CaptainServesTenant(idleCaptain, mission.TenantId)) continue;
                 if (_CaptainQuarantine.IsQuarantined(idleCaptain)) continue;
                 if (IsExcludedForAssignment(mission, idleCaptain)) continue;
                 // Reserved by another mission's in-flight assignment: still Idle in the database,
@@ -10172,9 +10201,8 @@ namespace Armada.Core.Services
                 bool narrow = false;
                 if (hasRequest)
                 {
-                    List<UsageRouteSettings>? routes = UsageRoutingService.FindPersonaRoutes(usagePolicy, mission.Persona);
                     List<Captain> usable = idleCaptains
-                        .Where(c => (routes == null || UsageRoutingService.RoutesAdmit(usagePolicy, routes, c))
+                        .Where(c => UsageRoutingService.PersonaRoutesAdmit(usagePolicy, mission.Persona, c)
                             && usage.ClassifyCaptain(usagePolicy, mission, c, busy, now).Outcome != UsageRoutingService.OutcomeRemoved)
                         .ToList();
                     request = await DecideRequestedCaptainAsync(mission, usable, "not approved by Smart Routing", token).ConfigureAwait(false);
@@ -10256,9 +10284,12 @@ namespace Armada.Core.Services
         // checks mirror the assignable-pool gates so the recorded reason matches the real exclusion.
         private string? DescribeRequestedCaptainUnavailability(Mission mission, Captain requested, List<Captain> pool, string? poolExclusionLabel)
         {
+            string? ineligible = RequestedCaptainAssignmentRule.DescribeIneligibility(
+                requested, mission.Persona, _Settings.ModelTier);
+            if (ineligible != null) return ineligible;
             if (_CaptainQuarantine.IsQuarantined(requested)) return "quarantined";
             if (requested.State != CaptainStateEnum.Idle) return "busy (" + requested.State + ")";
-            if (!String.Equals(Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(requested.TenantId), AssignmentTenantOf(mission), StringComparison.Ordinal))
+            if (!CaptainServesTenant(requested, mission.TenantId))
                 return "in another tenant";
             if (IsExcludedForAssignment(mission, requested)) return "excluded after a policy refusal";
             if (IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, requested.Id)) return "on the mission's retry skip list";
@@ -10587,23 +10618,18 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(mission.RequestedCaptainId)) return;
             if (String.IsNullOrEmpty(mission.Persona)) return;
 
-            string? resolvedCaptainId = null;
-            CaptainTierEnum? resolvedTier = null;
-
             List<CaptainAssignmentOverride> overrides = await ReadVoyageCaptainOverridesAsync(mission.VoyageId, token).ConfigureAwait(false);
             CaptainAssignmentOverride? chosen = SelectCaptainOverride(overrides, mission.Persona);
-            if (chosen != null)
-            {
-                resolvedCaptainId = String.IsNullOrEmpty(chosen.CaptainId) ? null : chosen.CaptainId;
-                resolvedTier = chosen.FallbackTier;
-            }
-
-            if (String.IsNullOrEmpty(resolvedCaptainId))
+            string? personaDefaultCaptainId = null;
+            if (chosen == null || String.IsNullOrWhiteSpace(chosen.CaptainId))
             {
                 Persona? persona = await ReadPersonaByNameAsync(mission, mission.Persona, token).ConfigureAwait(false);
-                if (persona != null && !String.IsNullOrEmpty(persona.DefaultCaptainId))
-                    resolvedCaptainId = persona.DefaultCaptainId;
+                personaDefaultCaptainId = persona?.DefaultCaptainId;
             }
+
+            RequestedCaptainResolution resolution = RequestedCaptainAssignmentRule.ResolveRequest(chosen, personaDefaultCaptainId);
+            string? resolvedCaptainId = resolution.CaptainId;
+            CaptainTierEnum? resolvedTier = resolution.FallbackTier;
 
             if (String.IsNullOrEmpty(resolvedCaptainId) && resolvedTier == null) return;
 
@@ -10641,17 +10667,38 @@ namespace Armada.Core.Services
 
         private async Task<Persona?> ReadPersonaByNameAsync(Mission mission, string personaName, CancellationToken token)
         {
-            // The mission's owner decides which persona applies: its own tenant's record first, then a
-            // shared one. Another user's private persona never shapes this mission.
-            OwnedRecordLookup<Persona> lookup = await OwnedRecordScope.ReadUsableByNameAsync(
-                mission.TenantId,
-                mission.UserId,
-                personaName,
-                () => _Database.Personas.EnumerateAsync(token),
-                record => record.Name).ConfigureAwait(false);
+            OwnedRecordLookup<Persona> lookup = await ReadUsablePersonaAsync(
+                _Database, mission.TenantId, mission.UserId, personaName, token).ConfigureAwait(false);
             if (lookup.WasRefused)
                 _Logging.Warn(_Header + "mission " + mission.Id + " names persona '" + personaName + "' that its owner may not use -- persona not applied");
             return lookup.Record;
+        }
+
+        /// <summary>
+        /// Read the persona record that applies to a mission's owner: its own tenant's record first, then a
+        /// shared one. Another user's private persona never shapes the mission. Assignment and the dispatch
+        /// preview both read the persona through this rule.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="ownerTenantId">The mission owner's tenant.</param>
+        /// <param name="ownerUserId">The mission owner's user.</param>
+        /// <param name="personaName">Persona name.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The lookup, which names a refusal when the only record belongs to someone else.</returns>
+        public static async Task<OwnedRecordLookup<Persona>> ReadUsablePersonaAsync(
+            DatabaseDriver database,
+            string? ownerTenantId,
+            string? ownerUserId,
+            string personaName,
+            CancellationToken token = default)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            return await OwnedRecordScope.ReadUsableByNameAsync(
+                ownerTenantId,
+                ownerUserId,
+                personaName,
+                () => database.Personas.EnumerateAsync(token),
+                record => record.Name).ConfigureAwait(false);
         }
 
         private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, CancellationToken token)

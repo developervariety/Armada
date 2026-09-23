@@ -143,7 +143,11 @@ Use `preview_objective_dispatch` or
 `GET /api/v1/objectives/{id}/dispatch-preview` before dispatch. The read-only
 preview checks the target, pipeline roles, configured captains, required Checks,
 repository inputs, brief, and the complete typed dependency graph. Diagnostic
-paths are bounded and report when they are truncated. A compatible captain
+paths are bounded and report when they are truncated. Role coverage asks the
+rules assignment asks: the vessel's tenant, quarantine (including a future
+quarantine deadline), Smart Routing persona routes, the requested captain from a
+captain override or the persona's default captain with its fallback tier floor,
+and the tier floor a pinned model no captain runs sets. A compatible captain
 does not have to be idle for the objective to be ready; idle state is capacity.
 Operator and autonomous objective dispatch use this same preflight.
 The REST preview accepts a JSON `captainAssignments` query value when an

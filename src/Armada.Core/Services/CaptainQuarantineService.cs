@@ -21,6 +21,18 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public bool IsQuarantined(Captain captain)
         {
+            return IsQuarantinedAt(captain, DateTime.UtcNow);
+        }
+
+        /// <summary>
+        /// Whether a captain is quarantined at the supplied instant: its state is Quarantined, or its
+        /// quarantine deadline is still in the future. Assignment and the dispatch preview both ask this rule.
+        /// </summary>
+        /// <param name="captain">Captain to test.</param>
+        /// <param name="nowUtc">The instant to test at.</param>
+        /// <returns>True when the captain may not take work at that instant.</returns>
+        public static bool IsQuarantinedAt(Captain captain, DateTime nowUtc)
+        {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
             if (captain.State == CaptainStateEnum.Quarantined)
@@ -28,7 +40,7 @@ namespace Armada.Core.Services
                 return true;
             }
 
-            return captain.QuarantineUntilUtc.HasValue && captain.QuarantineUntilUtc.Value > DateTime.UtcNow;
+            return captain.QuarantineUntilUtc.HasValue && captain.QuarantineUntilUtc.Value > nowUtc;
         }
 
         /// <inheritdoc />

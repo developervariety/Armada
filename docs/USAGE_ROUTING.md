@@ -696,10 +696,14 @@ persona `DefaultCaptainId`. Every assignment path applies one rule:
    filter removes (Exhausted or at the account concurrency limit). No request
    overrides these gates. A demoted (Low or Reserve) requested captain is
    still assigned.
-2. If the requested captain is in that pool, it is assigned. This is an
-   explicit choice. It wins over persona preference, model-tier selection
-   and the captain's `AllowedPersonas` fence.
-3. If the requested captain is not in the pool, normal routing runs over the
+2. If the requested captain is in that pool and is eligible for the
+   mission's persona, it is assigned. This is an explicit choice. It wins over
+   persona preference, the model pin and model-tier selection. It never wins
+   over the captain's `AllowedPersonas` fence, its runtime's capability for the
+   persona, or the persona's `minimumTier`: a requested captain
+   that fails one of these is unavailable, and the event names the reason
+   (`not eligible for persona ...`).
+3. If the requested captain is not in the pool or is not eligible, normal routing runs over the
    captains at or above the fallback tier. The fallback tier is the stored
    `Tier`, or the requested captain's own effective tier when no tier is
    stored. The lowest tier at or above that floor is preferred. A stored tier
@@ -712,8 +716,12 @@ persona `DefaultCaptainId`. Every assignment path applies one rule:
 Rules 3, 4 and 5 record a `mission.requested_captain` event. The event names
 the requested captain, why it was not used, and the tier. Read these events
 when a mission with a requested captain waits. A wait that does not change is
-recorded once. A mission with neither field set is assigned exactly as
-before.
+recorded once. A mission with neither field set is assigned by normal routing.
+
+The objective dispatch preview reports role coverage through these same rules,
+reading the requested captain from the captain override or the persona's
+default captain. It counts a busy captain as coverage, so a role is covered
+when assignment would choose some captain once the fleet is free.
 
 With no pinned tier on any captain, each captain's tier is classified from
 its model name, and a model the classifier does not know is Standard.

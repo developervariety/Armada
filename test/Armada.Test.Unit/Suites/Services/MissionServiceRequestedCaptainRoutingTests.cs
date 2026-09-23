@@ -218,6 +218,76 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_RequestedCaptainOutsideThePersonaAllowList_IsPassedOverWithANamedReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService service = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain requested = await CreateCaptainAsync(testDb.Driver, "judge-only", CaptainStateEnum.Idle, CaptainTierEnum.Standard).ConfigureAwait(false);
+                    requested.AllowedPersonas = "[\"Judge\"]";
+                    await testDb.Driver.Captains.UpdateAsync(requested).ConfigureAwait(false);
+                    Captain worker = await CreateCaptainAsync(testDb.Driver, "idle-worker", CaptainStateEnum.Idle, CaptainTierEnum.Standard).ConfigureAwait(false);
+
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, requested.Id, null).ConfigureAwait(false);
+                    AssertTrue(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "An eligible captain at the floor takes the mission");
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(worker.Id, read!.CaptainId, "A requested captain whose allow-list excludes the persona is never assigned");
+
+                    List<ArmadaEvent> events = await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "The substitution is recorded as a requested-captain event");
+                    AssertContains("not eligible for persona Worker", events[0].Message, "The event names why the requested captain was passed over");
+                }
+            });
+
+            await RunTest("TryAssign_IneligibleRequestedCaptainWithoutTierEligibleFallback_WaitsWithNamedReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService service = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain requested = await CreateCaptainAsync(testDb.Driver, "judge-only-premium", CaptainStateEnum.Idle, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    requested.AllowedPersonas = "[\"Judge\"]";
+                    await testDb.Driver.Captains.UpdateAsync(requested).ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "idle-economy", CaptainStateEnum.Idle, CaptainTierEnum.Economy).ConfigureAwait(false);
+
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, requested.Id, null).ConfigureAwait(false);
+                    AssertFalse(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "No eligible captain at the requested captain's tier means no assignment");
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNull(read!.CaptainId, "Neither the ineligible requested captain nor a lower-tier substitute is assigned");
+
+                    List<ArmadaEvent> events = await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "The wait is recorded as a requested-captain event");
+                    AssertContains("not eligible for persona Worker", events[0].Message, "The wait names the eligibility reason");
+                    AssertContains("Premium", events[0].Message, "The wait names the fallback tier");
+                }
+            });
+
+            await RunTest("TryAssign_RequestedCaptainRunningAnotherModelThanThePin_IsStillAssigned", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService service = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Captain requested = await CreateCaptainAsync(testDb.Driver, "economy-requested", CaptainStateEnum.Idle, CaptainTierEnum.Economy).ConfigureAwait(false);
+                    requested.Model = "claude-haiku-4-5";
+                    await testDb.Driver.Captains.UpdateAsync(requested).ConfigureAwait(false);
+                    Captain pinned = await CreateCaptainAsync(testDb.Driver, "pinned-model", CaptainStateEnum.Idle, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    pinned.Model = "claude-opus-4-7";
+                    await testDb.Driver.Captains.UpdateAsync(pinned).ConfigureAwait(false);
+
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, requested.Id, null).ConfigureAwait(false);
+                    mission.PreferredModel = "claude-opus-4-7";
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    AssertTrue(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "The requested captain is assigned");
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(requested.Id, read!.CaptainId, "Naming a captain is the explicit choice of its model and tier, ahead of the pin");
+                }
+            });
+
             await RunTest("TryAssign_RequestedCaptainUnderUsageRouting_IsChosenFromUsageCandidates", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

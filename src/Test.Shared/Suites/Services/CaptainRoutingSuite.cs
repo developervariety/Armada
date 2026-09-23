@@ -167,21 +167,23 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("preferred_idle_captain_is_assigned", "Preferred captain, when idle, is assigned even against the persona fence", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("preferred_captain_outside_persona_fence_is_passed_over", "A preferred captain whose persona fence excludes the mission is never assigned; routing falls back at its tier", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
-                    // The preferred captain only allows "Judge", yet the mission is a "RoutingWorker" -- the
-                    // explicit choice must override the AllowedPersonas fence.
+                    // The preferred captain only allows "Judge" and the mission is a "RoutingWorker": naming a
+                    // captain does not override its persona fence.
                     Captain preferred = await AddCaptainAsync(testDb.Driver, "pref-idle", CaptainStateEnum.Idle, "[\"Judge\"]", null).ConfigureAwait(false);
+                    Captain fallback = await AddCaptainAsync(testDb.Driver, "fallback-idle", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
                     Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, "RoutingWorker", preferred.Id, null).ConfigureAwait(false);
 
                     bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
-                    AssertTrue(assigned, "Idle preferred captain should be assignable");
+                    AssertTrue(assigned, "An eligible captain at the preferred captain's tier takes the mission");
 
                     Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(preferred.Id, read!.CaptainId, "Idle preferred captain should be assigned despite the persona fence");
+                    AssertEqual(fallback.Id, read!.CaptainId, "The preferred captain outside its persona fence is passed over");
+                    AssertEqual(preferred.Id, read.RequestedCaptainId, "The request itself is kept on the mission");
                 }
             }));
 

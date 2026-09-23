@@ -70,7 +70,7 @@ namespace Armada.Core.Services
             List<SmartRoutingCaptainVerdict> outside = new List<SmartRoutingCaptainVerdict>();
             foreach (Captain captain in request.Pool)
             {
-                if (routes == null || UsageRoutingService.RoutesAdmit(policy, routes, captain)) restricted.Add(captain);
+                if (UsageRoutingService.PersonaRoutesAdmit(policy, mission.Persona, captain)) restricted.Add(captain);
                 else outside.Add(new SmartRoutingCaptainVerdict { CaptainId = captain.Id, Model = captain.Model, Layer = UsageRoutingService.LayerRoutes, Outcome = UsageRoutingService.OutcomeOutsideRoutes, Reason = UsageRoutingService.ReasonOutsideRoutes });
             }
 

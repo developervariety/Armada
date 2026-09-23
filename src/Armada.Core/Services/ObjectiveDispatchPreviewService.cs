@@ -212,7 +212,7 @@ namespace Armada.Core.Services
 
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
             Pipeline? coveragePipeline = ApplyStoredStageSkip(objective, pipeline, result);
-            EvaluateCaptainCoverage(coveragePipeline, captains, captainAssignments, missionDescriptions, result);
+            await EvaluateCaptainCoverageAsync(vessel, coveragePipeline, captains, captainAssignments, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
 
             // D5 preflight text half. Runs LAST, after the deterministic block computed the facts and
@@ -1090,47 +1090,122 @@ namespace Armada.Core.Services
             }
         }
 
-        private void EvaluateCaptainCoverage(
+        /// <summary>
+        /// Report, per required role, the captains assignment could ever choose, by asking the rules
+        /// assignment asks: the mission's tenant, quarantine, Smart Routing persona routes, the requested
+        /// captain (the override's captain or the persona's default captain) and its fallback tier floor,
+        /// and the Legacy Routing eligibility layer, under which a pinned model no captain runs is a tier
+        /// floor. A busy captain counts as coverage; idle state is capacity, not readiness. Nothing is
+        /// reserved or claimed.
+        /// </summary>
+        private async Task EvaluateCaptainCoverageAsync(
+            Vessel vessel,
             Pipeline? pipeline,
             List<Captain> captains,
             IReadOnlyList<CaptainAssignmentOverride>? captainAssignments,
             IReadOnlyList<MissionDescription>? missionDescriptions,
-            ObjectiveDispatchPreview result)
+            ObjectiveDispatchPreview result,
+            CancellationToken token)
         {
             List<PipelineStage> stages = pipeline?.Stages?.ToList()
                 ?? new List<PipelineStage> { new PipelineStage(1, "Worker") };
+            ModelTierSettings tiers = _Settings.ModelTier;
+            UsageRoutingSettings usage = tiers.UsageRouting;
+            DateTime now = DateTime.UtcNow;
+            Dictionary<string, string?> personaDefaults = new Dictionary<string, string?>(StringComparer.Ordinal);
             foreach (PipelineStage stage in stages
                 .Where(item => item != null)
                 .OrderBy(item => item.Order))
             {
                 List<string?> resolvedPreferences = ResolveStagePreferredModels(
-                    stage, missionDescriptions, _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName));
+                    stage, missionDescriptions, tiers.MinimumTierForPersona(stage.PersonaName));
                 foreach (string? preferredModel in resolvedPreferences.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     CaptainAssignmentOverride? assignment = MissionService.SelectCaptainOverride(captainAssignments, stage.PersonaName);
-                    CaptainTierEnum? fallbackTier = assignment?.FallbackTier;
-                    List<Captain> configured = captains
-                        .Where(IsConfiguredUsableCaptain)
-                        .Where(captain => MissionService.CaptainSatisfiesPreferredRouting(
-                            captain, stage.PersonaName, preferredModel, _Settings.ModelTier))
-                        .Where(captain => fallbackTier == null || CaptainTierSelector.EffectiveTier(captain) >= fallbackTier.Value)
+                    bool overrideNamesCaptain = assignment != null && !String.IsNullOrWhiteSpace(assignment.CaptainId);
+                    string? personaDefault = null;
+                    if (!overrideNamesCaptain && !String.IsNullOrEmpty(stage.PersonaName))
+                    {
+                        if (!personaDefaults.TryGetValue(stage.PersonaName, out personaDefault))
+                        {
+                            OwnedRecordLookup<Persona> lookup = await MissionService.ReadUsablePersonaAsync(
+                                _Database, vessel.TenantId, vessel.UserId, stage.PersonaName, token).ConfigureAwait(false);
+                            personaDefault = lookup.Record?.DefaultCaptainId;
+                            personaDefaults[stage.PersonaName] = personaDefault;
+                        }
+                    }
+
+                    RequestedCaptainResolution request = RequestedCaptainAssignmentRule.ResolveRequest(assignment, personaDefault);
+                    Mission probe = new Mission
+                    {
+                        Persona = stage.PersonaName,
+                        PreferredModel = preferredModel,
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        RequestedCaptainId = request.CaptainId,
+                        Tier = request.FallbackTier
+                    };
+
+                    List<Captain> pool = captains
+                        .Where(captain => captain != null && IsAssignableForCoverage(captain, probe, usage, now))
                         .ToList();
 
-                    if (assignment != null && !String.IsNullOrWhiteSpace(assignment.CaptainId))
+                    Captain? requested = null;
+                    if (request.CaptainId != null)
                     {
-                        Captain? selected = captains.FirstOrDefault(captain => String.Equals(
-                            captain.Id, assignment.CaptainId, StringComparison.Ordinal));
-                        if (selected == null || !IsConfiguredUsableCaptain(selected)
-                            || !MissionService.CaptainSatisfiesPreferredRouting(
-                                selected, stage.PersonaName, preferredModel, _Settings.ModelTier))
+                        requested = captains.FirstOrDefault(captain => captain != null && String.Equals(captain.Id, request.CaptainId, StringComparison.Ordinal))
+                            ?? await _Database.Captains.ReadAsync(request.CaptainId, token).ConfigureAwait(false);
+                    }
+
+                    string? ineligible = requested == null
+                        ? null
+                        : RequestedCaptainAssignmentRule.DescribeIneligibility(requested, stage.PersonaName, tiers);
+                    bool requestedAssignable = requested != null
+                        && ineligible == null
+                        && pool.Any(captain => String.Equals(captain.Id, requested.Id, StringComparison.Ordinal));
+
+                    // An assignable requested captain takes the mission whenever it is free; while it is busy, or
+                    // when it can never take it, the fallback tier floor applies to the rest of the pool.
+                    List<Captain> fallbackPool = requestedAssignable
+                        ? pool.Where(captain => !String.Equals(captain.Id, requested!.Id, StringComparison.Ordinal)).ToList()
+                        : pool;
+                    RequestedCaptainAssignmentDecision fallback = RequestedCaptainAssignmentRule.Decide(
+                        probe,
+                        requested,
+                        ineligible ?? (requestedAssignable ? "busy" : "not assignable"),
+                        fallbackPool);
+
+                    List<Captain> configured = new List<Captain>();
+                    if (requestedAssignable) configured.Add(requested!);
+                    if (fallback.Outcome != RequestedCaptainOutcomeEnum.WaitForTier)
+                    {
+                        foreach (Captain candidate in fallback.Candidates)
+                        {
+                            if (LegacyCaptainSelector.CouldSelect(tiers, probe, candidate)
+                                && !configured.Any(captain => String.Equals(captain.Id, candidate.Id, StringComparison.Ordinal)))
+                                configured.Add(candidate);
+                        }
+                    }
+
+                    if (overrideNamesCaptain)
+                    {
+                        Captain? visible = captains.FirstOrDefault(captain => captain != null && String.Equals(
+                            captain.Id, request.CaptainId, StringComparison.Ordinal));
+                        if (visible == null
+                            || !IsConfiguredUsableCaptain(visible)
+                            || !MissionService.CaptainServesTenant(visible, probe.TenantId)
+                            || ineligible != null)
                         {
                             AddIssue(result, "assigned_captain_ineligible", "captain", ReadinessSeverityEnum.Error,
-                                "The assigned captain cannot run the " + stage.PersonaName + " role.", assignment.CaptainId);
+                                "The assigned captain cannot run the " + stage.PersonaName + " role"
+                                + (ineligible != null ? ": it is " + ineligible + "." : "."), assignment!.CaptainId);
                         }
-                        else if (!configured.Any(captain => String.Equals(captain.Id, selected.Id, StringComparison.Ordinal)))
-                        {
-                            configured.Add(selected);
-                        }
+                    }
+                    else if (requested != null && ineligible != null)
+                    {
+                        AddIssue(result, "default_captain_ineligible", "captain", ReadinessSeverityEnum.Warning,
+                            "The " + stage.PersonaName + " persona's default captain is " + ineligible
+                            + ", so assignment passes it over.", requested.Id);
                     }
 
                     ObjectiveDispatchRole role = new ObjectiveDispatchRole
@@ -1154,6 +1229,17 @@ namespace Armada.Core.Services
                     }
                 }
             }
+        }
+
+        // The gates assignment applies before any choice, with a busy captain counted as one that will be
+        // free: its state is usable, it belongs to the mission's tenant, it is not quarantined, and the
+        // persona's Smart Routing routes admit it when Smart Routing is enabled.
+        private static bool IsAssignableForCoverage(Captain captain, Mission probe, UsageRoutingSettings usage, DateTime now)
+        {
+            return IsConfiguredUsableCaptain(captain)
+                && MissionService.CaptainServesTenant(captain, probe.TenantId)
+                && !CaptainQuarantineService.IsQuarantinedAt(captain, now)
+                && (!usage.Enabled || UsageRoutingService.PersonaRoutesAdmit(usage, probe.Persona, captain));
         }
 
         private static List<string?> ResolveStagePreferredModels(

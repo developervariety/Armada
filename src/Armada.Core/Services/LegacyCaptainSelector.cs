@@ -95,6 +95,22 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Whether the selector would pick the captain were it the only idle captain: its persona lock and
+        /// runtime admit the persona, and it runs a concrete pinned model or its tier is in the mission's tier
+        /// order (a pin no idle captain runs is a floor at the pinned model's tier). The dispatch preview asks
+        /// this per captain so it reports the captains assignment could ever choose.
+        /// </summary>
+        /// <param name="tiers">Model tier settings.</param>
+        /// <param name="mission">The mission being assigned.</param>
+        /// <param name="captain">The captain.</param>
+        /// <returns>True when the selector admits the captain.</returns>
+        public static bool CouldSelect(ModelTierSettings tiers, Mission mission, Captain captain)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            return Select(tiers, mission, new List<Captain> { captain }, false, _ => 0) != null;
+        }
+
+        /// <summary>
         /// The Legacy Routing order of the whole pool: the selector's first pick, then its pick from the
         /// captains left, and so on until it picks none. A captain the selector would never pick (a persona or
         /// tier constraint) is not in the order.

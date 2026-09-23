@@ -181,6 +181,13 @@ upstream integrations and excludes changes already present at that baseline.
 - **Model selection:** one capability-tier rule drives eligibility and preview.
   Smart Routing filters and orders eligible captains by account usage and persona
   preferences; dead model-list entries have visible diagnostics and fallback.
+- **Dispatch preview role coverage:** the preview reports the captains assignment
+  could choose by calling the assignment rules themselves: the mission's tenant,
+  quarantine deadlines, Smart Routing persona routes, the requested captain from
+  an override or the persona's default captain with its fallback tier floor, and
+  a pinned model no captain runs as a tier floor. A requested captain whose persona
+  allow-list, runtime capability, or minimum tier excludes the persona is never
+  assigned; assignment falls back at its tier and names the reason.
 - **Settings reload:** the manual reload endpoint and the settings-file watcher share
   one reload path bound to the server's own settings file. Settings updates and both
   reloads share one candidate validator for account key paths and captain runtime

@@ -5,6 +5,7 @@ namespace Armada.Core.Services
     using System.Linq;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
 
     /// <summary>
     /// The one rule that applies a mission's requested captain and stored fallback tier at assignment.
@@ -17,7 +18,10 @@ namespace Armada.Core.Services
     /// normal routing runs over captains whose effective tier is at or above the fallback tier: the stored
     /// mission tier when set, else the requested captain's own effective tier. When no pooled captain meets
     /// that floor the mission waits with a named reason; it is never handed to a lower-tier substitute.
-    /// A mission with neither field set gets its pool back unchanged.
+    /// A mission with neither field set gets its pool back unchanged. A requested captain that cannot serve
+    /// the mission's persona (its allow-list, its runtime's capability, or the persona's minimum tier) is
+    /// never an explicit choice: it is an unavailable requested captain with that reason. The mission's
+    /// model pin and tier floor are otherwise the operator's choice and do not disqualify it.
     /// </remarks>
     public static class RequestedCaptainAssignmentRule
     {
@@ -41,6 +45,47 @@ namespace Armada.Core.Services
         {
             if (mission == null) return false;
             return !String.IsNullOrWhiteSpace(mission.RequestedCaptainId) || mission.Tier.HasValue;
+        }
+
+        /// <summary>
+        /// Resolve the requested captain and fallback tier for a mission of one persona: the captain the
+        /// override names, else the persona's default captain; the fallback tier the override stores.
+        /// </summary>
+        /// <param name="chosen">The captain override that applies to the persona, or null.</param>
+        /// <param name="personaDefaultCaptainId">The persona record's default captain, or null.</param>
+        /// <returns>The resolution; both fields null when nothing is requested.</returns>
+        public static RequestedCaptainResolution ResolveRequest(CaptainAssignmentOverride? chosen, string? personaDefaultCaptainId)
+        {
+            RequestedCaptainResolution resolution = new RequestedCaptainResolution();
+            if (chosen != null)
+            {
+                resolution.CaptainId = String.IsNullOrWhiteSpace(chosen.CaptainId) ? null : chosen.CaptainId.Trim();
+                resolution.FallbackTier = chosen.FallbackTier;
+            }
+
+            if (resolution.CaptainId == null && !String.IsNullOrWhiteSpace(personaDefaultCaptainId))
+                resolution.CaptainId = personaDefaultCaptainId.Trim();
+            return resolution;
+        }
+
+        /// <summary>
+        /// Why a requested captain may never take a mission of the supplied persona, or null when it may. The
+        /// persona allow-list, the runtime's capability for the persona, and the persona's minimum tier
+        /// disqualify it; the mission's model pin and tier floor do not, because naming the captain is the
+        /// operator's explicit choice of its model and tier.
+        /// </summary>
+        /// <param name="requested">The requested captain.</param>
+        /// <param name="persona">Mission persona, if any.</param>
+        /// <param name="tiers">Model tier settings naming the persona minimum tiers; null applies no minimum.</param>
+        /// <returns>The reason, or null when the captain is eligible.</returns>
+        public static string? DescribeIneligibility(Captain requested, string? persona, ModelTierSettings? tiers)
+        {
+            if (requested == null) throw new ArgumentNullException(nameof(requested));
+            if (!MissionService.CaptainAllowsPersona(requested, persona))
+                return "not eligible for persona " + persona + " (its persona allow-list or runtime capability excludes it)";
+            if (MissionService.FailsPersonaMinimumTier(requested, persona, tiers))
+                return "not eligible for persona " + persona + ", whose minimum tier is " + tiers!.MinimumTierForPersona(persona);
+            return null;
         }
 
         /// <summary>

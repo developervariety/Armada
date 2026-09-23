@@ -708,7 +708,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Preview rejects an unavailable literal model without rewriting the pin", async () =>
+            await RunTest("Preview treats a literal model no captain runs as its tier floor without rewriting the pin", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -717,6 +717,7 @@ namespace Armada.Test.Unit.Suites.Services
                         includeUnitTestCommand: true,
                         settings: global::Test.Shared.Infrastructure.FleetRoutingSettings.CreateArmadaSettings()).ConfigureAwait(false);
                     harness.Captain.Model = "gpt-5.6-luna";
+                    harness.Captain.Tier = CaptainTierEnum.Premium;
                     harness.Captain.State = CaptainStateEnum.Idle;
                     await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
 
@@ -730,30 +731,33 @@ namespace Armada.Test.Unit.Suites.Services
                     Objective objective = harness.CreateReadyObjective("literal-pin-preview");
                     objective.SuggestedPipelineId = pipeline.Id;
                     await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Implement feature", "Use the requested model")
+                        {
+                            PreferredModel = "gpt-5.6-sol"
+                        }
+                    };
 
                     ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
-                        harness.Auth,
-                        objective,
-                        harness.Vessel.Id,
-                        pipeline.Id,
-                        null,
-                        new List<MissionDescription>
-                        {
-                            new MissionDescription("Implement feature", "Use the requested model")
-                            {
-                                PreferredModel = "gpt-5.6-sol"
-                            }
-                        }).ConfigureAwait(false);
+                        harness.Auth, objective, harness.Vessel.Id, pipeline.Id, null, missions).ConfigureAwait(false);
 
                     ObjectiveDispatchRole workerRole = result.RequiredRoles.Single(role => role.Persona == "Worker");
                     AssertEqual("gpt-5.6-sol", workerRole.PreferredModel,
                         "preview must retain the literal model value that dispatch persists");
-                    AssertEqual(0, workerRole.EligibleConfiguredCaptainIds.Count,
-                        "a different mid-tier model must not satisfy an exact literal pin");
-                    AssertFalse(result.IsReady,
-                        "preview must reject dispatch when no configured captain serves the literal model pin");
-                    AssertTrue(result.Issues.Any(issue => issue.Code == "required_role_has_no_captain"),
-                        "the unavailable literal pin must report the standard missing-role error");
+                    AssertTrue(workerRole.EligibleConfiguredCaptainIds.Contains(harness.Captain.Id),
+                        "a captain at or above the pinned model's tier covers a pin no captain runs, as assignment does");
+                    AssertTrue(result.IsReady,
+                        "preview must be ready when assignment would fall back to the pinned model's tier floor");
+
+                    harness.Captain.Tier = CaptainTierEnum.Economy;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    ObjectiveDispatchPreview belowFloor = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, harness.Vessel.Id, pipeline.Id, null, missions).ConfigureAwait(false);
+                    AssertEqual(0, belowFloor.RequiredRoles.Single(role => role.Persona == "Worker").EligibleConfiguredCaptainIds.Count,
+                        "a captain below the pinned model's tier does not cover the pin");
+                    AssertTrue(belowFloor.Issues.Any(issue => issue.Code == "required_role_has_no_captain"),
+                        "an uncovered pin floor reports the standard missing-role error");
                 }
             }).ConfigureAwait(false);
 
@@ -815,11 +819,174 @@ namespace Armada.Test.Unit.Suites.Services
                             new CaptainAssignmentOverride("Worker", harness.Captain.Id, null)
                         },
                         missions).ConfigureAwait(false);
-                    AssertFalse(overridden.IsReady,
-                        "one persona override must be eligible for every generated mission assigned to that persona");
-                    AssertTrue(overridden.Issues.Any(issue => issue.Code == "assigned_captain_ineligible"),
-                        "the incompatible Sol mission must identify the persona override as ineligible");
+                    AssertTrue(overridden.IsReady,
+                        "a named captain is the operator's explicit choice of model, so it covers a mission pinned to another model");
+                    AssertFalse(overridden.Issues.Any(issue => issue.Code == "assigned_captain_ineligible"),
+                        "a model pin does not make an otherwise eligible override ineligible");
+
+                    harness.Captain.AllowedPersonas = "[\"Judge\"]";
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    ObjectiveDispatchPreview outsideAllowList = await harness.Service.PreviewAsync(
+                        harness.Auth,
+                        objective,
+                        harness.Vessel.Id,
+                        pipeline.Id,
+                        new List<CaptainAssignmentOverride>
+                        {
+                            new CaptainAssignmentOverride("Worker", harness.Captain.Id, null)
+                        },
+                        missions).ConfigureAwait(false);
+                    AssertFalse(outsideAllowList.IsReady,
+                        "an override whose persona allow-list excludes the role is never an eligible choice");
+                    AssertTrue(outsideAllowList.Issues.Any(issue => issue.Code == "assigned_captain_ineligible"
+                        && issue.Message.Contains("persona", StringComparison.Ordinal)),
+                        "the ineligible override is named with its reason");
                 }
+            }).ConfigureAwait(false);
+
+            await RunTest("A benched persona default captain floors role coverage at its tier", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: CoverageSettings()).ConfigureAwait(false);
+                    harness.Captain.Tier = CaptainTierEnum.Standard;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    Captain premium = await testDb.Driver.Captains.CreateAsync(new Captain("benched-default")
+                    {
+                        State = CaptainStateEnum.Benched,
+                        Tier = CaptainTierEnum.Premium
+                    }).ConfigureAwait(false);
+                    await SetPersonaDefaultCaptainAsync(testDb, "Worker", premium.Id).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("benched-default-preview");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertEqual(0, result.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "assignment makes the default captain the requested captain and floors its fallback at Premium, so the Standard captain never takes the role");
+                    AssertFalse(result.IsReady, "a role no captain can take is not ready");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An override captain with no stored tier floors the fallback at its own tier", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: CoverageSettings()).ConfigureAwait(false);
+                    harness.Captain.Tier = CaptainTierEnum.Standard;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    Captain premium = await testDb.Driver.Captains.CreateAsync(new Captain("busy-override")
+                    {
+                        State = CaptainStateEnum.Working,
+                        Tier = CaptainTierEnum.Premium
+                    }).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("override-floor-preview");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth,
+                        objective,
+                        null,
+                        null,
+                        new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", premium.Id, null) },
+                        null).ConfigureAwait(false);
+
+                    ObjectiveDispatchRole role = result.RequiredRoles.Single();
+                    AssertEqual(1, role.EligibleConfiguredCaptainIds.Count,
+                        "only the override captain can take the role: the fallback floor is its Premium tier");
+                    AssertEqual(premium.Id, role.EligibleConfiguredCaptainIds[0], "the override captain covers the role");
+                    AssertEqual(0, role.IdleEligibleCount, "the idle Standard captain is below the floor, so no idle capacity is reported");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Role coverage counts only captains of the vessel's tenant for an admin caller", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: CoverageSettings()).ConfigureAwait(false);
+                    TenantMetadata other = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Other preview tenant")).ConfigureAwait(false);
+                    harness.Captain.TenantId = other.Id;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("tenant-preview");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertEqual(0, result.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "a captain of another tenant never works the vessel's missions");
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "required_role_has_no_captain"),
+                        "the uncovered role reports the standard missing-role error");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Smart Routing persona routes that admit no captain leave the role uncovered", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CoverageSettings();
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: settings).ConfigureAwait(false);
+                    harness.Captain.Model = "claude-sonnet-4-6";
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    ApplyRoutes(settings, new List<string> { harness.Captain.Id }, new List<string> { "unused-route-model" });
+                    Objective objective = harness.CreateReadyObjective("routes-preview");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(0, result.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "a route that names only a model no captain runs admits no captain");
+
+                    ApplyRoutes(settings, new List<string> { harness.Captain.Id }, new List<string>());
+                    ObjectiveDispatchPreview admitted = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(1, admitted.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "a route that names the captain's account and no model list admits it");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A captain under a timed quarantine is not role coverage until the quarantine ends", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: CoverageSettings()).ConfigureAwait(false);
+                    harness.Captain.QuarantineUntilUtc = DateTime.UtcNow.AddHours(1);
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("quarantine-preview");
+
+                    ObjectiveDispatchPreview held = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(0, held.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "an Idle captain whose quarantine deadline is in the future is quarantined, as assignment reads it");
+
+                    harness.Captain.QuarantineUntilUtc = DateTime.UtcNow.AddHours(-1);
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    ObjectiveDispatchPreview released = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(1, released.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "an expired quarantine deadline does not hold the captain");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preview role coverage agrees with assignment across the captain routing domain", async () =>
+            {
+                List<CoverageParityCase> domain = CoverageParityCase.Domain();
+                List<string> disagreements = new List<string>();
+                int assigned = 0;
+                int refused = 0;
+                foreach (CoverageParityCase parityCase in domain)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CoverageParityVerdict verdict = await EvaluateCoverageParityAsync(testDb, parityCase).ConfigureAwait(false);
+                        if (verdict.DispatchAssigns) assigned++;
+                        else refused++;
+                        if (verdict.PreviewCoverable != verdict.DispatchAssigns)
+                        {
+                            disagreements.Add(parityCase.Label
+                                + ": preview " + (verdict.PreviewCoverable ? "covered" : "uncovered")
+                                + ", assignment " + (verdict.DispatchAssigns ? "assigned" : "never assigned"));
+                        }
+                    }
+                }
+
+                foreach (string disagreement in disagreements) Console.WriteLine("  coverage disagreement: " + disagreement);
+                AssertTrue(assigned > 0, "the domain holds cases assignment serves");
+                AssertTrue(refused > 0, "the domain holds cases assignment refuses, so the comparison is not only yes against yes");
+                AssertEqual(0, disagreements.Count,
+                    disagreements.Count + " of " + domain.Count + " cases disagree:" + Environment.NewLine
+                    + String.Join(Environment.NewLine, disagreements.Take(40)));
             }).ConfigureAwait(false);
 
             await RunTest("An objective with no preflight block is refused as preflight-incomplete", async () =>
@@ -1115,6 +1282,200 @@ namespace Armada.Test.Unit.Suites.Services
                         "a refused skip leaves the pipeline unchanged");
                 }
             }).ConfigureAwait(false);
+        }
+
+        private static ArmadaSettings CoverageSettings()
+        {
+            string id = Guid.NewGuid().ToString("N");
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_coverage_docks_" + id);
+            settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_coverage_repos_" + id);
+            settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_coverage_logs_" + id);
+            return settings;
+        }
+
+        private static void ApplyRoutes(ArmadaSettings settings, List<string> accountCaptainIds, List<string> routeModels)
+        {
+            settings.ModelTier.UsageRouting = new UsageRoutingSettings
+            {
+                Enabled = true,
+                Accounts = new List<UsageAccountSettings>
+                {
+                    new UsageAccountSettings { Id = "coverage-account", CaptainIds = new List<string>(accountCaptainIds) }
+                },
+                PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>>
+                {
+                    ["Worker"] = new List<UsageRouteSettings>
+                    {
+                        new UsageRouteSettings { AccountId = "coverage-account", Models = new List<string>(routeModels) }
+                    }
+                }
+            };
+        }
+
+        private static async Task SetPersonaDefaultCaptainAsync(TestDatabase testDb, string personaName, string captainId)
+        {
+            Persona? persona = await testDb.Driver.Personas.ReadByNameAsync(personaName).ConfigureAwait(false);
+            if (persona == null)
+            {
+                persona = new Persona(personaName, "persona.worker");
+                persona.DefaultCaptainId = captainId;
+                await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                return;
+            }
+
+            persona.DefaultCaptainId = captainId;
+            await testDb.Driver.Personas.UpdateAsync(persona).ConfigureAwait(false);
+        }
+
+        // Builds one case's fleet, asks the preview whether the Worker role is covered, then asks real
+        // assignment whether it assigns the mission. Working captains are made Idle first: the preview
+        // counts a busy captain as coverage, so the question is whether assignment would ever choose one.
+        private static async Task<CoverageParityVerdict> EvaluateCoverageParityAsync(TestDatabase testDb, CoverageParityCase parityCase)
+        {
+            ArmadaSettings settings = CoverageSettings();
+            PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: settings).ConfigureAwait(false);
+            await testDb.Driver.Captains.DeleteAsync(harness.Captain.Id).ConfigureAwait(false);
+            // Assignment refuses a vessel whose working directory is its repository, so the oracle vessel gets its own.
+            harness.Vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_coverage_work_" + Guid.NewGuid().ToString("N"));
+            await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+
+            Captain high = new Captain("parity-high")
+            {
+                Tier = CaptainTierEnum.Premium,
+                Model = "claude-opus-4-7",
+                State = parityCase.HighState == "working" ? CaptainStateEnum.Working
+                    : parityCase.HighState == "benched" ? CaptainStateEnum.Benched
+                    : CaptainStateEnum.Idle
+            };
+            if (parityCase.HighState == "quarantined-until") high.QuarantineUntilUtc = DateTime.UtcNow.AddHours(1);
+            if (parityCase.HighState == "quarantine-expired") high.QuarantineUntilUtc = DateTime.UtcNow.AddHours(-1);
+            high = await testDb.Driver.Captains.CreateAsync(high).ConfigureAwait(false);
+
+            Captain low = new Captain("parity-low")
+            {
+                Tier = CaptainTierEnum.Standard,
+                Model = "claude-sonnet-4-6",
+                State = CaptainStateEnum.Idle
+            };
+            if (parityCase.Low == "other-tenant")
+            {
+                TenantMetadata other = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Parity other tenant")).ConfigureAwait(false);
+                low.TenantId = other.Id;
+            }
+            if (parityCase.Low == "locked") low.AllowedPersonas = "[\"Architect\"]";
+            low = await testDb.Driver.Captains.CreateAsync(low).ConfigureAwait(false);
+
+            if (parityCase.Routing == "admit-none")
+                ApplyRoutes(settings, new List<string> { high.Id, low.Id }, new List<string> { "unused-route-model" });
+            else if (parityCase.Routing == "admit-high")
+                ApplyRoutes(settings, new List<string> { high.Id }, new List<string>());
+
+            List<CaptainAssignmentOverride>? overrides = null;
+            if (parityCase.Request == "override-high")
+                overrides = new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", high.Id, null) };
+            else if (parityCase.Request == "override-low")
+                overrides = new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", low.Id, null) };
+            else if (parityCase.Request == "override-tier-premium")
+                overrides = new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", null, CaptainTierEnum.Premium) };
+            else if (parityCase.Request == "default-high")
+                await SetPersonaDefaultCaptainAsync(testDb, "Worker", high.Id).ConfigureAwait(false);
+            else if (parityCase.Request == "default-low")
+                await SetPersonaDefaultCaptainAsync(testDb, "Worker", low.Id).ConfigureAwait(false);
+
+            Objective objective = harness.CreateReadyObjective("coverage-parity");
+            ObjectiveDispatchPreview preview = await harness.Service.PreviewAsync(
+                harness.Auth,
+                objective,
+                harness.Vessel.Id,
+                null,
+                overrides,
+                new List<MissionDescription>
+                {
+                    new MissionDescription("Implement", "Change code") { Mode = "Implementation", PreferredModel = parityCase.Pin }
+                }).ConfigureAwait(false);
+            bool previewCoverable = preview.RequiredRoles.Single(role => role.Persona == "Worker").EligibleConfiguredCaptainIds.Count > 0;
+
+            Voyage voyage = new Voyage("coverage parity", "assignment oracle");
+            voyage.TenantId = harness.Vessel.TenantId;
+            voyage.UserId = harness.Vessel.UserId;
+            voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(overrides);
+            voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+            Mission mission = new Mission("coverage parity", "assignment oracle");
+            mission.TenantId = harness.Vessel.TenantId;
+            mission.UserId = harness.Vessel.UserId;
+            mission.VesselId = harness.Vessel.Id;
+            mission.VoyageId = voyage.Id;
+            mission.Persona = "Worker";
+            mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                null, parityCase.Pin, settings.ModelTier.MinimumTierForPersona("Worker"));
+            mission.Status = MissionStatusEnum.Pending;
+            mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+            if (high.State == CaptainStateEnum.Working)
+            {
+                high.State = CaptainStateEnum.Idle;
+                await testDb.Driver.Captains.UpdateAsync(high).ConfigureAwait(false);
+            }
+
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            StubGitService git = new StubGitService();
+            IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+            CaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+            captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64101);
+            MissionService missions = new MissionService(logging, testDb.Driver, settings, dockService, captainService,
+                resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
+            await missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+            Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+
+            return new CoverageParityVerdict
+            {
+                PreviewCoverable = previewCoverable,
+                DispatchAssigns = !String.IsNullOrEmpty(stored?.CaptainId)
+            };
+        }
+
+        private sealed class CoverageParityVerdict
+        {
+            public bool PreviewCoverable { get; set; }
+            public bool DispatchAssigns { get; set; }
+        }
+
+        private sealed class CoverageParityCase
+        {
+            public string HighState { get; set; } = "idle";
+            public string Low { get; set; } = "own";
+            public string Request { get; set; } = "none";
+            public string? Pin { get; set; } = null;
+            public string Routing { get; set; } = "off";
+
+            public string Label => "high=" + HighState + " low=" + Low + " request=" + Request
+                + " pin=" + (Pin ?? "none") + " routing=" + Routing;
+
+            // A Premium captain whose availability varies, a Standard captain whose tenant or persona lock
+            // varies, every way a mission requests a captain or tier, a pin one captain runs and a pin no
+            // captain runs, and Smart Routing persona routes that admit nobody or only the Premium captain.
+            public static List<CoverageParityCase> Domain()
+            {
+                List<CoverageParityCase> cases = new List<CoverageParityCase>();
+                string[] highStates = { "idle", "working", "benched", "quarantined-until", "quarantine-expired" };
+                string[] lows = { "own", "other-tenant", "locked" };
+                string[] requests = { "none", "override-high", "override-low", "override-tier-premium", "default-high", "default-low" };
+                string?[] pins = { null, "claude-opus-4-7", "claude-sonnet-5" };
+                foreach (string highState in highStates)
+                    foreach (string low in lows)
+                        foreach (string request in requests)
+                            foreach (string? pin in pins)
+                                cases.Add(new CoverageParityCase { HighState = highState, Low = low, Request = request, Pin = pin });
+
+                foreach (string routing in new[] { "admit-none", "admit-high" })
+                    foreach (string highState in new[] { "idle", "benched" })
+                        foreach (string request in new[] { "none", "override-low", "default-high", "default-low" })
+                            cases.Add(new CoverageParityCase { HighState = highState, Request = request, Routing = routing });
+                return cases;
+            }
         }
 
         private static void SetAnswer(ObjectivePreflight preflight, int number, ObjectivePreflightAnswerEnum answer)

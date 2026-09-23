@@ -631,6 +631,23 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Whether the persona's Smart Routing routes admit the captain. A persona with no routes (and no
+        /// wildcard route) admits every captain. Assignment, the Smart Routing selector and the dispatch preview
+        /// all ask this rule.
+        /// </summary>
+        /// <param name="settings">Usage routing settings.</param>
+        /// <param name="persona">The mission persona.</param>
+        /// <param name="captain">The captain.</param>
+        /// <returns>True when the persona has no routes or a route admits the captain.</returns>
+        public static bool PersonaRoutesAdmit(UsageRoutingSettings settings, string? persona, Captain captain)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            List<UsageRouteSettings>? routes = FindPersonaRoutes(settings, persona);
+            return routes == null || RoutesAdmit(settings, routes, captain);
+        }
+
+        /// <summary>
         /// Whether a persona route admits the captain: the route's account lists the captain, and the route lists
         /// no models or lists the captain's model.
         /// </summary>

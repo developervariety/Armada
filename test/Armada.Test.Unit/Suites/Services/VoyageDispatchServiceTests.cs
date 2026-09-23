@@ -2382,20 +2382,21 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         /// <summary>
-        /// Seed the preferred captain, whose persona fence excludes Worker, and a competing idle
-        /// captain that Worker routing would otherwise choose. Returns the preferred captain.
+        /// Seed the preferred captain and a competing idle captain whose preferred persona is Worker, so
+        /// Worker routing would otherwise choose the competing captain. Returns the preferred captain.
         /// </summary>
         private static async Task<Captain> CreateOverrideCaptainsAsync(TestDatabase testDb)
         {
             Captain competing = new Captain("override-competing-worker");
             competing.State = CaptainStateEnum.Idle;
             competing.AllowedPersonas = "[\"Worker\"]";
+            competing.PreferredPersona = "Worker";
             competing.Tier = CaptainTierEnum.Premium;
             await testDb.Driver.Captains.CreateAsync(competing).ConfigureAwait(false);
 
             Captain preferred = new Captain("override-preferred");
             preferred.State = CaptainStateEnum.Idle;
-            preferred.AllowedPersonas = "[\"Judge\"]";
+            preferred.AllowedPersonas = "[\"Judge\", \"Worker\"]";
             preferred.Tier = CaptainTierEnum.Premium;
             return await testDb.Driver.Captains.CreateAsync(preferred).ConfigureAwait(false);
         }
