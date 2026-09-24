@@ -202,6 +202,18 @@ namespace Armada.Core.Database.Postgresql
         }
 
         /// <summary>
+        /// Read an optional text column. An empty string reads as null, as on the other providers.
+        /// </summary>
+        /// <param name="value">Column value.</param>
+        /// <returns>The text, or null when the column is null or empty.</returns>
+        internal static string? NullableString(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            string text = value.ToString() ?? String.Empty;
+            return text.Length == 0 ? null : text;
+        }
+
+        /// <summary>
         /// Read a required UTC timestamp without shifting it through local time.
         /// Npgsql returns DateTimeKind.Unspecified; ToUniversalTime() would treat that as local.
         /// </summary>

@@ -177,5 +177,67 @@ namespace Armada.Test.Database
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
         }
+        internal async Task VerifyPlaybookEmptyTextAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? playbookId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("playbook-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "playbook-user", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "playbook-fleet", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "playbook-vessel", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "playbook-captain", token).ConfigureAwait(false);
+                Voyage voyage = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "playbook-voyage", token).ConfigureAwait(false);
+                Mission mission = await fixture.CreateMissionAsync(tenant.Id, user.Id, voyage.Id, vessel.Id, captain.Id, "playbook-mission", token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+
+                Playbook playbook = new Playbook
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    FileName = "round-trip-" + suffix + ".md",
+                    Description = "Playbook description ユニコード",
+                    Content = "# Playbook\nBody 内容",
+                    Active = false
+                };
+                Playbook created = await _Driver.Playbooks.CreateAsync(playbook, token).ConfigureAwait(false);
+                playbookId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Playbooks.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Playbook");
+
+                // Every provider reads an empty optional text column as null, so a caller never has to tell
+                // an empty description from a missing one.
+                created.Description = "";
+                await _Driver.Playbooks.UpdateAsync(created, token).ConfigureAwait(false);
+                Playbook emptied = DatabaseAssert.NotNull(await _Driver.Playbooks.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Playbook with empty description");
+                DatabaseAssert.True(emptied.Description == null, "Empty playbook description reads as null");
+
+                MissionPlaybookSnapshot snapshot = new MissionPlaybookSnapshot
+                {
+                    PlaybookId = created.Id,
+                    FileName = created.FileName,
+                    Description = "",
+                    Content = "Snapshot content",
+                    DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent,
+                    ResolvedPath = "",
+                    WorktreeRelativePath = "",
+                    SourceLastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                };
+                await _Driver.Playbooks.SetMissionSnapshotsAsync(mission.Id, new List<MissionPlaybookSnapshot> { snapshot }, token).ConfigureAwait(false);
+                List<MissionPlaybookSnapshot> snapshots = await _Driver.Playbooks.GetMissionSnapshotsAsync(mission.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, snapshots.Count, "Mission playbook snapshot count");
+                DatabaseAssert.True(snapshots[0].Description == null, "Empty snapshot description reads as null");
+                DatabaseAssert.True(snapshots[0].ResolvedPath == null, "Empty snapshot resolved path reads as null");
+                DatabaseAssert.True(snapshots[0].WorktreeRelativePath == null, "Empty snapshot worktree path reads as null");
+                DatabaseAssert.Equal(created.Id, snapshots[0].PlaybookId, "Snapshot playbook id");
+                DatabaseAssert.UtcInstant(snapshot.SourceLastUpdateUtc, snapshots[0].SourceLastUpdateUtc, "Snapshot SourceLastUpdateUtc");
+                await _Driver.Playbooks.SetMissionSnapshotsAsync(mission.Id, new List<MissionPlaybookSnapshot>(), token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (playbookId != null && !_NoCleanup) await _Driver.Playbooks.DeleteAsync(playbookId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
     }
 }

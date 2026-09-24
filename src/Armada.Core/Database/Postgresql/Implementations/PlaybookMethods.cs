@@ -498,10 +498,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return new Playbook
             {
                 Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = reader["tenant_id"] == DBNull.Value ? null : reader["tenant_id"].ToString(),
-                UserId = reader["user_id"] == DBNull.Value ? null : reader["user_id"].ToString(),
+                TenantId = PostgresqlDatabaseDriver.NullableString(reader["tenant_id"]),
+                UserId = PostgresqlDatabaseDriver.NullableString(reader["user_id"]),
                 FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = reader["description"] == DBNull.Value ? null : reader["description"].ToString(),
+                Description = PostgresqlDatabaseDriver.NullableString(reader["description"]),
                 Content = reader["content"].ToString() ?? String.Empty,
                 Active = Convert.ToBoolean(reader["active"]),
                 CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
@@ -513,13 +513,13 @@ namespace Armada.Core.Database.Postgresql.Implementations
         {
             return new MissionPlaybookSnapshot
             {
-                PlaybookId = reader["playbook_id"] == DBNull.Value ? null : reader["playbook_id"].ToString(),
+                PlaybookId = PostgresqlDatabaseDriver.NullableString(reader["playbook_id"]),
                 FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = reader["description"] == DBNull.Value ? null : reader["description"].ToString(),
+                Description = PostgresqlDatabaseDriver.NullableString(reader["description"]),
                 Content = reader["content"].ToString() ?? String.Empty,
                 DeliveryMode = ParseDeliveryMode(reader["delivery_mode"]),
-                ResolvedPath = reader["resolved_path"] == DBNull.Value ? null : reader["resolved_path"].ToString(),
-                WorktreeRelativePath = reader["worktree_relative_path"] == DBNull.Value ? null : reader["worktree_relative_path"].ToString(),
+                ResolvedPath = PostgresqlDatabaseDriver.NullableString(reader["resolved_path"]),
+                WorktreeRelativePath = PostgresqlDatabaseDriver.NullableString(reader["worktree_relative_path"]),
                 SourceLastUpdateUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["source_last_update_utc"])
             };
         }

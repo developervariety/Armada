@@ -85,6 +85,11 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **PostgreSQL playbook empty text:** PostgreSQL reads an empty playbook
+  tenant, user or description, and an empty snapshot playbook id, description,
+  resolved path or worktree path, as null, as the other providers do. The
+  database runner has a playbook round-trip case that checks this on every
+  provider.
 - **PostgreSQL runner enrollment compare-and-set:** a Harbor runner
   re-enrollment that expects a generation above zero updates the existing
   inactive row or is refused. It no longer inserts a new enrollment when the
