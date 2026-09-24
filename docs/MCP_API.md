@@ -443,6 +443,12 @@ keeps a tenant named in the record only for a global administrator. A progress
 signal a tool writes about an existing mission, such as the one from
 `armada_restart_mission`, belongs to that mission's owner.
 
+An id a tool argument names is read with the caller's scope, like an id in a
+REST body. `armada_update_mission` reads the mission and a changed
+`dependsOnMissionId` or `parentMissionId` in the caller's scope and answers
+`Mission not found` or `... not found` for a record outside it, and
+`armada_add_vessel` refuses a `fleetId` outside it with `Fleet not found`.
+
 Dispatch creates follow the record they act on, the same way on REST and MCP.
 `armada_dispatch`, `armada_decompose_plan` and `dispatch_backlog_planning_session`
 create voyages and missions owned by the target vessel's owner. `run_check` and

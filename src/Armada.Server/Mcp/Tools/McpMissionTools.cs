@@ -264,10 +264,17 @@ namespace Armada.Server.Mcp.Tools
                 {
                     MissionUpdateArgs request = JsonSerializer.Deserialize<MissionUpdateArgs>(args!.Value, _JsonOptions)!;
                     string missionId = request.MissionId;
-                    Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    // The mission and every mission it is linked to are read in the caller's scope, exactly as the
+                    // REST update reads them.
+                    AuthContext updateCaller = McpCallerContext.Require();
+                    Mission? mission = await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(database, updateCaller, missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
                     string? bindingError = MissionMetadataUpdate.CheckBindings(mission, request.VesselId != null, request.VesselId, request.VoyageId != null, request.VoyageId);
                     if (bindingError != null) return (object)new { Error = bindingError };
+                    if (!String.IsNullOrEmpty(request.ParentMissionId)
+                        && !String.Equals(request.ParentMissionId, mission.ParentMissionId, StringComparison.Ordinal)
+                        && await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(database, updateCaller, request.ParentMissionId).ConfigureAwait(false) == null)
+                        return (object)new { Error = "parentMissionId not found: " + request.ParentMissionId };
                     if (request.Title != null)
                         mission.Title = request.Title;
                     if (request.Description != null)
@@ -290,7 +297,7 @@ namespace Armada.Server.Mcp.Tools
                         }
                         else
                         {
-                            Mission? referenced = await database.Missions.ReadAsync(request.DependsOnMissionId).ConfigureAwait(false);
+                            Mission? referenced = await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(database, updateCaller, request.DependsOnMissionId).ConfigureAwait(false);
                             if (referenced == null)
                                 return (object)new { Error = "dependsOnMissionId not found: " + request.DependsOnMissionId };
                             mission.DependsOnMissionId = request.DependsOnMissionId;

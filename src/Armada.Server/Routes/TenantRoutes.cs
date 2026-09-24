@@ -9,6 +9,7 @@ namespace Armada.Server.Routes
     using Armada.Server;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -247,6 +248,7 @@ namespace Armada.Server.Routes
                 if (existing == null) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
                 if (!ctx.IsAdmin && existing.TenantId != ctx.TenantId) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
                 if (!ctx.IsAdmin && !ctx.IsTenantAdmin && existing.Id != ctx.UserId) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
+                if (!UserManagementRule.CanManage(ctx, existing)) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Forbidden" }; }
                 UserMaster user = new UserMaster
                 {
                     Id = req.Parameters["id"],
@@ -287,6 +289,7 @@ namespace Armada.Server.Routes
                 UserMaster? user = await _database.Users.ReadByIdAsync(id).ConfigureAwait(false);
                 if (user == null) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
                 if (!ctx.IsAdmin && (!ctx.IsTenantAdmin || user.TenantId != ctx.TenantId)) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Forbidden" }; }
+                if (!UserManagementRule.CanManage(ctx, user)) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Forbidden" }; }
                 if (user.IsProtected) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Protected resources cannot be deleted directly" }; }
                 await DeleteUserCascadeAsync(user.TenantId, id).ConfigureAwait(false);
                 return (object)new { Success = true };
@@ -311,11 +314,13 @@ namespace Armada.Server.Routes
                 else if (ctx.IsTenantAdmin)
                 {
                     EnumerationResult<Credential> result = await _database.Credentials.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                    result.Objects = result.Objects.Select(c => RedactForCaller(ctx, c)).ToList();
                     return (object)result;
                 }
                 else
                 {
                     EnumerationResult<Credential> result = await _database.Credentials.EnumerateByUserAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+                    result.Objects = result.Objects.Select(c => RedactForCaller(ctx, c)).ToList();
                     return (object)result;
                 }
             },
@@ -341,6 +346,7 @@ namespace Armada.Server.Routes
                 {
                     UserMaster? owner = await _database.Users.ReadAsync(ctx.TenantId!, cred.UserId).ConfigureAwait(false);
                     if (owner == null) { req.Http.Response.StatusCode = 400; return (object)new { Error = "User not found in tenant" }; }
+                    if (!UserManagementRule.CanManage(ctx, owner)) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Forbidden" }; }
                 }
                 cred = await _database.Credentials.CreateAsync(cred).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
@@ -358,7 +364,7 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Credential? cred = ctx.IsAdmin ? await _database.Credentials.ReadByIdAsync(id).ConfigureAwait(false) : await _database.Credentials.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 if (cred == null || (!ctx.IsAdmin && !ctx.IsTenantAdmin && cred.UserId != ctx.UserId)) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
-                return (object)cred;
+                return (object)RedactForCaller(ctx, cred);
             },
             api => api.WithTag("Credentials").WithSummary("Get credential by ID"));
 
@@ -376,13 +382,17 @@ namespace Armada.Server.Routes
                 if (existing == null) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
                 if (!ctx.IsAdmin && existing.TenantId != ctx.TenantId) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
                 if (!ctx.IsAdmin && !ctx.IsTenantAdmin && existing.UserId != ctx.UserId) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
+                if (!await CanManageCredentialOwnerAsync(ctx, existing).ConfigureAwait(false)) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Forbidden" }; }
                 cred.Id = req.Parameters["id"];
                 cred.TenantId = existing.TenantId;
                 cred.UserId = existing.UserId;
                 cred.CreatedUtc = existing.CreatedUtc;
                 cred.IsProtected = existing.IsProtected;
+                // Only a global administrator sets a token value. Everyone else keeps the stored token, so a
+                // credential read with its token redacted can be saved back without replacing the token.
+                if (!ctx.IsAdmin || cred.BearerToken == Credential.RedactedBearerToken) cred.BearerToken = existing.BearerToken;
                 cred = await _database.Credentials.UpdateAsync(cred).ConfigureAwait(false);
-                return (object)cred;
+                return (object)RedactForCaller(ctx, cred);
             },
             api => api.WithTag("Credentials").WithSummary("Update credential (admin only)"));
 
@@ -396,11 +406,26 @@ namespace Armada.Server.Routes
                 string id = req.Parameters["id"];
                 Credential? cred = ctx.IsAdmin ? await _database.Credentials.ReadByIdAsync(id).ConfigureAwait(false) : await _database.Credentials.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 if (cred == null || (!ctx.IsAdmin && !ctx.IsTenantAdmin && cred.UserId != ctx.UserId)) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }
+                if (!await CanManageCredentialOwnerAsync(ctx, cred).ConfigureAwait(false)) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Forbidden" }; }
                 if (cred.IsProtected) { req.Http.Response.StatusCode = 403; return (object)new { Error = "Protected resources cannot be deleted directly" }; }
                 await _database.Credentials.DeleteAsync(cred.TenantId, id).ConfigureAwait(false);
                 return (object)new { Success = true };
             },
             api => api.WithTag("Credentials").WithSummary("Delete credential"));
+        }
+
+        private static Credential RedactForCaller(AuthContext ctx, Credential credential)
+        {
+            return UserManagementRule.CanReadToken(ctx, credential) ? credential : Credential.Redact(credential);
+        }
+
+        private async Task<bool> CanManageCredentialOwnerAsync(AuthContext ctx, Credential credential)
+        {
+            if (ctx.IsAdmin) return true;
+            UserMaster? owner = await _database.Users.ReadAsync(credential.TenantId, credential.UserId).ConfigureAwait(false);
+            // A credential whose owner no longer exists belongs to nobody above the caller.
+            if (owner == null) return true;
+            return UserManagementRule.CanManage(ctx, owner);
         }
 
         private async Task SeedDefaultTenantAdminAsync(TenantMetadata tenant)

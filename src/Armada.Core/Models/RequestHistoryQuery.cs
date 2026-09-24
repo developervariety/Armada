@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Armada.Core.Models
 {
@@ -18,6 +19,14 @@ namespace Armada.Core.Models
         /// User scope or filter.
         /// </summary>
         public string? UserId { get; set; } = null;
+
+        /// <summary>
+        /// Users whose entries are excluded. Set only by the server when it applies the caller's scope, so a
+        /// tenant administrator never reads the captured requests of a user with more authority; a request body
+        /// cannot set it.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public List<string> ExcludedUserIds { get; set; } = new List<string>();
 
         /// <summary>
         /// Credential filter.

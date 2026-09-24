@@ -45,7 +45,7 @@ namespace Armada.Server.Routes
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = BuildQueryFromRequest(req);
-                ApplyScope(ctx, query);
+                await ApplyScopeAsync(ctx, query).ConfigureAwait(false);
 
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<RequestHistoryEntry> result = await _database.RequestHistory.EnumerateAsync(query).ConfigureAwait(false);
@@ -80,7 +80,7 @@ namespace Armada.Server.Routes
                 if (!query.FromUtc.HasValue) query.FromUtc = DateTime.UtcNow.AddHours(-24);
                 if (!query.ToUtc.HasValue) query.ToUtc = DateTime.UtcNow;
                 if (query.BucketMinutes <= 0) query.BucketMinutes = 15;
-                ApplyScope(ctx, query);
+                await ApplyScopeAsync(ctx, query).ConfigureAwait(false);
 
                 List<RequestHistoryEntry> entries = await _database.RequestHistory.EnumerateForSummaryAsync(query).ConfigureAwait(false);
                 return RequestHistorySummaryBuilder.Build(entries, query);
@@ -105,7 +105,7 @@ namespace Armada.Server.Routes
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = BuildQueryFromRequest(req);
-                ApplyScope(ctx, query);
+                await ApplyScopeAsync(ctx, query).ConfigureAwait(false);
                 RequestHistoryRecord? record = await _database.RequestHistory.ReadAsync(req.Parameters["id"], query).ConfigureAwait(false);
                 if (record == null)
                 {
@@ -129,7 +129,7 @@ namespace Armada.Server.Routes
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = BuildQueryFromRequest(req);
-                ApplyScope(ctx, query);
+                await ApplyScopeAsync(ctx, query).ConfigureAwait(false);
                 RequestHistoryRecord? record = await _database.RequestHistory.ReadAsync(req.Parameters["id"], query).ConfigureAwait(false);
                 if (record == null)
                 {
@@ -163,7 +163,7 @@ namespace Armada.Server.Routes
                 }
 
                 RequestHistoryQuery scopeQuery = new RequestHistoryQuery();
-                ApplyScope(ctx, scopeQuery);
+                await ApplyScopeAsync(ctx, scopeQuery).ConfigureAwait(false);
 
                 DeleteMultipleResult result = new DeleteMultipleResult();
                 foreach (string id in body.Ids)
@@ -202,7 +202,7 @@ namespace Armada.Server.Routes
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
                 RequestHistoryQuery query = JsonSerializer.Deserialize<RequestHistoryQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new RequestHistoryQuery();
-                ApplyScope(ctx, query);
+                await ApplyScopeAsync(ctx, query).ConfigureAwait(false);
 
                 int deleted = await _database.RequestHistory.DeleteByFilterAsync(query).ConfigureAwait(false);
                 DeleteMultipleResult result = new DeleteMultipleResult { Deleted = deleted };
@@ -267,15 +267,26 @@ namespace Armada.Server.Routes
             return query;
         }
 
-        private static void ApplyScope(AuthContext ctx, RequestHistoryQuery query)
+        private async Task ApplyScopeAsync(AuthContext ctx, RequestHistoryQuery query)
         {
+            query.ExcludedUserIds = new List<string>();
             if (ctx.IsAdmin) return;
 
             query.TenantId = ctx.TenantId;
             if (!ctx.IsTenantAdmin)
             {
                 query.UserId = ctx.UserId;
+                return;
             }
+
+            // A tenant administrator reads its tenant's captured requests except those of a global administrator
+            // in the tenant, whose requests and responses carry authority the tenant administrator does not have.
+            if (String.IsNullOrWhiteSpace(ctx.TenantId)) return;
+            List<UserMaster> users = await _database.Users.EnumerateAsync(ctx.TenantId).ConfigureAwait(false);
+            query.ExcludedUserIds = users
+                .Where(user => user.IsAdmin && !String.Equals(user.Id, ctx.UserId, StringComparison.Ordinal))
+                .Select(user => user.Id)
+                .ToList();
         }
 
         private static bool TryParseNullableBool(string? value, out bool? result)

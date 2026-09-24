@@ -588,6 +588,14 @@ Useful REST areas include:
 - `/api/v1/runbooks`
 - `/api/v1/events/token-usage` (authoritative per-runtime/model token telemetry)
 
+Every route authorizes the caller as a global administrator, a tenant
+administrator or an ordinary user; `docs/REST_API.md` holds the full
+authorization matrix. A tenant administrator manages its own tenant's users and
+credentials but never a global administrator or a protected user, and only a
+global administrator and a credential's own user read its bearer token.
+Stopping or restarting the server requires a global administrator unless a
+deployment sets `RequireAuthForShutdown` to `false`.
+
 ---
 
 ## Architecture

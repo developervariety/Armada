@@ -23,7 +23,7 @@
   "minIdleCaptains": 0,
   "maxCaptains": 0,
   "allowSelfRegistration": true,
-  "requireAuthForShutdown": false,
+  "requireAuthForShutdown": true,
   "notifications": true,
   "terminalBell": true,
   "idleCaptainTimeoutSeconds": 0,

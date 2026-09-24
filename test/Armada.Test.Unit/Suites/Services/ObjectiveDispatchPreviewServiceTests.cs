@@ -916,6 +916,72 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A tenant administrator's override naming another tenant's captain reads exactly like a missing captain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: CoverageSettings()).ConfigureAwait(false);
+                    TenantMetadata other = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Other override tenant")).ConfigureAwait(false);
+                    Captain foreign = await testDb.Driver.Captains.CreateAsync(new Captain("foreign-override")
+                    {
+                        TenantId = other.Id,
+                        State = CaptainStateEnum.Idle,
+                        AllowedPersonas = "[\"Judge\"]"
+                    }).ConfigureAwait(false);
+                    AuthContext tenantAdmin = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, true, "UnitTest");
+                    await OwnHarnessInDefaultTenantAsync(testDb, harness).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("foreign-override-preview");
+
+                    ObjectiveDispatchPreview foreignResult = await harness.Service.PreviewAsync(
+                        tenantAdmin, objective, null, null,
+                        new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", foreign.Id, null) }, null).ConfigureAwait(false);
+                    ObjectiveDispatchPreview missingResult = await harness.Service.PreviewAsync(
+                        tenantAdmin, objective, null, null,
+                        new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", "cpt_absent", null) }, null).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreviewIssue foreignIssue = foreignResult.Issues.Single(issue => issue.Code == "assigned_captain_ineligible");
+                    ObjectiveDispatchPreviewIssue missingIssue = missingResult.Issues.Single(issue => issue.Code == "assigned_captain_ineligible");
+                    AssertEqual(missingIssue.Message, foreignIssue.Message, "another tenant's captain is described exactly like a missing captain");
+                    AssertFalse(foreignResult.RequiredRoles.Any(role => role.EligibleConfiguredCaptainIds.Contains(foreign.Id)),
+                        "another tenant's captain never covers a role");
+
+                    ObjectiveDispatchPreview adminResult = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, null,
+                        new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", foreign.Id, null) }, null).ConfigureAwait(false);
+                    AssertTrue(adminResult.Issues.Single(issue => issue.Code == "assigned_captain_ineligible").Message.Contains("persona", StringComparison.Ordinal),
+                        "a global administrator still sees why another tenant's captain cannot take the role");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A tenant administrator's pipeline override naming another tenant's pipeline reads exactly like a missing pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: CoverageSettings()).ConfigureAwait(false);
+                    TenantMetadata other = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Other pipeline tenant")).ConfigureAwait(false);
+                    Pipeline foreign = new Pipeline("ForeignPreviewPipeline") { TenantId = other.Id };
+                    foreign.Stages = new List<PipelineStage> { new PipelineStage(1, "Worker") };
+                    foreign = await testDb.Driver.Pipelines.CreateAsync(foreign).ConfigureAwait(false);
+                    AuthContext tenantAdmin = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, true, "UnitTest");
+                    await OwnHarnessInDefaultTenantAsync(testDb, harness).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("foreign-pipeline-preview");
+
+                    foreach ((string foreignRequest, string missingRequest) in new[] { (foreign.Id, "ppl_missing_preview"), (foreign.Name, "MissingPreviewPipeline") })
+                    {
+                        ObjectiveDispatchPreview foreignResult = await harness.Service.PreviewAsync(tenantAdmin, objective, null, foreignRequest).ConfigureAwait(false);
+                        ObjectiveDispatchPreview missingResult = await harness.Service.PreviewAsync(tenantAdmin, objective, null, missingRequest).ConfigureAwait(false);
+                        ObjectiveDispatchPreviewIssue foreignIssue = foreignResult.Issues.Single(issue => issue.Area == "pipeline");
+                        ObjectiveDispatchPreviewIssue missingIssue = missingResult.Issues.Single(issue => issue.Area == "pipeline");
+                        AssertEqual(missingIssue.Code, foreignIssue.Code, "another tenant's pipeline is refused with the missing-pipeline code");
+                        AssertEqual(missingIssue.Message, foreignIssue.Message, "another tenant's pipeline is described exactly like a missing pipeline");
+                    }
+
+                    ObjectiveDispatchPreview adminResult = await harness.Service.PreviewAsync(harness.Auth, objective, null, foreign.Id).ConfigureAwait(false);
+                    AssertTrue(adminResult.Issues.Any(issue => issue.Code == "pipeline_not_usable"),
+                        "a global administrator still learns that the pipeline belongs to another owner");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Smart Routing persona routes that admit no captain leave the role uncovered", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1483,6 +1549,16 @@ namespace Armada.Test.Unit.Suites.Services
             ObjectivePreflightAnswer? existing = preflight.Questions.FirstOrDefault(question => question.Number == number);
             if (existing != null) existing.Answer = answer;
             else preflight.Questions.Add(new ObjectivePreflightAnswer { Number = number, Answer = answer });
+        }
+
+        private static async Task OwnHarnessInDefaultTenantAsync(TestDatabase testDb, PreviewHarness harness)
+        {
+            harness.Vessel.TenantId = Constants.DefaultTenantId;
+            harness.Vessel.UserId = Constants.DefaultUserId;
+            await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+            harness.Captain.TenantId = Constants.DefaultTenantId;
+            harness.Captain.UserId = Constants.DefaultUserId;
+            await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
         }
 
         private sealed class PreviewHarness

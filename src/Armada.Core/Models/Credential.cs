@@ -49,6 +49,11 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// Value returned in place of <see cref="BearerToken" /> to a caller that may not read the token.
+        /// </summary>
+        public const string RedactedBearerToken = "********";
+
+        /// <summary>
         /// Friendly name for this credential.
         /// </summary>
         public string? Name { get; set; } = null;
@@ -134,6 +139,28 @@ namespace Armada.Core.Models
             for (int i = 0; i < 64; i++)
                 result[i] = chars[randomBytes[i] % chars.Length];
             return new string(result);
+        }
+
+        /// <summary>
+        /// Return a copy of the credential with its bearer token replaced by <see cref="RedactedBearerToken" />.
+        /// </summary>
+        /// <param name="credential">Credential to redact.</param>
+        /// <returns>Redacted copy.</returns>
+        public static Credential Redact(Credential credential)
+        {
+            if (credential == null) throw new ArgumentNullException(nameof(credential));
+            return new Credential
+            {
+                Id = credential.Id,
+                TenantId = credential.TenantId,
+                UserId = credential.UserId,
+                Name = credential.Name,
+                BearerToken = Credential.RedactedBearerToken,
+                Active = credential.Active,
+                IsProtected = credential.IsProtected,
+                CreatedUtc = credential.CreatedUtc,
+                LastUpdateUtc = credential.LastUpdateUtc
+            };
         }
 
         #endregion

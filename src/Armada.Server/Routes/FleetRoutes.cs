@@ -138,6 +138,8 @@ namespace Armada.Server.Routes
                 List<Vessel> vessels = ctx.IsAdmin
                     ? await _database.Vessels.EnumerateByFleetAsync(id).ConfigureAwait(false)
                     : await _database.Vessels.EnumerateByFleetAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                // An ordinary user sees only its own vessels, as in the vessel list.
+                if (!ctx.IsAdmin && !ctx.IsTenantAdmin) vessels = vessels.Where(vessel => vessel.UserId == ctx.UserId).ToList();
                 return (object)new { Fleet = fleet, Vessels = vessels };
             },
             api => api

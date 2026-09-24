@@ -773,6 +773,48 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(present, "Re-persisted objective must be visible after a fresh-instance backfill.");
             }).ConfigureAwait(false);
 
+            await RunTest("DeleteAsync leaves another tenant's orphan snapshots alone and reports not found", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_orphan_owner", "usr_orphan_owner").ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_orphan_other", "usr_orphan_other").ConfigureAwait(false);
+                AuthContext owner = AuthContext.Authenticated("ten_orphan_owner", "usr_orphan_owner", false, true, "UnitTest");
+                AuthContext other = AuthContext.Authenticated("ten_orphan_other", "usr_orphan_other", false, true, "UnitTest");
+
+                // Finish the one-time backfill first, so the snapshot written next has no objective row anywhere.
+                await objectives.EnumerateAsync(owner, new ObjectiveQuery { PageNumber = 1, PageSize = 1 }).ConfigureAwait(false);
+                Objective orphan = new Objective
+                {
+                    Id = "obj_orphanforeign",
+                    TenantId = "ten_orphan_owner",
+                    UserId = "usr_orphan_owner",
+                    Title = "Orphan snapshot",
+                    Status = ObjectiveStatusEnum.Scoped
+                };
+                await testDb.Driver.Events.CreateAsync(new ArmadaEvent
+                {
+                    TenantId = orphan.TenantId,
+                    UserId = orphan.UserId,
+                    EventType = "objective.snapshot",
+                    EntityType = "objective",
+                    EntityId = orphan.Id,
+                    Message = orphan.Title,
+                    Payload = JsonSerializer.Serialize(orphan),
+                    CreatedUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    await objectives.DeleteAsync(other, orphan.Id).ConfigureAwait(false)).ConfigureAwait(false);
+                List<ArmadaEvent> remaining = await testDb.Driver.Events.EnumerateByEntityAsync("objective", orphan.Id, 100).ConfigureAwait(false);
+                AssertEqual(1, remaining.Count(item => item.EventType == "objective.snapshot"), "another tenant's delete purges nothing");
+
+                await objectives.DeleteAsync(owner, orphan.Id).ConfigureAwait(false);
+                remaining = await testDb.Driver.Events.EnumerateByEntityAsync("objective", orphan.Id, 100).ConfigureAwait(false);
+                AssertEqual(0, remaining.Count(item => item.EventType == "objective.snapshot"), "the owning tenant still purges its orphan snapshots");
+            }).ConfigureAwait(false);
+
             await RunTest("DeleteAsync throws when the objective has neither a row nor any snapshots", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

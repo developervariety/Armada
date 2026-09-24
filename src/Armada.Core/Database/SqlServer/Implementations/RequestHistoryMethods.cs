@@ -335,6 +335,16 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 conditions.Add("user_id = @user_id");
                 parameters.Add(new SqlParameter("@user_id", query.UserId));
             }
+            if (query.ExcludedUserIds != null && query.ExcludedUserIds.Count > 0)
+            {
+                List<string> excluded = new List<string>();
+                for (int i = 0; i < query.ExcludedUserIds.Count; i++)
+                {
+                    excluded.Add("@excluded_user_" + i);
+                    parameters.Add(new SqlParameter("@excluded_user_" + i, query.ExcludedUserIds[i]));
+                }
+                conditions.Add("(user_id IS NULL OR user_id NOT IN (" + string.Join(", ", excluded) + "))");
+            }
             if (!string.IsNullOrWhiteSpace(query.CredentialId))
             {
                 conditions.Add("credential_id = @credential_id");

@@ -398,6 +398,6 @@ Operational records are owned by both tenant and user. Armada persists and index
 
 User creation and user updates accept a plaintext `Password` field. Armada hashes the password server-side before storing it. If `Password` is omitted on update, the existing password is preserved. The dashboard Users modal supports both admin-managed password resets and self-service password changes.
 
-If you want to harden server shutdown, set `RequireAuthForShutdown = true` in your settings. When enabled, `POST /api/v1/server/stop` requires a global admin user with `IsAdmin = true`; tenant admins and regular users cannot shut the server down through the REST API.
+Server shutdown is authenticated by default: `RequireAuthForShutdown` defaults to `true`, so `POST /api/v1/server/stop` and `POST /api/v1/server/restart` require a global admin user with `IsAdmin = true`; tenant admins and regular users cannot stop the server through the REST API. Helm sends its configured credential (the seeded `default` credential when none is set), so `armada server stop` keeps working locally. Set it to `false` only on a server that no untrusted client can reach.
 
 For production use, create additional users and credentials via the admin API or dashboard. See `docs/REST_API.md` for details.

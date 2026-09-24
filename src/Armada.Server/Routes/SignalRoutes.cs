@@ -132,9 +132,17 @@ namespace Armada.Server.Routes
                 string countStr = QueryValueReader.Read(req, "count");
                 int count = 50;
                 if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = parsedCount;
-                List<Signal> signals = ctx.IsAdmin
-                    ? await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false)
-                    : await _database.Signals.EnumerateRecentAsync(ctx.TenantId!, count).ConfigureAwait(false);
+                List<Signal> signals;
+                if (ctx.IsAdmin)
+                    signals = await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false);
+                else if (ctx.IsTenantAdmin)
+                    signals = await _database.Signals.EnumerateRecentAsync(ctx.TenantId!, count).ConfigureAwait(false);
+                else
+                {
+                    // An ordinary user reads only its own signals, as in the signal list.
+                    EnumerationQuery recentQuery = new EnumerationQuery { PageNumber = 1, PageSize = count, Order = EnumerationOrderEnum.CreatedDescending };
+                    signals = (await _database.Signals.EnumerateAsync(ctx.TenantId!, ctx.UserId!, recentQuery).ConfigureAwait(false)).Objects;
+                }
                 return signals;
             },
             api => api
@@ -223,6 +231,10 @@ namespace Armada.Server.Routes
                 string captainId = req.Parameters["captainId"];
                 string unreadOnlyStr = QueryValueReader.Read(req, "unreadOnly");
                 bool unreadOnly = String.IsNullOrEmpty(unreadOnlyStr) || bool.Parse(unreadOnlyStr);
+                // An ordinary user reads the signals of a captain only when the captain is its own.
+                if (!ctx.IsAdmin && !ctx.IsTenantAdmin
+                    && await Armada.Core.Authorization.CallerScopedRead.ReadCaptainAsync(_database, ctx, captainId).ConfigureAwait(false) == null)
+                    return new List<Signal>();
                 List<Signal> signals = ctx.IsAdmin
                     ? await _database.Signals.EnumerateByRecipientAsync(captainId, unreadOnly).ConfigureAwait(false)
                     : await _database.Signals.EnumerateByRecipientAsync(ctx.TenantId!, captainId, unreadOnly).ConfigureAwait(false);

@@ -138,6 +138,55 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(threw, "Expected inaccessible vessel create to throw.");
             }).ConfigureAwait(false);
 
+            await RunTest("UpdateAsync refuses to move an environment to a vessel in another tenant", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                DeploymentEnvironmentService service = new DeploymentEnvironmentService(testDb.Driver, workflowProfiles, logging);
+                string workingDirectory = CreateWorkingDirectory("environment-move");
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, "ten_environment_home", "usr_environment_home").ConfigureAwait(false);
+                    await EnsureTenantAndUserAsync(testDb, "ten_environment_away", "usr_environment_away").ConfigureAwait(false);
+                    Vessel home = CreateVessel("ten_environment_home", "usr_environment_home", workingDirectory);
+                    home.Name = "Environment Home Vessel";
+                    await testDb.Driver.Vessels.CreateAsync(home).ConfigureAwait(false);
+                    Vessel sameTenant = CreateVessel("ten_environment_home", "usr_environment_home", workingDirectory);
+                    sameTenant.Name = "Environment Second Vessel";
+                    await testDb.Driver.Vessels.CreateAsync(sameTenant).ConfigureAwait(false);
+                    Vessel away = CreateVessel("ten_environment_away", "usr_environment_away", workingDirectory);
+                    away.Name = "Environment Away Vessel";
+                    await testDb.Driver.Vessels.CreateAsync(away).ConfigureAwait(false);
+
+                    AuthContext globalAdmin = AuthContext.Authenticated("ten_environment_home", "usr_environment_home", true, true, "UnitTest");
+                    DeploymentEnvironment environment = await service.CreateAsync(globalAdmin, new DeploymentEnvironmentUpsertRequest
+                    {
+                        VesselId = home.Id,
+                        Name = "Staging",
+                        Kind = EnvironmentKindEnum.Staging
+                    }).ConfigureAwait(false);
+
+                    await AssertThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(globalAdmin, environment.Id, new DeploymentEnvironmentUpsertRequest
+                    {
+                        VesselId = away.Id
+                    }), "a move to another tenant's vessel is refused").ConfigureAwait(false);
+                    DeploymentEnvironment stored = NotNull(await testDb.Driver.Environments.ReadAsync(environment.Id, new DeploymentEnvironmentQuery()).ConfigureAwait(false));
+                    AssertEqual(home.Id, stored.VesselId, "the refused move changes nothing");
+
+                    DeploymentEnvironment moved = await service.UpdateAsync(globalAdmin, environment.Id, new DeploymentEnvironmentUpsertRequest
+                    {
+                        VesselId = sameTenant.Id
+                    }).ConfigureAwait(false);
+                    AssertEqual(sameTenant.Id, moved.VesselId, "a move within the tenant still succeeds");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("SeedDefaultsAsync seeds workflow profile environments without duplication", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

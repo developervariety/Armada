@@ -38,6 +38,15 @@ using System.IO;
             public bool AsOrdinaryUser { get; }
         }
 
+        private sealed class DoctorCheck
+        {
+            public string Name { get; set; } = String.Empty;
+
+            public string Status { get; set; } = String.Empty;
+
+            public string Message { get; set; } = String.Empty;
+        }
+
         private sealed class TenantUserCredentialResult
         {
             public string TenantId { get; set; } = String.Empty;
@@ -59,6 +68,9 @@ using System.IO;
         #endregion
 
         #region Private-Members
+
+        // The value a caller that may not read a bearer token receives in its place.
+        private const string RedactedToken = "********";
 
         private HttpClient _AdminClient;
         private HttpClient _UnauthClient;
@@ -1676,6 +1688,7 @@ using System.IO;
                     new AuthRefusalProbe("RunbookRoutes", "GET", "/api/v1/runbooks", false),
                     new AuthRefusalProbe("RunbookRoutes", "POST", "/api/v1/runbooks", true),
                     new AuthRefusalProbe("RuntimeRoutes", "GET", "/api/v1/runtimes/mux/endpoints", false),
+                    new AuthRefusalProbe("RuntimeRoutes", "GET", "/api/v1/runtimes/mux/endpoints", true),
                     new AuthRefusalProbe("SignalRoutes", "GET", "/api/v1/signals", false),
                     new AuthRefusalProbe("SignalRoutes", "POST", "/api/v1/signals", true),
                     new AuthRefusalProbe("SkillRoutes", "GET", "/api/v1/skills", false),
@@ -1685,6 +1698,7 @@ using System.IO;
                     new AuthRefusalProbe("TenantRoutes", "GET", "/api/v1/tenants", false),
                     new AuthRefusalProbe("TenantRoutes", "GET", "/api/v1/tenants", true),
                     new AuthRefusalProbe("TokenUsageRoutes", "GET", "/api/v1/token-usage/summary", false),
+                    new AuthRefusalProbe("TokenUsageRoutes", "POST", "/api/v1/token-usage/delete/by-filter", true),
                     new AuthRefusalProbe("TypedDecisionRoutes", "GET", "/api/v1/typed-decisions", false),
                     new AuthRefusalProbe("TypedDecisionRoutes", "GET", "/api/v1/typed-decisions", true),
                     new AuthRefusalProbe("UsageAccountLoginRoutes", "GET", "/api/v1/usage-accounts/acct_missing/login/status", false),
@@ -1696,6 +1710,7 @@ using System.IO;
                     new AuthRefusalProbe("WorkflowProfileRoutes", "POST", "/api/v1/workflow-profiles", true),
                     new AuthRefusalProbe("WorkspaceRoutes", "GET", "/api/v1/workspace/vessels/vsl_missing/tree", false),
                     new AuthRefusalProbe("WorkspaceRoutes", "POST", "/api/v1/workspace/vessels/vsl_missing/exec", true),
+                    new AuthRefusalProbe("WorkspaceRoutes", "PUT", "/api/v1/workspace/vessels/vsl_missing/file", true),
                 };
 
                 List<string> failures = new List<string>();
@@ -1864,6 +1879,78 @@ using System.IO;
                     JsonHelper.ToJsonContent(new { VoyageId = voyageAId })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.NotFound, update.StatusCode, "An update linking another tenant's voyage is refused");
                 await _ClientB!.DeleteAsync("/api/v1/incidents/" + incident.Id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_VesselWithOtherTenantFleet_Returns404", async () =>
+            {
+                string name = "xt-cross-fleet-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage created = await _ClientB!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                {
+                    Name = name,
+                    FleetId = fleetAId,
+                    RepoUrl = "https://example.invalid/" + name + ".git",
+                    DefaultBranch = "main"
+                })).ConfigureAwait(false);
+                if (created.StatusCode == HttpStatusCode.Created)
+                    await _AdminClient.DeleteAsync("/api/v1/vessels/" + (await JsonHelper.DeserializeAsync<Vessel>(created).ConfigureAwait(false)).Id).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, created.StatusCode, "A vessel cannot join another tenant's fleet on create");
+
+                Vessel own = await JsonHelper.DeserializeAsync<Vessel>(await _ClientB!.GetAsync("/api/v1/vessels/" + vesselBId).ConfigureAwait(false)).ConfigureAwait(false);
+                HttpResponseMessage moved = await _ClientB!.PutAsync("/api/v1/vessels/" + vesselBId, JsonHelper.ToJsonContent(new
+                {
+                    Name = own.Name,
+                    FleetId = fleetAId,
+                    RepoUrl = own.RepoUrl,
+                    DefaultBranch = own.DefaultBranch
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, moved.StatusCode, "A vessel cannot move into another tenant's fleet");
+                Vessel stored = await JsonHelper.DeserializeAsync<Vessel>(await _ClientB!.GetAsync("/api/v1/vessels/" + vesselBId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertNotEqual(fleetAId, stored.FleetId, "The refused fleet is not stored");
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_MissionCreateWithUnreadableDock_Returns404", async () =>
+            {
+                string title = "xt-cross-dock-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new { Title = title, DockId = "dck_" + Guid.NewGuid().ToString("N").Substring(0, 12) })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "A dock the caller cannot read is refused like every other mission reference");
+                EnumerationResult<Mission> missions = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(
+                    await _ClientB!.GetAsync("/api/v1/missions?pageSize=1000").ConfigureAwait(false)).ConfigureAwait(false);
+                foreach (Mission leftover in missions.Objects.Where(m => m.Title == title))
+                    await _AdminClient.DeleteAsync("/api/v1/missions/" + leftover.Id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_IncidentWithOtherTenantRegressionObjective_IsRefused", async () =>
+            {
+                HttpResponseMessage objectiveResponse = await _ClientA!.PostAsync("/api/v1/objectives",
+                    JsonHelper.ToJsonContent(new { Title = "xt-regression-objective-A" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, objectiveResponse.StatusCode);
+                Objective objectiveA = await JsonHelper.DeserializeAsync<Objective>(objectiveResponse).ConfigureAwait(false);
+                try
+                {
+                    HttpResponseMessage created = await _ClientB!.PostAsync("/api/v1/incidents", JsonHelper.ToJsonContent(new
+                    {
+                        Title = "xt-cross-regression",
+                        RegressionPurpose = "Consumer",
+                        RegressionObjectiveId = objectiveA.Id
+                    })).ConfigureAwait(false);
+                    if (created.StatusCode == HttpStatusCode.Created)
+                        await _ClientB!.DeleteAsync("/api/v1/incidents/" + (await JsonHelper.DeserializeAsync<Incident>(created).ConfigureAwait(false)).Id).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.BadRequest, created.StatusCode, "An incident cannot name another tenant's objective as its regression");
+
+                    HttpResponseMessage own = await _ClientA!.PostAsync("/api/v1/incidents", JsonHelper.ToJsonContent(new
+                    {
+                        Title = "xt-own-regression",
+                        RegressionPurpose = "Consumer",
+                        RegressionObjectiveId = objectiveA.Id
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, own.StatusCode, "An incident names its own tenant's objective");
+                    await _ClientA!.DeleteAsync("/api/v1/incidents/" + (await JsonHelper.DeserializeAsync<Incident>(own).ConfigureAwait(false)).Id).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await _ClientA!.DeleteAsync("/api/v1/objectives/" + objectiveA.Id).ConfigureAwait(false);
+                }
             }).ConfigureAwait(false);
 
             await RunTest("BodyReference_GlobalAdminStillCreatesMissionOnAnyTenantVessel", async () =>
@@ -2337,6 +2424,323 @@ using System.IO;
                 AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "a key needs a saved account");
                 string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 AssertFalse(body.Contains("automated-SECRET"), "the key is never echoed");
+            }).ConfigureAwait(false);
+
+            #endregion
+
+            #region User-Privilege-Boundary
+
+            // A tenant administrator may manage the users of its own tenant, but never a global administrator
+            // or a protected user in that tenant, and never read another user's bearer token.
+            string privilegedUserId = null!;
+            string privilegedEmail = "xt-global-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@xt.armada";
+            string privilegedCredentialId = null!;
+            string privilegedToken = null!;
+
+            await RunTest("UserPrivilege_Setup_GlobalAdminInTenantA", async () =>
+            {
+                HttpResponseMessage userResponse = await _AdminClient.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(new
+                {
+                    TenantId = _TenantAId,
+                    Email = privilegedEmail,
+                    PasswordSha256 = UserMaster.ComputePasswordHash("privileged-fixture"),
+                    IsAdmin = true
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, userResponse.StatusCode);
+                UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
+                AssertTrue(user.IsAdmin, "Fixture user is a global administrator");
+                privilegedUserId = user.Id;
+
+                HttpResponseMessage credentialResponse = await _AdminClient.PostAsync("/api/v1/credentials",
+                    JsonHelper.ToJsonContent(new { TenantId = _TenantAId, UserId = privilegedUserId, Name = "xt-global-cred" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, credentialResponse.StatusCode);
+                Credential credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
+                privilegedCredentialId = credential.Id;
+                privilegedToken = credential.BearerToken;
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_TenantAdmin_CannotChangeGlobalAdminInOwnTenant", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PutAsync("/api/v1/users/" + privilegedUserId, JsonHelper.ToJsonContent(new
+                {
+                    Email = privilegedEmail,
+                    Password = "taken-over",
+                    Active = false
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "A tenant administrator cannot reset or deactivate a global administrator");
+
+                UserMaster stored = await JsonHelper.DeserializeAsync<UserMaster>(
+                    await _AdminClient.GetAsync("/api/v1/users/" + privilegedUserId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertTrue(stored.Active, "The refused change leaves the global administrator active");
+                using (HttpClient privileged = CreateBearerClient(privilegedToken))
+                {
+                    HttpResponseMessage whoami = await privileged.GetAsync("/api/v1/whoami").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, whoami.StatusCode, "The global administrator still signs in");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_TenantAdmin_CannotMintOrManageGlobalAdminCredentials", async () =>
+            {
+                HttpResponseMessage minted = await _ClientA!.PostAsync("/api/v1/credentials",
+                    JsonHelper.ToJsonContent(new { UserId = privilegedUserId, Name = "xt-minted" })).ConfigureAwait(false);
+                if (minted.StatusCode == HttpStatusCode.Created)
+                    await _AdminClient.DeleteAsync("/api/v1/credentials/" + (await JsonHelper.DeserializeAsync<Credential>(minted).ConfigureAwait(false)).Id).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, minted.StatusCode, "A tenant administrator cannot mint a credential for a global administrator");
+
+                HttpResponseMessage update = await _ClientA!.PutAsync("/api/v1/credentials/" + privilegedCredentialId,
+                    JsonHelper.ToJsonContent(new { Name = "xt-renamed", Active = false })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, update.StatusCode, "A tenant administrator cannot change a global administrator's credential");
+                HttpResponseMessage delete = await _ClientA!.DeleteAsync("/api/v1/credentials/" + privilegedCredentialId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, delete.StatusCode, "A tenant administrator cannot delete a global administrator's credential");
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_TenantAdmin_ReadsNoOtherUsersBearerToken", async () =>
+            {
+                HttpResponseMessage list = await _ClientA!.GetAsync("/api/v1/credentials?pageSize=1000").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, list.StatusCode);
+                EnumerationResult<Credential> credentials = await JsonHelper.DeserializeAsync<EnumerationResult<Credential>>(list).ConfigureAwait(false);
+                AssertFalse(credentials.Objects.Any(c => c.BearerToken == privilegedToken), "The global administrator's token is never listed to a tenant administrator");
+                AssertTrue(credentials.Objects.Where(c => c.UserId != _UserAId).All(c => c.BearerToken == RedactedToken),
+                    "Every other user's token is redacted");
+                AssertTrue(credentials.Objects.Any(c => c.Id == _CredentialAId && c.BearerToken == _BearerTokenA),
+                    "The caller still reads its own token");
+
+                HttpResponseMessage read = await _ClientA!.GetAsync("/api/v1/credentials/" + privilegedCredentialId).ConfigureAwait(false);
+                if (read.StatusCode == HttpStatusCode.OK)
+                {
+                    Credential single = await JsonHelper.DeserializeAsync<Credential>(read).ConfigureAwait(false);
+                    AssertEqual(RedactedToken, single.BearerToken, "A single read redacts another user's token");
+                }
+                else
+                {
+                    AssertEqual(HttpStatusCode.NotFound, read.StatusCode, "A single read either redacts or hides the credential");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_TenantAdmin_CannotChangeProtectedTenantUser", async () =>
+            {
+                EnumerationResult<UserMaster> users = await JsonHelper.DeserializeAsync<EnumerationResult<UserMaster>>(
+                    await _ClientA!.GetAsync("/api/v1/users?pageSize=1000").ConfigureAwait(false)).ConfigureAwait(false);
+                UserMaster seeded = users.Objects.Single(u => u.IsProtected && u.TenantId == _TenantAId);
+                HttpResponseMessage response = await _ClientA!.PutAsync("/api/v1/users/" + seeded.Id, JsonHelper.ToJsonContent(new
+                {
+                    Email = seeded.Email,
+                    Password = "taken-over",
+                    Active = false
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "A tenant administrator cannot take over the tenant's protected user");
+                HttpResponseMessage minted = await _ClientA!.PostAsync("/api/v1/credentials",
+                    JsonHelper.ToJsonContent(new { UserId = seeded.Id, Name = "xt-minted-protected" })).ConfigureAwait(false);
+                if (minted.StatusCode == HttpStatusCode.Created)
+                    await _AdminClient.DeleteAsync("/api/v1/credentials/" + (await JsonHelper.DeserializeAsync<Credential>(minted).ConfigureAwait(false)).Id).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, minted.StatusCode, "A tenant administrator cannot mint a credential for the protected user");
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_TenantAdmin_StillManagesOrdinaryUsersAndItself", async () =>
+            {
+                UserMaster ordinary = await JsonHelper.DeserializeAsync<UserMaster>(
+                    await _AdminClient.GetAsync("/api/v1/users/" + _UserA3Id).ConfigureAwait(false)).ConfigureAwait(false);
+                HttpResponseMessage renamed = await _ClientA!.PutAsync("/api/v1/users/" + _UserA3Id, JsonHelper.ToJsonContent(new
+                {
+                    Email = ordinary.Email,
+                    FirstName = "Renamed",
+                    Active = true
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, renamed.StatusCode, "A tenant administrator still changes an ordinary user");
+
+                HttpResponseMessage minted = await _ClientA!.PostAsync("/api/v1/credentials",
+                    JsonHelper.ToJsonContent(new { UserId = _UserA3Id, Name = "xt-minted-ordinary" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, minted.StatusCode, "A tenant administrator still mints a credential for an ordinary user");
+                Credential mintedCredential = await JsonHelper.DeserializeAsync<Credential>(minted).ConfigureAwait(false);
+                AssertNotEqual(RedactedToken, mintedCredential.BearerToken, "The creation response returns the new token once");
+
+                HttpResponseMessage saved = await _ClientA!.PutAsync("/api/v1/credentials/" + mintedCredential.Id, JsonHelper.ToJsonContent(new
+                {
+                    Name = "xt-minted-renamed",
+                    Active = true,
+                    BearerToken = RedactedToken
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, saved.StatusCode, "A redacted credential can be saved back");
+                using (HttpClient minted2 = CreateBearerClient(mintedCredential.BearerToken))
+                {
+                    HttpResponseMessage whoami = await minted2.GetAsync("/api/v1/whoami").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, whoami.StatusCode, "Saving a redacted credential keeps its token");
+                }
+                await _ClientA!.DeleteAsync("/api/v1/credentials/" + mintedCredential.Id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_GlobalAdmin_Unaffected", async () =>
+            {
+                HttpResponseMessage renamed = await _AdminClient.PutAsync("/api/v1/users/" + privilegedUserId, JsonHelper.ToJsonContent(new
+                {
+                    Email = privilegedEmail,
+                    FirstName = "Global",
+                    IsAdmin = true,
+                    Active = true
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, renamed.StatusCode, "A global administrator still changes any user");
+                Credential read = await JsonHelper.DeserializeAsync<Credential>(
+                    await _AdminClient.GetAsync("/api/v1/credentials/" + privilegedCredentialId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(privilegedToken, read.BearerToken, "A global administrator still reads every token");
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_TenantAdmin_CannotDeleteGlobalAdminInOwnTenant", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.DeleteAsync("/api/v1/users/" + privilegedUserId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "A tenant administrator cannot delete a global administrator");
+                HttpResponseMessage stillThere = await _AdminClient.GetAsync("/api/v1/users/" + privilegedUserId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, stillThere.StatusCode, "The refused delete leaves the global administrator in place");
+            }).ConfigureAwait(false);
+
+            await RunTest("UserPrivilege_Cleanup", async () =>
+            {
+                if (privilegedCredentialId != null) await _AdminClient.DeleteAsync("/api/v1/credentials/" + privilegedCredentialId).ConfigureAwait(false);
+                if (privilegedUserId != null) await _AdminClient.DeleteAsync("/api/v1/users/" + privilegedUserId).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            #endregion
+
+            #region Ordinary-User-Scope
+
+            await RunTest("OrdinaryUser_ReadsOnlyOwnRecordsInsideSharedParents", async () =>
+            {
+                // An ordinary user reads only its own records. A demoted tenant administrator keeps the fleet and
+                // voyage it created; another user's vessel, mission and signal inside them stay invisible to it.
+                string? userId = null;
+                string? credentialId = null;
+                string? fleetId = null;
+                string? voyageId = null;
+                string? otherVesselId = null;
+                string? otherMissionId = null;
+                string? otherSignalId = null;
+                List<Exception> failures = new List<Exception>();
+                try
+                {
+                    UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(await _AdminClient.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(new
+                    {
+                        TenantId = _TenantAId,
+                        Email = "xt-demoted-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@xt.armada",
+                        PasswordSha256 = UserMaster.ComputePasswordHash("demoted-fixture"),
+                        IsTenantAdmin = true
+                    })).ConfigureAwait(false)).ConfigureAwait(false);
+                    userId = user.Id;
+                    Credential credential = await JsonHelper.DeserializeAsync<Credential>(await _AdminClient.PostAsync("/api/v1/credentials",
+                        JsonHelper.ToJsonContent(new { TenantId = _TenantAId, UserId = userId, Name = "xt-demoted" })).ConfigureAwait(false)).ConfigureAwait(false);
+                    credentialId = credential.Id;
+
+                    using (HttpClient demoted = CreateBearerClient(credential.BearerToken))
+                    {
+                        HttpResponseMessage fleetResponse = await demoted.PostAsync("/api/v1/fleets",
+                            JsonHelper.ToJsonContent(new { Name = "xt-demoted-fleet-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Created, fleetResponse.StatusCode);
+                        fleetId = (await JsonHelper.DeserializeAsync<Fleet>(fleetResponse).ConfigureAwait(false)).Id;
+                        HttpResponseMessage voyageResponse = await demoted.PostAsync("/api/v1/voyages",
+                            JsonHelper.ToJsonContent(new { Title = "xt-demoted-voyage" })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Created, voyageResponse.StatusCode);
+                        voyageId = (await JsonHelper.DeserializeAsync<Voyage>(voyageResponse).ConfigureAwait(false)).Id;
+
+                        string vesselName = "xt-other-in-fleet-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                        HttpResponseMessage vesselResponse = await _ClientA!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                        {
+                            Name = vesselName,
+                            FleetId = fleetId,
+                            RepoUrl = "https://example.invalid/" + vesselName + ".git",
+                            DefaultBranch = "main"
+                        })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Created, vesselResponse.StatusCode, "The tenant administrator adds its vessel to the fleet");
+                        otherVesselId = (await JsonHelper.DeserializeAsync<Vessel>(vesselResponse).ConfigureAwait(false)).Id;
+
+                        HttpResponseMessage missionResponse = await _ClientA!.PostAsync("/api/v1/missions",
+                            JsonHelper.ToJsonContent(new { Title = "xt-other-in-voyage", VoyageId = voyageId })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Created, missionResponse.StatusCode, "The tenant administrator adds its mission to the voyage");
+                        string missionBody = await missionResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(missionBody);
+                        otherMissionId = (wrapper.Mission ?? JsonHelper.Deserialize<Mission>(missionBody)).Id;
+
+                        HttpResponseMessage signalResponse = await _ClientA!.PostAsync("/api/v1/signals",
+                            JsonHelper.ToJsonContent(new { Type = "Mail", Payload = "xt-other-user-signal" })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Created, signalResponse.StatusCode);
+                        otherSignalId = (await JsonHelper.DeserializeAsync<Signal>(signalResponse).ConfigureAwait(false)).Id;
+
+                        user.IsTenantAdmin = false;
+                        AssertEqual(HttpStatusCode.OK, (await _AdminClient.PutAsync("/api/v1/users/" + userId, JsonHelper.ToJsonContent(user)).ConfigureAwait(false)).StatusCode);
+                        AssertFalse((await JsonHelper.DeserializeAsync<WhoAmIResult>(await demoted.GetAsync("/api/v1/whoami").ConfigureAwait(false)).ConfigureAwait(false)).User!.IsTenantAdmin,
+                            "The fixture user is now an ordinary user");
+
+                        HttpResponseMessage fleetDetail = await demoted.GetAsync("/api/v1/fleets/" + fleetId).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.OK, fleetDetail.StatusCode, "The ordinary user reads its own fleet");
+                        string fleetRaw = await fleetDetail.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        AssertFalse(fleetRaw.Contains(otherVesselId!, StringComparison.Ordinal), "The fleet detail lists no other user's vessel");
+
+                        HttpResponseMessage voyageDetail = await demoted.GetAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.OK, voyageDetail.StatusCode, "The ordinary user reads its own voyage");
+                        string voyageRaw = await voyageDetail.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        AssertFalse(voyageRaw.Contains(otherMissionId!, StringComparison.Ordinal), "The voyage detail lists no other user's mission");
+
+                        string recentRaw = await (await demoted.GetAsync("/api/v1/signals/recent?count=1000").ConfigureAwait(false)).Content.ReadAsStringAsync().ConfigureAwait(false);
+                        AssertFalse(recentRaw.Contains(otherSignalId!, StringComparison.Ordinal), "Recent signals list no other user's signal");
+
+                        HttpResponseMessage gitStatus = await demoted.GetAsync("/api/v1/vessels/" + otherVesselId + "/git-status").ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.NotFound, gitStatus.StatusCode, "Git status reads the vessel in the ordinary user's scope");
+
+                        HttpResponseMessage enumerate = await demoted.PostAsync("/api/v1/playbooks/enumerate", JsonHelper.ToJsonContent(new { PageSize = 10 })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.OK, enumerate.StatusCode, "An ordinary user enumerates what it may list");
+                        foreach (string collection in new[] { "workflow-profiles", "environments", "objectives", "backlog" })
+                        {
+                            HttpResponseMessage collectionEnumerate = await demoted.PostAsync("/api/v1/" + collection + "/enumerate", JsonHelper.ToJsonContent(new { PageSize = 10 })).ConfigureAwait(false);
+                            AssertEqual(HttpStatusCode.OK, collectionEnumerate.StatusCode, "An ordinary user enumerates " + collection);
+                        }
+                    }
+                }
+                catch (Exception exception) { failures.Add(exception); }
+                finally
+                {
+                    foreach (string path in new[]
+                    {
+                        otherSignalId == null ? "" : "/api/v1/signals/" + otherSignalId,
+                        otherMissionId == null ? "" : "/api/v1/missions/" + otherMissionId,
+                        otherVesselId == null ? "" : "/api/v1/vessels/" + otherVesselId,
+                        voyageId == null ? "" : "/api/v1/voyages/" + voyageId,
+                        fleetId == null ? "" : "/api/v1/fleets/" + fleetId,
+                        credentialId == null ? "" : "/api/v1/credentials/" + credentialId,
+                        userId == null ? "" : "/api/v1/users/" + userId
+                    })
+                    {
+                        if (path.Length == 0) continue;
+                        try { await _AdminClient.DeleteAsync(path).ConfigureAwait(false); }
+                        catch (Exception exception) { failures.Add(exception); }
+                    }
+                }
+                if (failures.Count > 0) throw new AggregateException("Ordinary-user scope test failed", failures);
+            }).ConfigureAwait(false);
+
+            #endregion
+
+            #region Host-Detail-Authorization
+
+            await RunTest("Doctor_FromTenantAdmin_ShowsNoHostPaths", async () =>
+            {
+                HttpResponseMessage tenantResponse = await _ClientA!.GetAsync("/api/v1/doctor").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, tenantResponse.StatusCode);
+                List<DoctorCheck> tenantChecks = await JsonHelper.DeserializeAsync<List<DoctorCheck>>(tenantResponse).ConfigureAwait(false);
+                AssertTrue(tenantChecks.Count > 0, "The tenant administrator still receives the checks");
+                foreach (DoctorCheck check in tenantChecks)
+                    AssertFalse(check.Message.Contains('/') || check.Message.Contains('\\'), "No server path reaches a tenant administrator: " + check.Name + ": " + check.Message);
+
+                List<DoctorCheck> adminChecks = await JsonHelper.DeserializeAsync<List<DoctorCheck>>(
+                    await _AdminClient.GetAsync("/api/v1/doctor").ConfigureAwait(false)).ConfigureAwait(false);
+                DoctorCheck settings = adminChecks.Single(check => check.Name == "Settings");
+                AssertTrue(settings.Message.Contains('/') || settings.Message.Contains('\\'), "A global administrator still sees the settings path: " + settings.Message);
+            }).ConfigureAwait(false);
+
+            await RunTest("MuxRuntimeRoutes_FromTenantAdmin_Return403", async () =>
+            {
+                HttpResponseMessage list = await _ClientA!.GetAsync("/api/v1/runtimes/mux/endpoints?configDirectory=" + Uri.EscapeDataString(Path.GetTempPath())).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, list.StatusCode, "A tenant administrator cannot read the server's Mux configuration");
+                HttpResponseMessage show = await _ClientA!.GetAsync("/api/v1/runtimes/mux/endpoints/example").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, show.StatusCode, "A tenant administrator cannot probe a Mux endpoint");
+                HttpResponseMessage admin = await _AdminClient.GetAsync("/api/v1/runtimes/mux/endpoints").ConfigureAwait(false);
+                AssertNotEqual(HttpStatusCode.Forbidden, admin.StatusCode, "A global administrator still reaches the Mux routes");
             }).ConfigureAwait(false);
 
             #endregion

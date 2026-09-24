@@ -568,12 +568,12 @@ namespace Armada.Core.Settings
         public bool AllowSelfRegistration { get; set; } = true;
 
         /// <summary>
-        /// Whether POST /api/v1/server/stop requires authentication.
-        /// When false (default), the shutdown endpoint is accessible without credentials,
-        /// suitable for local development. When true, requires an authenticated identity,
-        /// suitable for centralized or Docker deployments.
+        /// Whether POST /api/v1/server/stop and POST /api/v1/server/restart require a global administrator.
+        /// True by default, so an unauthenticated caller cannot stop the server. Helm sends its configured
+        /// bearer credential (the seeded default credential when none is configured), so local stop and
+        /// restart keep working. Set false only for a server that no untrusted client can reach.
         /// </summary>
-        public bool RequireAuthForShutdown { get; set; } = false;
+        public bool RequireAuthForShutdown { get; set; } = true;
 
         /// <summary>
         /// AES-256 encryption key for session tokens.

@@ -52,16 +52,19 @@ namespace Armada.Test.Unit.Suites.Services
                     Authenticated("ten_one", "usr_two", "crd_two"),
                     administrator), "active owner cannot be substituted").ConfigureAwait(false);
 
-                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.RevokeAsync("hbr_one", Authenticated("ten_other", "admin", null, false, true)), "cross-tenant revoke rejected").ConfigureAwait(false);
+                AssertFalse(await service.RevokeAsync("hbr_one", Authenticated("ten_other", "admin", null, false, true)).ConfigureAwait(false),
+                    "a cross-tenant revoke reads exactly like revoking a runner that is not enrolled");
+                AssertTrue((await service.ResolveOwnerAsync("hbr_one").ConfigureAwait(false)).Resolved, "the refused cross-tenant revoke changes nothing");
 
                 AssertTrue(await service.RevokeAsync("hbr_one", administrator).ConfigureAwait(false), "original tenant administrator revokes before rebind");
                 principals.Add("ten_two", "usr_three");
                 credentials.Add("crd_three", "ten_two", "usr_three");
-                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.CreateAsync(
+                string claimRefusal = await RefusalOfAsync(() => service.CreateAsync(
                     "hbr_one",
                     Authenticated("ten_two", "usr_three", "crd_three"),
-                    Authenticated("ten_two", "admin_two", null, false, true)),
-                    "new tenant administrator cannot claim old tenant runner").ConfigureAwait(false);
+                    Authenticated("ten_two", "admin_two", null, false, true))).ConfigureAwait(false);
+                AssertEqual("InvalidOperationException:runner_already_enrolled", claimRefusal,
+                    "another tenant's revoked runner reads only as taken, exactly like an active one");
                 HarborRunnerEnrollment rebound = await service.CreateAsync(
                     "hbr_one",
                     Authenticated("ten_two", "usr_three", "crd_three"),
@@ -196,6 +199,35 @@ namespace Armada.Test.Unit.Suites.Services
                 string newReason = newSessionRegistration.FailureReason;
                 AssertTrue(newSessionRegistration.Accepted, newReason);
                 AssertTrue(newSession!.EnrollmentGeneration > oldSession!.EnrollmentGeneration, "registry accepts newer durable generation");
+            });
+
+            await RunTest("ForeignTenantIds_ReadExactlyLikeMissingOnes", async () =>
+            {
+                EnrollmentStore enrollments = new EnrollmentStore();
+                CredentialStore credentials = new CredentialStore();
+                PrincipalStore principals = new PrincipalStore();
+                principals.Add("ten_one", "usr_one");
+                principals.Add("ten_two", "usr_two");
+                credentials.Add("crd_one", "ten_one", "usr_one");
+                credentials.Add("crd_two", "ten_two", "usr_two");
+                HarborRunnerEnrollmentService service = new HarborRunnerEnrollmentService(enrollments, credentials, principals, principals);
+                AuthContext tenantOneAdministrator = Authenticated("ten_one", "admin_one", null, false, true);
+                AuthContext tenantTwoAdministrator = Authenticated("ten_two", "admin_two", null, false, true);
+
+                string missingCredential = await RefusalOfAsync(() => service.CreateForCredentialAsync("hbr_probe", "crd_missing", tenantTwoAdministrator)).ConfigureAwait(false);
+                string foreignCredential = await RefusalOfAsync(() => service.CreateForCredentialAsync("hbr_probe", "crd_one", tenantTwoAdministrator)).ConfigureAwait(false);
+                AssertEqual("UnauthorizedAccessException:credential_revoked_or_mismatched", missingCredential, "a missing credential is refused");
+                AssertEqual(missingCredential, foreignCredential, "another tenant's credential is refused exactly like a missing one");
+
+                await service.CreateForCredentialAsync("hbr_one", "crd_one", tenantOneAdministrator).ConfigureAwait(false);
+                AssertFalse(await service.RevokeAsync("hbr_missing", tenantTwoAdministrator).ConfigureAwait(false), "a missing runner is not revoked");
+                AssertFalse(await service.RevokeAsync("hbr_one", tenantTwoAdministrator).ConfigureAwait(false), "another tenant's runner reads like a missing one");
+                AssertTrue((await service.ResolveOwnerAsync("hbr_one").ConfigureAwait(false)).Resolved, "the refused revoke changes nothing");
+
+                HarborRunnerEnrollment own = await service.CreateForCredentialAsync("hbr_two", "crd_two", tenantTwoAdministrator).ConfigureAwait(false);
+                AssertEqual("usr_two", own.UserId, "a tenant administrator still enrolls its own tenant's credential");
+                AssertTrue(await service.RevokeAsync("hbr_one", Authenticated("ten_two", "global_admin", null, true)).ConfigureAwait(false),
+                    "a global administrator still revokes any tenant's runner");
             });
 
             await RunTest("RevokedRunnerReuse_RequiresAuthorityOverPreviousOwner", async () =>
@@ -408,6 +440,19 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
+        private static async Task<string> RefusalOfAsync(Func<Task> action)
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+                return "accepted";
+            }
+            catch (Exception exception)
+            {
+                return exception.GetType().Name + ":" + exception.Message;
+            }
+        }
+
         private static AuthContext Authenticated(string tenantId, string userId, string? credentialId, bool isAdmin = false, bool isTenantAdmin = false)
         {
             return AuthContext.Authenticated(tenantId, userId, isAdmin, isTenantAdmin, credentialId == null ? "Session" : "Bearer", credentialId, userId);
@@ -517,7 +562,12 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> ExistsAsync(string id, CancellationToken token = default) => Task.FromResult(_Tenants.ContainsKey(id));
             public Task<bool> ExistsAnyAsync(CancellationToken token = default) => Task.FromResult(_Tenants.Count > 0);
             public Task<UserMaster> CreateAsync(UserMaster user, CancellationToken token = default) => throw new NotSupportedException();
-            public Task<UserMaster?> ReadByIdAsync(string id, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<UserMaster?> ReadByIdAsync(string id, CancellationToken token = default)
+            {
+                foreach (UserMaster user in _Users.Values)
+                    if (String.Equals(user.Id, id, StringComparison.Ordinal)) return Task.FromResult<UserMaster?>(user);
+                return Task.FromResult<UserMaster?>(null);
+            }
             public Task<UserMaster?> ReadByEmailAsync(string tenantId, string email, CancellationToken token = default) => throw new NotSupportedException();
             public Task<List<UserMaster>> ReadByEmailAnyTenantAsync(string email, CancellationToken token = default) => throw new NotSupportedException();
             public Task<UserMaster> UpdateAsync(UserMaster user, CancellationToken token = default) => throw new NotSupportedException();

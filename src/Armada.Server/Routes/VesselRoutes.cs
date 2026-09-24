@@ -240,6 +240,13 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createPathError };
                 }
+                // The fleet a vessel joins is read in the caller's scope like the vessel itself.
+                if (!String.IsNullOrWhiteSpace(vessel.FleetId)
+                    && await Armada.Core.Authorization.CallerScopedRead.ReadFleetAsync(_database, ctx, vessel.FleetId).ConfigureAwait(false) == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" };
+                }
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
                 vessel.AutoLandPredicate = autoLandPredicateJson;
@@ -308,6 +315,14 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
                 updated.AutoLandPredicate = updateAlpJson;
                 VesselUpdateMerge.KeepServerOwnedFields(existing, updated);
+                // A changed fleet is read in the caller's scope; an unchanged one is never refused.
+                if (!String.IsNullOrWhiteSpace(updated.FleetId)
+                    && !String.Equals(updated.FleetId, existing.FleetId, StringComparison.Ordinal)
+                    && await Armada.Core.Authorization.CallerScopedRead.ReadFleetAsync(_database, ctx, updated.FleetId).ConfigureAwait(false) == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" };
+                }
                 string? updatePathError = VesselPathPolicy.ApplyUpdate(ctx, existing, updated, out bool updatePathForbidden);
                 if (updatePathError != null)
                 {
@@ -371,9 +386,7 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string id = req.Parameters["id"];
-                Vessel? vessel = ctx.IsAdmin
-                    ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                Vessel? vessel = await Armada.Core.Authorization.CallerScopedRead.ReadVesselAsync(_database, ctx, id).ConfigureAwait(false);
                 if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
                 if (String.IsNullOrEmpty(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
                     return (object)new { VesselId = id, CommitsAhead = (int?)null, CommitsBehind = (int?)null, Error = "No working directory configured or directory does not exist" };

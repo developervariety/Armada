@@ -86,13 +86,53 @@ upstream integrations and excludes changes already present at that baseline.
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
 - **Tenant scope for ids in request bodies:** voyage and mission create, mission
-  update, vessel build-context, merge-queue enqueue, incident create and update,
-  and planning-session create read every record their body names by id with the
-  caller's scope, as they read a path id, and return `404` (`400` for an
-  incident create) for a record outside it; the MCP and WebSocket create surfaces
-  apply the same rule. Caller-less paths read linked records only inside the
-  owning tenant: mission dependencies, Judge follow-up association, incident
-  lifecycle evidence, and fleet and captain default playbooks.
+  update, vessel create and update, vessel build-context, merge-queue enqueue,
+  incident create and update, and planning-session create read every record their
+  body names by id with the caller's scope, as they read a path id, and return
+  `404` (`400` for an incident create) for a record outside it; the MCP and
+  WebSocket create surfaces and the MCP `armada_update_mission` tool apply the
+  same rule. The checked ids include a vessel's `FleetId`, a mission's `DockId`
+  and an incident's `RegressionObjectiveId`. Caller-less paths read linked
+  records only inside the owning tenant: mission dependencies, Judge follow-up
+  association, incident lifecycle evidence, and fleet and captain default
+  playbooks.
+- **User and credential privilege:** a tenant administrator manages the users of
+  its own tenant except a global administrator and a protected user; changing,
+  deactivating, deleting, resetting the password of, or minting, changing or
+  deleting a credential for either returns `403`. Credential reads return the
+  bearer token only to a global administrator and to the credential's own user;
+  every other caller receives `********`, and a non-global caller's credential
+  update keeps the stored token. The creation response still returns the new
+  token once.
+- **Shutdown authentication by default:** `RequireAuthForShutdown` defaults to
+  `true`, so `POST /api/v1/server/stop` and `/restart` require a global
+  administrator unless a deployment turns the setting off. Helm sends its
+  configured credential, so local stop and restart keep working.
+- **Host details and server-wide routes:** `GET /api/v1/doctor` shows the settings
+  path, database location and runtime binary paths only to a global
+  administrator; other callers receive the same checks without them. The Mux
+  runtime routes are global-admin only. Production summary lane time counts, for
+  a caller that is not a global administrator, only lanes whose every vessel
+  belongs to the caller's tenant.
+- **Ordinary-user reads and writes:** an ordinary user's recent signals, a
+  captain's signals, vessel git status, the vessels of a fleet, the missions of a
+  voyage and the active missions in workspace status are limited to its own
+  records, as its lists are. Workspace file writes and token-usage
+  delete-by-filter require a tenant administrator, like the vessel and event
+  writes beside them. Approve, deny, restart and status-transition signals carry
+  the mission's tenant and user. A tenant administrator no longer reads the
+  captured requests of a global administrator in its tenant.
+- **Enumerate routes:** every `POST .../enumerate` takes the permission level of
+  the `GET` list it mirrors, so an ordinary user enumerates playbooks, workflow
+  profiles, environments, objectives, backlog and every other listable
+  collection it may already list.
+- **Foreign ids read as missing:** for a caller that is not a global
+  administrator, dispatch preview describes another tenant's captain override and
+  pipeline override exactly like a missing one, and Harbor runner enrollment and
+  revocation answer another tenant's credential or runner exactly like a missing
+  one (an enrollment another tenant holds reads only as `runner_already_enrolled`).
+  A deployment environment cannot move to a vessel in another tenant, and deleting
+  an objective with no row purges only the caller's own tenant's orphan snapshots.
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.

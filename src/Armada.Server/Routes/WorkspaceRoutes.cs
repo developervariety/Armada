@@ -464,7 +464,9 @@ namespace Armada.Server.Routes
                 ? await _database.Missions.EnumerateByVesselAsync(vesselId).ConfigureAwait(false)
                 : await _database.Missions.EnumerateByVesselAsync(ctx.TenantId!, vesselId).ConfigureAwait(false);
 
+            // An ordinary user sees only its own missions, as in the mission list.
             return missions
+                .Where(mission => ctx.IsAdmin || ctx.IsTenantAdmin || mission.UserId == ctx.UserId)
                 .Where(IsActiveMission)
                 .OrderByDescending(mission => mission.LastUpdateUtc)
                 .Select(mission => new WorkspaceActiveMission

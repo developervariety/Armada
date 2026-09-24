@@ -840,7 +840,10 @@ namespace Armada.Server.Routes
                 try
                 {
                     Mission mission = await _missionService.ApproveReviewAsync(id, ctx.UserId, body.Comment).ConfigureAwait(false);
+                    // A signal belongs to the mission it reports, so the mission's owner sees it.
                     Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " review approved");
+                    signal.TenantId = mission.TenantId;
+                    signal.UserId = mission.UserId;
                     await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     await _emitEvent("mission.review_approved", "Mission " + id + " review approved",
                         "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
@@ -886,6 +889,8 @@ namespace Armada.Server.Routes
                 {
                     Mission mission = await _missionService.DenyReviewAsync(id, ctx.UserId, body.Comment).ConfigureAwait(false);
                     Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " review denied");
+                    signal.TenantId = mission.TenantId;
+                    signal.UserId = mission.UserId;
                     await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     await _emitEvent("mission.review_denied", "Mission " + id + " review denied",
                         "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
@@ -1072,7 +1077,10 @@ namespace Armada.Server.Routes
                     };
                 }
 
+                // The restart signal belongs to the mission it reports, so the mission's owner sees it.
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " restarted");
+                signal.TenantId = mission.TenantId;
+                signal.UserId = mission.UserId;
                 await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
 
                 await _emitEvent("mission.restarted", "Mission " + id + " restarted",

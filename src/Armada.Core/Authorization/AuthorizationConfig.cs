@@ -54,6 +54,14 @@ namespace Armada.Core.Authorization
             if (path.StartsWith("/dashboard")) return PermissionLevel.NoAuthRequired;
             if (path == "/") return PermissionLevel.NoAuthRequired;
 
+            // An enumerate route reads a collection through a POST body, so it takes the level of the GET list it
+            // mirrors. Every enumerate handler applies the same caller scope as its GET list.
+            if (method == "POST" && path.TrimEnd('/').EndsWith("/enumerate"))
+            {
+                string collection = path.TrimEnd('/');
+                return GetPermissionLevel("GET", collection.Substring(0, collection.Length - "/enumerate".Length));
+            }
+
             // AdminOnly endpoints
 
             // Fleet status aggregates every tenant's captains, missions, voyages and signals, so only a
@@ -68,8 +76,8 @@ namespace Armada.Core.Authorization
             if (_TenantIdPattern.IsMatch(path) && (method == "PUT" || method == "DELETE")) return PermissionLevel.AdminOnly;
 
             // Prompt templates are shared by every tenant and found by name alone, so a change
-            // affects all tenants. Enumerate reads through a POST body and keeps the read level.
-            if (path.StartsWith("/api/v1/prompt-templates") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.AdminOnly;
+            // affects all tenants.
+            if (path.StartsWith("/api/v1/prompt-templates") && method != "GET") return PermissionLevel.AdminOnly;
 
             // The inbox and Ask answer from fleet-wide state that carries no tenant or user
             // scope, so only a global administrator may read them.
@@ -92,6 +100,10 @@ namespace Armada.Core.Authorization
             // A workspace command runs as the server process with the server's filesystem, network and credentials,
             // so it is host shell access: only a global administrator may run one.
             if (method == "POST" && path.StartsWith("/api/v1/workspace/") && path.TrimEnd('/').EndsWith("/exec")) return PermissionLevel.AdminOnly;
+
+            // The Mux routes read the server's own Mux endpoint configuration and pass a caller-chosen config
+            // directory to the Mux CLI, so they expose server-wide settings and probe server paths.
+            if (path == "/api/v1/runtimes/mux" || path.StartsWith("/api/v1/runtimes/mux/")) return PermissionLevel.AdminOnly;
 
             // Code-index routes use POST bodies for search/graph reads and refresh requests.
             // Route handlers enforce the vessel ACL after authentication.
@@ -123,16 +135,24 @@ namespace Armada.Core.Authorization
             if (path.StartsWith("/api/v1/request-history") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/harbor-runners") && method != "GET") return PermissionLevel.TenantAdmin;
 
+            // Writing into a vessel's working tree changes the vessel like any other vessel write. Deleting
+            // token-usage records removes accounting evidence, like deleting events or request history.
+            if (path.StartsWith("/api/v1/workspace/") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/token-usage") && method != "GET") return PermissionLevel.TenantAdmin;
+
             // Check runs execute commands in a vessel's working directory and write the evidence the Judge and voyage
             // gates read, so running, importing, retrying, syncing or deleting one needs a tenant administrator.
-            // Enumerate reads through a POST body and keeps the read level. A command override is refused inside
-            // the service for every caller that is not a global administrator.
-            if (path.StartsWith("/api/v1/check-runs") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.TenantAdmin;
+            // A command override is refused inside the service for every caller that is not a global administrator.
+            if (path.StartsWith("/api/v1/check-runs") && method != "GET") return PermissionLevel.TenantAdmin;
 
             // Personas and pipelines belong to a tenant. Their handlers find the record inside the
-            // caller's tenant; enumerate reads through a POST body and keeps the read level.
-            if (path.StartsWith("/api/v1/personas") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.TenantAdmin;
-            if (path.StartsWith("/api/v1/pipelines") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.TenantAdmin;
+            // caller's tenant.
+            if (path.StartsWith("/api/v1/personas") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/pipelines") && method != "GET") return PermissionLevel.TenantAdmin;
+
+            // User and credential changes need only a login here: a user may change its own account and
+            // credentials. Whether the caller may act on the target user is decided by UserManagementRule in the
+            // handler, because it depends on the target's privilege.
 
             // Everything else requires authentication
             return PermissionLevel.Authenticated;
@@ -144,12 +164,6 @@ namespace Armada.Core.Authorization
 
         private static readonly System.Text.RegularExpressions.Regex _TenantIdPattern =
             new System.Text.RegularExpressions.Regex(@"/tenants/[^/]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
-
-        private static readonly System.Text.RegularExpressions.Regex _UserIdPattern =
-            new System.Text.RegularExpressions.Regex(@"/users/[^/]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
-
-        private static readonly System.Text.RegularExpressions.Regex _CredentialIdPattern =
-            new System.Text.RegularExpressions.Regex(@"/credentials/[^/]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
         #endregion
     }

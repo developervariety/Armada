@@ -304,6 +304,10 @@ namespace Armada.Core.Services
             if (Supplied(request.VoyageId)
                 && await CallerScopedRead.ReadVoyageAsync(_Database, auth, request.VoyageId, token).ConfigureAwait(false) == null)
                 return "Voyage not found: " + request.VoyageId;
+            string? regressionObjectiveId = Supplied(request.RegressionObjectiveId) ? RegressionLinkRules.NormalizeObjectiveId(request.RegressionObjectiveId) : null;
+            if (regressionObjectiveId != null
+                && await CallerScopedRead.ReadObjectiveAsync(_Database, auth, regressionObjectiveId, token).ConfigureAwait(false) == null)
+                return "Regression objective not found: " + regressionObjectiveId;
             return null;
         }
 

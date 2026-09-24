@@ -206,6 +206,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("UpdateMission_ReadsTheMissionAndItsLinksInTheCallersScope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("scoped update")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+                    TenantMetadata otherTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Other MCP tenant")).ConfigureAwait(false);
+                    Mission foreign = await testDb.Driver.Missions.CreateAsync(new Mission("foreign link")
+                    {
+                        TenantId = otherTenant.Id,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? updateHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_update_mission") updateHandler = handler; },
+                        testDb.Driver,
+                        new RecordingAdmiralDouble(),
+                        null,
+                        null);
+                    AssertNotNull(updateHandler, "armada_update_mission handler must be registered");
+
+                    AuthContext otherTenantAdmin = AuthContext.Authenticated(otherTenant.Id, "usr_other_admin", false, true, "Test");
+                    string foreignJson;
+                    using (McpCallerContext.Begin(otherTenantAdmin))
+                    {
+                        foreignJson = JsonSerializer.Serialize(await updateHandler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, title = "taken over" })).ConfigureAwait(false));
+                    }
+                    AssertContains("Mission not found", foreignJson, "another tenant's administrator cannot change the mission");
+
+                    AuthContext ownerTenantAdmin = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, "usr_owner_admin", false, true, "Test");
+                    foreach (object args in new object[]
+                    {
+                        new { missionId = mission.Id, dependsOnMissionId = foreign.Id },
+                        new { missionId = mission.Id, parentMissionId = foreign.Id }
+                    })
+                    {
+                        string linkJson;
+                        using (McpCallerContext.Begin(ownerTenantAdmin))
+                        {
+                            linkJson = JsonSerializer.Serialize(await updateHandler!(JsonSerializer.SerializeToElement(args)).ConfigureAwait(false));
+                        }
+                        AssertContains("not found", linkJson, "a link to another tenant's mission is refused as missing: " + linkJson);
+                    }
+
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual("scoped update", stored!.Title, "the refused update writes nothing");
+                    AssertNull(stored.DependsOnMissionId, "the refused dependency is not stored");
+                    AssertNull(stored.ParentMissionId, "the refused parent is not stored");
+                }
+            });
+
             await RunTest("MissionOutput_ReturnsPersistedDigestBackedPage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

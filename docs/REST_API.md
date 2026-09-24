@@ -106,8 +106,8 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 
 | Endpoint | Method | Permission | Notes |
 |----------|--------|------------|-------|
-| `/api/v1/server/stop` | POST | NoAuthRequired\*\*\* | When `RequireAuthForShutdown` is `true`, requires global admin (`IsAdmin = true`) |
-| `/api/v1/server/restart` | POST | NoAuthRequired\*\*\* | When `RequireAuthForShutdown` is `true`, requires global admin (`IsAdmin = true`) |
+| `/api/v1/server/stop` | POST | AdminOnly\*\*\* | Requires global admin (`IsAdmin = true`) while `RequireAuthForShutdown` is `true`, the default |
+| `/api/v1/server/restart` | POST | AdminOnly\*\*\* | Requires global admin (`IsAdmin = true`) while `RequireAuthForShutdown` is `true`, the default |
 | `/api/v1/status/health` | GET | NoAuthRequired | |
 | `/api/v1/authenticate` | POST | NoAuthRequired | |
 | `/api/v1/tenants/lookup` | POST | NoAuthRequired | Input: email, returns matching tenants |
@@ -139,6 +139,12 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/check-runs` | GET, POST `/enumerate` | Authenticated | Tenant-scoped reads |
 | `/api/v1/check-runs` | POST/DELETE | TenantAdmin | Run, import, retry, GitHub Actions sync and delete. A linked mission, voyage or deployment must be in the caller's tenant (`400` otherwise). `commandOverride`, and retrying an imported check, are global admin only (`403`). `Deploy` and `Rollback` checks run only through the deployment workflow (`400`) |
 | `/api/v1/workspace/vessels/{id}/exec` | POST | AdminOnly | Global admin only. The command runs as the server process, so it is host shell access |
+| `/api/v1/workspace/vessels/{id}/...` | PUT/POST/DELETE | TenantAdmin | File save, directory create, rename and delete change the vessel's working tree like any other vessel write. Reads stay `Authenticated` |
+| `/api/v1/request-history` | GET | Authenticated | Global admin: every entry. Tenant admin: its tenant's entries except those of a global admin in the tenant. Regular user: own entries. Deletes are `TenantAdmin` with the same scope |
+| `/api/v1/token-usage/delete/by-filter` | POST | TenantAdmin | Deletes accounting records inside the caller's scope, like deleting events or request history. Reads stay `Authenticated` |
+| `/api/v1/runtimes/mux/...` | GET | AdminOnly | Global admin only. The routes read the server's own Mux endpoint configuration and pass a caller-chosen config directory to the Mux CLI |
+| `/api/v1/doctor` | GET | Authenticated | The settings path, database location and runtime binary paths appear only for a global admin; every other caller receives the same checks without them. Counts are scoped to the caller's tenant |
+| any `.../enumerate` | POST | Level of the matching `GET` list | An enumerate route reads through a POST body, so it takes the level of the list it mirrors and applies the same caller scope |
 | `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
 | `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant. Every tenant uses a built-in pipeline, so only a global admin may update one; anyone else receives `403` |
@@ -160,14 +166,22 @@ every record its body names by id with the caller's scope, exactly as it reads a
 path id, before it stores or acts on the request. A record outside that scope
 returns `404` (an incident create returns `400`), and nothing is created,
 dispatched or attached. This covers the vessel and dependency missions of
-`POST /api/v1/voyages`; the vessel, voyage, captain, requested captain,
+`POST /api/v1/voyages`; the vessel, voyage, captain, requested captain, dock,
 dependency and parent of `POST /api/v1/missions` and the dependency and parent a
-`PUT /api/v1/missions/{id}` changes; the captain of
+`PUT /api/v1/missions/{id}` changes; the fleet of `POST /api/v1/vessels` and the
+fleet a `PUT /api/v1/vessels/{id}` changes; the captain of
 `POST /api/v1/vessels/{id}/build-context`; the vessel and mission of
 `POST /api/v1/merge-queue`; the fleet of `POST /api/v1/planning-sessions`; and
 the deployment, rollback deployment, release, check run, environment, vessel,
-mission and voyage links of incident create and update. The matching MCP and
-WebSocket create surfaces apply the same rule. A global admin names any record.
+mission, voyage and regression objective links of incident create and update.
+The matching MCP and WebSocket create surfaces, and the MCP
+`armada_update_mission` tool, apply the same rule. A global admin names any
+record.
+
+A deployment environment keeps the tenant it was created in, so
+`PUT /api/v1/environments/{id}` refuses a move to another tenant's vessel with
+`400`. Deleting an objective that has no row purges only the caller's own
+tenant's orphan snapshots; another tenant's orphan id returns `404`.
 
 Paths that run without a caller read linked records only inside the owning
 record's tenant: a mission's dependency must share the tenant of the vessel the
@@ -180,7 +194,17 @@ mission. A user-specific record of another user is refused, whether the
 reference is an explicit id, a name, a vessel default or a fleet default. The
 refusal is logged, and the reference is kept rather than cleared as missing.
 The objective dispatch preview reports `pipeline_not_usable` or
-`default_pipeline_not_usable`.
+`default_pipeline_not_usable`. For a caller that is not a global admin, an
+explicit pipeline of another tenant reads as `pipeline_not_found`, and a captain
+override naming another tenant's captain reads exactly like a missing captain,
+so the preview never confirms that another tenant's record exists.
+
+**Ordinary users read their own records.** A regular user's recent signals
+(`GET /api/v1/signals/recent`), a captain's signals
+(`GET /api/v1/signals/recipient/{captainId}`, only for its own captain), vessel
+git status, the vessels in `GET /api/v1/fleets/{id}`, the missions in
+`GET /api/v1/voyages/{id}` and the active missions in workspace status are its
+own records only, as in its lists. A tenant admin reads the whole tenant.
 | `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
 | `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |
@@ -197,20 +221,20 @@ The objective dispatch preview reports `pipeline_not_usable` or
 | `/api/v1/users` | GET (list) | AdminOnly | Global admin: all users. Tenant admin: users in own tenant |
 | `/api/v1/users` | POST | AdminOnly | Global admin: any tenant. Tenant admin: own tenant only |
 | `/api/v1/users/{id}` | GET | Authenticated | Global admin: any. Tenant admin: users in own tenant. Regular user: self only |
-| `/api/v1/users/{id}` | PUT/DELETE | AdminOnly | Global admin: any. Tenant admin: users in own tenant. Regular user: self-update only |
-| `/api/v1/credentials` | GET (list) | Authenticated | Global admin: all. Tenant admin: credentials in own tenant. Regular user: own only |
-| `/api/v1/credentials` | POST | Authenticated | Global admin: any tenant/user. Tenant admin: own tenant. Regular user: self only |
-| `/api/v1/credentials/{id}` | GET | Authenticated | Global admin: any. Tenant admin: own tenant. Regular user: own only |
-| `/api/v1/credentials/{id}` | PUT | Authenticated | Global admin: any. Tenant admin: own tenant. Regular user: own only |
-| `/api/v1/credentials/{id}` | DELETE | Authenticated | Global admin: any. Tenant admin: own tenant. Regular user: own only |
+| `/api/v1/users/{id}` | PUT/DELETE | Authenticated | Global admin: any. Tenant admin: users in own tenant except a global admin or a protected user (`403`). Regular user: self-update only |
+| `/api/v1/credentials` | GET (list) | Authenticated | Global admin: all. Tenant admin: credentials in own tenant. Regular user: own only. The bearer token is returned only to a global admin and to the credential's own user; others receive `********` |
+| `/api/v1/credentials` | POST | Authenticated | Global admin: any tenant/user. Tenant admin: users of own tenant except a global admin or a protected user (`403`). Regular user: self only. The response returns the new token once |
+| `/api/v1/credentials/{id}` | GET | Authenticated | Global admin: any. Tenant admin: own tenant. Regular user: own only. Token redacted as for the list |
+| `/api/v1/credentials/{id}` | PUT | Authenticated | Global admin: any. Tenant admin: own tenant, except the credentials of a global admin or a protected user (`403`). Regular user: own only. Only a global admin sets a token value |
+| `/api/v1/credentials/{id}` | DELETE | Authenticated | Global admin: any. Tenant admin: own tenant, except the credentials of a global admin or a protected user (`403`). Regular user: own only |
 
 **Exempt routes** (no authentication required):
 - `GET /api/v1/status/health`
 - `POST /api/v1/authenticate`
 - `POST /api/v1/tenants/lookup`
 - `POST /api/v1/onboarding` (when `AllowSelfRegistration` is enabled)
-- `POST /api/v1/server/stop` (when `RequireAuthForShutdown` is `false`, the default)
-- `POST /api/v1/server/restart` (when `RequireAuthForShutdown` is `false`, the default)
+- `POST /api/v1/server/stop` (only when a deployment sets `RequireAuthForShutdown` to `false`; the default is `true`)
+- `POST /api/v1/server/restart` (only when a deployment sets `RequireAuthForShutdown` to `false`; the default is `true`)
 - `GET /dashboard` and all `/dashboard/*` paths
 - `GET /` (redirects to `/dashboard`)
 
@@ -612,7 +636,7 @@ Get a user by ID. Global admins can read any user. Tenant admins can read users 
 
 #### PUT /api/v1/users/{id}
 
-Update a user. Global admins can update any user. Tenant admins can update users in their own tenant. Regular users can update only their own user record.
+Update a user. Global admins can update any user. Tenant admins can update users in their own tenant, except a global admin and a protected user: that returns `403 Forbidden` and changes nothing. Regular users can update only their own user record.
 
 `Id`, `TenantId`, `CreatedUtc`, `LastUpdateUtc`, and `IsProtected` are server-controlled and cannot be modified by API clients.
 If `Password` is supplied, the server hashes and stores the new password. If `Password` is omitted or empty, the current password is preserved.
@@ -637,7 +661,7 @@ If `Password` is supplied, the server hashes and stores the new password. If `Pa
 
 #### DELETE /api/v1/users/{id}
 
-Delete a user. Global admins can delete any unprotected user. Tenant admins can delete unprotected users in their own tenant. Regular users cannot delete users directly.
+Delete a user. Global admins can delete any unprotected user. Tenant admins can delete unprotected users in their own tenant other than a global admin (`403 Forbidden`). Regular users cannot delete users directly.
 
 If the user is protected, the server returns `403 Forbidden`.
 
@@ -649,7 +673,9 @@ Deleting an unprotected user cascades through that user's subordinate resources 
 
 ### Credential Management
 
-> **Permission:** Authenticated. Global admins can manage all credentials. Tenant admins can manage credentials in their own tenant. Regular users can list, read, create, update, and delete only their own credentials.
+> **Permission:** Authenticated. Global admins can manage all credentials. Tenant admins can manage credentials in their own tenant, except those of a global admin or a protected user, where create, update and delete return `403 Forbidden`. Regular users can list, read, create, update, and delete only their own credentials.
+>
+> **Bearer tokens:** a read returns `BearerToken` only to a global admin and to the user the credential belongs to. Every other caller receives `********` in its place. The create response returns the new token once to the caller that created it.
 
 #### GET /api/v1/credentials
 
@@ -689,7 +715,7 @@ Get a credential by ID. Non-admin users can only read their own credentials.
 
 #### PUT /api/v1/credentials/{id}
 
-Update a credential. Global admins can update any credential. Tenant admins can update credentials inside their tenant. Regular users can update only their own credentials.
+Update a credential. Global admins can update any credential. Tenant admins can update credentials inside their tenant except those of a global admin or a protected user. Regular users can update only their own credentials. Only a global admin sets a `BearerToken` value; for every other caller, and for the redacted value `********`, the stored token is kept.
 
 `Id`, `TenantId`, `UserId`, `CreatedUtc`, `LastUpdateUtc`, and `IsProtected` are server-controlled and cannot be modified by API clients.
 
@@ -735,7 +761,9 @@ them. An active runner cannot be rebound; revoke it first.
 `Generation`, `Active`, `CreatedUtc`, `LastUpdateUtc`. No token value is returned or stored.
 
 **Errors:** `400` missing fields or malformed body; `401` unauthenticated; `403` not authorized for the owner
-or credential inactive; `409` runner already enrolled or a concurrent change won.
+or credential inactive; `409` runner already enrolled or a concurrent change won. For a caller that is not a
+global administrator, another tenant's credential is refused as `credential_revoked_or_mismatched`, exactly like a
+missing one, and a runner id another tenant holds is refused as `runner_already_enrolled` whatever its state.
 
 ---
 
@@ -745,8 +773,9 @@ Revoke an active enrollment with a generation compare-and-set. Connected links f
 revalidation and are closed; their jobs become `Lost`. Re-enrollment creates a new generation and cannot revive
 earlier sessions or jobs.
 
-**Response:** `200 OK` - `{ "Revoked": true }`; `404` when no active enrollment exists; `403` when the caller
-lacks authority over the owner.
+**Response:** `200 OK` - `{ "Revoked": true }`; `404` when no active enrollment exists or, for a caller that is not
+a global administrator, when the enrollment belongs to another tenant; `403` when the caller lacks authority over
+an owner in its own tenant.
 
 ---
 
@@ -973,7 +1002,7 @@ read, is not valid settings JSON, or fails validation. In both cases the current
 
 Initiates a graceful shutdown of the Admiral server.
 
-**Permission:** NoAuthRequired by default. When `RequireAuthForShutdown` is `true`, requires global admin (`IsAdmin = true`).
+**Permission:** Global admin (`IsAdmin = true`) while `RequireAuthForShutdown` is `true`, the default. A deployment that sets it `false` allows the route without credentials; do that only when no untrusted client can reach the server.
 
 **Response:** `200 OK`
 
@@ -983,7 +1012,7 @@ Initiates a graceful shutdown of the Admiral server.
 }
 ```
 
-Helm's `server stop`, `server restart`, `reset` and `config init` all stop the Admiral through this route with the configured bearer credential (`ApiKey` in the Helm settings file). Helm treats the server as stopped only when a connection to `GET /api/v1/status/health` fails. A refused stop request (for example `401` or `403` when `RequireAuthForShutdown` is `true`) or a server that still answers after the wait makes `server stop` exit non-zero, cancels `server restart` before it starts a second instance, and makes `reset` and `config init` refuse to delete any data.
+Helm's `server stop`, `server restart`, `reset` and `config init` all stop the Admiral through this route with the configured bearer credential (`ApiKey` in the Helm settings file). Helm treats the server as stopped only when a connection to `GET /api/v1/status/health` fails. A refused stop request (for example `401` or `403` while `RequireAuthForShutdown` is `true`) or a server that still answers after the wait makes `server stop` exit non-zero, cancels `server restart` before it starts a second instance, and makes `reset` and `config init` refuse to delete any data.
 
 ---
 
@@ -991,7 +1020,7 @@ Helm's `server stop`, `server restart`, `reset` and `config init` all stop the A
 
 Gracefully stops the Admiral server. In production the container or process supervisor restart policy relaunches the Admiral once the process exits, so this acts as an in-place restart with a brief period of downtime. No child process is spawned.
 
-**Permission:** NoAuthRequired by default. When `RequireAuthForShutdown` is `true`, requires global admin (`IsAdmin = true`).
+**Permission:** Global admin (`IsAdmin = true`) while `RequireAuthForShutdown` is `true`, the default. A deployment that sets it `false` allows the route without credentials; do that only when no untrusted client can reach the server.
 
 **Response:** `200 OK`
 
@@ -5166,7 +5195,7 @@ This table is a quick route index, not the complete contract. Use `/openapi.json
 
 \* Gated by `AllowSelfRegistration` setting.
 \*\* Non-admin users are scoped to their own records only.
-\*\*\* NoAuthRequired by default; requires global admin (`IsAdmin = true`) when `RequireAuthForShutdown` is `true`.
+\*\*\* Requires global admin (`IsAdmin = true`) while `RequireAuthForShutdown` is `true`, the default; NoAuthRequired when a deployment sets it `false`.
 
 ---
 

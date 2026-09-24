@@ -188,6 +188,10 @@ namespace Armada.Server.Mcp.Tools
                     vessel.UserId = addCaller.UserId;
                     vessel.Name = request.Name;
                     vessel.RepoUrl = request.RepoUrl;
+                    // The fleet a vessel joins is read in the caller's scope like the vessel itself.
+                    if (!String.IsNullOrWhiteSpace(request.FleetId)
+                        && await Armada.Core.Authorization.CallerScopedRead.ReadFleetAsync(database, addCaller, request.FleetId).ConfigureAwait(false) == null)
+                        return (object)new { Error = "Fleet not found: " + request.FleetId };
                     vessel.FleetId = request.FleetId;
                     vessel.DefaultBranch = request.DefaultBranch ?? "main";
                     vessel.ProjectContext = request.ProjectContext;

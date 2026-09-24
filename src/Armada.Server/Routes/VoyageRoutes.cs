@@ -449,6 +449,8 @@ namespace Armada.Server.Routes
                 List<Mission> missions = ctx.IsAdmin
                     ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
                     : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
+                // An ordinary user sees only its own missions, as in the mission list.
+                if (!ctx.IsAdmin && !ctx.IsTenantAdmin) missions = missions.Where(mission => mission.UserId == ctx.UserId).ToList();
                 foreach (Mission mission in missions)
                 {
                     mission.PlaybookSnapshots = await _database.Playbooks.GetMissionSnapshotsAsync(mission.Id).ConfigureAwait(false);

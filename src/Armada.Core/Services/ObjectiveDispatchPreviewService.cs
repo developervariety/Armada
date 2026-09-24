@@ -193,6 +193,7 @@ namespace Armada.Core.Services
             string? effectivePipelineRequest = NormalizeEmpty(requestedPipelineId)
                 ?? NormalizeEmpty(objective.SuggestedPipelineId);
             Pipeline? pipeline = await ResolvePipelineReadOnlyAsync(
+                auth,
                 vessel,
                 effectivePipelineRequest,
                 effectiveMissionModes.Count > 0
@@ -212,7 +213,7 @@ namespace Armada.Core.Services
 
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
             Pipeline? coveragePipeline = ApplyStoredStageSkip(objective, pipeline, result);
-            await EvaluateCaptainCoverageAsync(vessel, coveragePipeline, captains, captainAssignments, missionDescriptions, result, token).ConfigureAwait(false);
+            await EvaluateCaptainCoverageAsync(auth, vessel, coveragePipeline, captains, captainAssignments, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
 
             // D5 preflight text half. Runs LAST, after the deterministic block computed the facts and
@@ -900,6 +901,7 @@ namespace Armada.Core.Services
         }
 
         private async Task<Pipeline?> ResolvePipelineReadOnlyAsync(
+            AuthContext auth,
             Vessel vessel,
             string? explicitPipeline,
             bool readOnly,
@@ -908,6 +910,9 @@ namespace Armada.Core.Services
         {
             // The preview applies the same ownership rule as dispatch: a pipeline is used on behalf of
             // the vessel's owner, and a record that owner may not use is reported as refused, not missing.
+            // Only a global administrator learns that a pipeline exists in another tenant; for every other
+            // caller such a pipeline reads exactly as a missing one.
+            bool seesOtherTenants = auth.IsAdmin;
             if (!String.IsNullOrWhiteSpace(explicitPipeline))
             {
                 Pipeline? requested = await _Database.Pipelines.ReadAsync(explicitPipeline, token).ConfigureAwait(false);
@@ -916,8 +921,8 @@ namespace Armada.Core.Services
                 {
                     if (!OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, requested))
                     {
+                        refused = seesOtherTenants || OwnershipPolicy.SameTenant(requested.TenantId, vessel.TenantId);
                         requested = null;
-                        refused = true;
                     }
                 }
                 else
@@ -926,7 +931,9 @@ namespace Armada.Core.Services
                         vessel.TenantId,
                         vessel.UserId,
                         explicitPipeline,
-                        () => _Database.Pipelines.EnumerateAsync(token),
+                        async () => (await _Database.Pipelines.EnumerateAsync(token).ConfigureAwait(false))
+                            .Where(pipeline => seesOtherTenants || pipeline.IsBuiltIn || OwnershipPolicy.SameTenant(pipeline.TenantId, vessel.TenantId))
+                            .ToList(),
                         pipeline => pipeline.Name).ConfigureAwait(false);
                     requested = lookup.Record;
                     refused = lookup.WasRefused;
@@ -1101,6 +1108,7 @@ namespace Armada.Core.Services
         /// reserved or claimed.
         /// </summary>
         private async Task EvaluateCaptainCoverageAsync(
+            AuthContext auth,
             Vessel vessel,
             Pipeline? pipeline,
             List<Captain> captains,
@@ -1155,8 +1163,10 @@ namespace Armada.Core.Services
                     Captain? requested = null;
                     if (request.CaptainId != null)
                     {
+                        // A captain outside the caller's scope reads as absent, so the preview never describes
+                        // another tenant's captain: naming its id reads exactly like naming a missing captain.
                         requested = captains.FirstOrDefault(captain => captain != null && String.Equals(captain.Id, request.CaptainId, StringComparison.Ordinal))
-                            ?? await _Database.Captains.ReadAsync(request.CaptainId, token).ConfigureAwait(false);
+                            ?? await CallerScopedRead.ReadCaptainAsync(_Database, auth, request.CaptainId, token).ConfigureAwait(false);
                     }
 
                     string? ineligible = requested == null

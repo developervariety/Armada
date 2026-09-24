@@ -272,12 +272,43 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.AdminOnly, level);
             });
 
-            // Enumerate routes read through POST bodies, so they keep the read level.
+            // Enumerate routes read through POST bodies, so they keep the level of the GET list they mirror.
             await RunTest("SharedAsset Enumerate POST IsAuthenticated", () =>
             {
                 AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/personas/enumerate"));
                 AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/pipelines/enumerate"));
                 AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/prompt-templates/enumerate"));
+            });
+
+            await RunTest("Enumerate POST Takes The Level Of Its GET List", () =>
+            {
+                foreach (string collection in new[] { "playbooks", "workflow-profiles", "environments", "objectives", "backlog", "fleets", "vessels", "missions", "voyages", "incidents", "signals" })
+                {
+                    string list = "/api/v1/" + collection;
+                    AssertEqual(AuthorizationConfig.GetPermissionLevel("GET", list), AuthorizationConfig.GetPermissionLevel("POST", list + "/enumerate"), collection + " enumerate");
+                    AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", list + "/enumerate"), collection + " enumerate is a read");
+                    AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", list), collection + " create stays a tenant-administrator write");
+                }
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/jobs/enumerate"), "an enumerate over an admin-only list stays admin-only");
+            });
+
+            // --- Server-wide configuration, working-tree writes and accounting deletes ---
+
+            await RunTest("Mux Runtime Routes AreAdminOnly", () =>
+            {
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/runtimes/mux/endpoints"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/runtimes/mux/endpoints/example"));
+            });
+
+            await RunTest("Workspace Writes And TokenUsage Deletes AreTenantAdmin", () =>
+            {
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("PUT", "/api/v1/workspace/vessels/vsl_abc/file"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/workspace/vessels/vsl_abc/directory"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/workspace/vessels/vsl_abc/rename"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("DELETE", "/api/v1/workspace/vessels/vsl_abc/entry"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/workspace/vessels/vsl_abc/file"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/token-usage/delete/by-filter"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/token-usage"));
             });
 
             // --- Fleet-wide aggregates read across every tenant with no caller scope ---

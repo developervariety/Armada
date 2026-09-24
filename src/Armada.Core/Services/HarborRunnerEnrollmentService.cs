@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Harbor;
@@ -112,7 +113,9 @@ namespace Armada.Core.Services
             HarborRunnerIdentity identity = ValidateOwner(runnerId, owner);
             await ValidateAuthorityOverOwnerAsync(administrator, identity.TenantId, identity.UserId, token).ConfigureAwait(false);
             HarborRunnerEnrollment? current = await _Enrollments.ReadAsync(identity.RunnerId, token).ConfigureAwait(false);
-            if (current != null && current.Active)
+            // A runner id is unique across the admiral. An enrollment held by another tenant is reported only as
+            // taken, never as active or revoked, so its state is not disclosed to that tenant's administrators.
+            if (current != null && (current.Active || IsOtherTenant(administrator, current.TenantId)))
                 throw new InvalidOperationException("runner_already_enrolled");
             if (current != null)
                 await ValidateAuthorityOverOwnerAsync(administrator, current.TenantId, current.UserId, token).ConfigureAwait(false);
@@ -162,7 +165,8 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(credentialId)) throw new ArgumentException("Credential identifier is required.", nameof(credentialId));
             Credential? credential = await _Credentials.ReadByIdAsync(credentialId.Trim(), token).ConfigureAwait(false);
-            if (credential == null || !credential.Active)
+            // Another tenant's credential reads exactly like a missing one, so its existence is not disclosed.
+            if (credential == null || !credential.Active || IsOtherTenant(administrator, credential.TenantId))
                 throw new UnauthorizedAccessException("credential_revoked_or_mismatched");
             UserMaster? user = await _Users.ReadByIdAsync(credential.UserId, token).ConfigureAwait(false);
             TenantMetadata? tenant = await _Tenants.ReadAsync(credential.TenantId, token).ConfigureAwait(false);
@@ -192,7 +196,8 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(runnerId)) throw new ArgumentException("Runner identifier is required.", nameof(runnerId));
             ValidateAdministratorIdentity(administrator);
             HarborRunnerEnrollment? current = await _Enrollments.ReadAsync(runnerId.Trim(), token).ConfigureAwait(false);
-            if (current == null) return false;
+            // Another tenant's enrollment reads exactly like a missing one.
+            if (current == null || IsOtherTenant(administrator, current.TenantId)) return false;
             await ValidateAuthorityOverOwnerAsync(administrator, current.TenantId, current.UserId, token).ConfigureAwait(false);
             if (!current.Active) return false;
             if (current.Generation <= 0 || current.Generation == Int64.MaxValue)
@@ -284,6 +289,12 @@ namespace Armada.Core.Services
             ValidateAdministratorIdentity(administrator);
             if (!await HasAuthorityOverOwnerAsync(administrator, tenantId, userId, token).ConfigureAwait(false))
                 throw new UnauthorizedAccessException("administrator_not_authorized_for_owner");
+        }
+
+        private static bool IsOtherTenant(AuthContext? administrator, string? tenantId)
+        {
+            if (administrator == null || administrator.IsAdmin) return false;
+            return !OwnershipPolicy.SameTenant(administrator.TenantId, tenantId);
         }
 
         private static void ValidateAdministratorIdentity(AuthContext administrator)

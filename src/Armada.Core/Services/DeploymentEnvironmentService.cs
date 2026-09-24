@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -134,6 +135,11 @@ namespace Armada.Core.Services
             string vesselId = Normalize(request.VesselId) ?? environment.VesselId
                 ?? throw new InvalidOperationException("Environment must belong to a vessel.");
             Vessel vessel = await ResolveAccessibleVesselAsync(auth, vesselId, token).ConfigureAwait(false);
+
+            // An environment keeps the tenant it was created in, and its deployments and incidents are read in
+            // that tenant, so it may only move to a vessel of the same tenant.
+            if (!OwnershipPolicy.SameTenant(vessel.TenantId, environment.TenantId))
+                throw new InvalidOperationException("Environment cannot move to a vessel in another tenant.");
 
             environment.VesselId = vessel.Id;
             environment.Name = NormalizeRequired(request.Name ?? environment.Name, nameof(request.Name));

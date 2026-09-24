@@ -582,8 +582,21 @@ namespace Armada.Core.Services
             }, token).ConfigureAwait(false);
             CompleteScan(page.Items.Count, page.Items.Count + (page.Truncated ? 1 : 0), page.Truncated, "lane_state_transitions", result);
 
+            // Lane rows carry no tenant. A lane key joins its member vessel ids with '+', so a caller that is not a
+            // global administrator sees a lane only when every member vessel belongs to its own tenant.
+            List<LaneStateTransition> visibleRows = page.Items;
+            if (!auth.IsAdmin)
+            {
+                HashSet<string> tenantVesselIds = (await _Database.Vessels.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false))
+                    .Select(vessel => vessel.Id)
+                    .ToHashSet(StringComparer.Ordinal);
+                visibleRows = page.Items
+                    .Where(item => item.LaneKey.Split('+').All(member => tenantVesselIds.Contains(member)))
+                    .ToList();
+            }
+
             Dictionary<ProductionSummaryGroup, double> idleByGroup = new Dictionary<ProductionSummaryGroup, double>();
-            foreach (IGrouping<string, LaneStateTransition> lane in page.Items.GroupBy(item => item.LaneKey, StringComparer.Ordinal))
+            foreach (IGrouping<string, LaneStateTransition> lane in visibleRows.GroupBy(item => item.LaneKey, StringComparer.Ordinal))
             {
                 List<LaneStateTransition> rows = lane.OrderBy(item => item.CreatedUtc).ThenBy(item => item.Id, StringComparer.Ordinal).ToList();
                 if (!rows.Any(item => item.CreatedUtc < effectiveEnd && item.CreatedUtc.AddSeconds(item.ValidForSeconds) > fromUtc)) continue;

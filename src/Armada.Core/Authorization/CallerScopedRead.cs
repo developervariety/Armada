@@ -105,6 +105,40 @@ namespace Armada.Core.Authorization
         }
 
         /// <summary>
+        /// Read a dock within the caller's scope.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="caller">Authenticated caller.</param>
+        /// <param name="id">Dock identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The dock, or null when it is absent or outside the caller's scope.</returns>
+        public static async Task<Dock?> ReadDockAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
+        {
+            Scope scope = Resolve(database, caller, id);
+            if (scope.Kind == ScopeKindEnum.None) return null;
+            if (scope.Kind == ScopeKindEnum.Global) return await database.Docks.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Docks.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            return await database.Docks.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Read an objective row within the caller's scope.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="caller">Authenticated caller.</param>
+        /// <param name="id">Objective identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The objective, or null when it is absent or outside the caller's scope.</returns>
+        public static async Task<Objective?> ReadObjectiveAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
+        {
+            Scope scope = Resolve(database, caller, id);
+            if (scope.Kind == ScopeKindEnum.None) return null;
+            if (scope.Kind == ScopeKindEnum.Global) return await database.Objectives.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Objectives.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            return await database.Objectives.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Read a deployment within the caller's scope.
         /// </summary>
         /// <param name="database">Database driver.</param>

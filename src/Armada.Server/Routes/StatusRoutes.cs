@@ -161,14 +161,18 @@ namespace Armada.Server.Routes
                 }
                 List<object> results = new List<object>();
 
+                // Server paths, database location and runtime binary paths describe the host, so only a global
+                // administrator sees them; every other caller gets the same checks without those details.
+                bool showHostDetails = ctx.IsAdmin;
+
                 // 1. Settings File
                 try
                 {
                     string settingsPath = ArmadaSettings.DefaultSettingsPath;
                     if (File.Exists(settingsPath))
-                        results.Add(new { Name = "Settings", Status = "Pass", Message = "Settings loaded from " + settingsPath });
+                        results.Add(new { Name = "Settings", Status = "Pass", Message = showHostDetails ? "Settings loaded from " + settingsPath : "Settings loaded" });
                     else
-                        results.Add(new { Name = "Settings", Status = "Fail", Message = "Settings file not found at " + settingsPath });
+                        results.Add(new { Name = "Settings", Status = "Fail", Message = showHostDetails ? "Settings file not found at " + settingsPath : "Settings file not found" });
                 }
                 catch (Exception ex)
                 {
@@ -198,17 +202,21 @@ namespace Armada.Server.Routes
                         if (File.Exists(dbPath))
                         {
                             FileInfo fi = new FileInfo(dbPath);
-                            results.Add(new { Name = "Database", Status = "Pass", Message = $"SQLite database exists ({fi.Length / 1024} KB) at {dbPath}" });
+                            results.Add(new { Name = "Database", Status = "Pass", Message = showHostDetails
+                                ? $"SQLite database exists ({fi.Length / 1024} KB) at {dbPath}"
+                                : "SQLite database exists" });
                         }
                         else
                         {
-                            results.Add(new { Name = "Database", Status = "Warn", Message = "SQLite database not found at " + dbPath });
+                            results.Add(new { Name = "Database", Status = "Warn", Message = showHostDetails ? "SQLite database not found at " + dbPath : "SQLite database not found" });
                         }
                     }
                     else
                     {
                         DatabaseSettings db = _settings.Database;
-                        results.Add(new { Name = "Database", Status = "Pass", Message = $"{db.Type} database configured at {db.Hostname}:{db.Port} / {db.DatabaseName}" });
+                        results.Add(new { Name = "Database", Status = "Pass", Message = showHostDetails
+                            ? $"{db.Type} database configured at {db.Hostname}:{db.Port} / {db.DatabaseName}"
+                            : $"{db.Type} database configured" });
                     }
                 }
                 catch (Exception ex)
@@ -281,7 +289,7 @@ namespace Armada.Server.Routes
                         if (rtResult.ExitCode == 0 && !string.IsNullOrEmpty(rtOutput))
                         {
                             string path = rtOutput.Split('\n')[0].Trim();
-                            results.Add(new { Name = runtimeNames[i], Status = "Pass", Message = runtimeNames[i] + " found at " + path });
+                            results.Add(new { Name = runtimeNames[i], Status = "Pass", Message = showHostDetails ? runtimeNames[i] + " found at " + path : runtimeNames[i] + " found" });
                         }
                         else
                         {

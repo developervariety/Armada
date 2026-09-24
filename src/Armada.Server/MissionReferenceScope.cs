@@ -8,7 +8,7 @@ namespace Armada.Server
     using Armada.Core.Models;
 
     /// <summary>
-    /// The records a mission names by id -- its vessel, voyage, captains, dependency and parent -- must be
+    /// The records a mission names by id -- its vessel, voyage, captains, dock, dependency and parent -- must be
     /// visible to the caller that creates or changes the mission. Every mission create and update surface
     /// asks this one rule before it stores the mission, so a caller cannot dispatch into, depend on, or run
     /// on another tenant's records by naming their ids.
@@ -43,6 +43,9 @@ namespace Armada.Server
             if (!String.IsNullOrWhiteSpace(mission.RequestedCaptainId)
                 && await CallerScopedRead.ReadCaptainAsync(database, caller, mission.RequestedCaptainId, token).ConfigureAwait(false) == null)
                 return "Captain not found: " + mission.RequestedCaptainId;
+            if (!String.IsNullOrWhiteSpace(mission.DockId)
+                && await CallerScopedRead.ReadDockAsync(database, caller, mission.DockId, token).ConfigureAwait(false) == null)
+                return "Dock not found: " + mission.DockId;
             return await FindUnreachableMissionLinksAsync(database, caller, mission.DependsOnMissionId, mission.ParentMissionId, token).ConfigureAwait(false);
         }
 

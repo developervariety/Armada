@@ -48,6 +48,25 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
+            await RunTest("ShutdownRoutes_RequireAuthUnderDefaultSettings", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings();
+                    AssertTrue(settings.RequireAuthForShutdown, "Shutdown requires authentication unless a deployment turns it off");
+                    bool stopped = false;
+                    using (StatusRouteHost host = StatusRouteHost.Start(testDb, settings, () => stopped = true))
+                    {
+                        HttpResponseMessage stop = await host.Client.PostAsync("/api/v1/server/stop", null).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Unauthorized, stop.StatusCode, "An unauthenticated stop must be rejected under default settings");
+                        HttpResponseMessage restart = await host.Client.PostAsync("/api/v1/server/restart", null).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Unauthorized, restart.StatusCode, "An unauthenticated restart must be rejected under default settings");
+                        await Task.Delay(700).ConfigureAwait(false);
+                        AssertFalse(stopped, "A rejected request must not stop the server");
+                    }
+                }
+            });
+
             await RunTest("Restart_ReturnsRestarting_AndTriggersStopCallback", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

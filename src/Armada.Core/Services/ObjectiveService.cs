@@ -949,6 +949,15 @@ namespace Armada.Core.Services
             if (existing == null && await ObjectiveRowExistsUnscopedAsync(id, token).ConfigureAwait(false))
                 throw new InvalidOperationException("Objective not found.");
 
+            // With no row, only the caller's own tenant's orphan snapshots are purgeable; a snapshot without a
+            // tenant belongs to the default tenant. Another tenant's orphan chain reads as not found.
+            if (existing == null && !auth.IsAdmin)
+            {
+                snapshots = snapshots.Where(snapshot => Armada.Core.Authorization.OwnershipPolicy.SameTenant(snapshot.TenantId, auth.TenantId)).ToList();
+                if (snapshots.Count == 0)
+                    throw new InvalidOperationException("Objective not found.");
+            }
+
             if (existing != null)
             {
                 await DeleteObjectiveRowAsync(auth, id, token).ConfigureAwait(false);

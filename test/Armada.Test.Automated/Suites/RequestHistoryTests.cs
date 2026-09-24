@@ -551,6 +551,56 @@ namespace Armada.Test.Automated.Suites
                 await AssertStatusCodeAsync(HttpStatusCode.NotFound, response).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
+            await RunTest("RequestHistory_Scope_TenantAdmin_CannotReadGlobalAdminEntryInOwnTenant", async () =>
+            {
+                string? globalUserId = null;
+                string? globalCredentialId = null;
+                try
+                {
+                    HttpResponseMessage userResponse = await _AdminClient.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(new
+                    {
+                        TenantId = _TenantAId,
+                        Email = "rqh-global-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@request-history.armada",
+                        PasswordSha256 = UserMaster.ComputePasswordHash("testpass"),
+                        IsAdmin = true
+                    })).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, userResponse).ConfigureAwait(false);
+                    globalUserId = (await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false)).Id;
+                    HttpResponseMessage credentialResponse = await _AdminClient.PostAsync("/api/v1/credentials",
+                        JsonHelper.ToJsonContent(new { TenantId = _TenantAId, UserId = globalUserId, Name = "rqh-global" })).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, credentialResponse).ConfigureAwait(false);
+                    Credential credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
+                    globalCredentialId = credential.Id;
+
+                    string trace = "global-admin-" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                    using (HttpClient globalClient = CreateBearerClient(credential.BearerToken))
+                    {
+                        await InvokeCapturedRequestAsync(globalClient, trace).ConfigureAwait(false);
+                    }
+                    RequestHistoryEntry? adminView = await FindEntryByTraceAsync(_AdminClient, "/api/v1/whoami", trace, "GET").ConfigureAwait(false);
+                    AssertNotNull(adminView, "The global administrator's request is captured");
+                    AssertEqual(_TenantAId, adminView!.TenantId, "The captured request belongs to tenant A");
+
+                    HttpResponseMessage list = await _TenantAAdminClient!.GetAsync("/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, list).ConfigureAwait(false);
+                    EnumerationResult<RequestHistoryEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<RequestHistoryEntry>>(list).ConfigureAwait(false);
+                    AssertFalse(result.Objects.Any(e => e.Id == adminView.Id), "A tenant administrator does not list a global administrator's request");
+                    AssertTrue(result.Objects.Any(e => e.QueryString != null && e.QueryString.Contains(_TenantAdminTrace!, StringComparison.Ordinal)),
+                        "A tenant administrator still lists its own tenant's requests");
+
+                    HttpResponseMessage read = await _TenantAAdminClient!.GetAsync("/api/v1/request-history/" + adminView.Id).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.NotFound, read).ConfigureAwait(false);
+                    HttpResponseMessage delete = await _TenantAAdminClient!.DeleteAsync("/api/v1/request-history/" + adminView.Id).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.NotFound, delete).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, await _AdminClient.GetAsync("/api/v1/request-history/" + adminView.Id).ConfigureAwait(false)).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (globalCredentialId != null) await _AdminClient.DeleteAsync("/api/v1/credentials/" + globalCredentialId).ConfigureAwait(false);
+                    if (globalUserId != null) await _AdminClient.DeleteAsync("/api/v1/users/" + globalUserId).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RequestHistory_Scope_GlobalAdmin_CanFilterByTenant", async () =>
             {
                 HttpResponseMessage response = await _AdminClient.GetAsync(

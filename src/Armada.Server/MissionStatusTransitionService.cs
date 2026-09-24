@@ -169,6 +169,8 @@ namespace Armada.Server
                     string outcomeText = handedOff ? "handed off as " : "landed as ";
                     Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — " + outcomeText + mission.Status);
                     if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
+                    landingSignal.TenantId = mission.TenantId;
+                    landingSignal.UserId = mission.UserId;
                     await _Database.Signals.CreateAsync(landingSignal, token).ConfigureAwait(false);
 
                     await _EmitEvent("mission.status_changed", "Mission " + id + " manually completed — " + outcomeText + mission.Status,
@@ -222,6 +224,9 @@ namespace Armada.Server
 
             Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
             if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
+            // A signal belongs to the mission it reports, so the mission's owner sees it.
+            signal.TenantId = mission.TenantId;
+            signal.UserId = mission.UserId;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
             await _EmitEvent("mission.status_changed", "Mission " + id + " transitioned to " + newStatus,

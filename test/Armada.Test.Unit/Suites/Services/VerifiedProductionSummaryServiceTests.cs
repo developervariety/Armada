@@ -515,6 +515,36 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("partial", group.Availability);
             }).ConfigureAwait(false);
 
+            await RunTest("LaneTimeForTenantAdministratorCountsOnlyLanesOfItsOwnVessels", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+                TenantMetadata other = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Other lane tenant")).ConfigureAwait(false);
+                Vessel own = await testDb.Driver.Vessels.CreateAsync(new Vessel("lane-own", "https://example.invalid/lane-own.git")
+                {
+                    TenantId = "default",
+                    UserId = "default"
+                }).ConfigureAwait(false);
+                Vessel foreign = await testDb.Driver.Vessels.CreateAsync(new Vessel("lane-foreign", "https://example.invalid/lane-foreign.git")
+                {
+                    TenantId = other.Id,
+                    UserId = "default"
+                }).ConfigureAwait(false);
+                string sharedLane = String.Join("+", new[] { own.Id, foreign.Id }.OrderBy(id => id, StringComparer.Ordinal));
+                await AddLaneRowAsync(testDb, own.Id, start.AddMinutes(-10), 1, 0, 1, LaneBlockReasonEnum.None, "alpha", 7200).ConfigureAwait(false);
+                await AddLaneRowAsync(testDb, foreign.Id, start.AddMinutes(-10), 1, 0, 1, LaneBlockReasonEnum.None, "alpha", 7200).ConfigureAwait(false);
+                await AddLaneRowAsync(testDb, sharedLane, start.AddMinutes(-10), 1, 0, 1, LaneBlockReasonEnum.None, "alpha", 7200).ConfigureAwait(false);
+                ProductionSummaryQuery query = new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddHours(1) };
+
+                ProductionSummaryResult tenantResult = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", false, true, "UnitTest"), query).ConfigureAwait(false);
+                AssertEqual(1, tenantResult.LaneTime.Lanes, "a tenant administrator sees only the lane whose every vessel is its own");
+
+                ProductionSummaryResult adminResult = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"), query).ConfigureAwait(false);
+                AssertEqual(3, adminResult.LaneTime.Lanes, "a global administrator still sees every lane");
+            }).ConfigureAwait(false);
+
             await RunTest("WindowOlderThanFactRetentionReportsUnobservedNotWrong", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
