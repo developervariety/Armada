@@ -172,7 +172,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(args.Contains("model_reasoning_effort=high"), "Codex should receive the effective reasoning config key");
                 AssertFalse(args.Contains("reasoning_effort=high"), "Codex should not receive the old reasoning config key");
             });
-
         }
     }
 }

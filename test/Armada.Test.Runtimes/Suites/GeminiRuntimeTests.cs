@@ -70,7 +70,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertContains("quota exceeded", rendered, "the provider's error text is kept");
                 AssertContains("error", rendered, "the record reads as an error");
             });
-
         }
     }
 }
