@@ -137,17 +137,21 @@ upstream integrations and excludes changes already present at that baseline.
   credentials, fleets, signals, events, captains, workflow profiles, Checks,
   deployment environments, releases, deployments, memories, model endpoints,
   prompt templates, token-usage records, request-history entries and details,
-  personas, pipelines and their stages, skills, project profiles, playbooks, mission playbook snapshots, landing jobs
-  and Judge follow-ups are read by one column reader per entity that every
-  provider calls. Each provider configures only how it stores booleans; a
-  timestamp converts by the value the driver returns, so one stored as text
-  reads as the same UTC instant whatever the host time zone. A required column
-  that is missing, null or unconvertible, a stored enum name that is not a
-  defined member where the model has no fallback, and a JSON column that holds
-  invalid JSON raise `StoredRowException` naming the entity, column and provider
-  instead of reading as a default value. On MySQL a captain's quarantine expiry,
-  stored as text, reads as the stored UTC instant on a host outside UTC, and an
-  empty stored quarantine reason reads as no reason, as on the other providers.
+  personas, pipelines and their stages, docks, voyages, skills, project
+  profiles, playbooks, mission playbook snapshots, landing jobs and Judge
+  follow-ups are read by one column reader per entity that every provider calls.
+  Each provider configures only how it stores booleans; a timestamp converts by
+  the value the driver returns, so one stored as text reads as the same UTC
+  instant whatever the host time zone. A required column that is missing, null
+  or unconvertible, a stored enum name that is not a defined member where the
+  model has no fallback, and a JSON column that holds invalid JSON raise
+  `StoredRowException` naming the entity, column and provider instead of reading
+  as a default value. On MySQL a captain's quarantine expiry, stored as text,
+  reads as the stored UTC instant on a host outside UTC, and an empty stored
+  quarantine reason reads as no reason, as on the other providers. On SQL Server
+  a token-usage creation time reads as the stored UTC instant on a host outside
+  UTC. On PostgreSQL and MySQL an empty stored voyage planning session or
+  message id reads as no source, as on SQLite and SQL Server.
 - **Diff readers share one parser:** `GitDiffPaths` reads hunk bodies by their
   counts and returns each file's one name, line counts and (on request) hunk lines;
   it also reads `--name-status -z` records. Change substance (rescue and planner

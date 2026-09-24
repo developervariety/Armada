@@ -38,12 +38,6 @@ namespace Armada.Core.Database
             Add(command, "source_planning_message_id", voyage.SourcePlanningMessageId);
         }
 
-        internal static void ReadVoyage(DbDataReader reader, Voyage voyage)
-        {
-            voyage.SourcePlanningSessionId = NullableText(reader["source_planning_session_id"]);
-            voyage.SourcePlanningMessageId = NullableText(reader["source_planning_message_id"]);
-        }
-
         internal static void AddVessel(DbCommand command, Vessel vessel)
         {
             // The preserved PostgreSQL column is INTEGER, despite a later skipped BOOLEAN declaration.

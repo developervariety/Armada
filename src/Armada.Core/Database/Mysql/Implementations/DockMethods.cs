@@ -92,7 +92,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return DockFromReader(reader);
+                            return DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -182,7 +182,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -211,7 +211,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -239,7 +239,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return DockFromReader(reader);
+                            return DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -308,7 +308,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -358,7 +358,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return DockFromReader(reader);
+                            return DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -405,7 +405,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -460,7 +460,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -486,7 +486,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -511,7 +511,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return DockFromReader(reader);
+                            return DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -558,7 +558,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return DockFromReader(reader);
+                            return DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -605,7 +605,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -663,7 +663,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(DockFromReader(reader));
+                            results.Add(DockColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -678,35 +678,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
             return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static Dock DockFromReader(MySqlDataReader reader)
-        {
-            Dock dock = new Dock();
-            dock.GitAnchorsSnapshot = DockGitAnchorPersistence.Read(reader["git_anchors_json"], reader["id"].ToString()!, reader["vessel_id"].ToString()!);
-            dock.Id = reader["id"].ToString()!;
-            dock.TenantId = NullableString(reader["tenant_id"]);
-            dock.UserId = NullableString(reader["user_id"]);
-            dock.VesselId = reader["vessel_id"].ToString()!;
-            dock.CaptainId = NullableString(reader["captain_id"]);
-            dock.WorktreePath = NullableString(reader["worktree_path"]);
-            dock.BranchName = NullableString(reader["branch_name"]);
-            dock.Active = Convert.ToInt64(reader["active"]) == 1;
-            dock.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            dock.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return dock;
         }
 
         #endregion

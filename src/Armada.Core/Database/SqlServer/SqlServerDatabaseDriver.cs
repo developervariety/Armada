@@ -490,58 +490,6 @@ namespace Armada.Core.Database.SqlServer
         }
 
         /// <summary>
-        /// Convert a SqlDataReader row to a Voyage model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Voyage instance.</returns>
-        internal static Voyage VoyageFromReader(SqlDataReader reader)
-        {
-            Voyage voyage = new Voyage();
-            BackendMetadataPersistence.ReadVoyage(reader, voyage);
-            voyage.Id = reader["id"].ToString()!;
-            voyage.TenantId = NullableString(reader["tenant_id"]);
-            voyage.UserId = NullableString(reader["user_id"]);
-            voyage.Title = reader["title"].ToString()!;
-            voyage.Description = NullableString(reader["description"]);
-            voyage.Status = Enum.Parse<VoyageStatusEnum>(reader["status"].ToString()!);
-            voyage.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            voyage.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            voyage.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            voyage.AutoPush = NullableBool(reader, "auto_push");
-            voyage.AutoCreatePullRequests = NullableBool(reader, "auto_create_pull_requests");
-            voyage.AutoMergePullRequests = NullableBool(reader, "auto_merge_pull_requests");
-            string? voyageLandingModeStr = NullableString(reader["landing_mode"]);
-            if (!String.IsNullOrEmpty(voyageLandingModeStr) && Enum.TryParse<LandingModeEnum>(voyageLandingModeStr, out LandingModeEnum vlm))
-                voyage.LandingMode = vlm;
-            // Read defensively: the column arrives with a migration, so a reader running against
-            // a database that has not applied it must still map the rest of the row.
-            try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
-            return voyage;
-        }
-
-        /// <summary>
-        /// Convert a SqlDataReader row to a Dock model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Dock instance.</returns>
-        internal static Dock DockFromReader(SqlDataReader reader)
-        {
-            Dock dock = new Dock();
-            dock.GitAnchorsSnapshot = DockGitAnchorPersistence.Read(reader["git_anchors_json"], reader["id"].ToString()!, reader["vessel_id"].ToString()!);
-            dock.Id = reader["id"].ToString()!;
-            dock.TenantId = NullableString(reader["tenant_id"]);
-            dock.UserId = NullableString(reader["user_id"]);
-            dock.VesselId = reader["vessel_id"].ToString()!;
-            dock.CaptainId = NullableString(reader["captain_id"]);
-            dock.WorktreePath = NullableString(reader["worktree_path"]);
-            dock.BranchName = NullableString(reader["branch_name"]);
-            dock.Active = Convert.ToBoolean(reader["active"]);
-            dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return dock;
-        }
-
-        /// <summary>
         /// Convert a SqlDataReader row to a MergeEntry model.
         /// </summary>
         /// <param name="reader">Data reader positioned on a row.</param>

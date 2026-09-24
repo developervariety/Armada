@@ -108,7 +108,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VoyageFromReader(reader);
+                            return VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -209,7 +209,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -275,7 +275,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -304,7 +304,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -353,7 +353,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VoyageFromReader(reader);
+                            return VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -395,7 +395,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -441,7 +441,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
                 return EnumerationResult<Voyage>.Create(query, results, totalCount);
@@ -465,7 +465,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -511,7 +511,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VoyageFromReader(reader);
+                            return VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -557,7 +557,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -604,59 +604,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VoyageFromReader(reader));
+                            results.Add(VoyageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
                 return EnumerationResult<Voyage>.Create(query, results, totalCount);
             }
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        private static Voyage VoyageFromReader(NpgsqlDataReader reader)
-        {
-            Voyage voyage = new Voyage();
-            BackendMetadataPersistence.ReadVoyage(reader, voyage);
-            voyage.Id = reader["id"].ToString()!;
-            voyage.TenantId = NullableString(reader["tenant_id"]);
-            voyage.UserId = NullableString(reader["user_id"]);
-            voyage.Title = reader["title"].ToString()!;
-            voyage.Description = NullableString(reader["description"]);
-            voyage.Status = Enum.Parse<VoyageStatusEnum>(reader["status"].ToString()!);
-            voyage.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            voyage.CompletedUtc = NullableDateTime(reader["completed_utc"]);
-            voyage.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            voyage.AutoPush = NullableBool(reader["auto_push"]);
-            voyage.AutoCreatePullRequests = NullableBool(reader["auto_create_pull_requests"]);
-            voyage.AutoMergePullRequests = NullableBool(reader["auto_merge_pull_requests"]);
-            string? voyageLandingModeStr = NullableString(reader["landing_mode"]);
-            if (!String.IsNullOrEmpty(voyageLandingModeStr) && Enum.TryParse<LandingModeEnum>(voyageLandingModeStr, out LandingModeEnum vlm))
-                voyage.LandingMode = vlm;
-            // Read defensively: the column arrives with a migration, so a reader running against
-            // a database that has not applied it must still map the rest of the row.
-            try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
-            return voyage;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static bool? NullableBool(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return (bool)value;
-        }
-
-        private static DateTime? NullableDateTime(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return PostgresqlDatabaseDriver.ReadUtc(value);
         }
 
         #endregion

@@ -458,37 +458,6 @@ namespace Armada.Core.Database.Sqlite
         }
 
         /// <summary>
-        /// Convert a SqliteDataReader row to a Voyage model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Voyage instance.</returns>
-        internal static Voyage VoyageFromReader(SqliteDataReader reader)
-        {
-            Voyage voyage = new Voyage();
-            voyage.Id = reader["id"].ToString()!;
-            voyage.TenantId = NullableString(reader["tenant_id"]);
-            voyage.UserId = NullableString(reader["user_id"]);
-            voyage.Title = reader["title"].ToString()!;
-            voyage.Description = NullableString(reader["description"]);
-            voyage.Status = Enum.Parse<VoyageStatusEnum>(reader["status"].ToString()!);
-            voyage.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            voyage.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            voyage.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            voyage.AutoPush = NullableBool(reader, "auto_push");
-            voyage.AutoCreatePullRequests = NullableBool(reader, "auto_create_pull_requests");
-            voyage.AutoMergePullRequests = NullableBool(reader, "auto_merge_pull_requests");
-            string? voyageLandingModeStr = NullableString(reader["landing_mode"]);
-            if (!String.IsNullOrEmpty(voyageLandingModeStr) && Enum.TryParse<LandingModeEnum>(voyageLandingModeStr, out LandingModeEnum vlm))
-                voyage.LandingMode = vlm;
-            // Read defensively: the column arrives with a migration, so a reader running against
-            // a database that has not applied it must still map the rest of the row.
-            try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
-            try { voyage.SourcePlanningSessionId = NullableString(reader["source_planning_session_id"]); } catch { }
-            try { voyage.SourcePlanningMessageId = NullableString(reader["source_planning_message_id"]); } catch { }
-            return voyage;
-        }
-
-        /// <summary>
         /// Convert a SqliteDataReader row to a PlanningSession model.
         /// </summary>
         internal static PlanningSession PlanningSessionFromReader(SqliteDataReader reader)
@@ -619,28 +588,6 @@ namespace Armada.Core.Database.Sqlite
             claim.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             claim.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return claim;
-        }
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to a Dock model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Dock instance.</returns>
-        internal static Dock DockFromReader(SqliteDataReader reader)
-        {
-            Dock dock = new Dock();
-            dock.GitAnchorsSnapshot = DockGitAnchorPersistence.Read(reader["git_anchors_json"], reader["id"].ToString()!, reader["vessel_id"].ToString()!);
-            dock.Id = reader["id"].ToString()!;
-            dock.TenantId = NullableString(reader["tenant_id"]);
-            dock.UserId = NullableString(reader["user_id"]);
-            dock.VesselId = reader["vessel_id"].ToString()!;
-            dock.CaptainId = NullableString(reader["captain_id"]);
-            dock.WorktreePath = NullableString(reader["worktree_path"]);
-            dock.BranchName = NullableString(reader["branch_name"]);
-            dock.Active = Convert.ToInt64(reader["active"]) == 1;
-            dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return dock;
         }
 
         /// <summary>

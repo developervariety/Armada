@@ -1628,13 +1628,17 @@ namespace Armada.Test.Database
                 created.AutoCreatePullRequests = null;
                 created.AutoMergePullRequests = null;
                 created.LandingMode = null;
-                created.SourcePlanningSessionId = null;
-                created.SourcePlanningMessageId = null;
+                created.SourcePlanningSessionId = String.Empty;
+                created.SourcePlanningMessageId = String.Empty;
                 created.CaptainOverridesJson = null;
                 Voyage updated = await _Driver.Voyages.UpdateAsync(created, token).ConfigureAwait(false);
                 using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
                 {
-                    DatabaseAssert.AllProperties(updated, await reopened.Voyages.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Voyage");
+                    Voyage reread = DatabaseAssert.NotNull(await reopened.Voyages.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Voyage");
+                    // An empty stored planning source reads as no source on every provider.
+                    DatabaseAssert.True(reread.SourcePlanningSessionId == null && reread.SourcePlanningMessageId == null,
+                        "Empty planning source ids read as null, got '" + reread.SourcePlanningSessionId + "' and '" + reread.SourcePlanningMessageId + "'");
+                    DatabaseAssert.AllProperties(updated, reread, "Reopened Voyage", nameof(Voyage.SourcePlanningSessionId), nameof(Voyage.SourcePlanningMessageId));
                 }
             }
             finally
