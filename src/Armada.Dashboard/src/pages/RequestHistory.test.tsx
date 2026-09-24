@@ -290,4 +290,46 @@ describe('RequestHistory', () => {
       });
     });
   });
+
+  function renderRequests() {
+    return render(
+      <MemoryRouter initialEntries={['/requests']}>
+        <Routes>
+          <Route path="/requests" element={<RequestHistory />} />
+          <Route path="/requests/:id" element={<RequestHistory />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('keeps the bulk selection across a refresh that returns the same rows', async () => {
+    renderRequests();
+    await screen.findByText('/api/v1/missions');
+    fireEvent.click(screen.getByTitle('Select this request'));
+    expect(screen.getByRole('button', { name: /Delete Selected/ })).toHaveTextContent('(1)');
+
+    const callsBefore = vi.mocked(listRequestHistory).mock.calls.length;
+    fireEvent.click(screen.getByTitle('Refresh request data'));
+    await waitFor(() => expect(vi.mocked(listRequestHistory).mock.calls.length).toBeGreaterThan(callsBefore));
+    await screen.findByText('/api/v1/missions');
+
+    expect(screen.getByTitle('Select this request')).toBeChecked();
+    expect(screen.getByRole('button', { name: /Delete Selected/ })).toHaveTextContent('(1)');
+  });
+
+  it('sends one request for a route typed quickly, not one per keystroke', async () => {
+    renderRequests();
+    await screen.findByText('/api/v1/missions');
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    const route = screen.getByPlaceholderText('/api/v1/missions');
+
+    for (const value of ['/', '/a', '/ap', '/api']) fireEvent.change(route, { target: { value } });
+
+    await waitFor(() => expect(listRequestHistory).toHaveBeenLastCalledWith(expect.objectContaining({ route: '/api' })));
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const routes = vi.mocked(listRequestHistory).mock.calls.map(([query]) => query?.route);
+    expect(routes.filter(value => value !== undefined)).toEqual(['/api']);
+    const summaryRoutes = vi.mocked(getRequestHistorySummary).mock.calls.map(([query]) => query?.route);
+    expect(summaryRoutes.filter(value => value !== undefined)).toEqual(['/api']);
+  });
 });

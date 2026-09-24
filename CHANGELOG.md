@@ -150,6 +150,9 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard Requests page:** a refresh keeps the selected requests it still returns,
+  and the route, status code, principal, credential, tenant and user filters query the
+  server once the user pauses typing, not once per keystroke.
 - **Dashboard Events, Signals and Merge Queue column filters:** a column filter or a
   column sort covers every record, not only the loaded page. While one is active the
   page reads every record under its server filters and filters, sorts and pages them

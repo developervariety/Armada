@@ -27,6 +27,8 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { useVisibleSelection } from '../lib/useVisibleSelection';
 import { useServerPaging } from '../lib/useServerPaging';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -349,44 +351,54 @@ export default function RequestHistory() {
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [detailRecord, setDetailRecord] = useState<RequestHistoryRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RequestHistoryEntry | null>(null);
   const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
   const [deleteFilteredOpen, setDeleteFilteredOpen] = useState(false);
 
+  // Typed filters reach the server once the user pauses, so a route typed quickly sends one request, not one per key.
+  const typedFilters = useMemo(() => ({
+    route: filters.route,
+    principal: filters.principal,
+    tenantId: filters.tenantId,
+    userId: filters.userId,
+    credentialId: filters.credentialId,
+    statusCode: filters.statusCode,
+  }), [filters.route, filters.principal, filters.tenantId, filters.userId, filters.credentialId, filters.statusCode]);
+  const typed = useDebouncedValue(typedFilters);
+
   const query = useMemo<RequestHistoryQuery>(() => ({
     pageNumber,
     pageSize,
     method: filters.method || undefined,
-    route: filters.route || undefined,
-    principal: filters.principal || undefined,
-    tenantId: filters.tenantId || undefined,
-    userId: filters.userId || undefined,
-    credentialId: filters.credentialId || undefined,
-    statusCode: filters.statusCode ? Number(filters.statusCode) : undefined,
+    route: typed.route || undefined,
+    principal: typed.principal || undefined,
+    tenantId: typed.tenantId || undefined,
+    userId: typed.userId || undefined,
+    credentialId: typed.credentialId || undefined,
+    statusCode: typed.statusCode ? Number(typed.statusCode) : undefined,
     isSuccess: filters.isSuccess === 'all' ? undefined : filters.isSuccess === 'true',
     fromUtc: buildApiDate(filters.fromUtc),
     toUtc: buildApiDate(filters.toUtc),
-  }), [filters, pageNumber, pageSize]);
+  }), [filters.method, filters.isSuccess, filters.fromUtc, filters.toUtc, typed, pageNumber, pageSize]);
 
   const summaryQuery = useMemo<RequestHistoryQuery>(() => {
     const range = getActivityRangeWindow(activityRange);
     return {
       method: filters.method || undefined,
-      route: filters.route || undefined,
-      principal: filters.principal || undefined,
-      tenantId: filters.tenantId || undefined,
-      userId: filters.userId || undefined,
-      credentialId: filters.credentialId || undefined,
-      statusCode: filters.statusCode ? Number(filters.statusCode) : undefined,
+      route: typed.route || undefined,
+      principal: typed.principal || undefined,
+      tenantId: typed.tenantId || undefined,
+      userId: typed.userId || undefined,
+      credentialId: typed.credentialId || undefined,
+      statusCode: typed.statusCode ? Number(typed.statusCode) : undefined,
       isSuccess: filters.isSuccess === 'all' ? undefined : filters.isSuccess === 'true',
       fromUtc: range.startUtc.toISOString(),
       toUtc: range.endUtc.toISOString(),
       bucketMinutes: range.bucketMinutes,
     };
-  }, [activityRange, filters]);
+  }, [activityRange, filters.method, filters.isSuccess, typed]);
 
   const hasActiveFilters = useMemo(() => (
     filters.method !== ''
@@ -399,7 +411,11 @@ export default function RequestHistory() {
     || filters.isSuccess !== 'all'
   ), [filters]);
 
-  const allSelected = entries.length > 0 && entries.length === selectedIds.length;
+  // Selection: only requests the table shows; a refresh keeps the selected rows it still returns.
+  const visibleIds = useMemo(() => entries.map((entry) => entry.id), [entries]);
+  const {
+    selected: selectedIds, allSelected, toggleSelect, selectAll, clearSelection,
+  } = useVisibleSelection(visibleIds);
 
   // The entry list, the summary and the open entry each keep their own order: only the newest load of each writes.
   const entryRequests = useLatestRequest();
@@ -415,7 +431,6 @@ export default function RequestHistory() {
       if (!acceptPage(result)) return;
       setEntries(result.objects || []);
       setTotalMs(result.totalMs || 0);
-      setSelectedIds([]);
       setError('');
     } catch (err) {
       if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load request history.'));
@@ -725,7 +740,7 @@ export default function RequestHistory() {
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={(event) => setSelectedIds(event.target.checked ? entries.map((entry) => entry.id) : [])}
+                  onChange={(event) => (event.target.checked ? selectAll() : clearSelection())}
                   title={t('Select all visible requests')}
                 />
               </th>
@@ -755,7 +770,7 @@ export default function RequestHistory() {
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(entry.id)}
-                      onChange={() => setSelectedIds((current) => current.includes(entry.id) ? current.filter((idValue) => idValue !== entry.id) : [...current, entry.id])}
+                      onChange={() => toggleSelect(entry.id)}
                       title={t('Select this request')}
                     />
                   </td>
