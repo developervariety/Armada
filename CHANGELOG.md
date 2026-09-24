@@ -89,6 +89,12 @@ upstream integrations and excludes changes already present at that baseline.
   Mux ignores unknown auth fields, so the files sent no credential and the
   endpoint refused every Mux captain. The captain tool inventory reads the same
   file through the same model, so its probe sends exactly the headers Mux sends.
+- **Mux is built against a patched Voltaic:** the admiral image pins Mux to an
+  exact commit and builds it against Voltaic with
+  `docker/patches/voltaic-mcp-http-client.patch` applied. With the patch, the
+  MCP client reads an event-stream POST response and accepts any JSON `ping`
+  result, so a Mux captain loads the Armada MCP tools. The image build fails
+  when the patch does not apply.
 - **Dispatch captain assignments reach the first stage:** a voyage stores its
   `captainAssignments` when it is created, before any mission exists, so the
   root stage's first assignment resolves the named captain as its requested

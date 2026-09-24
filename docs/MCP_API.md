@@ -542,8 +542,15 @@ server with the credential its `auth` object declares, which for the Armada
 entry is the mission owner's own scoped token. The probe is Armada's own MCP
 client, so it shows what the delivered file grants, not that the installed Mux
 client can use it: `mux print` does not report an MCP server it failed to
-connect, and a Mux build whose HTTP MCP client cannot read an event-stream
-response or an object `ping` result loads no tool from the Armada endpoint. The
+connect. The admiral image builds Mux against a patched Voltaic, because the
+unpatched MCP client cannot read the endpoint's event-stream responses or its
+`{}` `ping` result (see "Mux Runtime" in `docs/DOCKER.md`). Mux names an MCP
+tool `<server>.<tool>`, so a Mux captain calls `armada.armada_status`. Mux
+counts every tool schema against the endpoint's `contextWindow` in
+`endpoints.json`, which defaults to 32768 tokens. The full Armada catalog alone
+estimates at about 58,000 tokens, so a Mux endpoint with the default window
+fails every run with `context_limit_exceeded` before it calls the model. Set
+`contextWindow` to what the model actually serves. The
 proof for a Mux captain is still the read-only smoke mission that lists its
 tools. The only Mux CLI call is
 `mux --version`, which makes no provider request. The inventory always lists a

@@ -1,0 +1,107 @@
+diff --git a/src/Voltaic/Mcp/McpHttpClient.cs b/src/Voltaic/Mcp/McpHttpClient.cs
+index d476355..f630305 100644
+--- a/src/Voltaic/Mcp/McpHttpClient.cs
++++ b/src/Voltaic/Mcp/McpHttpClient.cs
+@@ -189,7 +189,7 @@ namespace Voltaic.Mcp
+                 _RpcUrl = $"{_BaseUrl}{rpcPath}";
+                 _EventsUrl = $"{_BaseUrl}{eventsPath}";
+                 // Make initial ping request to establish session
+-                await CallAsync<string>("ping", null, _RequestTimeoutMs, token).ConfigureAwait(false);
++                await CallAsync<JsonElement>("ping", null, _RequestTimeoutMs, token).ConfigureAwait(false);
+ 
+                 _ConnectedUtc = DateTime.UtcNow;
+                 LogMessage($"Connected to {baseUrl}");
+@@ -226,7 +226,7 @@ namespace Voltaic.Mcp
+                 _RpcUrl = $"{_BaseUrl}{mcpPath}";
+                 _EventsUrl = $"{_BaseUrl}{mcpPath}";
+                 // Make initial ping request to establish session
+-                await CallAsync<string>("ping", null, _RequestTimeoutMs, token).ConfigureAwait(false);
++                await CallAsync<JsonElement>("ping", null, _RequestTimeoutMs, token).ConfigureAwait(false);
+ 
+                 _ConnectedUtc = DateTime.UtcNow;
+                 LogMessage($"Connected to {baseUrl} via Streamable HTTP");
+@@ -347,7 +347,7 @@ namespace Voltaic.Mcp
+                     }
+                 }
+ 
+-                string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
++                string responseJson = await ReadResponseJsonAsync(httpResponse, request.Id).ConfigureAwait(false);
+                 LogMessage($"Received response: {responseJson}");
+ 
+                 JsonRpcResponse? response = JsonSerializer.Deserialize<JsonRpcResponse>(responseJson);
+@@ -420,7 +420,7 @@ namespace Voltaic.Mcp
+                 httpResponse.EnsureSuccessStatusCode();
+                 CaptureSessionId(httpResponse);
+ 
+-                string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
++                string responseJson = await ReadResponseJsonAsync(httpResponse, request.Id).ConfigureAwait(false);
+                 LogMessage($"Received response: {responseJson}");
+ 
+                 JsonRpcResponse? response = JsonSerializer.Deserialize<JsonRpcResponse>(responseJson);
+@@ -560,7 +560,7 @@ namespace Voltaic.Mcp
+                 }
+ 
+                 HttpResponseMessage httpResponse = await _HttpClient.SendAsync(httpRequest, cts.Token).ConfigureAwait(false);
+-                string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
++                string responseJson = await ReadResponseJsonAsync(httpResponse, request.Id).ConfigureAwait(false);
+                 LogMessage($"Received stateless response ({(int)httpResponse.StatusCode}): {responseJson}");
+ 
+                 if (String.IsNullOrEmpty(responseJson))
+@@ -880,6 +880,57 @@ namespace Voltaic.Mcp
+             return null;
+         }
+ 
++        /// <summary>
++        /// Reads the JSON-RPC response carried by a POST response. A Streamable HTTP server may answer a
++        /// request with a plain JSON body or with a text/event-stream body; in the stream, the response is
++        /// the data of the event whose JSON-RPC id matches the request (other events are notifications or
++        /// requests from the server). A stream without a matching event yields its last data payload.
++        /// </summary>
++        private static async Task<string> ReadResponseJsonAsync(HttpResponseMessage httpResponse, object? requestId)
++        {
++            string body = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
++            string? mediaType = httpResponse.Content.Headers.ContentType?.MediaType;
++            if (!String.Equals(mediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
++                return body;
++
++            string? wantedId = requestId?.ToString();
++            string? lastPayload = null;
++            StringBuilder data = new StringBuilder();
++            string[] lines = body.Replace("\r\n", "\n").Split('\n');
++            for (int i = 0; i <= lines.Length; i++)
++            {
++                string? line = i < lines.Length ? lines[i] : null;
++                if (!String.IsNullOrEmpty(line))
++                {
++                    if (line.StartsWith("data:", StringComparison.Ordinal))
++                    {
++                        if (data.Length > 0) data.Append('\n');
++                        data.Append(line.Substring(5).TrimStart(' '));
++                    }
++                    continue;
++                }
++
++                // A blank line (or the end of the body) ends one event.
++                if (data.Length == 0) continue;
++                string payload = data.ToString();
++                data.Clear();
++                lastPayload = payload;
++                if (wantedId == null) continue;
++                try
++                {
++                    JsonRpcResponse? candidate = JsonSerializer.Deserialize<JsonRpcResponse>(payload);
++                    if (candidate?.Id != null && String.Equals(candidate.Id.ToString(), wantedId, StringComparison.Ordinal))
++                        return payload;
++                }
++                catch (JsonException)
++                {
++                    // Not a JSON-RPC message; keep reading.
++                }
++            }
++
++            return lastPayload ?? String.Empty;
++        }
++
+         private HttpRequestMessage CreatePostRequest(string requestJson)
+         {
+             HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, _RpcUrl);

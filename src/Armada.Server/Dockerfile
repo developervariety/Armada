@@ -4,19 +4,63 @@
 # unrelated npm "coder multiplexer" that also claims the `mux` name and whose
 # CLI (`mux run --dir --quiet`) and headless behavior are incompatible.
 #
-# This stage must not depend on the Armada source tree. A step placed after the
-# source COPY is invalidated by every commit, and each rebuild leaves a fresh
-# multi-gigabyte record in the builder cache. Keep source-independent work in a
-# stage of its own so it is built once and reused. Change MUX_REF to pick up a
-# new Mux revision; the layer is cached until that value changes.
+# Mux is built against a patched Voltaic (its MCP client library). Voltaic's
+# Streamable HTTP client reads a POST response only as a plain JSON body and
+# requires a string `ping` result, so it loads no tool from a spec-correct
+# server that answers with a text/event-stream body and `ping` -> {} (the Armada
+# MCP endpoint does both). docker/patches/voltaic-mcp-http-client.patch reads an
+# event-stream response as the event whose JSON-RPC id matches the request and
+# accepts any JSON `ping` result. It is applied to the Voltaic revision Mux pins
+# (VOLTAIC_REF), packed as VOLTAIC_VERSION, and Mux restores Voltaic only from
+# that local package. The build fails when the patch does not apply or the
+# staged Voltaic.dll is not the patched build.
+#
+# This stage must not depend on the Armada source tree beyond the patch file. A
+# step placed after the source COPY is invalidated by every commit, and each
+# rebuild leaves a fresh multi-gigabyte record in the builder cache. Keep
+# source-independent work in a stage of its own so it is built once and reused.
+# Change MUX_REF (an exact commit) to pick up a new Mux revision, and move
+# VOLTAIC_REF to the Voltaic release that revision references; the layer is
+# cached until an argument or the patch changes.
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS mux
-ARG MUX_REF=main
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+ARG MUX_REF=ff0e00b0b878d025958bd0696a4e8dbb0920e18a
+ARG VOLTAIC_REF=ef7717c1e86a3c23c34423fae86804f728ce5e68
+ARG VOLTAIC_BASE_VERSION=0.7.1
+ARG VOLTAIC_VERSION=0.7.1-armada.1
+COPY docker/patches/voltaic-mcp-http-client.patch /tmp/voltaic-mcp-http-client.patch
+RUN set -eu \
+    && apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/* \
-    && git clone --depth 1 --branch "${MUX_REF}" https://github.com/jchristn/Mux.git /tmp/Mux \
+    && git init -q /tmp/Voltaic \
+    && git -C /tmp/Voltaic fetch -q --depth 1 https://github.com/jchristn/Voltaic.git "${VOLTAIC_REF}" \
+    && git -C /tmp/Voltaic checkout -q FETCH_HEAD \
+    && git -C /tmp/Voltaic apply --verbose /tmp/voltaic-mcp-http-client.patch \
+    && dotnet pack /tmp/Voltaic/src/Voltaic/Voltaic.csproj -c Release -p:GeneratePackageOnBuild=false -p:Version="${VOLTAIC_VERSION}" -o /tmp/voltaic-pkg \
+    && git init -q /tmp/Mux \
+    && git -C /tmp/Mux fetch -q --depth 1 https://github.com/jchristn/Mux.git "${MUX_REF}" \
+    && git -C /tmp/Mux checkout -q FETCH_HEAD \
+    && grep -q "Include=\"Voltaic\" Version=\"${VOLTAIC_BASE_VERSION}\"" /tmp/Mux/src/Mux.Core/Mux.Core.csproj \
+    && sed -i "s|Include=\"Voltaic\" Version=\"${VOLTAIC_BASE_VERSION}\"|Include=\"Voltaic\" Version=\"${VOLTAIC_VERSION}\"|" /tmp/Mux/src/Mux.Core/Mux.Core.csproj \
+    && printf '%s\n' \
+        '<?xml version="1.0" encoding="utf-8"?>' \
+        '<configuration>' \
+        '  <packageSources>' \
+        '    <clear />' \
+        '    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />' \
+        '    <add key="voltaic-patched" value="/tmp/voltaic-pkg" />' \
+        '  </packageSources>' \
+        '  <packageSourceMapping>' \
+        '    <packageSource key="voltaic-patched"><package pattern="Voltaic" /></packageSource>' \
+        '    <packageSource key="nuget.org"><package pattern="*" /></packageSource>' \
+        '  </packageSourceMapping>' \
+        '</configuration>' > /tmp/Mux/NuGet.config \
     && dotnet pack /tmp/Mux/src/Mux.Cli/Mux.Cli.csproj -c Release -p:TargetFrameworks=net10.0 -o /tmp/mux-pkg \
     && dotnet tool install --tool-path /opt/mux --framework net10.0 --disable-parallel --add-source /tmp/mux-pkg Mux.Cli \
-    && rm -rf /tmp/Mux /tmp/mux-pkg /root/.nuget/packages /tmp/NuGetScratch
+    && VOLTAIC_DLL="$(find /opt/mux/.store -name Voltaic.dll | head -n 1)" \
+    && echo "Staged Voltaic: ${VOLTAIC_DLL}" \
+    && grep -a -o "${VOLTAIC_VERSION}[+0-9a-f]*" "${VOLTAIC_DLL}" | head -n 1 | sed 's/^/Voltaic informational version: /' \
+    && grep -a -q "${VOLTAIC_VERSION}" "${VOLTAIC_DLL}" \
+    && rm -rf /tmp/Voltaic /tmp/voltaic-pkg /tmp/voltaic-mcp-http-client.patch /tmp/Mux /tmp/mux-pkg /root/.nuget/packages /tmp/NuGetScratch
 
 # --- Build stage ---
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build

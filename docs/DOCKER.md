@@ -380,6 +380,31 @@ before the retention step.
 
 ---
 
+## Mux Runtime
+
+The admiral image builds the Mux CLI (`jchristn/Mux`) from source in the `mux`
+stage of `src/Armada.Server/Dockerfile` and installs it at `/opt/mux`. The
+stage pins Mux to an exact commit (`MUX_REF`) and builds it against a patched
+Voltaic, the MCP client library Mux uses. `VOLTAIC_REF` is the Voltaic release
+that the Mux commit references. The patch is
+`docker/patches/voltaic-mcp-http-client.patch`, and it makes Voltaic's
+Streamable HTTP client follow the MCP specification in two places:
+
+- A POST response with a `text/event-stream` body is read as server-sent
+  events. The response is the event whose JSON-RPC `id` matches the request. A
+  plain JSON body is read as before.
+- The `ping` result may be any JSON value. The specification returns `{}`.
+
+Without the patch Mux loads no tool from the Armada MCP endpoint: the endpoint
+answers with an event stream and `ping` returns `{}`. The stage packs the
+patched Voltaic as `VOLTAIC_VERSION` (`0.7.1-armada.1`). Mux restores Voltaic
+only from that local package through `packageSourceMapping`. The build fails
+when the patch does not apply or when the staged `Voltaic.dll` does not carry
+that version, and the build log prints the staged informational version. To
+move Mux, change `MUX_REF` and set `VOLTAIC_REF` and `VOLTAIC_BASE_VERSION` to
+the Voltaic release the new commit references. Then check that the patch still
+applies.
+
 ## Database Client Tools
 
 Backup (`armada_backup`, `GET /api/v1/backup`, WebSocket `backup`) and the
