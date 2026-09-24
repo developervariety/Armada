@@ -182,6 +182,12 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **A halted voyage stops its running captains:** when a mission fails without
+  recoverable work, its voyage is halted through the one voyage cancel, so the
+  captain of every parallel mission still running is recalled (its agent process
+  stops and the captain is released) before the mission is written Cancelled.
+  The halt used to cancel the missions in the database only, leaving their
+  processes running and their captains Working.
 - **A retried landing decides its voyage:** REST `retry-landing` and MCP
   `armada_retry_landing` apply the voyage completion rule after the landing, so
   a Failed voyage whose failed work a retry later lands becomes Complete and

@@ -3868,37 +3868,33 @@ namespace Armada.Core.Services
             if (voyage == null) return;
             if (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Complete) return;
 
-            voyage.Status = VoyageStatusEnum.Cancelled;
-            voyage.CompletedUtc = DateTime.UtcNow;
-            voyage.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
-
-            int discardedChecks = await VoyageCheckDiscard.DiscardPendingAsync(_Database, voyage.Id, VoyageCheckDiscard.VoyageCancelledReason, token).ConfigureAwait(false);
-            if (discardedChecks > 0)
-                _Logging.Info(_Header + "voyage " + voyage.Id + " halted: discarded " + discardedChecks + " pending armed Check(s) (" + VoyageCheckDiscard.VoyageCancelledReason + ")");
-
-            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
-            foreach (Mission otherMission in voyageMissions)
+            // A halt is a voyage cancel, so it goes through the one voyage cancel: the captain of every mission still
+            // running is recalled first, which stops its agent process and releases it, and then the voyage and its
+            // live missions are written Cancelled and its armed Checks discarded. The failed mission is already
+            // Failed, so the cancel leaves it as it is.
+            VoyageCancellationResult halted;
+            try
             {
-                if (otherMission.Id == failedMissionId) continue;
-
-                bool isTerminal =
-                    otherMission.Status == MissionStatusEnum.Complete ||
-                    otherMission.Status == MissionStatusEnum.Failed ||
-                    otherMission.Status == MissionStatusEnum.Cancelled ||
-                    otherMission.Status == MissionStatusEnum.LandingFailed ||
-                    otherMission.Status == MissionStatusEnum.PullRequestOpen ||
-                    otherMission.Status == MissionStatusEnum.WorkProduced;
-
-                if (isTerminal) continue;
-
-                otherMission.Status = MissionStatusEnum.Cancelled;
-                otherMission.FailureReason = "Voyage halted after mission " + failedMissionId + " failed: " + failureReason;
-                otherMission.ProcessId = null;
-                otherMission.CompletedUtc = DateTime.UtcNow;
-                otherMission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(otherMission, token).ConfigureAwait(false);
+                halted = await VoyageCancellation.CancelAsync(
+                    _Database,
+                    voyage,
+                    "Voyage halted after mission " + failedMissionId + " failed: " + failureReason,
+                    RecallCaptainAsync,
+                    token).ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "voyage " + voyageId + " was not halted after mission " + failedMissionId
+                    + " failed, because a running captain could not be recalled; the voyage stays live for recovery: " + ex.Message);
+                return;
+            }
+
+            if (halted.CancelledMissions.Count > 0)
+                _Logging.Info(_Header + "voyage " + voyage.Id + " halted: cancelled " + halted.CancelledMissions.Count + " live mission(s)");
 
             await EmitEventAsync("voyage.cancelled", "Voyage halted after mission " + failedMissionId + " failed",
                 entityType: "voyage", entityId: voyage.Id, missionId: failedMissionId, voyageId: voyage.Id, token: token).ConfigureAwait(false);
