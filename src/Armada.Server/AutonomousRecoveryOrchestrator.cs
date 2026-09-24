@@ -1803,14 +1803,14 @@ namespace Armada.Server
                 VesselId = failedMission.VesselId,
                 ParentMissionId = failedMission.Id,
                 Persona = rescuePersona,
-                // The rescue persona is frequently NOT the failed mission's persona -- a Judge
-                // rejection is recovered by a Worker revision. Inheriting the tier verbatim hands
-                // the Worker the reviewer's "high", which no high-tier captain accepts, so the
-                // rescue queues forever instead of running. Resolve the tier against the persona
-                // the rescue will actually run as.
-                PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
-                    recoveryWorkerStage?.PreferredModel ?? failedMission.PreferredModel,
-                    rescuePersona, _Settings.ModelTier.MinimumTierForPersona(rescuePersona)),
+                // The rescue persona can differ from the failed mission persona. A reviewer tier
+                // is a constraint for that reviewer, not for the Worker that revises its findings.
+                // Use the recovery pipeline's Worker tier when set; otherwise let the Worker's
+                // configured minimum choose an eligible tier.
+                PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    recoveryWorkerStage?.PreferredModel,
+                    null,
+                    _Settings.ModelTier.MinimumTierForPersona(rescuePersona)),
                 StageOrder = recoveryWorkerStage?.Order,
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
@@ -2229,12 +2229,12 @@ namespace Armada.Server
                 DependsOnMissionId = dependsOnMissionId,
                 StageOrder = stage.Order,
                 Persona = stage.PersonaName,
-                // Same persona/tier mismatch as the rescue itself: this stage runs as its own
-                // persona, so the tier must be resolved against that persona rather than copied
-                // from the failed mission.
-                PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
-                    stage.PreferredModel ?? failedMission.PreferredModel,
-                    stage.PersonaName, _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName)),
+                // A downstream stage uses its own configured pipeline tier and persona minimum.
+                // The failed mission's tier belongs to its persona and must not constrain this one.
+                PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    stage.PreferredModel,
+                    null,
+                    _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName)),
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Status = MissionStatusEnum.Pending,
                 RecoveryAttempts = attemptNumber,
