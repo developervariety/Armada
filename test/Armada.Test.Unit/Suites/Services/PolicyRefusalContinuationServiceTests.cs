@@ -309,13 +309,15 @@ namespace Armada.Test.Unit.Suites.Services
             public bool OtherTenant { get; set; } = false;
             public string? Pin { get; set; } = null;
             public string Routing { get; set; } = "off";
+            public string Quarantine { get; set; } = "none";
 
             public string Label => "tier=" + Tier + " model=" + Model + " locked=" + Locked + " otherTenant=" + OtherTenant
-                + " pin=" + (Pin ?? "none") + " routing=" + Routing;
+                + " pin=" + (Pin ?? "none") + " routing=" + Routing + " quarantine=" + Quarantine;
 
             // One alternate-runtime captain whose tier, model, persona lock and tenant vary, against no pin, a tier
             // selector, the model only the refusing runtime runs and a model no captain runs, with Smart Routing off,
-            // persona routes that admit the alternate, and persona routes that admit nobody.
+            // persona routes that admit the alternate, and persona routes that admit nobody; then an alternate under
+            // a quarantine deadline still in the future and one whose deadline has passed.
             public static List<AlternateParityCase> Domain()
             {
                 List<AlternateParityCase> cases = new List<AlternateParityCase>();
@@ -326,6 +328,12 @@ namespace Armada.Test.Unit.Suites.Services
                                 foreach (string? pin in new[] { null, "high", "claude-opus-4-7", "unrun-model" })
                                     foreach (string routing in new[] { "off", "admit-alternate", "admit-none" })
                                         cases.Add(new AlternateParityCase { Tier = tier, Model = model, Locked = locked, OtherTenant = otherTenant, Pin = pin, Routing = routing });
+
+                foreach (string quarantine in new[] { "until-future", "until-past" })
+                    foreach (CaptainTierEnum tier in new[] { CaptainTierEnum.Economy, CaptainTierEnum.Premium })
+                        foreach (string? pin in new[] { null, "high", "claude-opus-4-7" })
+                            foreach (string routing in new[] { "off", "admit-alternate" })
+                                cases.Add(new AlternateParityCase { Tier = tier, Pin = pin, Routing = routing, Quarantine = quarantine });
                 return cases;
             }
         }
@@ -350,6 +358,8 @@ namespace Armada.Test.Unit.Suites.Services
             alternate.Model = parityCase.Model;
             alternate.Tier = parityCase.Tier;
             if (parityCase.Locked) alternate.AllowedPersonas = "[\"Judge\"]";
+            if (parityCase.Quarantine == "until-future") alternate.QuarantineUntilUtc = DateTime.UtcNow.AddHours(1);
+            if (parityCase.Quarantine == "until-past") alternate.QuarantineUntilUtc = DateTime.UtcNow.AddHours(-1);
             if (parityCase.OtherTenant)
             {
                 TenantMetadata other = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Refusal parity other tenant"));

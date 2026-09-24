@@ -82,6 +82,31 @@ namespace Armada.Test.Unit.Suites.Services
                     "a persona route that admits no captain is named as unassignable by construction");
             }).ConfigureAwait(false);
 
+            await RunTest("A captain that runs the pinned model below the persona minimum tier does not count as serviceable", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Scene scene = await CreateSceneAsync(testDb, "[\"Judge\"]", CaptainStateEnum.Idle, (settings, captain) =>
+                {
+                    settings.ModelTier.Records = TierRoutingRecords.ForMinimumTiers(new[]
+                    {
+                        new KeyValuePair<string, CaptainTierEnum>("Judge", CaptainTierEnum.Premium)
+                    });
+                }).ConfigureAwait(false);
+                Captain standard = (await testDb.Driver.Captains.EnumerateAsync().ConfigureAwait(false)).Single();
+                standard.Model = "example-standard-model";
+                standard.Tier = CaptainTierEnum.Standard;
+                await testDb.Driver.Captains.UpdateAsync(standard).ConfigureAwait(false);
+                scene.Mission.PreferredModel = "example-standard-model";
+                await testDb.Driver.Missions.UpdateAsync(scene.Mission).ConfigureAwait(false);
+
+                await scene.Missions.TryAssignAsync(scene.Mission, scene.Vessel).ConfigureAwait(false);
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false);
+                AssertTrue(String.IsNullOrEmpty(after!.CaptainId), "precondition: assignment never gives the mission to a captain below the persona minimum tier");
+                AssertEqual(1, await CountEventsAsync(testDb, scene.Mission.Id).ConfigureAwait(false),
+                    "a pinned-model captain below the persona minimum tier leaves the mission unassignable by construction");
+            }).ConfigureAwait(false);
+
             await RunTest("A mission waiting for a busy captain that could serve it is not escalated", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

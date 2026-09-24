@@ -10079,7 +10079,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Returns why no captain of the mission's tenant, in any state, can ever serve the mission, or null
         /// when at least one could. Quarantine, benching and busy captains are temporary and do not count.
-        /// When Smart Routing is enabled the persona routes apply first, as they do in assignment; the usage
+        /// A captain counts when the assignment selector could choose it, so a pinned model is a tier floor and
+        /// the persona minimum tier holds even for a captain that runs the pinned model. When Smart Routing is enabled the persona routes apply first, as they do in assignment; the usage
         /// filter is temporary and does not count, so the verdict holds with Smart Routing enabled.
         /// </summary>
         private async Task<string?> DescribeUnassignableByConstructionAsync(Mission mission, CancellationToken token)
@@ -10105,18 +10106,10 @@ namespace Armada.Core.Services
                     return "the Smart Routing routes for persona " + (mission.Persona ?? "(none)") + " admit no captain of the tenant that allows it";
             }
 
-            string? preferredModel = mission.PreferredModel;
-            CaptainTierEnum? minimumTier = _Settings.ModelTier.MinimumTierForPersona(mission.Persona);
-            if (String.IsNullOrEmpty(preferredModel) && !minimumTier.HasValue) return null;
-
-            if (!String.IsNullOrEmpty(preferredModel)
-                && !PreferredModelTierSelector.IsTierSelector(preferredModel)
-                && personaCaptains.Any(item => String.Equals(item.Model, preferredModel, StringComparison.OrdinalIgnoreCase)))
+            if (personaCaptains.Any(item => LegacyCaptainSelector.CouldSelect(_Settings.ModelTier, mission, item)))
                 return null;
 
             List<CaptainTierEnum> tiers = LegacyCaptainSelector.TierOrderFor(_Settings.ModelTier, mission);
-            if (personaCaptains.Any(item => tiers.Contains(CaptainTierSelector.EffectiveTier(item))))
-                return null;
             return "no captain of the tenant that allows persona " + (mission.Persona ?? "(none)") + " has tier " + String.Join(" or ", tiers);
         }
 

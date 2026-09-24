@@ -52,12 +52,15 @@ A persona minimum tier is a hard floor. Armada tries the lowest tier at or
 above both the persona minimum and the mission request. A Standard minimum can
 use a Premium captain when no Standard captain is available. A captain below
 the effective floor is never chosen, even when a persona model list names its
-model.
+model or it runs the mission's pinned model. When no captain of the mission's
+tenant clears this layer, Armada records `mission.unassignable_by_construction`
+once and opens an incident if the mission stays that way.
 
 A mission continued on another runtime after a policy refusal uses the same
 rules as assignment. A captain on another runtime is an approved alternate when
-it is in the mission's tenant, the persona routes admit it (when Smart Routing
-is on), and this layer admits it. A pinned model that only the refusing runtime
+it is not quarantined (a quarantine deadline still in the future counts), it is
+in the mission's tenant, the persona routes admit it (when Smart Routing is on),
+and this layer admits it. A pinned model that only the refusing runtime
 runs is therefore a tier floor for the continuation too.
 
 ## Layer 2: order (Legacy Routing)

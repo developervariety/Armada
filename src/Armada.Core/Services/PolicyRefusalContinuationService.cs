@@ -88,6 +88,7 @@ namespace Armada.Core.Services
         /// <param name="continuationAlreadyUsed">Whether this mission already had its one continuation.</param>
         /// <param name="captains">Every configured captain.</param>
         /// <param name="modelTierSettings">Tier configuration used by normal routing; null uses defaults.</param>
+        /// <param name="nowUtc">The instant captain quarantine deadlines are read at; null reads the current time.</param>
         /// <returns>The decision.</returns>
         public static PolicyRefusalContinuationDecision Decide(
             Mission mission,
@@ -96,7 +97,8 @@ namespace Armada.Core.Services
             bool policyPresent,
             bool continuationAlreadyUsed,
             IReadOnlyList<Captain> captains,
-            ModelTierSettings? modelTierSettings)
+            ModelTierSettings? modelTierSettings,
+            DateTime? nowUtc = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (refusingCaptain == null) throw new ArgumentNullException(nameof(refusingCaptain));
@@ -135,14 +137,17 @@ namespace Armada.Core.Services
                 return decision;
             }
 
-            // An alternate is approved when assignment could choose it: the mission's tenant, the Smart Routing
-            // persona routes when Smart Routing is on, and the assignment selector, so a pinned model that no
-            // alternate runs is a tier floor here exactly as it is in assignment.
+            // An alternate is approved when assignment could choose it: quarantine (including a deadline still in
+            // the future), the mission's tenant, the Smart Routing persona routes when Smart Routing is on, and the
+            // assignment selector, so a pinned model that no alternate runs is a tier floor here exactly as it is in
+            // assignment.
             ModelTierSettings tiers = modelTierSettings ?? new ModelTierSettings();
             UsageRoutingSettings usage = tiers.UsageRouting;
+            DateTime now = nowUtc ?? DateTime.UtcNow;
             List<Captain> approvedAlternates = all
                 .Where(captain => captain.Runtime != refusingCaptain.Runtime)
-                .Where(captain => captain.State != CaptainStateEnum.Benched && captain.State != CaptainStateEnum.Quarantined)
+                .Where(captain => captain.State != CaptainStateEnum.Benched)
+                .Where(captain => !CaptainQuarantineService.IsQuarantinedAt(captain, now))
                 .Where(captain => MissionService.CaptainServesTenant(captain, mission.TenantId))
                 .Where(captain => !usage.Enabled || UsageRoutingService.PersonaRoutesAdmit(usage, mission.Persona, captain))
                 .Where(captain => LegacyCaptainSelector.CouldSelect(tiers, mission, captain))

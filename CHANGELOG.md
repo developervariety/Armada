@@ -211,14 +211,16 @@ upstream integrations and excludes changes already present at that baseline.
   allow-list, runtime capability, or minimum tier excludes the persona is never
   assigned; assignment falls back at its tier and names the reason.
 - **Policy refusal continuation:** the alternate captains for a mission continued
-  after a policy refusal are the captains assignment could choose: the mission's
-  tenant, the Smart Routing persona routes when Smart Routing is on, and the
-  assignment selector. A pinned model that no alternate runs is a tier floor, and a
+  after a policy refusal are the captains assignment could choose: quarantine,
+  including a quarantine deadline still in the future, the mission's tenant, the
+  Smart Routing persona routes when Smart Routing is on, and the assignment selector. A pinned model that no alternate runs is a tier floor, and a
   captain below the pinned model's tier is not approved because it runs the model.
-- **Unassignable missions under Smart Routing:** a mission whose Smart Routing
-  persona routes admit no captain of its tenant that allows its persona is named
-  `mission.unassignable_by_construction` and escalates to an incident, as a mission
-  with no such captain at all does.
+- **Unassignable missions:** the unassignable-by-construction check counts a
+  captain only when the assignment selector could choose it, so a captain that runs
+  the pinned model below the persona's minimum tier does not count. A mission whose
+  Smart Routing persona routes admit no captain of its tenant that allows its
+  persona is named `mission.unassignable_by_construction` and escalates to an
+  incident, as a mission with no such captain at all does.
 - **Settings reload:** the manual reload endpoint and the settings-file watcher share
   one reload path bound to the server's own settings file. Settings updates and both
   reloads share one candidate validator for account key paths and captain runtime
