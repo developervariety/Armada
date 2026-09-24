@@ -1,13 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { copyToClipboard } from './CopyButton';
 import { useLocale } from '../../context/LocaleContext';
-
-interface DiffFile {
-  name: string;
-  additions: number;
-  deletions: number;
-  startLine: number;
-}
+import { parseDiff, type DiffLine } from '../../lib/gitDiff';
 
 interface DiffViewerProps {
   open: boolean;
@@ -21,100 +15,63 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function parseDiffFiles(rawDiff: string): DiffFile[] {
-  if (!rawDiff || rawDiff === 'No changes') return [];
-  const files: DiffFile[] = [];
-  const lines = rawDiff.split('\n');
-  let currentFile: DiffFile | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith('diff --git ')) {
-      if (currentFile) files.push(currentFile);
-      const match = line.match(/diff --git a\/(.*?) b\/(.*)/);
-      const name = match ? match[2] : line.substring(11);
-      currentFile = { name, additions: 0, deletions: 0, startLine: i };
-    } else if (currentFile) {
-      if (line.startsWith('+') && !line.startsWith('+++')) currentFile.additions++;
-      else if (line.startsWith('-') && !line.startsWith('---')) currentFile.deletions++;
-    }
-  }
-  if (currentFile) files.push(currentFile);
-  return files;
+function lineNumber(value: number | undefined): string {
+  return value === undefined ? '' : String(value);
 }
 
-function renderDiffLines(lines: string[]): string {
+function renderDiffLines(lines: DiffLine[]): string {
   let html = '';
-  let oldNum = 0;
-  let newNum = 0;
   for (const line of lines) {
-    const escaped = escapeHtml(line);
-    if (line.startsWith('diff --git ')) {
-      html += `<div class="diff-file-header">${escaped}</div>`;
-    } else if (line.startsWith('@@')) {
-      const hunkMatch = line.match(/@@ -(\d+)/);
-      if (hunkMatch) oldNum = parseInt(hunkMatch[1]);
-      const newMatch = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
-      if (newMatch) newNum = parseInt(newMatch[1]);
-      html += `<div class="diff-hunk-header">${escaped}</div>`;
-    } else if (
-      line.startsWith('---') || line.startsWith('+++') || line.startsWith('index ') ||
-      line.startsWith('new file') || line.startsWith('deleted file') ||
-      line.startsWith('old mode') || line.startsWith('new mode') ||
-      line.startsWith('similarity index') || line.startsWith('rename from') ||
-      line.startsWith('rename to') || line.startsWith('Binary files')
-    ) {
-      html += `<div class="diff-meta-line">${escaped}</div>`;
-    } else if (line.startsWith('+')) {
-      html += `<div class="diff-line diff-line-add"><span class="diff-line-num diff-line-num-old"></span><span class="diff-line-num diff-line-num-new">${newNum}</span><span class="diff-line-content">${escaped}</span></div>`;
-      newNum++;
-    } else if (line.startsWith('-')) {
-      html += `<div class="diff-line diff-line-del"><span class="diff-line-num diff-line-num-old">${oldNum}</span><span class="diff-line-num diff-line-num-new"></span><span class="diff-line-content">${escaped}</span></div>`;
-      oldNum++;
-    } else {
-      html += `<div class="diff-line diff-line-ctx"><span class="diff-line-num diff-line-num-old">${oldNum || ''}</span><span class="diff-line-num diff-line-num-new">${newNum || ''}</span><span class="diff-line-content">${escaped}</span></div>`;
-      if (oldNum) oldNum++;
-      if (newNum) newNum++;
+    const escaped = escapeHtml(line.text);
+    switch (line.kind) {
+      case 'file-header':
+        html += `<div class="diff-file-header">${escaped}</div>`;
+        break;
+      case 'hunk-header':
+        html += `<div class="diff-hunk-header">${escaped}</div>`;
+        break;
+      case 'meta':
+      case 'no-newline':
+        html += `<div class="diff-meta-line">${escaped}</div>`;
+        break;
+      default: {
+        const css = line.kind === 'add' ? 'diff-line-add' : line.kind === 'del' ? 'diff-line-del' : 'diff-line-ctx';
+        html += `<div class="diff-line ${css}"><span class="diff-line-num diff-line-num-old">${lineNumber(line.oldNumber)}</span><span class="diff-line-num diff-line-num-new">${lineNumber(line.newNumber)}</span><span class="diff-line-content">${escaped}</span></div>`;
+      }
     }
   }
   return html;
 }
 
-function renderFileDiff(rawDiff: string, fileName: string): string {
-  const lines = rawDiff.split('\n');
-  let inFile = false;
-  const fileLines: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith('diff --git ')) {
-      if (inFile) break;
-      const match = line.match(/diff --git a\/(.*?) b\/(.*)/);
-      const name = match ? match[2] : '';
-      if (name === fileName) inFile = true;
-    }
-    if (inFile) fileLines.push(line);
-  }
-  return renderDiffLines(fileLines);
-}
-
 export default function DiffViewer({ open, title, rawDiff, loading, onClose }: DiffViewerProps) {
   const { t } = useLocale();
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<number | null>(null);
+  const [shownDiff, setShownDiff] = useState(rawDiff);
   const [copied, setCopied] = useState(false);
 
-  const files = useMemo(() => parseDiffFiles(rawDiff), [rawDiff]);
-  const totalAdditions = files.reduce((s, f) => s + f.additions, 0);
-  const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
+  // A file is selected by its position in this diff, so a new diff starts on the whole view.
+  if (shownDiff !== rawDiff) {
+    setShownDiff(rawDiff);
+    setSelectedFile(null);
+  }
 
   const isEmpty = !rawDiff || !rawDiff.trim() || rawDiff === 'No changes' || rawDiff === 'No modified files';
+  const parsed = useMemo(() => (isEmpty ? { lines: [], files: [] } : parseDiff(rawDiff)), [rawDiff, isEmpty]);
+  const files = parsed.files;
+  const totalAdditions = files.reduce((s, f) => s + f.additions, 0);
+  const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
 
   const contentHtml = useMemo(() => {
     if (isEmpty) {
       return `<div class="diff-empty-state"><span class="text-dim">${t('No modified files')}</span></div>`;
     }
-    if (selectedFile) {
-      return renderFileDiff(rawDiff, selectedFile);
+    const file = selectedFile === null ? undefined : files[selectedFile];
+    if (file) {
+      const fileLines = parsed.lines.filter(line => line.lineIndex >= file.startLine && line.lineIndex < file.endLine);
+      return renderDiffLines(fileLines);
     }
-    return renderDiffLines(rawDiff.split('\n'));
-  }, [rawDiff, selectedFile, isEmpty]);
+    return renderDiffLines(parsed.lines);
+  }, [parsed, files, selectedFile, isEmpty, t]);
 
   const handleCopy = useCallback(() => {
     copyToClipboard(rawDiff).then(() => {
@@ -123,8 +80,8 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
     }).catch(() => {});
   }, [rawDiff]);
 
-  const handleFileClick = useCallback((fileName: string) => {
-    setSelectedFile(prev => prev === fileName ? null : fileName);
+  const handleFileClick = useCallback((fileIndex: number) => {
+    setSelectedFile(prev => prev === fileIndex ? null : fileIndex);
   }, []);
 
   if (!open) return null;
@@ -161,15 +118,15 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
               <div className="diff-file-nav-header">
                 {t('Files')} ({files.length})
               </div>
-              {files.map(f => {
+              {files.map((f, index) => {
                 const pathParts = f.name.split('/');
                 const fileName = pathParts.pop() || f.name;
                 const dirPath = pathParts.join('/');
                 return (
                   <div
-                    key={f.name}
-                    className={`diff-file-nav-item${selectedFile === f.name ? ' active' : ''}`}
-                    onClick={() => handleFileClick(f.name)}
+                    key={`${index}:${f.name}`}
+                    className={`diff-file-nav-item${selectedFile === index ? ' active' : ''}`}
+                    onClick={() => handleFileClick(index)}
                   >
                     <span className="diff-file-nav-name">{fileName}</span>
                     {dirPath && <span className="diff-file-nav-path">{dirPath}/</span>}

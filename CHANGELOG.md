@@ -150,6 +150,12 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard diff viewer:** the file list and per-file view read Git's diff headers by
+  the same rules as the server: C-quoted names (non-ASCII or special characters) show
+  the real name and open their own pane, a name containing ` b/` keeps it, and a rename
+  or deletion is named from its rename and `---`/`+++` lines. Hunk lines are read by
+  the hunk counts, so the `\ No newline at end of file` marker no longer shifts the
+  gutter numbers and content that starts with `---` or `+++` is counted and numbered.
 - **Dashboard pager:** the page-number box follows every page change the page makes
   (a filter change, a page-size change, a shrinking list), not only Prev and Next, on
   every paged table.
