@@ -17,12 +17,6 @@ namespace Armada.Core.Database
             TierRoutingPersistence.AddCaptain(command, captain);
         }
 
-        internal static void ReadCaptain(DbDataReader reader, Captain captain)
-        {
-            captain.Tier = ReadTier(reader["tier"]);
-            TierRoutingPersistence.ReadCaptain(reader, captain);
-        }
-
         internal static void AddMission(DbCommand command, Mission mission)
         {
             Add(command, "tier", TierName(mission.Tier));

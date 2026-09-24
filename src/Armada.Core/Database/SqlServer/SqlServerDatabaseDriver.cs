@@ -417,46 +417,6 @@ namespace Armada.Core.Database.SqlServer
         }
 
         /// <summary>
-        /// Convert a SqlDataReader row to a Captain model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Captain instance.</returns>
-        internal static Captain CaptainFromReader(SqlDataReader reader)
-        {
-            Captain captain = new Captain();
-            BackendMetadataPersistence.ReadCaptain(reader, captain);
-            captain.Id = reader["id"].ToString()!;
-            captain.TenantId = NullableString(reader["tenant_id"]);
-            captain.UserId = NullableString(reader["user_id"]);
-            captain.Name = reader["name"].ToString()!;
-            captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
-            try { captain.Model = NullableString(reader["model"]); } catch { }
-            captain.ModelEndpointId = NullableString(reader["model_endpoint_id"]);
-            try { captain.ApiKey = NullableString(reader["api_key"]); } catch { }
-            try { captain.ApiBaseUrl = NullableString(reader["api_base_url"]); } catch { }
-            captain.SystemInstructions = NullableString(reader["system_instructions"]);
-            captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);
-            captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
-            captain.CurrentDockId = NullableString(reader["current_dock_id"]);
-            captain.ProcessId = NullableInt(reader["process_id"]);
-            captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]);
-            captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
-            captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
-            // Read defensively: the column arrives with a migration, and a reader built
-            // against a database that has not run it yet must still map the rest of the row.
-            try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
-            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
-            try { captain.QuarantineReason = NullableString(reader["quarantine_reason"]); } catch { }
-            captain.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            captain.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
-            try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
-            try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
-            try { captain.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
-            return captain;
-        }
-
-        /// <summary>
         /// Convert a SqlDataReader row to a Mission model.
         /// </summary>
         /// <param name="reader">Data reader positioned on a row.</param>

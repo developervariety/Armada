@@ -133,18 +133,18 @@ upstream integrations and excludes changes already present at that baseline.
   settings' own data directory, not the process-wide default. The runtimes runner
   and the shared-suite xUnit and NUnit hosts redirect the default data directory
   like the other runners, so no test indexes a vessel into the live Armada home.
-- **Stored rows read through shared column readers:** skills, project profiles,
-  playbooks, mission playbook snapshots, landing jobs and Judge follow-ups are
-  read by one column reader per entity that every provider calls. Each provider configures only how it stores
 - **Stored rows read through shared column readers:** tenants, users,
-  credentials, fleets, signals, events, skills, project profiles, playbooks,
-  mission playbook snapshots, landing jobs and Judge follow-ups are read by one
-  column reader per entity that every provider calls. Each provider configures only how it stores
-  booleans; a timestamp converts by the value the driver returns, so one stored
-  as text reads as the same UTC instant whatever the host time zone. A required
-  column that is missing, null or unconvertible, and a JSON column that holds
-  invalid JSON, raise `StoredRowException` naming the entity, column and
-  provider instead of reading as a default value.
+  credentials, fleets, signals, events, captains, skills, project profiles,
+  playbooks, mission playbook snapshots, landing jobs and Judge follow-ups are
+  read by one column reader per entity that every provider calls. Each provider
+  configures only how it stores booleans; a timestamp converts by the value the
+  driver returns, so one stored as text reads as the same UTC instant whatever
+  the host time zone. A required column that is missing, null or unconvertible,
+  and a JSON column that holds invalid JSON, raise `StoredRowException` naming
+  the entity, column and provider instead of reading as a default value. On
+  MySQL a captain's quarantine expiry, stored as text, reads as the stored UTC
+  instant on a host outside UTC, and an empty stored quarantine reason reads as
+  no reason, as on the other providers.
 - **Diff readers share one parser:** `GitDiffPaths` reads hunk bodies by their
   counts and returns each file's one name, line counts and (on request) hunk lines;
   it also reads `--name-status -z` records. Change substance (rescue and planner

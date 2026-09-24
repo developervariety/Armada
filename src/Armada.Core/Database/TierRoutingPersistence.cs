@@ -63,15 +63,6 @@ namespace Armada.Core.Database
             command.Parameters.Add(rank);
         }
 
-        /// <summary>Read the captain preference rank from a captain row.</summary>
-        /// <param name="reader">Reader positioned on a captain row that selects the rank column.</param>
-        /// <param name="captain">Captain to populate.</param>
-        internal static void ReadCaptain(DbDataReader reader, Captain captain)
-        {
-            object rank = reader[PreferenceRankColumn];
-            captain.PreferenceRank = rank == DBNull.Value ? 0 : Convert.ToInt32(rank);
-        }
-
         /// <summary>Bind persona routing fields for an insert or update.</summary>
         /// <param name="command">Command to bind.</param>
         /// <param name="persona">Persona whose minimum tier is stored.</param>

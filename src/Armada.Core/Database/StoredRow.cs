@@ -180,6 +180,19 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Read an optional enum stored by its exact member name; null reads as null. Any other text, including
+        /// a number or a name in another case, is not a stored member name and throws.
+        /// </summary>
+        internal TEnum? NullableEnum<TEnum>(string column) where TEnum : struct, System.Enum
+        {
+            object value = Value(column);
+            if (value == DBNull.Value) return null;
+            string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? String.Empty;
+            if (System.Enum.TryParse(text, false, out TEnum parsed) && System.Enum.IsDefined(parsed) && parsed.ToString() == text) return parsed;
+            throw Unreadable(column, "a " + typeof(TEnum).Name + " member name", value, null);
+        }
+
+        /// <summary>
         /// Read an enum where the schema tolerates values outside the model: the stored name is matched without
         /// regard to case, and null, empty or unrecognised text reads as <paramref name="fallback"/>.
         /// </summary>

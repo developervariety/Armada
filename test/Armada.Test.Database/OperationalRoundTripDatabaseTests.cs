@@ -711,15 +711,17 @@ namespace Armada.Test.Database
                 created.RecoveryAttempts = 0;
                 created.LastHeartbeatUtc = null;
                 created.QuarantineUntilUtc = null;
-                created.QuarantineReason = null;
+                created.QuarantineReason = String.Empty;
                 created.DefaultPlaybooks = null;
                 Captain updated = await _Driver.Captains.UpdateAsync(created, token).ConfigureAwait(false);
                 using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
                 {
                     Captain reread = DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Captain");
+                    // An empty stored quarantine reason reads as no reason on every provider.
+                    DatabaseAssert.True(reread.QuarantineReason == null, "Empty quarantine reason reads as null, got '" + reread.QuarantineReason + "'");
                     // Liveness is written only by its own refresh, so an ordinary update keeps the refreshed value.
                     DatabaseAssert.UtcInstant(alive.LastProcessAliveUtc, reread.LastProcessAliveUtc, "Reopened Captain.LastProcessAliveUtc");
-                    DatabaseAssert.AllProperties(updated, reread, "Reopened Captain", nameof(Captain.LastProcessAliveUtc));
+                    DatabaseAssert.AllProperties(updated, reread, "Reopened Captain", nameof(Captain.QuarantineReason), nameof(Captain.LastProcessAliveUtc));
                 }
             }
             finally

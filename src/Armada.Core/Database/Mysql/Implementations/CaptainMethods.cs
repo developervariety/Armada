@@ -107,7 +107,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CaptainFromReader(reader);
+                            return CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -135,7 +135,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CaptainFromReader(reader);
+                            return CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -254,7 +254,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -318,7 +318,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -346,7 +346,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -474,7 +474,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CaptainFromReader(reader);
+                            return CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -521,7 +521,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -581,7 +581,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -606,7 +606,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CaptainFromReader(reader);
+                            return CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -631,7 +631,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -722,7 +722,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CaptainFromReader(reader);
+                            return CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -769,7 +769,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -832,7 +832,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CaptainFromReader(reader));
+                            results.Add(CaptainColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -973,68 +973,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
             return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
-        }
-
-        private static DateTime? FromIso8601Nullable(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
-            string str = value.ToString()!;
-            if (string.IsNullOrEmpty(str)) return null;
-            return FromIso8601(str);
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static int? NullableInt(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt32(value);
-        }
-
-        private static Captain CaptainFromReader(MySqlDataReader reader)
-        {
-            Captain captain = new Captain();
-            BackendMetadataPersistence.ReadCaptain(reader, captain);
-            captain.Id = reader["id"].ToString()!;
-            captain.TenantId = NullableString(reader["tenant_id"]);
-            captain.UserId = NullableString(reader["user_id"]);
-            captain.ApiKey = NullableString(reader["api_key"]);
-            captain.ApiBaseUrl = NullableString(reader["api_base_url"]);
-            captain.Name = reader["name"].ToString()!;
-            captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
-            try { captain.Model = NullableString(reader["model"]); } catch { }
-            captain.ModelEndpointId = NullableString(reader["model_endpoint_id"]);
-            captain.SystemInstructions = NullableString(reader["system_instructions"]);
-            captain.State = Enum.Parse<CaptainStateEnum>(reader["state"].ToString()!);
-            captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
-            captain.CurrentDockId = NullableString(reader["current_dock_id"]);
-            captain.ProcessId = NullableInt(reader["process_id"]);
-            captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]);
-            captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
-            captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
-            // Read defensively: the column arrives with a migration, and a reader built
-            // against a database that has not run it yet must still map the rest of the row.
-            try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }
-            try { captain.QuarantineUntilUtc = FromIso8601Nullable(reader["quarantine_until_utc"]); } catch { }
-            try { captain.QuarantineReason = reader["quarantine_reason"] == DBNull.Value ? null : reader["quarantine_reason"].ToString(); } catch { }
-            captain.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            captain.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            try { captain.AllowedPersonas = NullableString(reader["allowed_personas"]); } catch { }
-            try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
-            try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
-            try { captain.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
-            return captain;
         }
 
         #endregion
