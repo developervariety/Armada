@@ -25,13 +25,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
         private readonly SqliteDatabaseDriver _Driver;
         private readonly DatabaseSettings _Settings;
         private readonly LoggingModule _Logging;
-        private const string _MissionSummaryColumns =
-            "id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, " +
-            "NULL AS description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id, process_started_utc, " +
-            "pr_url, commit_hash, NULL AS diff_snapshot, NULL AS agent_output, persona, depends_on_mission_id, " +
-            "failure_reason, reconciled_utc, reconciled_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, " +
-            "recovery_attempts, landing_retry_count, start_from_ref, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, " +
-            "retry_skip_captain_ids, tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason, last_admission_json, admission_revision";
 
         #endregion
 
@@ -156,7 +149,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT " + _MissionSummaryColumns + " FROM missions WHERE id = @id;";
+                    cmd.CommandText = "SELECT " + MissionSummaryProjection.Columns + " FROM missions WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
@@ -1107,7 +1100,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 List<Mission> results = new List<Mission>();
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT " + _MissionSummaryColumns + " FROM missions" + whereClause +
+                    cmd.CommandText = "SELECT " + MissionSummaryProjection.Columns + " FROM missions" + whereClause +
                         " ORDER BY created_utc " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     AddParameters(cmd, parameters);

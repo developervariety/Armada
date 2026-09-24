@@ -85,6 +85,16 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **Mission summary reads on every provider:** PostgreSQL, MySQL and SQL
+  Server read Mission-shaped summaries (mission lists, the MCP and WebSocket
+  mission reads, voyage status counts) without loading the description, diff
+  snapshot or agent output, as SQLite did; they read full rows and discarded
+  the text. Tenant- and user-scoped summary lists apply the voyage, vessel,
+  captain, mission and status filters on those providers too. The SQLite
+  summary read returns stage order and the review fields. All four providers
+  share one summary column list. The database runner checks the light fields,
+  the filters, the grouped voyage counts and that no heavy column is loaded,
+  on every provider.
 - **Database runner coverage for landing jobs and Judge follow-ups:** the
   database runner round-trips landing jobs (create, read by id and merge
   entry, state list, update, reopen, delete) and Judge follow-ups (upsert,
