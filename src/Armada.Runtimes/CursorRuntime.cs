@@ -24,6 +24,11 @@ namespace Armada.Runtimes
     /// </remarks>
     public class CursorRuntime : BaseAgentRuntime
     {
+        /// <summary>
+        /// Label written into this runtime's provider failure records.
+        /// </summary>
+        private const string RuntimeLabel = "cursor";
+
         #region Public-Members
 
         /// <summary>
@@ -235,7 +240,7 @@ namespace Armada.Runtimes
                 return activity;
 
             // An error event carries no assistant or tool field, and suppressing it would hide the failure.
-            if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, out string error))
+            if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, RuntimeLabel, out string error))
                 return error;
 
             return String.Empty;
@@ -406,28 +411,36 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// The subset of cursor-agent tool arguments rendered in activity records. Any other
-        /// argument is intentionally not deserialized so it cannot reach the log.
+        /// argument is intentionally not deserialized so it cannot reach the log. A field whose
+        /// value is not text reads as absent, so one mistyped argument cannot fail the event.
         /// </summary>
         private sealed class CursorToolArgs
         {
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("path")]
             public string? Path { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("filePath")]
             public string? FilePath { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("relativeWorkspacePath")]
             public string? RelativeWorkspacePath { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("command")]
             public string? Command { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("pattern")]
             public string? Pattern { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("query")]
             public string? Query { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("url")]
             public string? Url { get; set; }
 

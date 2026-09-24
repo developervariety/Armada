@@ -86,8 +86,22 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(rendered.Contains("127.0.0.1", StringComparison.Ordinal), "metadata URL must not be rendered");
                 AssertFalse(rendered.Contains("sessionID", StringComparison.Ordinal), "session metadata must not be rendered");
                 AssertFalse(rendered.Contains("secret-value", StringComparison.Ordinal), "secret-bearing error code must be redacted");
-                AssertTrue(OpenCodeRuntime.IsProviderFailureActivity(rendered), "chat and planning must classify the rendered error as failure");
-                AssertFalse(OpenCodeRuntime.IsProviderFailureActivity("[ARMADA:ACTIVITY] tool read x (ok)"), "successful tool activity is not a provider failure");
+                AssertTrue(ActivityRecords.IsProviderFailure(rendered), "chat and planning must classify the rendered error as failure");
+                AssertFalse(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] tool read x (ok)"), "successful tool activity is not a provider failure");
+            }));
+
+            cases.Add(Case("provider_failure_is_one_shape", "Every runtime's provider failure record is recognised by the one predicate", TestTags.Negative, () =>
+            {
+                AssertTrue(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] codex error You've hit your usage limit. Try again at 3:05 PM."), "a Codex error event record is a provider failure");
+                AssertTrue(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] gemini error quota exceeded"), "a Gemini error event record is a provider failure");
+                AssertTrue(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] api error inference call failed: overloaded"), "an API-endpoint failure record is a provider failure");
+                AssertTrue(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] claude error (1 turns)"), "an errored Claude result is a provider failure");
+                AssertEqual("codex error rate limited", ActivityRecords.ProviderFailureText("[ARMADA:ACTIVITY] codex error rate limited"), "the failure text drops only the activity marker");
+                AssertFalse(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] tool error x (ok)"), "a tool record is never a provider failure");
+                AssertFalse(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] codex item error reconnecting"), "a non-fatal Codex item error is not a provider failure");
+                AssertFalse(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] claude result success (3 turns)"), "a successful result is not a provider failure");
+                AssertFalse(ActivityRecords.IsProviderFailure("[ARMADA:ACTIVITY] codex errored"), "the word must be exactly error");
+                AssertFalse(ActivityRecords.IsProviderFailure("codex error in prose"), "a line without the activity marker is not a record");
             }));
 
             return new TestSuiteDescriptor(

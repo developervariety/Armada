@@ -44,6 +44,10 @@ namespace Armada.Runtimes
             if (String.IsNullOrEmpty(line))
                 return false;
 
+            // A provider failure is the reason a run stopped; it is never noise, whatever runtime wrote it.
+            if (ActivityRecords.IsProviderFailure(line))
+                return false;
+
             if (String.Equals(line, "[ARMADA:ACTIVITY] step started", StringComparison.Ordinal)
                 || String.Equals(line, "[ARMADA:ACTIVITY] step finished", StringComparison.Ordinal))
             {

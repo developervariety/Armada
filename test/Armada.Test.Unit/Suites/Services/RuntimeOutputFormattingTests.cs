@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using Armada.Core.Services;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -90,6 +91,92 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(
                     "Gemini summary",
                     runtime.Format("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"Gemini summary\"}"));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Gemini_ErroredResultReachesTheLog", () =>
+            {
+                TestGeminiRuntime runtime = new TestGeminiRuntime();
+                string rendered = runtime.Format("{\"type\":\"result\",\"status\":\"error\",\"error\":{\"type\":\"FatalError\",\"message\":\"Quota exceeded for quota metric 'Generate Content API requests per minute'\"},\"stats\":{}}");
+                AssertTrue(rendered.Contains("Quota exceeded"), "The fatal error text reaches the log");
+                AssertTrue(ActivityRecords.IsProviderFailure(rendered), "The fatal error is the shared provider failure record");
+                AssertEqual(String.Empty, runtime.Format("{\"type\":\"result\",\"stats\":{}}"), "A successful result stays suppressed");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Gemini_StreamedDeltasKeepMarkersOnTheirOwnLine", () =>
+            {
+                TestGeminiRuntime runtime = new TestGeminiRuntime();
+                List<string> records = new List<string>();
+                records.AddRange(runtime.FormatRecords("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"All checks pass.\\n[ARMADA:RES\",\"delta\":true}"));
+                records.AddRange(runtime.FormatRecords("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"ULT] COMPLETE\",\"delta\":true}"));
+                records.AddRange(runtime.FormatRecords("{\"type\":\"result\",\"stats\":{}}"));
+
+                List<ProgressParser.ProgressSignal> signals = ProgressParser.ParseAll(String.Join("\n", records));
+                AssertEqual(1, signals.Count, "The split marker is detected once");
+                AssertEqual("result", signals[0].Type);
+                AssertEqual("COMPLETE", signals[0].Value);
+                AssertEqual(2, records.Count, "Each whole line is one record");
+                AssertEqual("All checks pass.", records[0]);
+                AssertEqual("[ARMADA:RESULT] COMPLETE", records[1]);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Gemini_UnfinishedStreamedLineIsWrittenAtExit", () =>
+            {
+                TestGeminiRuntime runtime = new TestGeminiRuntime();
+                AssertEqual(0, runtime.FormatRecords("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"[ARMADA:RESULT] COMP\",\"delta\":true}").Length, "An unfinished line is held");
+                AssertEqual(0, runtime.FormatRecords("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"LETE\",\"delta\":true}").Length, "Still no line break");
+                string[] exit = runtime.ExitRecords();
+                AssertEqual(1, exit.Length, "The held line is written when the process exits");
+                AssertEqual("[ARMADA:RESULT] COMPLETE", exit[0]);
+                AssertEqual(0, runtime.ExitRecords().Length, "A flushed line is not written twice");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Cursor_ErroredResultReachesTheLog", () =>
+            {
+                TestCursorRuntime runtime = new TestCursorRuntime();
+                string rendered = runtime.Format("{\"type\":\"result\",\"subtype\":\"error\",\"is_error\":true,\"result\":\"Rate limit exceeded. Please try again later.\"}");
+                AssertFalse(String.IsNullOrEmpty(rendered), "The errored result is not suppressed");
+                AssertTrue(rendered.Contains("Rate limit"), "The provider's text is kept");
+                AssertTrue(ActivityRecords.IsProviderFailure(rendered), "The errored result is the shared provider failure record");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Codex_FailedTurnKeepsItsMessage", () =>
+            {
+                TestCodexRuntime runtime = new TestCodexRuntime();
+                string rendered = runtime.Format("{\"type\":\"turn.failed\",\"error\":{\"message\":\"stream disconnected before completion: 429 Too Many Requests\"}}");
+                AssertTrue(rendered.Contains("429"), "The failed turn's message is kept");
+                AssertTrue(ActivityRecords.IsProviderFailure(rendered), "A failed turn is the shared provider failure record");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Claude_NonTextToolArgumentDoesNotHideTheMarker", () =>
+            {
+                TestClaudeCodeRuntime runtime = new TestClaudeCodeRuntime();
+                string[] records = runtime.FormatRecords("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"[ARMADA:RESULT] COMPLETE\"},{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"mcp__docs__lookup\",\"input\":{\"query\":{\"text\":\"a\"}}}]}}");
+                AssertTrue(records.Contains("[ARMADA:RESULT] COMPLETE"), "The marker is its own record");
+                AssertFalse(records.Any(record => record.StartsWith("{", StringComparison.Ordinal)), "No record is the raw JSON line");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("OpenCode_NonTextToolArgumentKeepsToolOutputOutOfTheLog", () =>
+            {
+                TestOpenCodeRuntime runtime = new TestOpenCodeRuntime();
+                string rendered = runtime.Format("{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"docs_lookup\",\"state\":{\"status\":\"completed\",\"input\":{\"key\":7},\"output\":\"<tool output>\"}}}");
+                AssertTrue(rendered.StartsWith("[ARMADA:ACTIVITY] tool", StringComparison.Ordinal), "The event is a tool record: " + rendered);
+                AssertFalse(rendered.Contains("<tool output>"), "Tool output never reaches the log");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Cursor_NonTextToolArgumentKeepsToolOutputOutOfTheLog", () =>
+            {
+                TestCursorRuntime runtime = new TestCursorRuntime();
+                string rendered = runtime.Format("{\"type\":\"tool_call\",\"subtype\":\"completed\",\"tool_call\":{\"mcpToolCall\":{\"args\":{\"path\":[\"a\",\"b\"]},\"result\":{\"success\":{\"content\":\"<tool output>\"}}}}}");
+                AssertTrue(rendered.StartsWith("[ARMADA:ACTIVITY] tool", StringComparison.Ordinal), "The event is a tool record: " + rendered);
+                AssertFalse(rendered.Contains("<tool output>"), "Tool output never reaches the log");
                 return Task.CompletedTask;
             });
 
@@ -311,8 +398,12 @@ namespace Armada.Test.Unit.Suites.Services
                 // the self-contradicting "claude result success error".
                 TestClaudeCodeRuntime runtime = new TestClaudeCodeRuntime();
                 AssertEqual(
-                    "[ARMADA:ACTIVITY] claude result error (1 turns)",
+                    "[ARMADA:ACTIVITY] claude error (1 turns)",
                     runtime.Format("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"num_turns\":1}"));
+                AssertEqual(
+                    "[ARMADA:ACTIVITY] claude error API Error: 429 rate limited (1 turns)",
+                    runtime.Format("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"num_turns\":1,\"result\":\"API Error: 429 rate limited\"}"),
+                    "An errored result carries the CLI's error text");
                 AssertEqual(
                     "[ARMADA:ACTIVITY] claude result success (17 turns)",
                     runtime.Format("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":17}"));
@@ -493,6 +584,16 @@ namespace Armada.Test.Unit.Suites.Services
             public string Format(string line)
             {
                 return TransformOutputLine(line);
+            }
+
+            public string[] FormatRecords(string line)
+            {
+                return TransformOutputRecords(line).ToArray();
+            }
+
+            public string[] ExitRecords()
+            {
+                return BuildProcessExitRecords().ToArray();
             }
         }
 

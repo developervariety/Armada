@@ -617,9 +617,9 @@ namespace Armada.Server
 
                 runtime.OnOutputReceived += (processId, line) =>
                 {
-                    if (OpenCodeRuntime.IsProviderFailureActivity(line))
+                    if (ActivityRecords.IsProviderFailure(line))
                     {
-                        lock (outputLock) runtimeFailure = line.Substring("[ARMADA:ACTIVITY] ".Length).Trim();
+                        lock (outputLock) runtimeFailure = ActivityRecords.ProviderFailureText(line);
                         return;
                     }
                     string updatedContent;

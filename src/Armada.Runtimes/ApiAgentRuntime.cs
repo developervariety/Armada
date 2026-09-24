@@ -369,7 +369,7 @@ namespace Armada.Runtimes
                         string failure = String.IsNullOrWhiteSpace(response.Error)
                             ? "inference request returned an unsuccessful response."
                             : response.Error;
-                        Emit(processId, "[error] inference call failed: " + failure);
+                        Emit(processId, StructuredRuntimeLogFormatter.BuildProviderFailureRecord("api", "inference call failed: " + failure));
                         exitCode = 1;
                         break;
                     }
@@ -430,7 +430,7 @@ namespace Armada.Runtimes
             {
                 exitCode = 1;
                 _Logging.Warn(_Header + "loop error for process " + processId + ": " + e.Message);
-                Emit(processId, "[error] " + e.Message);
+                Emit(processId, StructuredRuntimeLogFormatter.BuildProviderFailureRecord("api", e.Message));
             }
             finally
             {

@@ -46,7 +46,16 @@ namespace Armada.Runtimes
 
         #region Private-Members
 
+        /// <summary>
+        /// Label written into this runtime's provider failure records.
+        /// </summary>
+        private const string RuntimeLabel = "gemini";
+
         private string _ExecutablePath = "gemini";
+
+        // Streamed assistant text is joined into whole lines before it becomes a record, so a
+        // protocol marker split across two delta events still starts a line of one record.
+        private readonly StreamingTextLineAssembler _AssistantText = new StreamingTextLineAssembler();
 
         #endregion
 
@@ -132,25 +141,79 @@ namespace Armada.Runtimes
         /// </summary>
         protected override string TransformOutputLine(string line)
         {
+            return String.Join(Environment.NewLine, BuildRecords(line));
+        }
+
+        /// <summary>
+        /// Render one Gemini stream-json event as zero or more mission-log records.
+        /// </summary>
+        protected override IEnumerable<string> TransformOutputRecords(string line)
+        {
+            return BuildRecords(line);
+        }
+
+        /// <summary>
+        /// Write the unfinished streamed line when the process exits without a terminal event.
+        /// </summary>
+        protected override IEnumerable<string> BuildProcessExitRecords()
+        {
+            List<string> records = new List<string>();
+            AppendFlushed(records);
+            return records;
+        }
+
+        /// <summary>
+        /// Build the records for one event. Assistant text streamed as delta pieces is emitted one whole line
+        /// at a time; any other event first writes the unfinished streamed line so the text keeps its order.
+        /// </summary>
+        private List<string> BuildRecords(string line)
+        {
+            List<string> records = new List<string>();
             GeminiEvent? evt = Deserialize(line);
             if (evt == null)
-                return line;
-
-            if (String.Equals(evt.Type, "message", StringComparison.Ordinal) &&
-                String.Equals(evt.Role, "assistant", StringComparison.Ordinal) &&
-                !String.IsNullOrEmpty(evt.Content))
             {
-                return evt.Content;
+                AppendFlushed(records);
+                records.Add(line);
+                return records;
+            }
+
+            bool assistantMessage = String.Equals(evt.Type, "message", StringComparison.Ordinal) &&
+                String.Equals(evt.Role, "assistant", StringComparison.Ordinal);
+
+            if (assistantMessage && evt.Delta == true)
+            {
+                foreach (string completed in _AssistantText.Append(evt.Content))
+                {
+                    if (completed.Length > 0) records.Add(completed);
+                }
+                return records;
+            }
+
+            AppendFlushed(records);
+
+            if (assistantMessage && !String.IsNullOrEmpty(evt.Content))
+            {
+                records.Add(evt.Content);
+                return records;
             }
 
             if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, WorkingDirectory, out string activity))
-                return activity;
+            {
+                records.Add(activity);
+                return records;
+            }
 
-            // An error event carries no assistant or tool field, and suppressing it would hide the failure.
-            if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, out string error))
-                return error;
+            // A failure event carries no assistant or tool field, and suppressing it would hide the failure.
+            if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, RuntimeLabel, out string error))
+                records.Add(error);
 
-            return String.Empty;
+            return records;
+        }
+
+        private void AppendFlushed(List<string> records)
+        {
+            string rest = _AssistantText.Flush();
+            if (rest.Length > 0) records.Add(rest);
         }
 
         private static GeminiEvent? Deserialize(string line)
@@ -183,7 +246,14 @@ namespace Armada.Runtimes
             public string? Role { get; set; }
 
             [JsonPropertyName("content")]
+            [JsonConverter(typeof(LenientStringConverter))]
             public string? Content { get; set; }
+
+            /// <summary>
+            /// True when the message is one streamed piece of a longer assistant message.
+            /// </summary>
+            [JsonPropertyName("delta")]
+            public bool? Delta { get; set; }
 
             [JsonPropertyName("stats")]
             public GeminiStats? Stats { get; set; }

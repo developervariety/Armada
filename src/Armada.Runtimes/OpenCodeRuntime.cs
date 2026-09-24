@@ -39,17 +39,6 @@ namespace Armada.Runtimes
         public override bool SupportsResume => false;
 
         /// <summary>
-        /// Identify the safe activity record emitted for a provider failure. Chat and planning
-        /// consumers use this marker to fail the turn instead of treating the activity as an answer.
-        /// </summary>
-        /// <param name="line">Rendered runtime output line.</param>
-        /// <returns>True when the line is a named OpenCode provider failure.</returns>
-        public static bool IsProviderFailureActivity(string? line)
-        {
-            return line?.StartsWith("[ARMADA:ACTIVITY] opencode error ", StringComparison.Ordinal) == true;
-        }
-
-        /// <summary>
         /// Starts an OpenCode captain process, adding the external-provider overlay only
         /// when the captain selects a model served by a registered provider.
         /// </summary>
@@ -425,14 +414,12 @@ namespace Armada.Runtimes
         private static string BuildApiErrorActivity(OpenCodeApiError error)
         {
             string message = error.Data?.Message ?? error.Message ?? "OpenCode provider request failed";
-            string detail = StructuredRuntimeLogFormatter.RedactSecretValues(
-                StructuredRuntimeLogFormatter.TruncateActivityText(message, StructuredRuntimeLogFormatter.CommandDetailLimit));
             int? statusCode = error.StatusCode ?? error.Data?.StatusCode;
             string suffix = statusCode.HasValue ? " (status " + statusCode.Value + ")" : String.Empty;
             if (!String.IsNullOrWhiteSpace(error.Data?.Code))
                 suffix += " [" + StructuredRuntimeLogFormatter.RedactSecretValues(
                     StructuredRuntimeLogFormatter.TruncateActivityText(error.Data!.Code!, 40)) + "]";
-            return "[ARMADA:ACTIVITY] opencode error " + detail + suffix;
+            return StructuredRuntimeLogFormatter.BuildProviderFailureRecord("opencode", message, suffix);
         }
 
         /// <summary>
@@ -699,6 +686,7 @@ namespace Armada.Runtimes
             /// <summary>
             /// Execution status (e.g. "completed", "failed").
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("status")]
             public string? Status { get; set; }
 
@@ -711,42 +699,50 @@ namespace Armada.Runtimes
             /// <summary>
             /// Tool output captured by OpenCode after execution.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("output")]
             public string? Output { get; set; }
         }
 
         /// <summary>
-        /// Strongly-typed DTO for OpenCode tool input fields used in narration.
+        /// Strongly-typed DTO for OpenCode tool input fields used in narration. A text field whose
+        /// value is not text reads as absent, so one mistyped argument cannot fail the event and
+        /// send the raw line, tool output included, to the mission log.
         /// </summary>
         private sealed class OpenCodeToolInput
         {
             /// <summary>
             /// File path used by read-like tools.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("filePath")]
             public string? FilePath { get; set; }
 
             /// <summary>
             /// Command used by bash-like tools.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("command")]
             public string? Command { get; set; }
 
             /// <summary>
             /// Pattern used by grep and glob tools.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("pattern")]
             public string? Pattern { get; set; }
 
             /// <summary>
             /// Search path used by grep-like tools.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("path")]
             public string? Path { get; set; }
 
             /// <summary>
             /// Include selector used by grep-like tools.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("include")]
             public string? Include { get; set; }
 
@@ -765,36 +761,42 @@ namespace Armada.Runtimes
             /// <summary>
             /// Token value for unknown-tool fallback redaction.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("token")]
             public string? Token { get; set; }
 
             /// <summary>
             /// Password value for unknown-tool fallback redaction.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("password")]
             public string? Password { get; set; }
 
             /// <summary>
             /// Secret value for unknown-tool fallback redaction.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("secret")]
             public string? Secret { get; set; }
 
             /// <summary>
             /// Key value for unknown-tool fallback redaction.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("key")]
             public string? Key { get; set; }
 
             /// <summary>
             /// Seed value for unknown-tool fallback redaction.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("seed")]
             public string? Seed { get; set; }
 
             /// <summary>
             /// Private key value for unknown-tool fallback redaction.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("privateKey")]
             public string? PrivateKey { get; set; }
         }
@@ -807,6 +809,7 @@ namespace Armada.Runtimes
             /// <summary>
             /// Todo content, intentionally not logged.
             /// </summary>
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("content")]
             public string? Content { get; set; }
         }

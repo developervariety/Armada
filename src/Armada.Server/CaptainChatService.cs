@@ -387,9 +387,9 @@ namespace Armada.Server
                     // cards, and no activity record reaches the reply or the streamed text.
                     if (ActivityRecords.IsActivityRecord(line))
                     {
-                        if (OpenCodeRuntime.IsProviderFailureActivity(line))
+                        if (ActivityRecords.IsProviderFailure(line))
                         {
-                            lock (outputLock) runtimeFailure = line.Substring("[ARMADA:ACTIVITY] ".Length).Trim();
+                            lock (outputLock) runtimeFailure = ActivityRecords.ProviderFailureText(line);
                             return;
                         }
                         if (ActivityRecords.TryParseToolActivity(line, out ToolActivityRecord activity))

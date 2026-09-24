@@ -11,6 +11,11 @@ namespace Armada.Runtimes
     /// </summary>
     public class MuxRuntime : BaseAgentRuntime
     {
+        /// <summary>
+        /// Label written into this runtime's provider failure records.
+        /// </summary>
+        private const string RuntimeLabel = "mux";
+
         #region Public-Members
 
         /// <summary>
@@ -128,7 +133,7 @@ namespace Armada.Runtimes
                 return activity;
 
             // An error event carries no assistant or tool field, and suppressing it would hide the failure.
-            if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, out string error))
+            if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, RuntimeLabel, out string error))
                 return error;
 
             return String.Empty;

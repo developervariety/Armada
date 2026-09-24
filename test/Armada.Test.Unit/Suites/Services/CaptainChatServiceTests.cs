@@ -489,11 +489,42 @@ namespace Armada.Test.Unit.Suites.Services
                     Captain captain = new Captain("chat-codex", AgentRuntimeEnum.Codex);
                     await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
 
-                    List<string> records = new List<string> { "[ARMADA:ACTIVITY] codex error rate limited", "The answer" };
+                    List<string> records = new List<string> { "[ARMADA:ACTIVITY] codex item reasoning", "The answer" };
                     CaptainChatService chat = new CaptainChatService(testDb.Driver, new ReplayRuntimeFactory(logging, records), null, null, logging);
                     CaptainChatResponse response = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Question" }).ConfigureAwait(false);
 
                     AssertEqual("The answer", response.Reply, "A non-tool activity record is not part of the reply");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A provider failure from any runtime fails the chat turn", async () =>
+            {
+                // Each record is what a runtime writes for its provider's failure event: Codex
+                // {"type":"error","message":"You've hit your usage limit. Try again at 3:05 PM."},
+                // Gemini/Cursor/Mux {"type":"error","message":"quota exceeded"}, and the API endpoint's
+                // failed inference call.
+                string[] failures =
+                {
+                    "[ARMADA:ACTIVITY] codex error You've hit your usage limit. Try again at 3:05 PM.",
+                    "[ARMADA:ACTIVITY] gemini error quota exceeded",
+                    "[ARMADA:ACTIVITY] api error inference call failed: overloaded"
+                };
+                foreach (string failure in failures)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        Captain captain = new Captain("chat-failure", AgentRuntimeEnum.Codex);
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                        List<string> records = new List<string> { failure };
+                        CaptainChatService chat = new CaptainChatService(testDb.Driver, new ReplayRuntimeFactory(logging, records), null, null, logging);
+                        CaptainChatResponse response = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Question" }).ConfigureAwait(false);
+
+                        AssertFalse(response.Success, "A provider failure fails the turn: " + failure);
+                        AssertContains(failure.Substring("[ARMADA:ACTIVITY] ".Length), response.Error ?? String.Empty, "The failure text is the turn's error");
+                        AssertFalse((response.Reply ?? String.Empty).Contains("error", StringComparison.Ordinal), "The failure is not written into the reply");
+                    }
                 }
             }).ConfigureAwait(false);
 

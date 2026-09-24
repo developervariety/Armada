@@ -471,27 +471,25 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Summarize the terminal result event without copying the final message text, which the
-        /// runtime already captures through the final-message file.
+        /// Summarize the terminal result event. A successful result never copies the final message text, which
+        /// the runtime already captures through the final-message file. An errored result is the provider failure
+        /// record, carrying the CLI's error text so the quota scan and chat or planning turns see the cause.
         /// </summary>
         private static string BuildResultActivity(ClaudeEvent evt)
         {
-            StringBuilder builder = new StringBuilder("[ARMADA:ACTIVITY] claude result");
+            string turns = evt.NumTurns.HasValue
+                ? " (" + Math.Max(0, evt.NumTurns.Value) + " turns)"
+                : String.Empty;
 
-            // The CLI still reports subtype "success" on a turn that errored, so printing both
-            // produced the self-contradicting "claude result success error". The outcome wins.
+            // The CLI still reports subtype "success" on a turn that errored. The outcome wins.
             if (evt.IsError == true)
-            {
-                builder.Append(' ').Append(StructuredRuntimeLogFormatter.ErrorStatus);
-            }
-            else if (!String.IsNullOrWhiteSpace(evt.Subtype))
-            {
+                return StructuredRuntimeLogFormatter.BuildProviderFailureRecord("claude", evt.Result, turns);
+
+            StringBuilder builder = new StringBuilder("[ARMADA:ACTIVITY] claude result");
+            if (!String.IsNullOrWhiteSpace(evt.Subtype))
                 builder.Append(' ').Append(StructuredRuntimeLogFormatter.TruncateActivityText(evt.Subtype.Trim(), 40));
-            }
 
-            if (evt.NumTurns.HasValue)
-                builder.Append(" (").Append(Math.Max(0, evt.NumTurns.Value)).Append(" turns)");
-
+            builder.Append(turns);
             return builder.ToString();
         }
 
@@ -654,6 +652,13 @@ namespace Armada.Runtimes
             [JsonPropertyName("num_turns")]
             public int? NumTurns { get; set; }
 
+            /// <summary>
+            /// Final text of a result event; on an errored result it is the error text.
+            /// </summary>
+            [JsonPropertyName("result")]
+            [JsonConverter(typeof(LenientStringConverter))]
+            public string? Result { get; set; }
+
             [JsonPropertyName("message")]
             public ClaudeMessage? Message { get; set; }
 
@@ -745,30 +750,40 @@ namespace Armada.Runtimes
         /// <summary>
         /// The subset of tool arguments rendered in mission-log activity records. Any other
         /// argument a tool accepts is intentionally not deserialized so it cannot reach the log.
+        /// A field whose value is not text reads as absent, so one mistyped argument cannot fail
+        /// the whole event and send the raw line to the log.
         /// </summary>
         private sealed class ClaudeToolInput
         {
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("file_path")]
             public string? FilePath { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("notebook_path")]
             public string? NotebookPath { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("command")]
             public string? Command { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("pattern")]
             public string? Pattern { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("path")]
             public string? Path { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("url")]
             public string? Url { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("query")]
             public string? Query { get; set; }
 
+            [JsonConverter(typeof(LenientStringConverter))]
             [JsonPropertyName("description")]
             public string? Description { get; set; }
         }

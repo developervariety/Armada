@@ -146,6 +146,22 @@ upstream integrations and excludes changes already present at that baseline.
   on the other providers and serialize with a `Z`. The database runner checks
   the kind and value of the objective and model endpoint timestamps after a
   reopen.
+- **Runtime provider failures:** every runtime writes one provider failure record,
+  `[ARMADA:ACTIVITY] <runtime> error <message>`, for an error event, a failed turn
+  (Codex `turn.failed`) and a terminal result that reports an error (Claude Code
+  `is_error`, Cursor `is_error`, Gemini `status: "error"`), and the API-endpoint
+  runtime writes it for a failed inference call. The provider's message is kept,
+  redacted and bounded. Chat, planning and refinement fail the turn on this record
+  from any runtime and record it as the failure reason; it never joins the reply.
+  The displayed mission log never filters it out.
+- **Runtime event parsing:** a tool argument whose value is not text reads as
+  absent, so one mistyped argument no longer turns a Claude Code, Cursor or
+  OpenCode event into its raw JSON line (tool output included) and no longer hides
+  a protocol marker in the same event. Gemini streamed assistant text is joined
+  into whole lines before it becomes a record, so a marker split across two
+  stream events still starts its own line; an unfinished line is written at the
+  terminal event or at process exit.
+
 - **Tenant scope for ids in request bodies:** voyage and mission create, mission
   update, vessel create and update, vessel build-context, merge-queue enqueue,
   incident create and update, and planning-session create read every record their

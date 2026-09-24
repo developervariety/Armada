@@ -268,41 +268,89 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Try to render a structured error event, <c>{"type":"error", ...}</c>, as a mission-log record. A runtime
-        /// whose transform has no field for such an event would otherwise suppress it, and the provider failure
-        /// (a quota, an authentication or a model error) would never reach the log or the output subscribers.
-        /// The message is read from <c>message</c>, from <c>error</c> when it is a string, or from
-        /// <c>error.message</c>; it is redacted and bounded.
+        /// Render the one provider failure record every runtime writes when its provider or CLI reports that the
+        /// turn failed: <c>[ARMADA:ACTIVITY] &lt;runtime&gt; error &lt;message&gt;&lt;suffix&gt;</c>. The message is
+        /// flattened to one line, redacted and bounded. <see cref="ActivityRecords.IsProviderFailure"/> reads it back.
+        /// </summary>
+        /// <param name="runtimeLabel">Lower-case runtime label, one word (for example "codex").</param>
+        /// <param name="message">Provider failure message; the record is written without one when it is empty.</param>
+        /// <param name="suffix">Optional runtime-specific detail appended as-is (for example " (status 429)").</param>
+        /// <returns>The provider failure record.</returns>
+        public static string BuildProviderFailureRecord(string runtimeLabel, string? message, string? suffix = null)
+        {
+            string record = ActivityRecords.ActivityMarker + " " + runtimeLabel + " " + ActivityRecords.ProviderFailureWord;
+            if (!String.IsNullOrWhiteSpace(message))
+            {
+                string text = message.Replace('\r', ' ').Replace('\n', ' ').Trim();
+                record += " " + Truncate(RedactSecretValues(text), ErrorMessageLimit);
+            }
+
+            return String.IsNullOrEmpty(suffix) ? record : record + suffix;
+        }
+
+        /// <summary>
+        /// Try to render a structured provider failure event as the shared provider failure record. Three event
+        /// shapes are failures: <c>{"type":"error"}</c>; <c>{"type":"turn.failed"}</c>; and a terminal
+        /// <c>{"type":"result"}</c> that carries <c>"status":"error"</c> or <c>"is_error":true</c>. The message
+        /// is read from <c>error.message</c>, from <c>error</c> when it is text, from <c>message</c>, and on a
+        /// result event from <c>result</c>. A runtime whose transform has no field for these events would otherwise
+        /// suppress them, and the failure (a quota, an authentication or a model error) would never reach the
+        /// log, the quota scan or a chat turn.
         /// </summary>
         /// <param name="line">Raw structured output line.</param>
-        /// <param name="record">Rendered record, <c>[error] &lt;message&gt;</c>, when the line is an error event.</param>
-        /// <returns>True when the line is an error event.</returns>
-        public static bool TryBuildErrorRecord(string line, out string record)
+        /// <param name="runtimeLabel">Lower-case runtime label written into the record.</param>
+        /// <param name="record">Rendered provider failure record when the line is a failure event.</param>
+        /// <returns>True when the line is a provider failure event.</returns>
+        public static bool TryBuildErrorRecord(string line, string runtimeLabel, out string record)
         {
             record = String.Empty;
-            if (String.IsNullOrWhiteSpace(line) || line.IndexOf("error", StringComparison.OrdinalIgnoreCase) < 0) return false;
+            if (String.IsNullOrWhiteSpace(line) || !line.TrimStart().StartsWith("{", StringComparison.Ordinal)) return false;
+            if (line.IndexOf("error", StringComparison.OrdinalIgnoreCase) < 0 && line.IndexOf("failed", StringComparison.Ordinal) < 0) return false;
 
-            string? type = null;
-            string? message = null;
-            ErrorEventWithDetail? withDetail = DeserializeOrNull<ErrorEventWithDetail>(line);
-            if (withDetail != null)
+            try
             {
-                type = withDetail.Type;
-                message = !String.IsNullOrWhiteSpace(withDetail.Message) ? withDetail.Message : withDetail.Error?.Message;
+                using JsonDocument document = JsonDocument.Parse(line);
+                JsonElement root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) return false;
+
+                string? type = ReadText(root, "type");
+                bool failure;
+                if (String.Equals(type, "error", StringComparison.OrdinalIgnoreCase)
+                    || String.Equals(type, "turn.failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    failure = true;
+                }
+                else if (String.Equals(type, "result", StringComparison.OrdinalIgnoreCase))
+                {
+                    failure = String.Equals(ReadText(root, "status"), "error", StringComparison.OrdinalIgnoreCase)
+                        || (root.TryGetProperty("is_error", out JsonElement isError) && isError.ValueKind == JsonValueKind.True);
+                }
+                else
+                {
+                    failure = false;
+                }
+
+                if (!failure) return false;
+
+                string? message = null;
+                if (root.TryGetProperty("error", out JsonElement error))
+                {
+                    if (error.ValueKind == JsonValueKind.Object) message = ReadText(error, "message");
+                    else if (error.ValueKind == JsonValueKind.String) message = error.GetString();
+                }
+
+                if (String.IsNullOrWhiteSpace(message)) message = ReadText(root, "message");
+                if (String.IsNullOrWhiteSpace(message) && String.Equals(type, "result", StringComparison.OrdinalIgnoreCase))
+                    message = ReadText(root, "result");
+
+                record = BuildProviderFailureRecord(runtimeLabel, message);
+                return true;
             }
-            else
+            catch (JsonException)
             {
-                ErrorEventWithText? withText = DeserializeOrNull<ErrorEventWithText>(line);
-                if (withText == null) return false;
-                type = withText.Type;
-                message = !String.IsNullOrWhiteSpace(withText.Message) ? withText.Message : withText.Error;
+                // Not a JSON event, so not a structured failure event; the runtime keeps the raw line.
+                return false;
             }
-
-            if (!String.Equals(type, "error", StringComparison.OrdinalIgnoreCase)) return false;
-
-            string text = String.IsNullOrWhiteSpace(message) ? line.Trim() : message.Trim();
-            record = "[error] " + Truncate(RedactSecretValues(text.Replace('\n', ' ').Replace('\r', ' ')), ErrorMessageLimit);
-            return true;
         }
 
         /// <summary>
@@ -744,51 +792,11 @@ namespace Armada.Runtimes
                 : value.Substring(0, maximumLength) + "...";
         }
 
-        private static T? DeserializeOrNull<T>(string line) where T : class
+        private static string? ReadText(JsonElement element, string propertyName)
         {
-            try
-            {
-                return JsonSerializer.Deserialize<T>(line);
-            }
-            catch (JsonException)
-            {
-                // Not this shape: the caller tries the next one or treats the line as no error event.
-                return null;
-            }
-        }
-
-        #endregion
-
-        #region Private-Types
-
-        private sealed class ErrorEventWithDetail
-        {
-            [System.Text.Json.Serialization.JsonPropertyName("type")]
-            public string? Type { get; set; }
-
-            [System.Text.Json.Serialization.JsonPropertyName("message")]
-            public string? Message { get; set; }
-
-            [System.Text.Json.Serialization.JsonPropertyName("error")]
-            public ErrorDetail? Error { get; set; }
-        }
-
-        private sealed class ErrorEventWithText
-        {
-            [System.Text.Json.Serialization.JsonPropertyName("type")]
-            public string? Type { get; set; }
-
-            [System.Text.Json.Serialization.JsonPropertyName("message")]
-            public string? Message { get; set; }
-
-            [System.Text.Json.Serialization.JsonPropertyName("error")]
-            public string? Error { get; set; }
-        }
-
-        private sealed class ErrorDetail
-        {
-            [System.Text.Json.Serialization.JsonPropertyName("message")]
-            public string? Message { get; set; }
+            return element.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
         }
 
         #endregion
