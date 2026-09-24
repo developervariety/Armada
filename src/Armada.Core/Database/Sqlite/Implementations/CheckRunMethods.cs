@@ -71,7 +71,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return FromReader(reader);
+                return CheckRunColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
             return null;
         }
 
@@ -169,7 +169,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))
-                    results.Add(FromReader(reader));
+                    results.Add(CheckRunColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             }
 
             return new EnumerationResult<CheckRun>
@@ -300,90 +300,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@regression_purpose", checkRun.RegressionPurpose == RegressionPurposeEnum.None ? (object)DBNull.Value : checkRun.RegressionPurpose.ToString());
             cmd.Parameters.AddWithValue("@regression_objective_id", (object?)checkRun.RegressionObjectiveId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@regression_landed_commit", (object?)checkRun.RegressionLandedCommit ?? DBNull.Value);
-        }
-
-        private static CheckRun FromReader(SqliteDataReader reader)
-        {
-            CheckRun run = new CheckRun
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                WorkflowProfileId = SqliteDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
-                MissionId = SqliteDatabaseDriver.NullableString(reader["mission_id"]),
-                VoyageId = SqliteDatabaseDriver.NullableString(reader["voyage_id"]),
-                DeploymentId = SqliteDatabaseDriver.NullableString(reader["deployment_id"]),
-                Label = SqliteDatabaseDriver.NullableString(reader["label"]),
-                ProviderName = SqliteDatabaseDriver.NullableString(reader["provider_name"]),
-                ExternalId = SqliteDatabaseDriver.NullableString(reader["external_id"]),
-                ExternalUrl = SqliteDatabaseDriver.NullableString(reader["external_url"]),
-                EnvironmentName = SqliteDatabaseDriver.NullableString(reader["environment_name"]),
-                Command = reader["command"].ToString() ?? String.Empty,
-                WorkingDirectory = SqliteDatabaseDriver.NullableString(reader["working_directory"]),
-                BranchName = SqliteDatabaseDriver.NullableString(reader["branch_name"]),
-                CommitHash = SqliteDatabaseDriver.NullableString(reader["commit_hash"]),
-                ExitCode = SqliteDatabaseDriver.NullableInt(reader["exit_code"]),
-                Output = SqliteDatabaseDriver.NullableString(reader["output"]),
-                Summary = SqliteDatabaseDriver.NullableString(reader["summary"]),
-                DurationMs = SqliteDatabaseDriver.NullableLong(reader["duration_ms"]),
-                StartedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
-                SlotRequestedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["slot_requested_utc"]),
-                CompletedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                RegressionPurpose = CheckRunRegressionColumns.ReadPurpose(reader["regression_purpose"]),
-                RegressionObjectiveId = ProductionFactSql.ReadText(reader["regression_objective_id"]),
-                RegressionLandedCommit = ProductionFactSql.ReadText(reader["regression_landed_commit"]),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["check_type"].ToString(), true, out CheckRunTypeEnum type))
-                run.Type = type;
-            if (Enum.TryParse(reader["status"].ToString(), true, out CheckRunStatusEnum status))
-                run.Status = status;
-            if (Enum.TryParse(reader["source"].ToString(), true, out CheckRunSourceEnum source))
-                run.Source = source;
-
-            string? testSummaryJson = SqliteDatabaseDriver.NullableString(reader["test_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(testSummaryJson))
-            {
-                try
-                {
-                    run.TestSummary = JsonSerializer.Deserialize<CheckRunTestSummary>(testSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.TestSummary = null;
-                }
-            }
-
-            string? coverageSummaryJson = SqliteDatabaseDriver.NullableString(reader["coverage_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(coverageSummaryJson))
-            {
-                try
-                {
-                    run.CoverageSummary = JsonSerializer.Deserialize<CheckRunCoverageSummary>(coverageSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.CoverageSummary = null;
-                }
-            }
-
-            string? artifactsJson = SqliteDatabaseDriver.NullableString(reader["artifacts_json"]);
-            if (!String.IsNullOrWhiteSpace(artifactsJson))
-            {
-                try
-                {
-                    run.Artifacts = JsonSerializer.Deserialize<List<CheckRunArtifact>>(artifactsJson, _Json) ?? new List<CheckRunArtifact>();
-                }
-                catch
-                {
-                    run.Artifacts = new List<CheckRunArtifact>();
-                }
-            }
-
-            return run;
         }
     }
 }

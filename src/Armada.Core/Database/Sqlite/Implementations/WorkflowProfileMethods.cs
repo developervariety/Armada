@@ -79,7 +79,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return FromReader(reader);
+                return WorkflowProfileColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
             return null;
         }
 
@@ -175,7 +175,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))
-                    results.Add(FromReader(reader));
+                    results.Add(WorkflowProfileColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             }
 
             return new EnumerationResult<WorkflowProfile>
@@ -207,7 +207,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<WorkflowProfile> results = new List<WorkflowProfile>();
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                results.Add(FromReader(reader));
+                results.Add(WorkflowProfileColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             return results;
         }
 
@@ -302,65 +302,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(profile.LastUpdateUtc));
         }
 
-        private static WorkflowProfile FromReader(SqliteDataReader reader)
-        {
-            WorkflowProfile profile = new WorkflowProfile
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = SqliteDatabaseDriver.NullableString(reader["description"]),
-                FleetId = SqliteDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
-                IsDefault = Convert.ToInt64(reader["is_default"]) == 1,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                LintCommand = SqliteDatabaseDriver.NullableString(reader["lint_command"]),
-                BuildCommand = SqliteDatabaseDriver.NullableString(reader["build_command"]),
-                UnitTestCommand = SqliteDatabaseDriver.NullableString(reader["unit_test_command"]),
-                ContainerlessUnitTestCommand = SqliteDatabaseDriver.NullableString(reader["containerless_unit_test_command"]),
-                IntegrationTestCommand = SqliteDatabaseDriver.NullableString(reader["integration_test_command"]),
-                E2ETestCommand = SqliteDatabaseDriver.NullableString(reader["e2e_test_command"]),
-                PackageCommand = SqliteDatabaseDriver.NullableString(reader["package_command"]),
-                PublishArtifactCommand = SqliteDatabaseDriver.NullableString(reader["publish_artifact_command"]),
-                ReleaseVersioningCommand = SqliteDatabaseDriver.NullableString(reader["release_versioning_command"]),
-                ChangelogGenerationCommand = SqliteDatabaseDriver.NullableString(reader["changelog_generation_command"]),
-                MigrationCommand = SqliteDatabaseDriver.NullableString(reader["migration_command"]),
-                SecurityScanCommand = SqliteDatabaseDriver.NullableString(reader["security_scan_command"]),
-                PerformanceCommand = SqliteDatabaseDriver.NullableString(reader["performance_command"]),
-                DeploymentVerificationCommand = SqliteDatabaseDriver.NullableString(reader["deployment_verification_command"]),
-                RollbackVerificationCommand = SqliteDatabaseDriver.NullableString(reader["rollback_verification_command"]),
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["scope"].ToString(), true, out WorkflowProfileScopeEnum scope))
-                profile.Scope = scope;
-
-            profile.LanguageHints = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["language_hints_json"])) ?? new List<string>();
-            profile.RequiredSecrets = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["required_secrets_json"])) ?? new List<string>();
-            profile.ExpectedArtifacts = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["expected_artifacts_json"])) ?? new List<string>();
-            profile.Environments = Deserialize<List<WorkflowEnvironmentProfile>>(SqliteDatabaseDriver.NullableString(reader["environments_json"])) ?? new List<WorkflowEnvironmentProfile>();
-            profile.EnvironmentVariables = Deserialize<Dictionary<string, string>>(SqliteDatabaseDriver.NullableString(reader["environment_variables_json"])) ?? new Dictionary<string, string>();
-            return profile;
-        }
-
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
     }
 }

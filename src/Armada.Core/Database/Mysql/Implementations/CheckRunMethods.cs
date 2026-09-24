@@ -74,7 +74,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return CheckRunColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -189,7 +189,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(CheckRunColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -322,90 +322,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@regression_purpose", checkRun.RegressionPurpose == RegressionPurposeEnum.None ? (object)DBNull.Value : checkRun.RegressionPurpose.ToString());
             cmd.Parameters.AddWithValue("@regression_objective_id", (object?)checkRun.RegressionObjectiveId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@regression_landed_commit", (object?)checkRun.RegressionLandedCommit ?? DBNull.Value);
-        }
-
-        private static CheckRun FromReader(MySqlDataReader reader)
-        {
-            CheckRun run = new CheckRun
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                WorkflowProfileId = MysqlDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
-                MissionId = MysqlDatabaseDriver.NullableString(reader["mission_id"]),
-                VoyageId = MysqlDatabaseDriver.NullableString(reader["voyage_id"]),
-                DeploymentId = MysqlDatabaseDriver.NullableString(reader["deployment_id"]),
-                Label = MysqlDatabaseDriver.NullableString(reader["label"]),
-                ProviderName = MysqlDatabaseDriver.NullableString(reader["provider_name"]),
-                ExternalId = MysqlDatabaseDriver.NullableString(reader["external_id"]),
-                ExternalUrl = MysqlDatabaseDriver.NullableString(reader["external_url"]),
-                EnvironmentName = MysqlDatabaseDriver.NullableString(reader["environment_name"]),
-                Command = reader["command"].ToString() ?? String.Empty,
-                WorkingDirectory = MysqlDatabaseDriver.NullableString(reader["working_directory"]),
-                BranchName = MysqlDatabaseDriver.NullableString(reader["branch_name"]),
-                CommitHash = MysqlDatabaseDriver.NullableString(reader["commit_hash"]),
-                ExitCode = MysqlDatabaseDriver.NullableInt(reader["exit_code"]),
-                Output = MysqlDatabaseDriver.NullableString(reader["output"]),
-                Summary = MysqlDatabaseDriver.NullableString(reader["summary"]),
-                DurationMs = reader["duration_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["duration_ms"]),
-                StartedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
-                SlotRequestedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["slot_requested_utc"]),
-                CompletedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                RegressionPurpose = CheckRunRegressionColumns.ReadPurpose(reader["regression_purpose"]),
-                RegressionObjectiveId = ProductionFactSql.ReadText(reader["regression_objective_id"]),
-                RegressionLandedCommit = ProductionFactSql.ReadText(reader["regression_landed_commit"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            if (Enum.TryParse(reader["check_type"].ToString(), true, out CheckRunTypeEnum type))
-                run.Type = type;
-            if (Enum.TryParse(reader["status"].ToString(), true, out CheckRunStatusEnum status))
-                run.Status = status;
-            if (Enum.TryParse(reader["source"].ToString(), true, out CheckRunSourceEnum source))
-                run.Source = source;
-
-            string? testSummaryJson = MysqlDatabaseDriver.NullableString(reader["test_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(testSummaryJson))
-            {
-                try
-                {
-                    run.TestSummary = JsonSerializer.Deserialize<CheckRunTestSummary>(testSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.TestSummary = null;
-                }
-            }
-
-            string? coverageSummaryJson = MysqlDatabaseDriver.NullableString(reader["coverage_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(coverageSummaryJson))
-            {
-                try
-                {
-                    run.CoverageSummary = JsonSerializer.Deserialize<CheckRunCoverageSummary>(coverageSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.CoverageSummary = null;
-                }
-            }
-
-            string? artifactsJson = MysqlDatabaseDriver.NullableString(reader["artifacts_json"]);
-            if (!String.IsNullOrWhiteSpace(artifactsJson))
-            {
-                try
-                {
-                    run.Artifacts = JsonSerializer.Deserialize<List<CheckRunArtifact>>(artifactsJson, _Json) ?? new List<CheckRunArtifact>();
-                }
-                catch
-                {
-                    run.Artifacts = new List<CheckRunArtifact>();
-                }
-            }
-
-            return run;
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)

@@ -74,7 +74,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return CheckRunColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -190,7 +190,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(CheckRunColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -332,90 +332,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@regression_purpose", checkRun.RegressionPurpose == RegressionPurposeEnum.None ? (object)DBNull.Value : checkRun.RegressionPurpose.ToString());
             cmd.Parameters.AddWithValue("@regression_objective_id", (object?)checkRun.RegressionObjectiveId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@regression_landed_commit", (object?)checkRun.RegressionLandedCommit ?? DBNull.Value);
-        }
-
-        private static CheckRun FromReader(SqlDataReader reader)
-        {
-            CheckRun run = new CheckRun
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                WorkflowProfileId = SqlServerDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
-                MissionId = SqlServerDatabaseDriver.NullableString(reader["mission_id"]),
-                VoyageId = SqlServerDatabaseDriver.NullableString(reader["voyage_id"]),
-                DeploymentId = SqlServerDatabaseDriver.NullableString(reader["deployment_id"]),
-                Label = SqlServerDatabaseDriver.NullableString(reader["label"]),
-                ProviderName = SqlServerDatabaseDriver.NullableString(reader["provider_name"]),
-                ExternalId = SqlServerDatabaseDriver.NullableString(reader["external_id"]),
-                ExternalUrl = SqlServerDatabaseDriver.NullableString(reader["external_url"]),
-                EnvironmentName = SqlServerDatabaseDriver.NullableString(reader["environment_name"]),
-                Command = reader["command"].ToString() ?? String.Empty,
-                WorkingDirectory = SqlServerDatabaseDriver.NullableString(reader["working_directory"]),
-                BranchName = SqlServerDatabaseDriver.NullableString(reader["branch_name"]),
-                CommitHash = SqlServerDatabaseDriver.NullableString(reader["commit_hash"]),
-                ExitCode = SqlServerDatabaseDriver.NullableInt(reader["exit_code"]),
-                Output = SqlServerDatabaseDriver.NullableString(reader["output"]),
-                Summary = SqlServerDatabaseDriver.NullableString(reader["summary"]),
-                DurationMs = reader["duration_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["duration_ms"]),
-                StartedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
-                SlotRequestedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["slot_requested_utc"]),
-                CompletedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                RegressionPurpose = CheckRunRegressionColumns.ReadPurpose(reader["regression_purpose"]),
-                RegressionObjectiveId = ProductionFactSql.ReadText(reader["regression_objective_id"]),
-                RegressionLandedCommit = ProductionFactSql.ReadText(reader["regression_landed_commit"]),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["check_type"].ToString(), true, out CheckRunTypeEnum type))
-                run.Type = type;
-            if (Enum.TryParse(reader["status"].ToString(), true, out CheckRunStatusEnum status))
-                run.Status = status;
-            if (Enum.TryParse(reader["source"].ToString(), true, out CheckRunSourceEnum source))
-                run.Source = source;
-
-            string? testSummaryJson = SqlServerDatabaseDriver.NullableString(reader["test_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(testSummaryJson))
-            {
-                try
-                {
-                    run.TestSummary = JsonSerializer.Deserialize<CheckRunTestSummary>(testSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.TestSummary = null;
-                }
-            }
-
-            string? coverageSummaryJson = SqlServerDatabaseDriver.NullableString(reader["coverage_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(coverageSummaryJson))
-            {
-                try
-                {
-                    run.CoverageSummary = JsonSerializer.Deserialize<CheckRunCoverageSummary>(coverageSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.CoverageSummary = null;
-                }
-            }
-
-            string? artifactsJson = SqlServerDatabaseDriver.NullableString(reader["artifacts_json"]);
-            if (!String.IsNullOrWhiteSpace(artifactsJson))
-            {
-                try
-                {
-                    run.Artifacts = JsonSerializer.Deserialize<List<CheckRunArtifact>>(artifactsJson, _Json) ?? new List<CheckRunArtifact>();
-                }
-                catch
-                {
-                    run.Artifacts = new List<CheckRunArtifact>();
-                }
-            }
-
-            return run;
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

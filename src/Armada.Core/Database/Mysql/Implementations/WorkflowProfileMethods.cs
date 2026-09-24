@@ -80,7 +80,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return WorkflowProfileColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -192,7 +192,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(WorkflowProfileColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -228,7 +228,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(WorkflowProfileColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -323,65 +323,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", profile.LastUpdateUtc);
         }
 
-        private static WorkflowProfile FromReader(MySqlDataReader reader)
-        {
-            WorkflowProfile profile = new WorkflowProfile
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = MysqlDatabaseDriver.NullableString(reader["description"]),
-                FleetId = MysqlDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
-                IsDefault = Convert.ToInt64(reader["is_default"]) == 1,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                LintCommand = MysqlDatabaseDriver.NullableString(reader["lint_command"]),
-                BuildCommand = MysqlDatabaseDriver.NullableString(reader["build_command"]),
-                UnitTestCommand = MysqlDatabaseDriver.NullableString(reader["unit_test_command"]),
-                ContainerlessUnitTestCommand = MysqlDatabaseDriver.NullableString(reader["containerless_unit_test_command"]),
-                IntegrationTestCommand = MysqlDatabaseDriver.NullableString(reader["integration_test_command"]),
-                E2ETestCommand = MysqlDatabaseDriver.NullableString(reader["e2e_test_command"]),
-                PackageCommand = MysqlDatabaseDriver.NullableString(reader["package_command"]),
-                PublishArtifactCommand = MysqlDatabaseDriver.NullableString(reader["publish_artifact_command"]),
-                ReleaseVersioningCommand = MysqlDatabaseDriver.NullableString(reader["release_versioning_command"]),
-                ChangelogGenerationCommand = MysqlDatabaseDriver.NullableString(reader["changelog_generation_command"]),
-                MigrationCommand = MysqlDatabaseDriver.NullableString(reader["migration_command"]),
-                SecurityScanCommand = MysqlDatabaseDriver.NullableString(reader["security_scan_command"]),
-                PerformanceCommand = MysqlDatabaseDriver.NullableString(reader["performance_command"]),
-                DeploymentVerificationCommand = MysqlDatabaseDriver.NullableString(reader["deployment_verification_command"]),
-                RollbackVerificationCommand = MysqlDatabaseDriver.NullableString(reader["rollback_verification_command"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            if (Enum.TryParse(reader["scope"].ToString(), true, out WorkflowProfileScopeEnum scope))
-                profile.Scope = scope;
-
-            profile.LanguageHints = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["language_hints_json"])) ?? new List<string>();
-            profile.RequiredSecrets = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["required_secrets_json"])) ?? new List<string>();
-            profile.ExpectedArtifacts = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["expected_artifacts_json"])) ?? new List<string>();
-            profile.Environments = Deserialize<List<WorkflowEnvironmentProfile>>(MysqlDatabaseDriver.NullableString(reader["environments_json"])) ?? new List<WorkflowEnvironmentProfile>();
-            profile.EnvironmentVariables = Deserialize<Dictionary<string, string>>(MysqlDatabaseDriver.NullableString(reader["environment_variables_json"])) ?? new Dictionary<string, string>();
-            return profile;
-        }
-
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)

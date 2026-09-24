@@ -74,7 +74,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return CheckRunColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -191,7 +191,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(CheckRunColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -324,97 +324,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@regression_purpose", checkRun.RegressionPurpose == RegressionPurposeEnum.None ? (object)DBNull.Value : checkRun.RegressionPurpose.ToString());
             cmd.Parameters.AddWithValue("@regression_objective_id", (object?)checkRun.RegressionObjectiveId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@regression_landed_commit", (object?)checkRun.RegressionLandedCommit ?? DBNull.Value);
-        }
-
-        private static CheckRun FromReader(NpgsqlDataReader reader)
-        {
-            CheckRun run = new CheckRun
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                WorkflowProfileId = NullableString(reader["workflow_profile_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                MissionId = NullableString(reader["mission_id"]),
-                VoyageId = NullableString(reader["voyage_id"]),
-                DeploymentId = NullableString(reader["deployment_id"]),
-                Label = NullableString(reader["label"]),
-                ProviderName = NullableString(reader["provider_name"]),
-                ExternalId = NullableString(reader["external_id"]),
-                ExternalUrl = NullableString(reader["external_url"]),
-                EnvironmentName = NullableString(reader["environment_name"]),
-                Command = reader["command"].ToString() ?? String.Empty,
-                WorkingDirectory = NullableString(reader["working_directory"]),
-                BranchName = NullableString(reader["branch_name"]),
-                CommitHash = NullableString(reader["commit_hash"]),
-                ExitCode = reader["exit_code"] == DBNull.Value ? null : Convert.ToInt32(reader["exit_code"]),
-                Output = NullableString(reader["output"]),
-                Summary = NullableString(reader["summary"]),
-                DurationMs = reader["duration_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["duration_ms"]),
-                StartedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
-                SlotRequestedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["slot_requested_utc"]),
-                CompletedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                RegressionPurpose = CheckRunRegressionColumns.ReadPurpose(reader["regression_purpose"]),
-                RegressionObjectiveId = ProductionFactSql.ReadText(reader["regression_objective_id"]),
-                RegressionLandedCommit = ProductionFactSql.ReadText(reader["regression_landed_commit"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            if (Enum.TryParse(reader["check_type"].ToString(), true, out CheckRunTypeEnum type))
-                run.Type = type;
-            if (Enum.TryParse(reader["status"].ToString(), true, out CheckRunStatusEnum status))
-                run.Status = status;
-            if (Enum.TryParse(reader["source"].ToString(), true, out CheckRunSourceEnum source))
-                run.Source = source;
-
-            string? testSummaryJson = NullableString(reader["test_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(testSummaryJson))
-            {
-                try
-                {
-                    run.TestSummary = JsonSerializer.Deserialize<CheckRunTestSummary>(testSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.TestSummary = null;
-                }
-            }
-
-            string? coverageSummaryJson = NullableString(reader["coverage_summary_json"]);
-            if (!String.IsNullOrWhiteSpace(coverageSummaryJson))
-            {
-                try
-                {
-                    run.CoverageSummary = JsonSerializer.Deserialize<CheckRunCoverageSummary>(coverageSummaryJson, _Json);
-                }
-                catch
-                {
-                    run.CoverageSummary = null;
-                }
-            }
-
-            string? artifactsJson = NullableString(reader["artifacts_json"]);
-            if (!String.IsNullOrWhiteSpace(artifactsJson))
-            {
-                try
-                {
-                    run.Artifacts = JsonSerializer.Deserialize<List<CheckRunArtifact>>(artifactsJson, _Json) ?? new List<CheckRunArtifact>();
-                }
-                catch
-                {
-                    run.Artifacts = new List<CheckRunArtifact>();
-                }
-            }
-
-            return run;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

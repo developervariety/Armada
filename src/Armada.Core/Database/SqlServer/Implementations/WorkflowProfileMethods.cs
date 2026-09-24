@@ -80,7 +80,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return WorkflowProfileColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -193,7 +193,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(WorkflowProfileColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -229,7 +229,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(WorkflowProfileColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -324,65 +324,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(profile.LastUpdateUtc));
         }
 
-        private static WorkflowProfile FromReader(SqlDataReader reader)
-        {
-            WorkflowProfile profile = new WorkflowProfile
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = SqlServerDatabaseDriver.NullableString(reader["description"]),
-                FleetId = SqlServerDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
-                IsDefault = Convert.ToBoolean(reader["is_default"]),
-                Active = Convert.ToBoolean(reader["active"]),
-                LintCommand = SqlServerDatabaseDriver.NullableString(reader["lint_command"]),
-                BuildCommand = SqlServerDatabaseDriver.NullableString(reader["build_command"]),
-                UnitTestCommand = SqlServerDatabaseDriver.NullableString(reader["unit_test_command"]),
-                ContainerlessUnitTestCommand = SqlServerDatabaseDriver.NullableString(reader["containerless_unit_test_command"]),
-                IntegrationTestCommand = SqlServerDatabaseDriver.NullableString(reader["integration_test_command"]),
-                E2ETestCommand = SqlServerDatabaseDriver.NullableString(reader["e2e_test_command"]),
-                PackageCommand = SqlServerDatabaseDriver.NullableString(reader["package_command"]),
-                PublishArtifactCommand = SqlServerDatabaseDriver.NullableString(reader["publish_artifact_command"]),
-                ReleaseVersioningCommand = SqlServerDatabaseDriver.NullableString(reader["release_versioning_command"]),
-                ChangelogGenerationCommand = SqlServerDatabaseDriver.NullableString(reader["changelog_generation_command"]),
-                MigrationCommand = SqlServerDatabaseDriver.NullableString(reader["migration_command"]),
-                SecurityScanCommand = SqlServerDatabaseDriver.NullableString(reader["security_scan_command"]),
-                PerformanceCommand = SqlServerDatabaseDriver.NullableString(reader["performance_command"]),
-                DeploymentVerificationCommand = SqlServerDatabaseDriver.NullableString(reader["deployment_verification_command"]),
-                RollbackVerificationCommand = SqlServerDatabaseDriver.NullableString(reader["rollback_verification_command"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["scope"].ToString(), true, out WorkflowProfileScopeEnum scope))
-                profile.Scope = scope;
-
-            profile.LanguageHints = Deserialize<List<string>>(SqlServerDatabaseDriver.NullableString(reader["language_hints_json"])) ?? new List<string>();
-            profile.RequiredSecrets = Deserialize<List<string>>(SqlServerDatabaseDriver.NullableString(reader["required_secrets_json"])) ?? new List<string>();
-            profile.ExpectedArtifacts = Deserialize<List<string>>(SqlServerDatabaseDriver.NullableString(reader["expected_artifacts_json"])) ?? new List<string>();
-            profile.Environments = Deserialize<List<WorkflowEnvironmentProfile>>(SqlServerDatabaseDriver.NullableString(reader["environments_json"])) ?? new List<WorkflowEnvironmentProfile>();
-            profile.EnvironmentVariables = Deserialize<Dictionary<string, string>>(SqlServerDatabaseDriver.NullableString(reader["environment_variables_json"])) ?? new Dictionary<string, string>();
-            return profile;
-        }
-
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)
