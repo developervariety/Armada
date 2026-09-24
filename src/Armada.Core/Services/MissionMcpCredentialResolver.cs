@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -16,12 +17,15 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Build the MCP credential for a mission. The owner is the mission's tenant and user, and when the mission
-        /// carries neither (older records, or a mission created without them), the objective owner carried on the
-        /// mission's voyage. The endpoint scopes the token to that owner, exactly as an authenticated caller of that
-        /// scope would receive, so the mission reaches only that tenant and user's records and no operator-only
-        /// tool. When no owner resolves, or no session-token service is available, the credential carries no value
-        /// (fail closed): nothing is presented and the endpoint refuses it, never the admiral launch credential.
+        /// Build the MCP credential for a mission. The owner is the mission's tenant and user; a part the mission
+        /// does not carry comes from its voyage (the objective owner of an autonomous mission). A record without a
+        /// tenant or user belongs to the default tenant or default user (<see cref="OwnershipPolicy.TenantOfRecord"/>
+        /// and <see cref="OwnershipPolicy.UserOfRecord"/>), so a mission on a tenant-owned vessel runs as that
+        /// owner. The endpoint scopes the token to the owner exactly as it scopes that owner's own session: the
+        /// mission reaches that tenant and user's records with that user's privileges, never more. The owner must be
+        /// an active user of the mission's tenant; otherwise, or when no session-token service is available, the
+        /// credential carries no value (fail closed): nothing is presented and the endpoint refuses it, never the
+        /// admiral launch credential.
         /// </summary>
         /// <param name="mission">The mission.</param>
         /// <param name="database">Database used to read the mission's voyage.</param>
@@ -56,13 +60,20 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId))
+            string ownerTenantId = OwnershipPolicy.TenantOfRecord(tenantId);
+            string ownerUserId = OwnershipPolicy.UserOfRecord(userId);
+
+            // A token names a tenant and a user, and the endpoint grants the user's own privileges. A user of
+            // another tenant would carry its privileges into this tenant, so the owner must belong to it.
+            UserMaster? owner = await database.Users.ReadByIdAsync(ownerUserId, token).ConfigureAwait(false);
+            if (owner == null || !owner.Active || !String.Equals(owner.TenantId, ownerTenantId, StringComparison.Ordinal))
             {
-                warn?.Invoke("mission " + mission.Id + " has no resolvable owner, so it carries no Armada MCP credential");
+                warn?.Invoke("mission " + mission.Id + " owner " + ownerUserId + " is not an active user of tenant " + ownerTenantId
+                    + ", so the mission carries no Armada MCP credential");
                 return McpCredentialReference.MissionUnresolvedOwner;
             }
 
-            AuthenticateResult issued = sessionTokens.CreateToken(tenantId!, userId!);
+            AuthenticateResult issued = sessionTokens.CreateToken(ownerTenantId, ownerUserId);
             if (String.IsNullOrWhiteSpace(issued.Token))
             {
                 warn?.Invoke("no session token was issued for mission " + mission.Id + ", so it carries no Armada MCP credential");

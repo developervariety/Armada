@@ -89,6 +89,12 @@ upstream integrations and excludes changes already present at that baseline.
   Mux ignores unknown auth fields, so the files sent no credential and the
   endpoint refused every Mux captain. The captain tool inventory reads the same
   file through the same model, so its probe sends exactly the headers Mux sends.
+- **Missions on tenant-owned vessels carry an MCP credential:** a mission
+  whose vessel has no user owner runs as the default user of its tenant, as
+  the ownership policy assigns every record without a user. These missions
+  launched with no Armada MCP credential, so no captain of any runtime reached
+  the Armada tools. The owner must be an active user of the mission's tenant,
+  so a user of one tenant never lends its privileges to another tenant.
 - **Mux is built against a patched Voltaic:** the admiral image pins Mux to an
   exact commit and builds it against Voltaic with
   `docker/patches/voltaic-mcp-http-client.patch` applied. With the patch, the

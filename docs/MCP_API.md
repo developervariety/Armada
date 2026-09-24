@@ -506,10 +506,15 @@ error before its arguments are read or its audit is written.
 caller-scoped session token, never a global-admin credential. A mission captain
 carries the mission owner's own session token, which the endpoint scopes to that
 owner's tenant and user; a chat captain carries the authenticated caller's own
-session token. The owner of a mission is its tenant and user, and an autonomous
-mission with no owner of its own falls back to the objective owner carried on its
-voyage. When no owner resolves, the launch presents no credential and the
-endpoint refuses it (fail closed).
+session token. The owner of a mission is its tenant and user. A part the mission
+does not carry comes from its voyage, which holds the objective owner of an
+autonomous mission. Dispatch copies the vessel's owner, and a tenant-owned vessel
+has no user. A record without a user belongs to the default user and a record
+without a tenant to the default tenant, so a mission on such a vessel runs as the
+default user with that user's own privileges. When the default user is an
+administrator, that includes the operator tools. The owner must be an active user
+of the mission's tenant. Otherwise the launch presents no credential, the
+endpoint refuses it (fail closed), and the admiral log names the reason.
 
 The token reaches a captain in its environment as `ARMADA_MCP_TOKEN` (chat uses
 `ARMADA_MCP_CHAT_TOKEN`), and it changes on every launch. With dock MCP delivery

@@ -124,6 +124,61 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A mission on a vessel with no user owner runs as its tenant's default user", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // Dispatch copies the vessel's owner onto the voyage and mission, and a tenant-owned vessel
+                    // has no user. A record without a user belongs to the default user, so the mission runs as it.
+                    SessionTokenService tokens = new SessionTokenService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, sessionTokens: tokens);
+
+                    Voyage voyage = new Voyage("Tenant-owned voyage") { TenantId = Armada.Core.Constants.DefaultTenantId };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    Mission mission = new Mission("Tenant-owned mission")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = voyage.Id
+                    };
+
+                    McpCredentialReference credential = await handler.ResolveMissionMcpCredentialAsync(mission).ConfigureAwait(false);
+                    AssertTrue(credential.HasToken, "a mission on a tenant-owned vessel carries an MCP credential");
+                    AssertFalse(string.Equals(credential.Token, McpLaunchCredential.Token, StringComparison.Ordinal),
+                        "the credential is never the admiral launch credential value");
+
+                    AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
+                    AuthContext ctx = await auth.AuthenticateAsync("Bearer " + credential.Token, null, null).ConfigureAwait(false);
+                    AssertTrue(ctx.IsAuthenticated, "the credential authenticates");
+                    AssertEqual(Armada.Core.Constants.DefaultTenantId, ctx.TenantId, "the mission runs in its own tenant");
+                    AssertEqual(Armada.Core.Constants.DefaultUserId, ctx.UserId, "the mission runs as the user its records belong to");
+                }
+            });
+
+            await RunTest("A mission whose owner is not a user of its tenant carries no MCP credential", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // The default user belongs to the default tenant only, and a user of one tenant never lends
+                    // its privileges to another tenant's mission.
+                    SessionTokenService tokens = new SessionTokenService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, sessionTokens: tokens);
+
+                    TenantMetadata tenantD = new TenantMetadata("Tenant D");
+                    await testDb.Driver.Tenants.CreateAsync(tenantD).ConfigureAwait(false);
+                    Mission userless = new Mission("Other tenant, no user") { TenantId = tenantD.Id };
+                    McpCredentialReference none = await handler.ResolveMissionMcpCredentialAsync(userless).ConfigureAwait(false);
+                    AssertFalse(none.HasToken, "another tenant's user-less mission does not borrow the default user");
+
+                    Mission crossed = new Mission("Other tenant, default-tenant user")
+                    {
+                        TenantId = tenantD.Id,
+                        UserId = Armada.Core.Constants.DefaultUserId
+                    };
+                    McpCredentialReference crossedCredential = await handler.ResolveMissionMcpCredentialAsync(crossed).ConfigureAwait(false);
+                    AssertFalse(crossedCredential.HasToken, "a user of another tenant is never the owner of this tenant's mission");
+                }
+            });
+
             await RunTest("The captain tool inventory probes with the same mission owner the launch credential carries", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
