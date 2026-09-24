@@ -273,9 +273,21 @@ namespace Armada.Test.Unit.Suites.Services
                         new { action = "clear", missionId = held.Judge.Id, @operator = "operator-a" })).ConfigureAwait(false));
                     AssertContains("missing_reason", missingReasonJson, "a clear without a reason is refused");
 
+                    List<string> completedVoyageIds = new List<string>();
+                    held.Scenario.Admiral.OnVoyageComplete = voyage =>
+                    {
+                        completedVoyageIds.Add(voyage.Id);
+                        return Task.CompletedTask;
+                    };
+
                     string clearedJson = System.Text.Json.JsonSerializer.Serialize(await McpTestCaller.Wrap(handler!)(System.Text.Json.JsonSerializer.SerializeToElement(
                         new { action = "clear", missionId = held.Judge.Id, reason = "read the diff; the review is adequate", @operator = "operator-a" })).ConfigureAwait(false));
                     AssertFalse(clearedJson.Contains("\"Error\"", StringComparison.Ordinal), "the operator clear succeeds: " + clearedJson);
+
+                    Voyage? endedVoyage = await testDb.Driver.Voyages.ReadAsync(held.Scenario.Voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, endedVoyage!.Status, "The landed PASS completes its voyage on the mission path");
+                    AssertEqual(1, completedVoyageIds.Count, "The mission path raises the admiral's voyage completion hook once");
+                    AssertEqual(held.Scenario.Voyage.Id, completedVoyageIds[0]);
 
                     Mission? cleared = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
                     AssertEqual(1, held.LandedMissionIds.Count, "A cleared hold lets the PASS reach the landing handler");

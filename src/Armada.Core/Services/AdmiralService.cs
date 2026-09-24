@@ -47,7 +47,11 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public Func<Voyage, Task>? OnVoyageComplete { get; set; }
+        public Func<Voyage, Task>? OnVoyageComplete
+        {
+            get => _Missions.OnVoyageComplete;
+            set => _Missions.OnVoyageComplete = value;
+        }
 
         /// <inheritdoc />
         public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
@@ -2332,13 +2336,8 @@ namespace Armada.Core.Services
 
         private async Task CheckVoyageCompletionsAsync(CancellationToken token)
         {
-            List<Voyage> completedVoyages = await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
-            if (OnVoyageComplete == null) return;
-            foreach (Voyage completedVoyage in completedVoyages)
-            {
-                try { await OnVoyageComplete.Invoke(completedVoyage).ConfigureAwait(false); }
-                catch (Exception ex) { _Logging.Warn(_Header + "error in OnVoyageComplete callback: " + ex.Message); }
-            }
+            // The completion rule raises OnVoyageComplete for each voyage it ends.
+            await _Voyages.CheckCompletionsAsync(token, OnVoyageComplete).ConfigureAwait(false);
         }
 
         /// <summary>

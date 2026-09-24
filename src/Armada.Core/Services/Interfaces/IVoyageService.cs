@@ -8,11 +8,13 @@ namespace Armada.Core.Services.Interfaces
     public interface IVoyageService
     {
         /// <summary>
-        /// Apply <see cref="VoyageCompletionRule"/> to every Open and InProgress voyage.
+        /// Apply <see cref="VoyageCompletionRule"/> to every voyage that
+        /// <see cref="VoyageCompletionRule.IsSweepCandidate"/> selects.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="onVoyageComplete">Voyage completion hook, raised once for each voyage the rule ends.</param>
         /// <returns>Voyages the rule moved to Complete or Failed during this check.</returns>
-        Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default);
+        Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default, Func<Voyage, Task>? onVoyageComplete = null);
 
         /// <summary>
         /// Get progress details for a specific voyage.

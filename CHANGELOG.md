@@ -133,10 +133,13 @@ upstream integrations and excludes changes already present at that baseline.
   and cancellation use consistent lifecycle rules.
 - **Voyage completion:** one rule decides when a voyage becomes `Complete` or
   `Failed`. Mission state changes, the health-loop completion check and the
-  landing drain all apply it, so they reach the same answer for one voyage. A
-  `Complete`, `Failed` or `Cancelled` voyage is never rewritten by completion.
-  A decision on a held review under a cancelled voyage leaves the voyage
-  `Cancelled`. A Pending or Running Check holds completion on every path, and a
+  landing drain all apply it, so they reach the same answer for one voyage.
+  Each path raises the voyage completion hook exactly once for each voyage it
+  ends; the mission path did not raise it before. A `Complete` or `Cancelled`
+  voyage is never rewritten by completion. A decision on a held review under a
+  cancelled voyage leaves the voyage `Cancelled`. A `Failed` voyage moves only
+  to `Complete`, when its failed work has since landed and its Checks are green.
+  It is never written `Failed` again and never reopens. A Pending or Running Check holds completion on every path, and a
   failed Check fails the voyage on every path. A `PullRequestOpen` mission and a
   `WorkProduced` mission held for operator review keep their voyage open.
 - **GitHub objective refresh:** re-importing a `Completed` or `Cancelled`

@@ -17,13 +17,18 @@ namespace Armada.Core.Services
         /// <summary>True when the rule wrote a terminal status.</summary>
         public bool Written => Voyage != null && Verdict.NewStatus != null;
 
+        /// <summary>The exception the voyage completion hook threw after the write, or null.</summary>
+        public Exception? HookException { get; }
+
         /// <summary>Instantiate.</summary>
         /// <param name="voyage">Voyage after the rule ran.</param>
         /// <param name="verdict">The rule's verdict.</param>
-        public VoyageCompletionResult(Voyage? voyage, VoyageCompletionVerdict verdict)
+        /// <param name="hookException">Exception the voyage completion hook threw, or null.</param>
+        public VoyageCompletionResult(Voyage? voyage, VoyageCompletionVerdict verdict, Exception? hookException = null)
         {
             Voyage = voyage;
             Verdict = verdict ?? throw new ArgumentNullException(nameof(verdict));
+            HookException = hookException;
         }
     }
 }

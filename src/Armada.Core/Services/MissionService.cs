@@ -34,6 +34,9 @@ namespace Armada.Core.Services
         public Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
 
         /// <inheritdoc />
+        public Func<Voyage, Task>? OnVoyageComplete { get; set; }
+
+        /// <inheritdoc />
         public Func<string, string?>? OnGetMissionOutput { get; set; }
 
         /// <inheritdoc />
@@ -7634,7 +7637,9 @@ namespace Armada.Core.Services
         /// </summary>
         internal async Task UpdateVoyageTerminalStatusAsync(string? voyageId, CancellationToken token)
         {
-            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyageId, token).ConfigureAwait(false);
+            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyageId, OnVoyageComplete, token).ConfigureAwait(false);
+            if (result.HookException != null)
+                _Logging.Warn(_Header + "error in OnVoyageComplete callback for voyage " + voyageId + ": " + result.HookException.Message);
             if (result.Written)
             {
                 if (result.Verdict.Reason == VoyageCompletionRule.ReasonCheckFailed)

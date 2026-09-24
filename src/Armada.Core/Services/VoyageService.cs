@@ -37,18 +37,23 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
-        public async Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default)
+        public async Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default, Func<Voyage, Task>? onVoyageComplete = null)
         {
             // CheckCompletionsAsync is a background/system method (called from Admiral loop).
             // It scans all tenants' voyages, so unscoped calls are appropriate here.
             List<Voyage> completedVoyages = new List<Voyage>();
             List<Voyage> activeVoyages = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
             List<Voyage> openVoyages = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false);
+            List<Voyage> failedVoyages = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Failed, token).ConfigureAwait(false);
             activeVoyages.AddRange(openVoyages);
+            DateTime nowUtc = DateTime.UtcNow;
+            activeVoyages.AddRange(failedVoyages.Where(v => VoyageCompletionRule.IsSweepCandidate(v, nowUtc)));
 
             foreach (Voyage voyage in activeVoyages)
             {
-                VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, token).ConfigureAwait(false);
+                VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, onVoyageComplete, token).ConfigureAwait(false);
+                if (result.HookException != null)
+                    _Logging.Warn(_Header + "error in OnVoyageComplete callback for voyage " + voyage.Id + ": " + result.HookException.Message);
                 if (!result.Written) continue;
 
                 _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + result.Voyage!.Status + " (" + result.Verdict.Reason + ")");

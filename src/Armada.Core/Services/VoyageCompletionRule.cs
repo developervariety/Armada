@@ -10,8 +10,9 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
 
     /// <summary>
-    /// The single rule for when a voyage leaves Open or InProgress for Complete or Failed. Every
-    /// writer of voyage completion calls <see cref="ApplyAsync"/> and writes nothing else.
+    /// The single rule for when a voyage ends as Complete or Failed. Every writer of voyage
+    /// completion calls <see cref="ApplyAsync"/>, which writes the answer and raises the voyage
+    /// completion hook, so the writers cannot differ in either.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -19,10 +20,13 @@ namespace Armada.Core.Services
     /// </para>
     /// <list type="number">
     /// <item><description>
-    /// Terminal-voyage guard. A voyage in the voyage terminal set (Complete, Failed, Cancelled; see
-    /// <see cref="TerminalVoyageMissionRule.IsTerminalVoyage"/>) is never rewritten by completion.
-    /// This set belongs to the voyage lifecycle only; a mission, merge entry, landing job, Check run
-    /// and objective each have their own terminal set.
+    /// Terminal-voyage guard. The voyage terminal set is Complete, Failed and Cancelled (see
+    /// <see cref="TerminalVoyageMissionRule.IsTerminalVoyage"/>). This set belongs to the voyage
+    /// lifecycle only; a mission, merge entry, landing job, Check run and objective each have their
+    /// own terminal set. A Complete or Cancelled voyage is never rewritten. A Failed voyage moves only
+    /// to Complete, and only when the next two steps would complete it: its failed work was later
+    /// landed, for example by a retried landing. A Failed voyage is never written Failed again, so its
+    /// completion time stays, and it never returns to Open or InProgress.
     /// </description></item>
     /// <item><description>
     /// Mission-state evaluation. A voyage with no missions is kept. A voyage with any mission that is
@@ -68,6 +72,17 @@ namespace Armada.Core.Services
 
         /// <summary>Complete: every mission is done, none failed, and no Check holds or fails it.</summary>
         public const string ReasonAllDone = "all_done";
+
+        /// <summary>Complete: a Failed voyage whose missions are now all done without failure and whose Checks are green or absent.</summary>
+        public const string ReasonFailedVoyageLanded = "failed_voyage_landed";
+
+        /// <summary>
+        /// How long after a voyage ended Failed the periodic sweeps still visit it for
+        /// <see cref="ReasonFailedVoyageLanded"/>. The mission path applies the rule to its own voyage
+        /// at any age; the sweeps bound their scan so a long history of Failed voyages is not re-read
+        /// every cycle.
+        /// </summary>
+        public static readonly TimeSpan FailedVoyageSweepWindow = TimeSpan.FromHours(24);
 
         #endregion
 
@@ -117,45 +132,49 @@ namespace Armada.Core.Services
             if (voyage == null) throw new ArgumentNullException(nameof(voyage));
             if (missions == null) throw new ArgumentNullException(nameof(missions));
 
-            if (TerminalVoyageMissionRule.IsTerminalVoyage(voyage.Status))
+            if (voyage.Status == VoyageStatusEnum.Complete || voyage.Status == VoyageStatusEnum.Cancelled)
                 return VoyageCompletionVerdict.Keep(ReasonVoyageTerminal);
 
-            if (missions.Count == 0)
-                return VoyageCompletionVerdict.Keep(ReasonNoMissions);
+            VoyageCompletionVerdict verdict = await EvaluateMissionsAndChecksAsync(database, voyage.TenantId, voyage.Id, missions, token).ConfigureAwait(false);
+            if (voyage.Status != VoyageStatusEnum.Failed) return verdict;
 
-            if (missions.Any(m => !IsMissionDone(m.Status)))
-                return VoyageCompletionVerdict.Keep(ReasonMissionActive);
-
-            if (missions.Any(IsHeldForOperatorReview))
-                return VoyageCompletionVerdict.Keep(ReasonOperatorReviewHold);
-
-            if (missions.Any(m => IsMissionFailed(m.Status)))
-                return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonMissionFailed);
-
-            if (!VoyageReportOnlyClassifier.IsFullyReportOnly(missions))
-            {
-                CheckGate gate = await EvaluateChecksAsync(database, voyage.TenantId, voyage.Id, missions, token).ConfigureAwait(false);
-                if (gate == CheckGate.HasFailed)
-                    return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonCheckFailed);
-                if (gate == CheckGate.HasPending)
-                    return VoyageCompletionVerdict.Keep(ReasonChecksPending);
-            }
-
-            return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Complete, ReasonAllDone);
+            return verdict.NewStatus == VoyageStatusEnum.Complete
+                ? VoyageCompletionVerdict.Finish(VoyageStatusEnum.Complete, ReasonFailedVoyageLanded)
+                : VoyageCompletionVerdict.Keep(ReasonVoyageTerminal);
         }
 
         /// <summary>
-        /// Read the voyage and its missions, decide with <see cref="EvaluateAsync"/>, and write the
-        /// terminal status when the verdict finishes the voyage. The voyage is read immediately before
-        /// the decision, so a voyage that reached the terminal set since the caller last looked is kept.
+        /// True when a periodic sweep should visit a voyage: it is Open or InProgress, or it ended
+        /// Failed within <see cref="FailedVoyageSweepWindow"/>.
+        /// </summary>
+        /// <param name="voyage">Voyage.</param>
+        /// <param name="nowUtc">Current time.</param>
+        /// <returns>True when the sweep applies the rule to the voyage.</returns>
+        public static bool IsSweepCandidate(Voyage voyage, DateTime nowUtc)
+        {
+            if (voyage == null) throw new ArgumentNullException(nameof(voyage));
+            if (voyage.Status == VoyageStatusEnum.Open || voyage.Status == VoyageStatusEnum.InProgress) return true;
+            if (voyage.Status != VoyageStatusEnum.Failed) return false;
+            DateTime endedUtc = voyage.CompletedUtc ?? voyage.LastUpdateUtc;
+            return nowUtc - endedUtc <= FailedVoyageSweepWindow;
+        }
+
+        /// <summary>
+        /// Read the voyage and its missions, decide with <see cref="EvaluateAsync"/>, write the
+        /// terminal status when the verdict ends the voyage, and then raise
+        /// <paramref name="onVoyageComplete"/> once for that write. The voyage is read immediately
+        /// before the decision, so a voyage that another writer ended since the caller last looked is
+        /// judged as it is now.
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="voyageId">Voyage identifier.</param>
+        /// <param name="onVoyageComplete">Voyage completion hook, raised only when this call wrote a terminal status.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The verdict and the voyage as written, or as read when it was kept.</returns>
+        /// <returns>The verdict, the voyage as written or as read, and any exception the hook threw.</returns>
         public static async Task<VoyageCompletionResult> ApplyAsync(
             DatabaseDriver database,
             string? voyageId,
+            Func<Voyage, Task>? onVoyageComplete,
             CancellationToken token = default)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
@@ -176,12 +195,54 @@ namespace Armada.Core.Services
             voyage.CompletedUtc = now;
             voyage.LastUpdateUtc = now;
             await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
-            return new VoyageCompletionResult(voyage, verdict);
+
+            Exception? hookException = null;
+            if (onVoyageComplete != null)
+            {
+                try
+                {
+                    await onVoyageComplete(voyage).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // The write stands; the caller logs the hook failure with its own header.
+                    hookException = ex;
+                }
+            }
+
+            return new VoyageCompletionResult(voyage, verdict, hookException);
         }
 
         #endregion
 
         #region Private-Methods
+
+        private static async Task<VoyageCompletionVerdict> EvaluateMissionsAndChecksAsync(
+            DatabaseDriver database, string? tenantId, string voyageId, IReadOnlyList<Mission> missions, CancellationToken token)
+        {
+            if (missions.Count == 0)
+                return VoyageCompletionVerdict.Keep(ReasonNoMissions);
+
+            if (missions.Any(m => !IsMissionDone(m.Status)))
+                return VoyageCompletionVerdict.Keep(ReasonMissionActive);
+
+            if (missions.Any(IsHeldForOperatorReview))
+                return VoyageCompletionVerdict.Keep(ReasonOperatorReviewHold);
+
+            if (missions.Any(m => IsMissionFailed(m.Status)))
+                return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonMissionFailed);
+
+            if (!VoyageReportOnlyClassifier.IsFullyReportOnly(missions))
+            {
+                CheckGate gate = await EvaluateChecksAsync(database, tenantId, voyageId, missions, token).ConfigureAwait(false);
+                if (gate == CheckGate.HasFailed)
+                    return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonCheckFailed);
+                if (gate == CheckGate.HasPending)
+                    return VoyageCompletionVerdict.Keep(ReasonChecksPending);
+            }
+
+            return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Complete, ReasonAllDone);
+        }
 
         private static bool IsHeldForOperatorReview(Mission mission)
         {

@@ -463,6 +463,27 @@ namespace Armada.Server
                 }
             }
 
+            // A recently Failed voyage is not drained (nothing is enqueued or rescued for it), but the
+            // completion rule still applies: it moves to Complete once its failed work has landed.
+            DateTime nowUtc = DateTime.UtcNow;
+            List<Voyage> failed = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Failed, token).ConfigureAwait(false);
+            foreach (Voyage voyage in failed.Where(item => VoyageCompletionRule.IsSweepCandidate(item, nowUtc)))
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    await TryCompleteIdleVoyageAsync(voyage, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "landing-drain completion failed for voyage " + voyage.Id + ": " + ex.Message);
+                }
+            }
+
             LastLandingDrainNoDockCount = Interlocked.CompareExchange(ref _LandingDrainNoDockCount, 0, 0);
             LastLandingDrainDiffFailedCount = Interlocked.CompareExchange(ref _LandingDrainDiffFailedCount, 0, 0);
             if (processed > 0 || LastLandingDrainNoDockCount > 0 || LastLandingDrainDiffFailedCount > 0)
@@ -580,7 +601,11 @@ namespace Armada.Server
         // sees a voyage the rule just finished (or one another writer ended) as terminal.
         private async Task<Voyage> TryCompleteIdleVoyageAsync(Voyage voyage, CancellationToken token)
         {
-            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, token).ConfigureAwait(false);
+            // The rule raises OnVoyageComplete itself, after the write and before the drain's own
+            // incident and event bookkeeping below.
+            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, _Admiral.OnVoyageComplete, token).ConfigureAwait(false);
+            if (result.HookException != null)
+                _Logging.Warn(_Header + "OnVoyageComplete failed for voyage " + voyage.Id + ": " + result.HookException.Message);
             if (!result.Written) return result.Voyage ?? voyage;
             voyage = result.Voyage!;
 
@@ -597,18 +622,6 @@ namespace Armada.Server
                 token,
                 voyage.TenantId,
                 voyage.UserId).ConfigureAwait(false);
-
-            if (_Admiral.OnVoyageComplete != null)
-            {
-                try
-                {
-                    await _Admiral.OnVoyageComplete.Invoke(voyage).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "OnVoyageComplete failed for voyage " + voyage.Id + ": " + ex.Message);
-                }
-            }
 
             return voyage;
         }

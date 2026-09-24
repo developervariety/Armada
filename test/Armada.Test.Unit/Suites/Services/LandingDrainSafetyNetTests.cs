@@ -290,23 +290,26 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(VoyageStatusEnum.Open, updated!.Status, "A mission whose pull request is still open keeps its voyage open.");
             }).ConfigureAwait(false);
 
-            // Every writer of voyage completion must reach the same answer for the same voyage. The
-            // table covers the voyage terminal set, each mission-state class and each Check state.
+            // Every writer of voyage completion must reach the same answer for the same voyage and
+            // raise the voyage completion hook exactly once when it ends one. Each writer runs twice,
+            // so a second pass that re-ends or re-announces a voyage shows up as a mismatch. A voyage
+            // that keeps its status also keeps its completion time. The table covers the voyage
+            // terminal set, each mission-state class and each Check state.
             await RunTest("VoyageCompletion_AllWritersAgree_AcrossMissionAndCheckStates", async () =>
             {
                 List<string> mismatches = new List<string>();
                 foreach (VoyageCompletionCase row in BuildVoyageCompletionTable())
                 {
-                    VoyageStatusEnum healthCycle = await RunCompletionWriterAsync(row, CompletionWriter.HealthCycleSweep).ConfigureAwait(false);
-                    VoyageStatusEnum missionPath = await RunCompletionWriterAsync(row, CompletionWriter.MissionCompletion).ConfigureAwait(false);
-                    VoyageStatusEnum landingDrain = await RunCompletionWriterAsync(row, CompletionWriter.LandingDrain).ConfigureAwait(false);
-
-                    if (healthCycle != missionPath || missionPath != landingDrain || landingDrain != row.Expected)
+                    int expectedHooks = row.Expected != row.Start ? 1 : 0;
+                    foreach (CompletionWriter writer in new[] { CompletionWriter.HealthCycleSweep, CompletionWriter.MissionCompletion, CompletionWriter.LandingDrain })
                     {
-                        mismatches.Add(row.Name + ": expected " + row.Expected
-                            + ", health-cycle sweep " + healthCycle
-                            + ", mission completion " + missionPath
-                            + ", landing drain " + landingDrain);
+                        CompletionOutcome outcome = await RunCompletionWriterAsync(row, writer).ConfigureAwait(false);
+                        if (outcome.Status != row.Expected || outcome.HookCount != expectedHooks || (row.Expected == row.Start && !outcome.CompletedUtcKept))
+                        {
+                            mismatches.Add(row.Name + " via " + writer + ": expected " + row.Expected + " with " + expectedHooks
+                                + " completion hook(s), got " + outcome.Status + " with " + outcome.HookCount
+                                + (outcome.CompletedUtcKept ? String.Empty : ", completion time rewritten"));
+                        }
                     }
                 }
 
@@ -1451,12 +1454,24 @@ namespace Armada.Test.Unit.Suites.Services
                 new VoyageCompletionCase("one still in progress", live, new[] { done, MissionStatusEnum.InProgress }, null, live),
                 new VoyageCompletionCase("cancelled voyage, missions done", VoyageStatusEnum.Cancelled, new[] { done }, null, VoyageStatusEnum.Cancelled),
                 new VoyageCompletionCase("cancelled voyage, one failed", VoyageStatusEnum.Cancelled, new[] { done, MissionStatusEnum.Failed }, null, VoyageStatusEnum.Cancelled),
-                new VoyageCompletionCase("failed voyage, missions complete", VoyageStatusEnum.Failed, new[] { done }, null, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("failed voyage, missions complete", VoyageStatusEnum.Failed, new[] { done }, null, VoyageStatusEnum.Complete),
+                new VoyageCompletionCase("failed voyage, all landed, green Check", VoyageStatusEnum.Failed, new[] { MissionStatusEnum.WorkProduced, done }, CheckRunStatusEnum.Passed, VoyageStatusEnum.Complete),
+                new VoyageCompletionCase("failed voyage, pending Check", VoyageStatusEnum.Failed, new[] { done }, CheckRunStatusEnum.Pending, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("failed voyage, failed Check", VoyageStatusEnum.Failed, new[] { done }, CheckRunStatusEnum.Failed, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("failed voyage, one still failed", VoyageStatusEnum.Failed, new[] { done, MissionStatusEnum.Failed }, null, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("failed voyage, one still in progress", VoyageStatusEnum.Failed, new[] { done, MissionStatusEnum.InProgress }, null, VoyageStatusEnum.Failed),
                 new VoyageCompletionCase("complete voyage, one landing failed", VoyageStatusEnum.Complete, new[] { MissionStatusEnum.LandingFailed }, null, VoyageStatusEnum.Complete)
             };
         }
 
-        private static async Task<VoyageStatusEnum> RunCompletionWriterAsync(VoyageCompletionCase row, CompletionWriter writer)
+        private sealed class CompletionOutcome
+        {
+            public VoyageStatusEnum Status { get; set; }
+            public int HookCount { get; set; }
+            public bool CompletedUtcKept { get; set; }
+        }
+
+        private static async Task<CompletionOutcome> RunCompletionWriterAsync(VoyageCompletionCase row, CompletionWriter writer)
         {
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
             {
@@ -1464,17 +1479,23 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static async Task<VoyageStatusEnum> RunCompletionWriterAsync(TestDatabase testDb, VoyageCompletionCase row, CompletionWriter writer)
+        private static async Task<CompletionOutcome> RunCompletionWriterAsync(TestDatabase testDb, VoyageCompletionCase row, CompletionWriter writer)
         {
             await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
 
+            // A voyage that already ended carries a completion time inside the sweep window.
+            DateTime anHourAgo = DateTime.UtcNow.AddHours(-1);
+            DateTime? endedUtc = row.Start == VoyageStatusEnum.Open || row.Start == VoyageStatusEnum.InProgress
+                ? (DateTime?)null
+                : new DateTime(anHourAgo.Ticks - anHourAgo.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
             Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
             Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Completion parity", row.Name)
             {
                 TenantId = vessel.TenantId,
                 UserId = vessel.UserId,
                 Status = row.Start,
-                LastUpdateUtc = DateTime.UtcNow
+                CompletedUtc = endedUtc,
+                LastUpdateUtc = endedUtc ?? DateTime.UtcNow
             }).ConfigureAwait(false);
 
             Mission? last = null;
@@ -1491,33 +1512,50 @@ namespace Armada.Test.Unit.Suites.Services
 
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
-            switch (writer)
+            int hookCount = 0;
+            Func<Voyage, Task> hook = _ =>
             {
-                case CompletionWriter.HealthCycleSweep:
-                    await new VoyageService(logging, testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
-                    break;
-                case CompletionWriter.MissionCompletion:
-                    ArmadaSettings missionSettings = new ArmadaSettings();
-                    missionSettings.DocksDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_parity_docks_" + Guid.NewGuid().ToString("N"));
-                    missionSettings.ReposDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_parity_repos_" + Guid.NewGuid().ToString("N"));
-                    StubGitService git = new StubGitService();
-                    IDockService docks = new DockService(logging, testDb.Driver, missionSettings, git);
-                    ICaptainService captains = new CaptainService(logging, testDb.Driver, missionSettings, git, docks);
-                    MissionService missions = new MissionService(logging, testDb.Driver, missionSettings, docks, captains, git: git,
-                        resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(missionSettings));
-                    await missions.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
-                    break;
-                case CompletionWriter.LandingDrain:
-                    // Rescue dispatch would add a mission to a failed row and change the table's input.
-                    ArmadaSettings drainSettings = new ArmadaSettings();
-                    drainSettings.AutonomousRecovery.DispatchRescueMissions = false;
-                    AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, new RecordingMergeQueueService(), settings: drainSettings);
-                    await orchestrator.SweepAsync().ConfigureAwait(false);
-                    break;
+                hookCount++;
+                return Task.CompletedTask;
+            };
+
+            for (int pass = 0; pass < 2; pass++)
+            {
+                switch (writer)
+                {
+                    case CompletionWriter.HealthCycleSweep:
+                        await new VoyageService(logging, testDb.Driver).CheckCompletionsAsync(CancellationToken.None, hook).ConfigureAwait(false);
+                        break;
+                    case CompletionWriter.MissionCompletion:
+                        ArmadaSettings missionSettings = new ArmadaSettings();
+                        missionSettings.DocksDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_parity_docks_" + Guid.NewGuid().ToString("N"));
+                        missionSettings.ReposDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_parity_repos_" + Guid.NewGuid().ToString("N"));
+                        StubGitService git = new StubGitService();
+                        IDockService docks = new DockService(logging, testDb.Driver, missionSettings, git);
+                        ICaptainService captains = new CaptainService(logging, testDb.Driver, missionSettings, git, docks);
+                        MissionService missions = new MissionService(logging, testDb.Driver, missionSettings, docks, captains, git: git,
+                            resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(missionSettings));
+                        missions.OnVoyageComplete = hook;
+                        await missions.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                        break;
+                    case CompletionWriter.LandingDrain:
+                        // Rescue dispatch would add a mission to a failed row and change the table's input.
+                        ArmadaSettings drainSettings = new ArmadaSettings();
+                        drainSettings.AutonomousRecovery.DispatchRescueMissions = false;
+                        RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver) { OnVoyageComplete = hook };
+                        AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, new RecordingMergeQueueService(), admiral: admiral, settings: drainSettings);
+                        await orchestrator.SweepAsync().ConfigureAwait(false);
+                        break;
+                }
             }
 
             Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
-            return after!.Status;
+            return new CompletionOutcome
+            {
+                Status = after!.Status,
+                HookCount = hookCount,
+                CompletedUtcKept = endedUtc == null || after.CompletedUtc == endedUtc
+            };
         }
 
         private static async Task<Mission> CreateCompletionMissionAsync(TestDatabase testDb, Vessel vessel, Voyage voyage, MissionStatusEnum status)

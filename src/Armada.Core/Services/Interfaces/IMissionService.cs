@@ -19,6 +19,12 @@ namespace Armada.Core.Services.Interfaces
         Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
 
         /// <summary>
+        /// Voyage completion hook, raised once by <see cref="VoyageCompletionRule.ApplyAsync"/> when a
+        /// mission state change ends its voyage.
+        /// </summary>
+        Func<Voyage, Task>? OnVoyageComplete { get; set; }
+
+        /// <summary>
         /// Delegate that retrieves and clears accumulated agent stdout output for a mission.
         /// Wired to AgentLifecycleHandler.GetAndClearMissionOutput at startup.
         /// </summary>

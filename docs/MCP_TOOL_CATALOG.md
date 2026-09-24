@@ -121,11 +121,18 @@ and completion time unchanged.
 
 One rule decides when a voyage ends. Three paths apply it: mission state
 changes, the health-loop completion check, and the landing drain. They all
-reach the same answer for the same voyage. The rule runs these steps in order:
+reach the same answer for the same voyage. The rule also raises the voyage
+completion hook (the dashboard broadcast and the objective scheduler refill)
+exactly once for each voyage it ends, on every path. The rule runs these steps
+in order:
 
-1. A voyage that is `Complete`, `Failed` or `Cancelled` stays as it is. This is
-   the terminal set of the voyage. Missions, merge entries, landing jobs and
-   Checks each have their own terminal set.
+1. `Complete`, `Failed` and `Cancelled` are the terminal set of the voyage.
+   Missions, merge entries, landing jobs and Checks each have their own
+   terminal set. A `Complete` or `Cancelled` voyage stays as it is. A `Failed`
+   voyage can move only to `Complete`. That happens when steps 2 to 4 would
+   complete it, for example after a retried landing lands its failed work. A
+   `Failed` voyage is never written `Failed` again, so its completion time does
+   not change. It never returns to `Open` or `InProgress`.
 2. A voyage with no missions stays open. A voyage stays open while any mission
    is `Pending`, `Assigned`, `InProgress`, `Testing`, `Review` or
    `PullRequestOpen`. It also stays open while a `WorkProduced` mission is held
@@ -138,6 +145,12 @@ reach the same answer for the same voyage. The rule runs these steps in order:
    and a Pending or Running Check keeps it open. A voyage with green Checks or
    no Checks becomes `Complete`. A voyage whose missions are all Audit or
    Research skips this step.
+
+The mission path applies the rule to its own voyage at any age. The health
+loop and the landing drain visit `Open` and `InProgress` voyages, and `Failed`
+voyages that ended in the last 24 hours. The landing drain only applies the
+completion rule to a `Failed` voyage. It does not enqueue or rescue that
+voyage's work.
 
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `nextOffset` until `hasMore` is false. Then verify `sha256`, `finalized`, and

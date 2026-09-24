@@ -1815,6 +1815,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
 
             public Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
+            public Func<Voyage, Task>? OnVoyageComplete { get; set; }
 
             public Func<string, string?>? OnGetMissionOutput { get; set; }
 
