@@ -65,3 +65,30 @@ test('shows Process All only to a global administrator, because the route proces
   render(<MemoryRouter><MergeQueue /></MemoryRouter>);
   expect(await screen.findByRole('button', { name: 'Process All' })).toBeInTheDocument();
 });
+
+function mergeEntry(id: string, vesselId: string, branchName: string) {
+  return {
+    id, tenantId: null, missionId: null, vesselId, branchName, targetBranch: 'main',
+    status: 'Queued', priority: 0, testCommand: null, createdUtc: '2026-01-01T00:00:00Z', lastUpdateUtc: '2026-01-01T00:00:00Z',
+  };
+}
+
+test('a vessel column filter finds entries on every server page, not only the loaded one', async () => {
+  vi.mocked(listVessels).mockResolvedValue({
+    success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 2, totalMs: 1,
+    objects: [{ id: 'vsl_a', name: 'vessel-a' }, { id: 'vsl_b', name: 'vessel-b' }] as never,
+  });
+  vi.mocked(listMergeQueue).mockImplementation((async (params?: { pageNumber?: number }) => {
+    const pageNumber = params?.pageNumber ?? 1;
+    const objects = pageNumber === 1 ? [mergeEntry('mrg_a', 'vsl_a', 'branch-on-page-one')] : [mergeEntry('mrg_b', 'vsl_b', 'branch-on-page-two')];
+    return { success: true, pageNumber, pageSize: 25, totalPages: 2, totalRecords: 2, totalMs: 1, objects };
+  }) as never);
+  render(<MemoryRouter><MergeQueue /></MemoryRouter>);
+  await screen.findByText('branch-on-page-one');
+  await screen.findByRole('option', { name: 'vessel-b' });
+
+  fireEvent.change(screen.getByTitle('Filter by vessel'), { target: { value: 'vsl_b' } });
+
+  expect(await screen.findByText('branch-on-page-two')).toBeInTheDocument();
+  expect(screen.queryByText('branch-on-page-one')).not.toBeInTheDocument();
+});

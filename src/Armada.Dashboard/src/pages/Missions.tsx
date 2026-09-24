@@ -27,6 +27,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
+import { useVisibleSelection } from '../lib/useVisibleSelection';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -76,7 +77,6 @@ export default function Missions() {
   const [transitionTarget, setTransitionTarget] = useState('');
 
   // Selection
-  const [selected, setSelected] = useState<string[]>([]);
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('createdUtc');
@@ -169,13 +169,9 @@ export default function Missions() {
     return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
   }
 
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === sorted.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(sorted.map(m => m.id)); }
-  function clearSelection() { setSelected([]); }
+  // Selection: only missions the filters show.
+  const visibleIds = useMemo(() => sorted.map(m => m.id), [sorted]);
+  const { selected, setSelected, allSelected, toggleSelect, selectAll, clearSelection } = useVisibleSelection(visibleIds);
 
   // Create
   function openCreate() {

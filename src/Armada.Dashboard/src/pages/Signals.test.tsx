@@ -136,3 +136,21 @@ test('a reload that finds the page past the new end moves to the last page inste
   expect(listSignals).toHaveBeenLastCalledWith(expect.objectContaining({ pageNumber: 1 }));
   expect(screen.getByRole('spinbutton')).toHaveValue(1);
 });
+
+test('a payload column filter finds signals on every server page, not only the loaded one', async () => {
+  vi.mocked(listSignals).mockImplementation((async (params?: { pageNumber?: number; pageSize?: number }) => {
+    const all = [signal('sig_first'), signal('sig_second')];
+    const perPage = (params?.pageSize ?? 25) >= 1000 ? all.length : 1;
+    const pageNumber = params?.pageNumber ?? 1;
+    const objects = all.slice((pageNumber - 1) * perPage, pageNumber * perPage);
+    return { ...empty, pageNumber, totalPages: Math.ceil(all.length / perPage), totalRecords: all.length, objects };
+  }) as never);
+  render(<MemoryRouter><Signals /></MemoryRouter>);
+  await screen.findByText('sig_first', { selector: '.id-value' });
+
+  const payloadFilter = document.querySelectorAll('thead input[type="text"]')[3] as HTMLInputElement;
+  fireEvent.change(payloadFilter, { target: { value: 'second' } });
+
+  expect(await screen.findByText('sig_second', { selector: '.id-value' })).toBeInTheDocument();
+  expect(screen.queryByText('sig_first', { selector: '.id-value' })).not.toBeInTheDocument();
+});

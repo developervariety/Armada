@@ -15,7 +15,8 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
-import { retainSelection } from '../lib/selection';
+import { useVisibleSelection } from '../lib/useVisibleSelection';
+import { loadEveryPage, pageOfRows } from '../lib/fullList';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { entityRoute } from '../lib/routing';
@@ -43,9 +44,6 @@ export default function Events() {
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
   // Sorting
   const [sortField, setSortField] = useState<SortField>('createdUtc');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -65,23 +63,33 @@ export default function Events() {
     return v?.name || id.substring(0, 8);
   }, [vessels]);
 
+  // The server returns events newest first. A column filter or any other order runs in the browser, so while one is
+  // active the page reads every event and filters, sorts and pages them here; otherwise it reads one server page.
+  const fullList = Boolean(colFilters.eventType || colFilters.entityType || colFilters.message)
+    || sortField !== 'createdUtc' || sortDir !== 'desc';
+
   const requests = useLatestRequest();
   const load = useCallback(async () => {
     const request = requests.begin();
     try {
       setLoading(true);
-      const result = await listEvents({ pageNumber, pageSize });
-      if (!request.isCurrent()) return;
-      if (!acceptPage(result)) return;
-      setEvents(result.objects || []);
-      setSelected(prev => retainSelection(prev, (result.objects || []).map(e => e.id)));
+      if (fullList) {
+        const all = await loadEveryPage(listEvents);
+        if (!request.isCurrent()) return;
+        setEvents(all);
+      } else {
+        const result = await listEvents({ pageNumber, pageSize });
+        if (!request.isCurrent()) return;
+        if (!acceptPage(result)) return;
+        setEvents(result.objects || []);
+      }
       setError('');
     } catch {
       if (request.isCurrent()) setError(t('Failed to load events.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [acceptPage, requests, pageNumber, pageSize, t]);
+  }, [acceptPage, requests, fullList, pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -121,6 +129,7 @@ export default function Events() {
   function handleSort(field: SortField) {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortDir('asc'); }
+    setPageNumber(1);
   }
 
   function sortIcon(field: SortField) {
@@ -128,13 +137,14 @@ export default function Events() {
     return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
   }
 
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === sorted.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(sorted.map(e => e.id)); }
-  function clearSelection() { setSelected([]); }
+  const shown = useMemo(
+    () => (fullList ? pageOfRows(sorted, pageNumber, pageSize) : { rows: sorted, currentPage: pageNumber, totalPages, totalRecords }),
+    [fullList, sorted, pageNumber, pageSize, totalPages, totalRecords],
+  );
+
+  // Selection: only events the filters show.
+  const visibleIds = useMemo(() => sorted.map(e => e.id), [sorted]);
+  const { selected, setSelected, allSelected, toggleSelect, selectAll, clearSelection } = useVisibleSelection(visibleIds);
 
   // Delete
   function handleDeleteSingle(id: string) {
@@ -208,8 +218,8 @@ export default function Events() {
 
       {events.length > 0 && (
         <>
-          <Pagination pageNumber={pageNumber} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={totalRecords}
+          <Pagination pageNumber={shown.currentPage} pageSize={pageSize} totalPages={shown.totalPages}
+            totalRecords={shown.totalRecords}
             onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
 
           <div className="table-wrap">
@@ -240,20 +250,20 @@ export default function Events() {
                 <tr className="column-filter-row">
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.eventType} onChange={e => setColFilters(f => ({ ...f, eventType: e.target.value }))} placeholder={t('Filter...')} /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.entityType} onChange={e => setColFilters(f => ({ ...f, entityType: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.eventType} onChange={e => { setColFilters(f => ({ ...f, eventType: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.entityType} onChange={e => { setColFilters(f => ({ ...f, entityType: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.message} onChange={e => setColFilters(f => ({ ...f, message: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.message} onChange={e => { setColFilters(f => ({ ...f, message: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(evt => {
+                {shown.rows.map(evt => {
                   const entRoute = entityRoute(evt.entityId);
                   return (
                     <tr key={evt.id} className="clickable" onClick={() => setViewRecord(evt as unknown as Record<string, unknown>)}>

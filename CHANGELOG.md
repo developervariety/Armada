@@ -150,6 +150,11 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard Events, Signals and Merge Queue column filters:** a column filter or a
+  column sort covers every record, not only the loaded page. While one is active the
+  page reads every record under its server filters and filters, sorts and pages them
+  in the browser, as the Missions page does; without one it reads one server page.
+  Missions and these three pages keep the selection to the rows their filters show.
 - **Dashboard table selection:** a table's selection holds only rows its current
   search and filters show. Select-all takes the filtered rows; a row that a filter
   hides or a refresh no longer returns leaves the selection, so "Delete Selected"

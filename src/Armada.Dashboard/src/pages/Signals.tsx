@@ -19,7 +19,8 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
-import { retainSelection } from '../lib/selection';
+import { useVisibleSelection } from '../lib/useVisibleSelection';
+import { loadEveryPage, pageOfRows } from '../lib/fullList';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -61,8 +62,6 @@ export default function Signals() {
   const [sortField, setSortField] = useState<string>('');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
 
   // Modals
   const [showSendModal, setShowSendModal] = useState(false);
@@ -79,6 +78,11 @@ export default function Signals() {
   }, [captains, t]);
 
   // Only the newest load writes the list and prunes the selection against it.
+  // The server orders signals by time. A column filter or a column sort runs in the browser, so while one is active
+  // the page reads every signal under the server filters and filters, sorts and pages them here.
+  const hasColumnFilter = Boolean(colFilters.type || colFilters.from || colFilters.to || colFilters.payload);
+  const fullList = hasColumnFilter || sortField !== '';
+
   const requests = useLatestRequest();
   const load = useCallback(async () => {
     const request = requests.begin();
@@ -89,18 +93,23 @@ export default function Signals() {
       if (filterType) filters.signalType = filterType;
       if (filterToCaptain) filters.toCaptainId = filterToCaptain;
       if (filterUnreadOnly) filters.unreadOnly = 'true';
-      const result = await listSignals({ pageNumber: page, pageSize, filters });
-      if (!request.isCurrent()) return;
-      if (!acceptPage(result)) return;
-      setSignals(result.objects || []);
-      setTotalMs(result.totalMs || 0);
-      setSelected(prev => retainSelection(prev, (result.objects || []).map(s => s.id)));
+      if (fullList) {
+        const all = await loadEveryPage(listSignals, filters);
+        if (!request.isCurrent()) return;
+        setSignals(all);
+      } else {
+        const result = await listSignals({ pageNumber: page, pageSize, filters });
+        if (!request.isCurrent()) return;
+        if (!acceptPage(result)) return;
+        setSignals(result.objects || []);
+        setTotalMs(result.totalMs || 0);
+      }
     } catch {
       if (request.isCurrent()) setError(t('Failed to load signals.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, page, pageSize, filterType, filterToCaptain, filterUnreadOnly, acceptPage, t]);
+  }, [requests, fullList, page, pageSize, filterType, filterToCaptain, filterUnreadOnly, acceptPage, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -140,6 +149,7 @@ export default function Signals() {
       setSortField(field);
       setSortDir('asc');
     }
+    setPage(1);
   }
 
   function sortIcon(field: string) {
@@ -147,12 +157,14 @@ export default function Signals() {
     return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
   }
 
-  // Selection
-  function toggleSelection(id: string) {
-    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  }
-  function selectAll() { setSelected(sorted.map(s => s.id)); }
-  function clearSelection() { setSelected([]); }
+  const shown = useMemo(
+    () => (fullList ? pageOfRows(sorted, page, pageSize) : { rows: sorted, currentPage: page, totalPages, totalRecords }),
+    [fullList, sorted, page, pageSize, totalPages, totalRecords],
+  );
+
+  // Selection: only signals the filters show.
+  const visibleIds = useMemo(() => sorted.map(s => s.id), [sorted]);
+  const { selected, setSelected, allSelected, toggleSelect: toggleSelection, selectAll, clearSelection } = useVisibleSelection(visibleIds);
 
   // Actions
   async function handleSend(e: React.FormEvent) {
@@ -256,7 +268,7 @@ export default function Signals() {
       {/* Pagination */}
       {totalPages > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Pagination pageNumber={page} totalPages={totalPages} totalRecords={totalRecords} totalMs={totalMs}
+          <Pagination pageNumber={shown.currentPage} totalPages={shown.totalPages} totalRecords={shown.totalRecords} totalMs={fullList ? undefined : totalMs}
             pageSize={pageSize} onPageChange={setPage} onPageSizeChange={handlePageSizeChange} />
           <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
           <RefreshButton onRefresh={load} title={t('Refresh signals')} />
@@ -264,13 +276,14 @@ export default function Signals() {
       )}
 
       {/* Table */}
-      {sorted.length > 0 ? (
+      {/* The table stays while a column filter is set, so its filter inputs stay reachable. */}
+      {sorted.length > 0 || hasColumnFilter ? (
         <div style={{ overflowX: 'auto' }}>
           <table className="table">
             <thead>
               <tr>
                 <th style={{ width: 32 }}>
-                  <input type="checkbox" checked={selected.length > 0 && selected.length === sorted.length} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all signals')} style={{ width: 'auto' }} />
+                  <input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all signals')} style={{ width: 'auto' }} />
                 </th>
                 <th style={{ cursor: 'pointer' }} onClick={() => handleSort('id')}>{t('ID')}{sortIcon('id')}</th>
                 <th style={{ cursor: 'pointer' }} onClick={() => handleSort('type')}>{t('Type')}{sortIcon('type')}</th>
@@ -284,17 +297,17 @@ export default function Signals() {
               <tr>
                 <td />
                 <td />
-                <td><input type="text" placeholder={t('Filter...')} value={colFilters.type} onChange={e => setColFilters({ ...colFilters, type: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
-                <td><input type="text" placeholder={t('Filter...')} value={colFilters.from} onChange={e => setColFilters({ ...colFilters, from: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
-                <td><input type="text" placeholder={t('Filter...')} value={colFilters.to} onChange={e => setColFilters({ ...colFilters, to: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.type} onChange={e => { setColFilters(f => ({ ...f, type: e.target.value })); setPage(1); }} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.from} onChange={e => { setColFilters(f => ({ ...f, from: e.target.value })); setPage(1); }} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.to} onChange={e => { setColFilters(f => ({ ...f, to: e.target.value })); setPage(1); }} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
                 <td />
-                <td><input type="text" placeholder={t('Filter...')} value={colFilters.payload} onChange={e => setColFilters({ ...colFilters, payload: e.target.value })} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
+                <td><input type="text" placeholder={t('Filter...')} value={colFilters.payload} onChange={e => { setColFilters(f => ({ ...f, payload: e.target.value })); setPage(1); }} style={{ padding: '2px 6px', fontSize: 11, width: '100%' }} /></td>
                 <td />
                 <td />
               </tr>
             </thead>
             <tbody>
-              {sorted.map(sig => (
+              {shown.rows.map(sig => (
                 <tr key={sig.id} className="clickable" onClick={() => setViewRecord(sig as unknown as Record<string, unknown>)}>
                   <td onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.includes(sig.id)} onChange={() => toggleSelection(sig.id)} style={{ width: 'auto' }} /></td>
                   <td className="mono table-id-cell" style={{ color: 'var(--primary)' }}>

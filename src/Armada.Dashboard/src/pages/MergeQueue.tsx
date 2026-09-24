@@ -29,7 +29,8 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
-import { retainSelection } from '../lib/selection';
+import { useVisibleSelection } from '../lib/useVisibleSelection';
+import { loadEveryPage, pageOfRows } from '../lib/fullList';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { MERGE_STATUSES, mergeDeleteOutcome } from '../lib/mergeQueueOutcome';
@@ -71,9 +72,6 @@ export default function MergeQueue() {
   // Log viewer
   const [logModal, setLogModal] = useState<{ open: boolean; title: string; missionId: string; content: string; totalLines: number; lineCount: number }>({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 });
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
   // Sorting
   const [sortField, setSortField] = useState<SortField>('createdUtc');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -89,6 +87,12 @@ export default function MergeQueue() {
     return v?.name || id.substring(0, 8);
   }, [vessels]);
 
+  // The server orders entries by creation time and filters by status. A branch, target or vessel column filter or any
+  // other order runs in the browser, so while one is active the page reads every entry under the status filter and
+  // filters, sorts and pages them here.
+  const fullList = Boolean(colFilters.branchName || colFilters.targetBranch || colFilters.vesselId)
+    || sortField !== 'createdUtc' || sortDir !== 'desc';
+
   const requests = useLatestRequest();
   const load = useCallback(async () => {
     const request = requests.begin();
@@ -96,18 +100,23 @@ export default function MergeQueue() {
       setLoading(true);
       const filters: Record<string, string> = {};
       if (statusFilter) filters.status = statusFilter;
-      const result = await listMergeQueue({ pageNumber, pageSize, filters });
-      if (!request.isCurrent()) return;
-      if (!acceptPage(result)) return;
-      setEntries(result.objects || []);
-      setSelected(prev => retainSelection(prev, (result.objects || []).map(e => e.id)));
+      if (fullList) {
+        const all = await loadEveryPage(listMergeQueue, filters);
+        if (!request.isCurrent()) return;
+        setEntries(all);
+      } else {
+        const result = await listMergeQueue({ pageNumber, pageSize, filters });
+        if (!request.isCurrent()) return;
+        if (!acceptPage(result)) return;
+        setEntries(result.objects || []);
+      }
       setError('');
     } catch {
       if (request.isCurrent()) setError(t('Failed to load merge queue.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [acceptPage, requests, pageNumber, pageSize, statusFilter, t]);
+  }, [acceptPage, requests, fullList, pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -148,6 +157,7 @@ export default function MergeQueue() {
   function handleSort(field: SortField) {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortDir('asc'); }
+    setPageNumber(1);
   }
 
   function sortIcon(field: SortField) {
@@ -155,13 +165,14 @@ export default function MergeQueue() {
     return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
   }
 
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === sorted.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(sorted.map(e => e.id)); }
-  function clearSelection() { setSelected([]); }
+  const shown = useMemo(
+    () => (fullList ? pageOfRows(sorted, pageNumber, pageSize) : { rows: sorted, currentPage: pageNumber, totalPages, totalRecords }),
+    [fullList, sorted, pageNumber, pageSize, totalPages, totalRecords],
+  );
+
+  // Selection: only entries the filters show.
+  const visibleIds = useMemo(() => sorted.map(e => e.id), [sorted]);
+  const { selected, setSelected, allSelected, toggleSelect, selectAll, clearSelection } = useVisibleSelection(visibleIds);
 
   // Enqueue
   async function handleEnqueue(e: React.FormEvent) {
@@ -402,8 +413,8 @@ export default function MergeQueue() {
       {/* Keep the table while a status filter is set, so its filter control stays reachable. */}
       {(entries.length > 0 || statusFilter) && (
         <>
-          <Pagination pageNumber={pageNumber} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={totalRecords}
+          <Pagination pageNumber={shown.currentPage} pageSize={pageSize} totalPages={shown.totalPages}
+            totalRecords={shown.totalRecords}
             onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
 
           <div className="table-wrap">
@@ -433,8 +444,8 @@ export default function MergeQueue() {
                 <tr className="column-filter-row">
                   <td></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder={t('Filter...')} /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.targetBranch} onChange={e => setColFilters(f => ({ ...f, targetBranch: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => { setColFilters(f => ({ ...f, branchName: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.targetBranch} onChange={e => { setColFilters(f => ({ ...f, targetBranch: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
                   <td>
                     <select className="col-filter" title={t('Filter by status')} value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }}>
                       <option value="">{t('All Statuses')}</option>
@@ -444,7 +455,7 @@ export default function MergeQueue() {
                   <td></td>
                   <td></td>
                   <td>
-                    <select className="col-filter" title={t('Filter by vessel')} value={colFilters.vesselId} onChange={e => { setColFilters(f => ({ ...f, vesselId: e.target.value })); }}>
+                    <select className="col-filter" title={t('Filter by vessel')} value={colFilters.vesselId} onChange={e => { setColFilters(f => ({ ...f, vesselId: e.target.value })); setPageNumber(1); }}>
                       <option value="">{t('All Vessels')}</option>
                       {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                     </select>
@@ -453,7 +464,7 @@ export default function MergeQueue() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(entry => (
+                {shown.rows.map(entry => (
                   <tr key={entry.id} className="clickable" onClick={() => setViewRecord(entry as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(entry.id)} onChange={() => toggleSelect(entry.id)} title={t('Select this entry')} />

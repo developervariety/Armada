@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { retainSelection } from './selection';
+import { useMemo, useState } from 'react';
+import { useVisibleSelection } from './useVisibleSelection';
 
 export type SortDir = 'asc' | 'desc';
 
@@ -45,7 +45,6 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
   const [sortDir, setSortDir] = useState<SortDir>(initialSortDir);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);
-  const [storedSelection, setSelected] = useState<string[]>([]);
 
   function setColFilter(key: string, value: string) {
     setColFiltersState((current) => ({ ...current, [key]: value }));
@@ -111,25 +110,9 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
     return sortDir === 'asc' ? ' ▲' : ' ▼';
   }
 
-  // The selection holds only rows the current search and filters show: select-all takes the filtered rows, and a
-  // row that a filter hides or a reload no longer returns leaves the selection, so a bulk action never reaches a
-  // row that is not on the list. A row shown again later is not selected again.
+  // The selection holds only rows the current search and filters show (see useVisibleSelection).
   const visibleIds = useMemo(() => filtered.map(getId), [filtered]);
-  const selected = useMemo(() => retainSelection(storedSelection, visibleIds), [storedSelection, visibleIds]);
-  useEffect(() => {
-    setSelected((prev) => retainSelection(prev, visibleIds));
-  }, [visibleIds]);
-
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  }
-  function selectAll() {
-    setSelected(filtered.map(getId));
-  }
-  function clearSelection() {
-    setSelected([]);
-  }
+  const { selected, setSelected, allSelected, toggleSelect, selectAll, clearSelection } = useVisibleSelection(visibleIds);
 
   return {
     search,
