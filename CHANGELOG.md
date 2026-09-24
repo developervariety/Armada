@@ -219,6 +219,9 @@ upstream integrations and excludes changes already present at that baseline.
   shell commands), and gives the readers a bounded drain window after exit or kill,
   so a background child holding a pipe cannot hang the call. `run_command`,
   merge-queue git and test commands, and self-deploy native commands use it.
+  Containment limits are documented and pinned by a KnownGap test: on Linux and
+  macOS a descendant that starts its own session and leaves the live tree escapes
+  both the group and the tree kill; on Windows only the live tree is killed.
 - **Git processes:** every admiral git command (GitService, pinned anchors, code
   index, workspace, branch writes, readiness, vessel routes, dock seeding and hook
   lookup, landing ref reads, ref audit, disk cleanup, check checkouts, the Slop
@@ -331,10 +334,16 @@ upstream integrations and excludes changes already present at that baseline.
   output while reading instead of after a whole line. `edit_file` and `multi_edit`
   refuse empty search text, observe cancellation, and list at most 20 candidate
   lines; each `multi_edit` step must be unique in the content earlier steps produced.
-- **Agent process identity:** runtime stop and liveness act only on the process the
-  admiral launched, verified by its recorded start time, and dispose the handles
-  they open. Stop sends no shutdown request: a 3-second grace period, then a tree
-  kill. A cancelled launch starts nothing, and a launch that fails after start
+- **Agent process identity:** every stop, kill and liveness path for a local agent
+  process (runtime stop and liveness, the captain health check, orphaned-mission
+  recovery, the liveness heartbeat, autonomous recovery, planning-session cleanup)
+  goes through one identity-checked lookup that disposes its handle. A live
+  process whose start time differs from the recorded launch, or is later than the
+  mission's launch, is a reused PID: it reads as gone and is never killed
+  (`process_identifier_reused`). A live process with no recorded launch in the
+  current admiral process, or an unreadable start time, reads as running but is
+  never killed (`process_identity_unverified`). Stop sends no shutdown request: a
+  3-second grace period, then a tree kill. A cancelled launch starts nothing, and a launch that fails after start
   kills its child. Gemini, Cursor, and Mux keep JSON error events in the mission log.
 - **Launch and test races:** the liveness heartbeat reads its cancellation token
   before it registers the loop, so a process exit that stops the heartbeat while a

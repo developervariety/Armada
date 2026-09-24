@@ -3,6 +3,7 @@ namespace Armada.Runtimes
     using System.Diagnostics;
     using System.Text;
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -411,10 +412,12 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Stop an agent process. No shutdown request is sent: the process gets <see cref="StopGracePeriodMs"/> to
-        /// exit on its own, and its process tree is then killed. Only the process this runtime launched with the
-        /// identifier is acted on; a live process whose start time differs from the recorded launch holds a
-        /// reused identifier and is left alone. A synthetic process registered with a stop operation, such as a
-        /// Harbor job, is stopped through that operation.
+        /// exit on its own, and its process tree is then killed. Only a process verified as the one this admiral
+        /// process launched with the identifier is acted on. A live process whose start time differs from the
+        /// recorded launch holds a reused identifier, and a live process with no recorded launch (one started before
+        /// the admiral process restarted) cannot be told from an unrelated process that reused the identifier; both
+        /// are left alone and the refusal is logged with its reason. A synthetic process registered with a stop
+        /// operation, such as a Harbor job, is stopped through that operation.
         /// </summary>
         /// <param name="processId">Process ID to stop.</param>
         /// <param name="token">Cancellation token.</param>
@@ -440,16 +443,28 @@ namespace Armada.Runtimes
 
             try
             {
-                using (Process? process = ProcessSupervisor.OpenLaunchedProcess(processId, out bool identityVerified))
+                using (Process? process = ProcessSupervisor.OpenLaunchedProcess(processId, null, out LaunchedProcessIdentityEnum identity))
                 {
-                    if (process == null)
+                    if (identity == LaunchedProcessIdentityEnum.Reused)
                     {
-                        _Logging.Debug(_Header + "process " + processId + " is not running as the launched agent; nothing to stop");
+                        _Logging.Warn(_Header + "stop refused for process " + processId + ": process_identifier_reused"
+                            + " (a live process holds the identifier but started at a different time from the recorded launch)");
                         return;
                     }
 
-                    if (!identityVerified)
-                        _Logging.Warn(_Header + "process " + processId + " has no recorded launch in this admiral process; stopping it by identifier alone");
+                    if (process == null)
+                    {
+                        _Logging.Debug(_Header + "process " + processId + " is not running; nothing to stop");
+                        return;
+                    }
+
+                    if (identity != LaunchedProcessIdentityEnum.Verified)
+                    {
+                        _Logging.Warn(_Header + "stop refused for process " + processId + ": process_identity_unverified"
+                            + " (no launch is recorded for the identifier in this admiral process, or its start time is unreadable,"
+                            + " so it cannot be told from an unrelated process that reused the identifier)");
+                        return;
+                    }
 
                     // A handle from Process.GetProcessById does not own the agent's redirected streams, so no
                     // shutdown request can be delivered through it. The stop is an exit wait followed by a kill.
@@ -496,7 +511,8 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Check if the launched agent process is still running. A live process whose start time differs from the
-        /// launch recorded for the identifier is a reused identifier and is not running. A registered synthetic
+        /// launch recorded for the identifier is a reused identifier and is not running; a live process with no
+        /// recorded launch cannot be proved gone, so it reads as running. A registered synthetic
         /// process, such as a Harbor job, is running while its registration lasts.
         /// </summary>
         /// <param name="processId">Process ID to check.</param>
@@ -512,10 +528,7 @@ namespace Armada.Runtimes
             if (processId <= 0) return Task.FromResult(false);
 
             // A live process whose start time differs from the recorded launch holds a reused identifier.
-            using (Process? process = ProcessSupervisor.OpenLaunchedProcess(processId, out bool identityVerified))
-            {
-                return Task.FromResult(process != null);
-            }
+            return Task.FromResult(ProcessSupervisor.IsTrackedProcessAlive(processId));
         }
 
         #endregion

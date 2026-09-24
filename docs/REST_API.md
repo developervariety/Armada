@@ -2208,9 +2208,14 @@ active planning session and a Refining captain through its active objective
 refinement session; the response names the stopped session. Any other captain
 has its agent process stopped and is recalled to Idle, which fails its active
 mission. No shutdown request is sent: the agent process gets a 3-second grace
-period to exit, then its process tree is killed. Only the process the admiral
-launched is acted on: a live process whose start time differs from the recorded
-launch holds a reused process ID and is left running.
+period to exit, then its process tree is killed. Only a process verified as the
+one the admiral launched is killed: a live process whose start time differs from
+the recorded launch holds a reused process ID and is left running
+(`process_identifier_reused` in the admiral log). A live process with no launch
+recorded in the current admiral process (one launched before the admiral
+restarted), or whose start time cannot be read, cannot be told from an unrelated
+process that reused the ID, so it is also left running and the refusal is logged
+as `process_identity_unverified`.
 
 **Path Parameters:**
 | Parameter | Description |

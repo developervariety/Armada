@@ -120,6 +120,71 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A timeout kills a background child after its shell has already exited when the run owns a process group", async () =>
+            {
+                if (SkipOnWindows("A timeout kills a background child after its shell has already exited when the run owns a process group")) return;
+                if (BoundedProcessRunner.GroupLauncher == null)
+                {
+                    SkipTest("A timeout kills a background child after its shell has already exited when the run owns a process group", "No setsid or perl on this host.");
+                    return;
+                }
+
+                string pidFile = TempFile();
+                try
+                {
+                    // The shell exits at once; the child holds the output pipe, so the run times out with no live
+                    // parent left to walk a tree from. Only the process group still names the child.
+                    BoundedProcessRequest request = new BoundedProcessRequest(Shell("sleep 30 & echo $! > '" + pidFile + "'; echo parent-done"), TimeSpan.FromSeconds(1))
+                    {
+                        OwnProcessGroup = true,
+                        WaitForOutputClose = true
+                    };
+                    BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request);
+                    AssertTrue(result.TimedOut, "the held pipe keeps the run open until the timeout");
+                    bool gone = await ProcessGoneAsync(ReadPid(pidFile));
+                    if (!gone) KillPid(pidFile);
+                    AssertTrue(gone, "the child must not survive its exited shell");
+                }
+                finally
+                {
+                    Cleanup(pidFile);
+                }
+            });
+
+            await RunTest("KnownGap: a descendant that starts its own session and leaves the tree survives a group kill", async () =>
+            {
+                const string name = "KnownGap: a descendant that starts its own session and leaves the tree survives a group kill";
+                if (SkipOnWindows(name)) return;
+                if (BoundedProcessRunner.GroupLauncher == null || !OnPath("perl"))
+                {
+                    SkipTest(name, "No process-group launcher or no perl to start a new session on this host.");
+                    return;
+                }
+
+                string pidFile = TempFile();
+                try
+                {
+                    // The subshell exits at once, so the grandchild is re-parented out of the live tree, and it calls
+                    // setsid, so it leaves the run's process group as well. Neither kill can name it. This pins the
+                    // documented containment limit; a change that contains it must flip this assertion.
+                    string escape = "(perl -e 'use POSIX (); POSIX::setsid(); exec \"sleep\", \"30\"' >/dev/null 2>&1 & echo $! > '" + pidFile + "'); sleep 60";
+                    BoundedProcessRequest request = new BoundedProcessRequest(Shell(escape), TimeSpan.FromMilliseconds(1500))
+                    {
+                        OwnProcessGroup = true
+                    };
+                    BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request);
+                    AssertTrue(result.TimedOut, "timed out");
+                    int escaped = ReadPid(pidFile);
+                    await Task.Delay(500);
+                    AssertTrue(IsAlive(escaped), "a descendant in its own session outside the tree is not contained");
+                }
+                finally
+                {
+                    KillPid(pidFile);
+                    Cleanup(pidFile);
+                }
+            });
+
             await RunTest("A background child holding the output pipe after exit cannot hang the run", async () =>
             {
                 if (SkipOnWindows("A background child holding the output pipe after exit cannot hang the run")) return;
@@ -231,6 +296,16 @@ namespace Armada.Test.Unit.Suites.Services
             if (!OperatingSystem.IsWindows()) return false;
             SkipTest(name, "The fixture uses a POSIX shell.");
             return true;
+        }
+
+        private static bool OnPath(string name)
+        {
+            string path = Environment.GetEnvironmentVariable("PATH") ?? String.Empty;
+            foreach (string directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (File.Exists(Path.Combine(directory, name))) return true;
+            }
+            return false;
         }
 
         private static ProcessStartInfo Shell(string script)

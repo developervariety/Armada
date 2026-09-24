@@ -5,6 +5,7 @@ namespace Armada.Core
     using System.Diagnostics;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// Cross-platform helpers for supervising launched agent processes. Uses only the .NET
@@ -97,54 +98,34 @@ namespace Armada.Core
         }
 
         /// <summary>
-        /// Determine whether the process with the given identifier is alive AND is plausibly the
-        /// originally-launched process rather than a recycled PID. When <paramref name="launchedBeforeUtc"/>
-        /// is supplied, a process whose start time is meaningfully later than the launch reference is
-        /// treated as a different (recycled) process and reported as not alive, so stale captains are
-        /// not left running because the OS reused their PID after a crash.
+        /// Determine whether the process with the given identifier is alive AND is not a recycled PID. The check goes
+        /// through <see cref="OpenLaunchedProcess(int, DateTime?, out LaunchedProcessIdentityEnum)"/>: a live process
+        /// whose start time differs from the launch recorded for the identifier, or is meaningfully later than
+        /// <paramref name="launchedBeforeUtc"/>, is a different process and reads as not alive, so a stale captain is
+        /// not kept Working because the OS reused its PID. A live process whose identity cannot be verified reads as
+        /// alive.
         /// </summary>
         /// <param name="processId">OS process identifier.</param>
-        /// <param name="launchedBeforeUtc">Approximate time the tracked process was launched (e.g. the mission start time), or null to skip identity verification.</param>
-        /// <returns>True if the process exists, has not exited, and matches the launch reference.</returns>
+        /// <param name="launchedBeforeUtc">Approximate time the tracked process was launched (e.g. the mission start time), or null.</param>
+        /// <returns>True if the process exists, has not exited, and is not a reused identifier.</returns>
         public static bool IsTrackedProcessAlive(int processId, DateTime? launchedBeforeUtc = null)
         {
             if (_SyntheticProcesses.ContainsKey(processId)) return true;
-            try
-            {
-                using Process process = Process.GetProcessById(processId);
-                if (process.HasExited) return false;
+            LaunchedProcessIdentityEnum identity = ProbeLaunchedProcess(processId, launchedBeforeUtc);
+            return identity == LaunchedProcessIdentityEnum.Verified || identity == LaunchedProcessIdentityEnum.Unverified;
+        }
 
-                if (launchedBeforeUtc.HasValue)
-                {
-                    DateTime startUtc;
-                    try
-                    {
-                        startUtc = process.StartTime.ToUniversalTime();
-                    }
-                    catch
-                    {
-                        // Start time can be unavailable on some platforms or due to permissions;
-                        // fall back to treating the live process as the tracked one.
-                        return true;
-                    }
-
-                    if (startUtc > launchedBeforeUtc.Value.Add(_StartTimeTolerance))
-                    {
-                        // Started after the tracked process was launched -> a recycled PID.
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-            catch (ArgumentException)
+        /// <summary>
+        /// Classify what holds a recorded agent process identifier now, without keeping a handle.
+        /// </summary>
+        /// <param name="processId">OS process identifier.</param>
+        /// <param name="launchedBeforeUtc">Approximate launch time of the tracked process, or null.</param>
+        /// <returns>Whether a live process holds the identifier and whether it is the launched one.</returns>
+        public static LaunchedProcessIdentityEnum ProbeLaunchedProcess(int processId, DateTime? launchedBeforeUtc = null)
+        {
+            using (Process? process = OpenLaunchedProcess(processId, launchedBeforeUtc, out LaunchedProcessIdentityEnum identity))
             {
-                // No process with that identifier is running.
-                return false;
-            }
-            catch
-            {
-                return false;
+                return identity;
             }
         }
 
@@ -162,18 +143,23 @@ namespace Armada.Core
         }
 
         /// <summary>
-        /// Open a live process by identifier only when it is the process a runtime launched with that identifier.
-        /// When a launch was recorded for the identifier, the live process must have the recorded start time; a
-        /// different start time means the operating system reused the identifier, and nothing is returned. When no
-        /// launch was recorded (for example a process launched before this admiral process started), the live
-        /// process is returned with <paramref name="identityVerified"/> false.
+        /// The one identity-checked lookup of a recorded agent process identifier; every stop, kill and liveness path
+        /// for a local agent process goes through it. A live process is returned only when it is not provably a
+        /// different process: when a launch was recorded for the identifier, its start time must match the recorded
+        /// one (<see cref="LaunchedProcessIdentityEnum.Verified"/>); when none was recorded (for example a process
+        /// launched before this admiral process started) or its start time cannot be read, it is returned as
+        /// <see cref="LaunchedProcessIdentityEnum.Unverified"/>. A start time that differs from the recorded launch,
+        /// or is later than <paramref name="launchedBeforeUtc"/> plus a tolerance, marks a reused identifier
+        /// (<see cref="LaunchedProcessIdentityEnum.Reused"/>) and nothing is returned. Only a verified process may be
+        /// killed.
         /// </summary>
         /// <param name="processId">OS process identifier.</param>
-        /// <param name="identityVerified">True when the returned process matched a recorded launch.</param>
-        /// <returns>The live process, which the caller disposes, or null when none matches.</returns>
-        public static Process? OpenLaunchedProcess(int processId, out bool identityVerified)
+        /// <param name="launchedBeforeUtc">Approximate launch time of the tracked process, or null.</param>
+        /// <param name="identity">What holds the identifier.</param>
+        /// <returns>The live process, which the caller disposes, or null when none is running or it is a reused identifier.</returns>
+        public static Process? OpenLaunchedProcess(int processId, DateTime? launchedBeforeUtc, out LaunchedProcessIdentityEnum identity)
         {
-            identityVerified = false;
+            identity = LaunchedProcessIdentityEnum.NotRunning;
             if (processId <= 0) return null;
 
             Process process;
@@ -195,32 +181,49 @@ namespace Armada.Core
             try
             {
                 if (process.HasExited) return null;
-                if (!_LaunchedProcesses.TryGetValue(processId, out DateTime recordedStartUtc))
-                {
-                    keep = true;
-                    return process;
-                }
 
                 DateTime observedStartUtc;
                 try
                 {
                     observedStartUtc = process.StartTime.ToUniversalTime();
                 }
-                catch (Exception ex) when (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception || ex is NotSupportedException)
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception || ex is NotSupportedException)
                 {
-                    // A recorded launch whose live candidate cannot be identified is not acted on.
+                    // Start time can be unavailable on some platforms or due to permissions: nothing proves which
+                    // process this is.
+                    identity = LaunchedProcessIdentityEnum.Unverified;
+                    keep = true;
+                    return process;
+                }
+
+                if (_LaunchedProcesses.TryGetValue(processId, out DateTime recordedStartUtc))
+                {
+                    if ((observedStartUtc - recordedStartUtc).Duration() > _LaunchIdentityTolerance)
+                    {
+                        identity = LaunchedProcessIdentityEnum.Reused;
+                        return null;
+                    }
+
+                    identity = LaunchedProcessIdentityEnum.Verified;
+                    keep = true;
+                    return process;
+                }
+
+                if (launchedBeforeUtc.HasValue && observedStartUtc > launchedBeforeUtc.Value.Add(_StartTimeTolerance))
+                {
+                    // Started after the tracked process was launched: a recycled PID.
+                    identity = LaunchedProcessIdentityEnum.Reused;
                     return null;
                 }
 
-                if ((observedStartUtc - recordedStartUtc).Duration() > _LaunchIdentityTolerance) return null;
-
-                identityVerified = true;
+                identity = LaunchedProcessIdentityEnum.Unverified;
                 keep = true;
                 return process;
             }
             catch (InvalidOperationException)
             {
                 // The process exited while it was being inspected.
+                identity = LaunchedProcessIdentityEnum.NotRunning;
                 return null;
             }
             finally

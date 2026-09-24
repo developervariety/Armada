@@ -191,11 +191,40 @@ namespace Armada.Test.Runtimes.Suites
                         Armada.Core.ProcessSupervisor.RecordLaunchedProcess(stranger.Id, actualStartUtc.AddHours(-1));
 
                         AssertFalse(await runtime.IsRunningAsync(stranger.Id), "a reused identifier does not read as the launched agent");
+                        AssertFalse(Armada.Core.ProcessSupervisor.IsTrackedProcessAlive(stranger.Id), "the health checks' liveness lookup does not read a reused identifier as alive");
                         await runtime.StopAsync(stranger.Id);
                         AssertFalse(stranger.WaitForExit(500), "stop must not kill a process that is not the recorded launch");
 
                         Armada.Core.ProcessSupervisor.RecordLaunchedProcess(stranger.Id, actualStartUtc);
                         AssertTrue(await runtime.IsRunningAsync(stranger.Id), "the recorded launch reads as running");
+                        AssertTrue(Armada.Core.ProcessSupervisor.IsTrackedProcessAlive(stranger.Id), "the health checks read the recorded launch as alive");
+                        await runtime.StopAsync(stranger.Id);
+                        AssertTrue(stranger.WaitForExit(5000), "stop kills the process whose start time matches the recorded launch");
+                    }
+                    finally
+                    {
+                        try { stranger.Kill(); } catch (InvalidOperationException) { }
+                    }
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("Stop Leaves Alone A Live Process With No Recorded Launch", "the stand-in process is a POSIX sleep");
+            }
+            else await RunTest("Stop Leaves Alone A Live Process With No Recorded Launch", async () =>
+            {
+                // Nothing proves this process is one the runtime launched (the record is lost when the admiral
+                // process restarts), so a stop must not kill it; it still reads as running.
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                using (Process stranger = Process.Start(new ProcessStartInfo("sleep", "30") { UseShellExecute = false })!)
+                {
+                    try
+                    {
+                        AssertEqual(Armada.Core.Enums.LaunchedProcessIdentityEnum.Unverified, Armada.Core.ProcessSupervisor.ProbeLaunchedProcess(stranger.Id), "a live process with no recorded launch is unverified");
+                        AssertTrue(await runtime.IsRunningAsync(stranger.Id), "an unverified process reads as running");
+                        await runtime.StopAsync(stranger.Id);
+                        AssertFalse(stranger.WaitForExit(500), "stop must not kill a process whose launch identity is unknown");
                     }
                     finally
                     {

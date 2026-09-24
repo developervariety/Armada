@@ -703,16 +703,8 @@ namespace Armada.Server
 
                     if (session.Status == PlanningSessionStatusEnum.Responding && session.ProcessId.HasValue)
                     {
-                        bool running = false;
-                        try
-                        {
-                            Process process = Process.GetProcessById(session.ProcessId.Value);
-                            running = !process.HasExited;
-                        }
-                        catch
-                        {
-                            running = false;
-                        }
+                        // The shared identity-checked lookup: a reused identifier is not the planning agent.
+                        bool running = ProcessSupervisor.IsTrackedProcessAlive(session.ProcessId.Value);
 
                         if (running)
                         {

@@ -1957,29 +1957,44 @@ namespace Armada.Core.Services
 
             bool isAlive = false;
             int exitCode = -1;
+            bool processGone = false;
             if (ProcessSupervisor.IsTrackedProcessAlive(processId.Value))
             {
                 isAlive = true;
             }
+            else if (ProcessSupervisor.ProbeLaunchedProcess(processId.Value) == LaunchedProcessIdentityEnum.Reused)
+            {
+                // A live process holds the identifier but is not the launched agent: the agent is gone.
+                _Logging.Warn(_Header + "captain " + captain.Id + " process " + processId
+                    + " identifier is held by an unrelated process (process_identifier_reused); treating the agent as gone");
+                processGone = true;
+            }
             else try
             {
-                System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(processId.Value);
-                if (process.HasExited)
+                using (System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(processId.Value))
                 {
-                    isAlive = false;
-                    try { exitCode = process.ExitCode; }
-                    catch (Exception exitCodeEx)
+                    if (process.HasExited)
                     {
-                        _Logging.Warn(_Header + "exit code of exited process " + processId + " for captain " + captain.Id
-                            + " is unreadable; recording -1: " + exitCodeEx.Message);
+                        isAlive = false;
+                        try { exitCode = process.ExitCode; }
+                        catch (Exception exitCodeEx)
+                        {
+                            _Logging.Warn(_Header + "exit code of exited process " + processId + " for captain " + captain.Id
+                                + " is unreadable; recording -1: " + exitCodeEx.Message);
+                        }
                     }
-                }
-                else
-                {
-                    isAlive = true;
+                    else
+                    {
+                        isAlive = true;
+                    }
                 }
             }
             catch (ArgumentException)
+            {
+                processGone = true;
+            }
+
+            if (processGone)
             {
                 // Process no longer exists in process table.
                 // Check if the process exit callback already fired — if so, the async
@@ -2589,16 +2604,8 @@ namespace Armada.Core.Services
                     bool processAlive = false;
                     if (mission.ProcessId.HasValue)
                     {
+                        // The shared identity-checked lookup: a reused identifier does not keep the mission alive.
                         processAlive = ProcessSupervisor.IsTrackedProcessAlive(mission.ProcessId.Value);
-                        if (!processAlive) try
-                        {
-                            System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(mission.ProcessId.Value);
-                            processAlive = !process.HasExited;
-                        }
-                        catch (ArgumentException)
-                        {
-                            // Process no longer exists
-                        }
                     }
 
                     if (!processAlive)
