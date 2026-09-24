@@ -38,6 +38,21 @@ namespace Armada.Core.Settings
             set => _WindowMinutes = Math.Max(1, Math.Min(1440, value));
         }
 
+        /// <summary>
+        /// Copy every value from another instance into this one. The crash-loop tracker holds a
+        /// reference to this object, so a settings reload mutates it in place rather than replacing
+        /// it; a replaced object would leave the tracker counting against the old window and threshold.
+        /// </summary>
+        /// <param name="source">Instance to copy values from. Null is ignored.</param>
+        public void CopyFrom(CrashLoopDetectionSettings source)
+        {
+            if (source == null) return;
+            Enabled = source.Enabled;
+            FailureThreshold = source.FailureThreshold;
+            CooldownSeconds = source.CooldownSeconds;
+            WindowMinutes = source.WindowMinutes;
+        }
+
         private int _FailureThreshold = 3;
         private int _CooldownSeconds = 300;
         private int _WindowMinutes = 10;

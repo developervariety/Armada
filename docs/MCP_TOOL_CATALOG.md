@@ -586,7 +586,12 @@ and merge-queue worktrees, temp artifacts, backups) plus reclaimable counts.
 when `diskLifecycle.enabled` is true and `diskLifecycle.dryRun` is false,
 deletes eligible items. Lease reconciliation takes each lease's lock, drops a
 holder whose dock is inactive at once, and drops a holder whose dock record is
-missing only after `diskLifecycle.staleLeaseGraceHours` (default 24). Reclamation fails closed: only paths under the allowed
+missing only after `diskLifecycle.staleLeaseGraceHours` (default 24). Only one
+pass runs at a time: a scan or reconcile started while the health loop's pass is
+running waits for it, then scans what that pass left. A folder that cannot be
+listed is not read as empty: the report's `ErrorCount` counts it and `Errors`
+names the path and the error (the recorded `disk_lifecycle.*` event carries both),
+so a category with an error has incomplete totals. Reclamation fails closed: only paths under the allowed
 roots, not symlinks, past their grace period, and not referenced by active
 docks, missions, or merge-queue entries are ever touched. Docker image and
 build-cache pruning stays an explicit host-side operator action

@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.IO;
     using System.Linq;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -280,6 +281,82 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An unreadable folder is reported by name, not as nothing to reclaim", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Layout layout = CreateLayout();
+                    string missionLogs = Path.Combine(layout.Settings.LogDirectory, "missions");
+                    try
+                    {
+                        Directory.CreateDirectory(missionLogs);
+                        File.WriteAllText(Path.Combine(missionLogs, "msn_hidden.log"), "log");
+                        File.SetUnixFileMode(missionLogs, UnixFileMode.None);
+                        DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+
+                        DiskLifecycleReport report = await service.ScanAsync().ConfigureAwait(false);
+
+                        AssertTrue(report.ErrorCount >= 1, "an unreadable mission-log folder must be counted as an error");
+                        AssertTrue(report.Errors.Any(e => e.Contains(missionLogs, StringComparison.Ordinal)),
+                            "the error must name the unreadable folder; got: " + String.Join(" | ", report.Errors));
+                        ArmadaEvent? recorded = (await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.scan", 5).ConfigureAwait(false)).FirstOrDefault();
+                        AssertNotNull(recorded, "the scan records its report event");
+                        AssertContains(missionLogs, recorded!.Payload ?? String.Empty, "the recorded report must carry the error");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(missionLogs))
+                            File.SetUnixFileMode(missionLogs, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                        Cleanup(layout);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Two passes started together run one after the other, never at once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Layout layout = CreateLayout();
+                    try
+                    {
+                        DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                        int active = 0;
+                        int maximumActive = 0;
+                        int started = 0;
+                        TaskCompletionSource<bool> firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        TaskCompletionSource<bool> releaseFirst = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        service.OnPassStarted = async token =>
+                        {
+                            int now = Interlocked.Increment(ref active);
+                            lock (firstStarted) { maximumActive = Math.Max(maximumActive, now); }
+                            if (Interlocked.Increment(ref started) == 1)
+                            {
+                                firstStarted.TrySetResult(true);
+                                await releaseFirst.Task.ConfigureAwait(false);
+                            }
+                            Interlocked.Decrement(ref active);
+                        };
+
+                        Task<DiskLifecycleReport> operatorPass = service.ReconcileAsync();
+                        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        Task<DiskLifecycleReport> loopPass = service.ReconcileAsync();
+                        await Task.Delay(200).ConfigureAwait(false);
+                        AssertEqual(1, Volatile.Read(ref started), "the second pass must wait while the first is running");
+
+                        releaseFirst.TrySetResult(true);
+                        await Task.WhenAll(operatorPass, loopPass).WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+
+                        AssertEqual(2, started, "both passes run");
+                        AssertEqual(1, maximumActive, "passes never overlap");
+                    }
+                    finally
+                    {
+                        Cleanup(layout);
+                    }
                 }
             }).ConfigureAwait(false);
 

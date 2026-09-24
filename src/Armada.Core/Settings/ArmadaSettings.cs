@@ -1150,6 +1150,10 @@ namespace Armada.Core.Settings
             BranchCleanupSweepIntervalCycles = source.BranchCleanupSweepIntervalCycles;
             BranchCleanupPreservedRefRetentionDays = source.BranchCleanupPreservedRefRetentionDays;
 
+            // Code index: only the staleness-sweep cadence reloads, because the health loop reads it on
+            // every cycle. The rest of the section configures clients built at startup and needs a restart.
+            CodeIndex.StalenessSweepIntervalCycles = source.CodeIndex.StalenessSweepIntervalCycles;
+
             // The admission gate is constructed with a reference to this nested object,
             // so it must be mutated in place or the running gate keeps the old limits.
             ResourcePressureAdmission.CopyFrom(source.ResourcePressureAdmission);
@@ -1177,11 +1181,14 @@ namespace Armada.Core.Settings
             foreach (BannedDiffPatternRule rule in source.BannedDiffPatterns)
                 if (rule != null) patterns.Add(rule.Clone());
             BannedDiffPatterns = patterns;
-            CrashLoopDetection = source.CrashLoopDetection;
+            // The crash-loop tracker and the definition-of-done gate are constructed with a reference to
+            // these sections, so both are copied in place: a replaced object would leave them reading
+            // the startup values while the admiral reads the reloaded ones.
+            CrashLoopDetection.CopyFrom(source.CrashLoopDetection);
             AutonomousObjectiveScheduler = source.AutonomousObjectiveScheduler;
             IncidentLifecycle = source.IncidentLifecycle;
             DockBoundary = source.DockBoundary;
-            DefinitionOfDone = source.DefinitionOfDone;
+            DefinitionOfDone.CopyFrom(source.DefinitionOfDone);
             VoyageCheckArming = source.VoyageCheckArming;
             DiskLifecycle = source.DiskLifecycle;
             Architect = source.Architect;

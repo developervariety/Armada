@@ -128,6 +128,32 @@ namespace Armada.Core.Settings
 
         #endregion
 
+        #region Public-Methods
+
+        /// <summary>
+        /// Copy every value from another instance into this one. The definition-of-done gate holds a
+        /// reference to this object, so a settings reload mutates it in place rather than replacing
+        /// it; a replaced object would leave the running gate reading the old values until restart.
+        /// </summary>
+        /// <param name="source">Instance to copy values from. Null is ignored.</param>
+        public void CopyFrom(DefinitionOfDoneSettings source)
+        {
+            if (source == null) return;
+            Enabled = source.Enabled;
+            AppliedPersonas = new List<string>(source.AppliedPersonas ?? new List<string>());
+            DocOnlyMarker = source.DocOnlyMarker;
+            RunRestoreBeforeBuild = source.RunRestoreBeforeBuild;
+            CommandTimeoutSeconds = source.CommandTimeoutSeconds;
+            OutputTailLines = source.OutputTailLines;
+            DiagnosticLines = source.DiagnosticLines;
+            VerifyDeclaredConsumers = source.VerifyDeclaredConsumers;
+            FailOnConsumerVerificationError = source.FailOnConsumerVerificationError;
+            RunConsumerTests = source.RunConsumerTests;
+            ConsumerTestTriggerPaths = new List<string>(source.ConsumerTestTriggerPaths ?? new List<string>());
+        }
+
+        #endregion
+
         #region Private-Members
 
         private string _DocOnlyMarker = "[DOD:DOC-ONLY]";

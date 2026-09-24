@@ -96,6 +96,41 @@ namespace Armada.Test.Unit.Suites.Services
             return mission;
         }
 
+        private sealed class RecordingEscalationService : IEscalationService
+        {
+            public int Evaluations { get; private set; }
+
+            public Task EvaluateAsync(CancellationToken token = default)
+            {
+                Evaluations++;
+                return Task.CompletedTask;
+            }
+
+            public Task FireAsync(EscalationTriggerEnum trigger, string entityId, string message, CancellationToken token = default)
+            {
+                return Task.CompletedTask;
+            }
+        }
+
+        /// <summary>Quarantine service whose expired-quarantine restore throws on every call.</summary>
+        private sealed class ThrowingRestoreQuarantineService : ICaptainQuarantineService
+        {
+            private readonly ICaptainQuarantineService _Inner;
+
+            public ThrowingRestoreQuarantineService(ICaptainQuarantineService inner)
+            {
+                _Inner = inner;
+            }
+
+            public bool IsQuarantined(Captain captain) => _Inner.IsQuarantined(captain);
+            public Task QuarantineAsync(Captain captain, string reason, DateTime? retryAfterUtc, CancellationToken token = default) => _Inner.QuarantineAsync(captain, reason, retryAfterUtc, token);
+            public Task<bool> TryQuarantineCrashLoopAsync(string captainId, string reason, DateTime untilUtc, CancellationToken token = default) => _Inner.TryQuarantineCrashLoopAsync(captainId, reason, untilUtc, token);
+            public Task<CaptainQuarantineResult> QuarantineCaptainAsync(AuthContext auth, string captainId, string? reason, DateTime? untilUtc, CancellationToken token = default) => _Inner.QuarantineCaptainAsync(auth, captainId, reason, untilUtc, token);
+            public Task<CaptainQuarantineResult> ReleaseCaptainAsync(AuthContext auth, string captainId, CancellationToken token = default) => _Inner.ReleaseCaptainAsync(auth, captainId, token);
+            public Task RestoreExpiredQuarantinesAsync(CancellationToken token = default) => throw new InvalidOperationException("unreadable quarantine row");
+            public Task<bool> TryProbeRestoreAsync(Captain captain, CancellationToken token = default) => _Inner.TryProbeRestoreAsync(captain, token);
+        }
+
         private sealed class CrashLoopExcludedFailureCase
         {
             public CrashLoopExcludedFailureCase(string name, string logText, bool benchesCaptain)
@@ -1096,6 +1131,38 @@ namespace Armada.Test.Unit.Suites.Services
                     AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
 
                     await service.HealthCheckAsync();
+                }
+            });
+
+            await RunTest("HealthCheckAsync a step that throws does not stop the steps after it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, db, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    RecordingEscalationService escalation = new RecordingEscalationService();
+                    AdmiralService service = new AdmiralService(logging, db, settings, captainService, missionService,
+                        new VoyageService(logging, db), dockService,
+                        escalation: escalation,
+                        captainQuarantine: new ThrowingRestoreQuarantineService(new CaptainQuarantineService(db, settings, logging)),
+                        git: git);
+                    int mergeReconciles = 0;
+                    service.OnReconcileMergeEntries = () => { mergeReconciles++; return Task.FromResult(0); };
+
+                    // The first step throws on every cycle, as a poison row would.
+                    await service.HealthCheckAsync();
+                    await service.HealthCheckAsync();
+
+                    AssertEqual(2, mergeReconciles, "the merge-entry reconciliation later in the chain must run on each cycle");
+                    AssertEqual(2, escalation.Evaluations, "escalation, the last step, must run on each cycle");
+                    AssertTrue(service.HealthCheckStepFailures.TryGetValue("quarantine restore", out long failures),
+                        "the failing step must be counted by name");
+                    AssertEqual(2L, failures, "each failure of the step must be counted");
                 }
             });
 

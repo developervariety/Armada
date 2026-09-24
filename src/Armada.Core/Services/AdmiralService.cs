@@ -99,6 +99,9 @@ namespace Armada.Core.Services
         private IResourcePressureAdmission _ResourcePressureAdmission;
         private readonly FleetCapacityAdmission _FleetCapacityAdmission;
         private readonly CaptainCrashLoopTracker _CrashLoopTracker;
+        private readonly List<HealthLoopMaintenanceStep> _HealthCheckSteps;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _HealthCheckStepFailures =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, long>(StringComparer.Ordinal);
         private readonly DispatchHold? _DispatchHold;
 
         /// <inheritdoc />
@@ -210,6 +213,7 @@ namespace Armada.Core.Services
                 ?? new FleetCapacityAdmission(_Database, _Settings, _Logging);
             _CrashLoopTracker = new CaptainCrashLoopTracker(_Settings.CrashLoopDetection);
             _IntentionalStops = intentionalStops ?? new IntentionalProcessStops();
+            _HealthCheckSteps = BuildHealthCheckSteps();
         }
 
         #endregion
@@ -326,6 +330,7 @@ namespace Armada.Core.Services
             await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
 
+            await VoyageDispatchedEvent.EmitAsync(_Database, _Logging, voyage, vessel.Id, missionDescriptions.Count).ConfigureAwait(false);
             return voyage;
             }
             catch
@@ -517,6 +522,7 @@ namespace Armada.Core.Services
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
             await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip, token).ConfigureAwait(false);
 
+            await VoyageDispatchedEvent.EmitAsync(_Database, _Logging, voyage, vessel.Id, missionDescriptions.Count).ConfigureAwait(false);
             return voyage;
             }
             catch
@@ -698,6 +704,7 @@ namespace Armada.Core.Services
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
             await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip, token).ConfigureAwait(false);
 
+            await VoyageDispatchedEvent.EmitAsync(_Database, _Logging, voyage, vessel.Id, missionDescriptions.Count).ConfigureAwait(false);
             return voyage;
             }
             catch
@@ -1455,88 +1462,28 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Failure count per health-check step name since the admiral started. A step that throws is
+        /// logged and counted here, and the steps after it still run in the same cycle.
+        /// </summary>
+        public IReadOnlyDictionary<string, long> HealthCheckStepFailures
+        {
+            get => new Dictionary<string, long>(_HealthCheckStepFailures, StringComparer.Ordinal);
+        }
+
         /// <inheritdoc />
+        /// <remarks>
+        /// Each sub-step runs in isolation: one that throws is logged and counted by name, and the
+        /// steps after it (dispatch, captain pool, voyage completion, escalation) still run. Only
+        /// cancellation stops the cycle.
+        /// </remarks>
         public async Task HealthCheckAsync(CancellationToken token = default)
         {
-            await _CaptainQuarantine.RestoreExpiredQuarantinesAsync(token).ConfigureAwait(false);
-
-            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
-
-            if (workingCaptains.Count > 0)
-            {
-                _Logging.Info(_Header + "starting parallel health checks for " + workingCaptains.Count + " working captain(s)");
-
-                List<Task> healthCheckTasks = workingCaptains.Select(captain =>
-                    Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await HealthCheckCaptainAsync(captain, token).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            _Logging.Warn(_Header + "error processing health check for captain " + captain.Id + ": " + ex.Message);
-                        }
-                    }, token)).ToList();
-
-                await Task.WhenAll(healthCheckTasks).ConfigureAwait(false);
-
-                _Logging.Info(_Header + "completed parallel health checks for " + workingCaptains.Count + " working captain(s)");
-            }
-
-            // Safety net: detect orphaned InProgress missions whose captain has moved on.
-            // This catches any mission that was left InProgress due to a captain being
-            // reassigned before the health check could detect the old process exit.
-            await RecoverOrphanedMissionsAsync(token).ConfigureAwait(false);
-            await RecoverStageWatchdogMissionsAsync(token).ConfigureAwait(false);
-
-            // Check for completed voyages
-            List<Voyage> completedVoyages = await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
-            if (OnVoyageComplete != null)
-            {
-                foreach (Voyage completedVoyage in completedVoyages)
-                {
-                    try { await OnVoyageComplete.Invoke(completedVoyage).ConfigureAwait(false); }
-                    catch (Exception ex) { _Logging.Warn(_Header + "error in OnVoyageComplete callback: " + ex.Message); }
-                }
-            }
-
-            // Reconcile PullRequestOpen missions — check if their PRs have been merged
-            await ReconcilePullRequestMissionsAsync(token).ConfigureAwait(false);
-
-            // PR-fallback merge-entry reconciliation: after the mission reconciler above
-            // flips a mission to Complete, the linked merge entry still sits in
-            // PullRequestOpen. The merge-queue reconciler walks those and lands the entry
-            // so subsequent cleanup (CleanupLandedBranchesAsync) can prune the captain
-            // branch per Vessel.BranchCleanupPolicy.
-            if (OnReconcileMergeEntries != null)
-            {
-                try { await OnReconcileMergeEntries.Invoke().ConfigureAwait(false); }
-                catch (Exception ex) { _Logging.Warn(_Header + "error in OnReconcileMergeEntries callback: " + ex.Message); }
-            }
-
-            // Audit-queue depth notification: when the count of AuditDeepPicked entries
-            // pending review crosses the configured threshold AND the debounce window has
-            // expired, ping the human via the existing NotificationService. Judge's
-            // suggested-follow-ups wiring is the primary feeder of this queue.
-            await MaybeNotifyAuditQueueDepthAsync(token).ConfigureAwait(false);
-
-            // Reclaim docks stuck in Provisioned state with no active captain
-            await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false);
-
-            await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
-
-            // Captain pool management: auto-spawn if below minimum idle count
-            if (_Settings.MinIdleCaptains > 0)
-            {
-                await MaintainCaptainPoolAsync(token).ConfigureAwait(false);
-            }
-
-            // Evaluate escalation rules
-            if (_Escalation != null)
-            {
-                await _Escalation.EvaluateAsync(token).ConfigureAwait(false);
-            }
+            await HealthLoopMaintenanceRunner.RunDueStepsAsync(
+                1,
+                _HealthCheckSteps,
+                RecordHealthCheckStepFailure,
+                token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -2283,6 +2230,115 @@ namespace Armada.Core.Services
             }
 
             return waiting;
+        }
+
+        private List<HealthLoopMaintenanceStep> BuildHealthCheckSteps()
+        {
+            return new List<HealthLoopMaintenanceStep>
+            {
+                HealthLoopMaintenanceStep.EveryCycles("quarantine restore", () => 1,
+                    async token => await _CaptainQuarantine.RestoreExpiredQuarantinesAsync(token).ConfigureAwait(false)),
+
+                HealthLoopMaintenanceStep.EveryCycles("working captain health checks", () => 1,
+                    async token => await HealthCheckWorkingCaptainsAsync(token).ConfigureAwait(false)),
+
+                // Safety net: detect orphaned InProgress missions whose captain has moved on.
+                // This catches any mission that was left InProgress due to a captain being
+                // reassigned before the health check could detect the old process exit.
+                HealthLoopMaintenanceStep.EveryCycles("orphaned mission recovery", () => 1,
+                    async token => await RecoverOrphanedMissionsAsync(token).ConfigureAwait(false)),
+
+                HealthLoopMaintenanceStep.EveryCycles("stage watchdog recovery", () => 1,
+                    async token => await RecoverStageWatchdogMissionsAsync(token).ConfigureAwait(false)),
+
+                HealthLoopMaintenanceStep.EveryCycles("voyage completion check", () => 1,
+                    async token => await CheckVoyageCompletionsAsync(token).ConfigureAwait(false)),
+
+                // Reconcile PullRequestOpen missions: check whether their PRs have been merged.
+                HealthLoopMaintenanceStep.EveryCycles("pull request reconciliation", () => 1,
+                    async token => await ReconcilePullRequestMissionsAsync(token).ConfigureAwait(false)),
+
+                // PR-fallback merge-entry reconciliation: after the mission reconciler above
+                // flips a mission to Complete, the linked merge entry still sits in
+                // PullRequestOpen. The merge-queue reconciler walks those and lands the entry
+                // so subsequent cleanup (CleanupLandedBranchesAsync) can prune the captain
+                // branch per Vessel.BranchCleanupPolicy.
+                HealthLoopMaintenanceStep.EveryCycles("merge entry reconciliation", () => 1, async token =>
+                {
+                    if (OnReconcileMergeEntries != null)
+                        await OnReconcileMergeEntries.Invoke().ConfigureAwait(false);
+                }),
+
+                // Audit-queue depth notification: when the count of AuditDeepPicked entries
+                // pending review crosses the configured threshold AND the debounce window has
+                // expired, ping the human via the existing NotificationService. Judge's
+                // suggested-follow-ups wiring is the primary feeder of this queue.
+                HealthLoopMaintenanceStep.EveryCycles("audit queue depth notification", () => 1,
+                    async token => await MaybeNotifyAuditQueueDepthAsync(token).ConfigureAwait(false)),
+
+                // Reclaim docks stuck in Provisioned state with no active captain.
+                HealthLoopMaintenanceStep.EveryCycles("orphaned dock reclaim", () => 1,
+                    async token => await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false)),
+
+                HealthLoopMaintenanceStep.EveryCycles("pending mission dispatch", () => 1,
+                    async token => await DispatchPendingMissionsAsync(token).ConfigureAwait(false)),
+
+                // Captain pool management: auto-spawn if below minimum idle count.
+                HealthLoopMaintenanceStep.EveryCycles("captain pool maintenance", () => 1, async token =>
+                {
+                    if (_Settings.MinIdleCaptains > 0)
+                        await MaintainCaptainPoolAsync(token).ConfigureAwait(false);
+                }),
+
+                HealthLoopMaintenanceStep.EveryCycles("escalation evaluation", () => 1, async token =>
+                {
+                    if (_Escalation != null)
+                        await _Escalation.EvaluateAsync(token).ConfigureAwait(false);
+                })
+            };
+        }
+
+        private void RecordHealthCheckStepFailure(string stepName, Exception ex)
+        {
+            long failures = _HealthCheckStepFailures.AddOrUpdate(stepName, 1, (name, count) => count + 1);
+            _Logging.Warn(_Header + "health check step " + stepName + " failed (" + failures + " failure"
+                + (failures == 1 ? "" : "s") + " since start): " + ex.GetType().Name + ": " + ex.Message);
+        }
+
+        private async Task HealthCheckWorkingCaptainsAsync(CancellationToken token)
+        {
+            List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+            if (workingCaptains.Count == 0) return;
+
+            _Logging.Info(_Header + "starting parallel health checks for " + workingCaptains.Count + " working captain(s)");
+
+            List<Task> healthCheckTasks = workingCaptains.Select(captain =>
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HealthCheckCaptainAsync(captain, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error processing health check for captain " + captain.Id + ": " + ex.Message);
+                    }
+                }, token)).ToList();
+
+            await Task.WhenAll(healthCheckTasks).ConfigureAwait(false);
+
+            _Logging.Info(_Header + "completed parallel health checks for " + workingCaptains.Count + " working captain(s)");
+        }
+
+        private async Task CheckVoyageCompletionsAsync(CancellationToken token)
+        {
+            List<Voyage> completedVoyages = await _Voyages.CheckCompletionsAsync(token).ConfigureAwait(false);
+            if (OnVoyageComplete == null) return;
+            foreach (Voyage completedVoyage in completedVoyages)
+            {
+                try { await OnVoyageComplete.Invoke(completedVoyage).ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "error in OnVoyageComplete callback: " + ex.Message); }
+            }
         }
 
         /// <summary>

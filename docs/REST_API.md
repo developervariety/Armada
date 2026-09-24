@@ -954,7 +954,11 @@ Re-reads the settings file this server is bound to (the file it loaded at startu
 runtime-tunable values in place, without a restart. The settings-file watcher uses the same reload path, so an edit
 picked up by the watcher and a manual reload read the same file and accept the same content. The file is validated
 as a candidate first, with the same checks as `PUT /api/v1/settings`. Ports, paths, database, API key, agent
-definitions and remote-control settings are not reloaded and still require a restart.
+definitions and remote-control settings are not reloaded and still require a restart. A section that a running
+service holds is updated in place: the crash-loop tracker reads the reloaded `crashLoopDetection` window and
+threshold, and the definition-of-done gate reads the reloaded `definitionOfDone` values, including `enabled`, on its
+next evaluation. Of `codeIndex`, only `stalenessSweepIntervalCycles` reloads; the rest of that section needs a
+restart.
 
 **Permission:** AdminOnly
 
@@ -4427,6 +4431,7 @@ A recorded event representing a state change in the system.
 - `captain.stopped` - Captain agent process stopped
 - `captain.stalled` - Captain detected as stalled
 - `voyage.created` - Voyage was created
+- `voyage.dispatched` - A dispatch created the voyage and all of its missions
 - `voyage.completed` - All missions in voyage completed
 - `voyage.deleted` - Voyage permanently deleted
 

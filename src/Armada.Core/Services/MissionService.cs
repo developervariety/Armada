@@ -2320,9 +2320,12 @@ namespace Armada.Core.Services
             // nothing. Skip the gate with a named reason. A read-only mission that did commit, and every
             // Implementation mission, keeps the gate unchanged. When either commit cannot be read the
             // gate runs, because a skip must rest on proof that nothing was committed.
+            // The gate exists for the process lifetime and reads its settings live. While it is off, the
+            // pre-gate skips below do not apply; the gate itself records its own "disabled" skip.
+            bool dodGateEnabled = _DefinitionOfDoneGate != null && _DefinitionOfDoneGate.IsEnabled;
             bool dodSkippedForReadOnlyNoCommit = false;
             if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
-                && _DefinitionOfDoneGate != null && mission.IsReadOnlyMode)
+                && dodGateEnabled && mission.IsReadOnlyMode)
             {
                 string? readOnlyNoCommitDetail = await DescribeReadOnlyNoCommitAsync(dock, token).ConfigureAwait(false);
                 if (readOnlyNoCommitDetail != null)
@@ -2339,7 +2342,7 @@ namespace Armada.Core.Services
             }
 
             if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
-                && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
+                && dodGateEnabled && !dodGateHasWorkToVerify)
             {
                 await AppendMissionActivityAsync(
                     mission.Id,

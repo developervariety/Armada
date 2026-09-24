@@ -101,6 +101,41 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("ArmadaSettings ApplyHotReloadableFrom keeps sections held by reference and copies their values", () =>
+            {
+                // The crash-loop tracker and the definition-of-done gate hold these sections by reference, so a
+                // reload must change the values inside the same objects rather than swap the objects.
+                ArmadaSettings live = new ArmadaSettings();
+                CrashLoopDetectionSettings crashLoop = live.CrashLoopDetection;
+                DefinitionOfDoneSettings dod = live.DefinitionOfDone;
+                ArmadaSettings edited = new ArmadaSettings();
+                edited.CrashLoopDetection.Enabled = false;
+                edited.CrashLoopDetection.FailureThreshold = 7;
+                edited.CrashLoopDetection.CooldownSeconds = 90;
+                edited.CrashLoopDetection.WindowMinutes = 30;
+                edited.DefinitionOfDone.Enabled = false;
+                edited.DefinitionOfDone.CommandTimeoutSeconds = 120;
+                edited.DefinitionOfDone.AppliedPersonas = new List<string> { "Worker", "TestEngineer" };
+                edited.DefinitionOfDone.RunConsumerTests = false;
+                edited.CodeIndex.StalenessSweepIntervalCycles = 20;
+
+                live.ApplyHotReloadableFrom(edited);
+
+                AssertTrue(Object.ReferenceEquals(crashLoop, live.CrashLoopDetection), "the crash-loop section object must survive a reload");
+                AssertTrue(Object.ReferenceEquals(dod, live.DefinitionOfDone), "the definition-of-done section object must survive a reload");
+                AssertFalse(crashLoop.Enabled, "crash-loop Enabled is reloaded");
+                AssertEqual(7, crashLoop.FailureThreshold, "crash-loop threshold is reloaded");
+                AssertEqual(90, crashLoop.CooldownSeconds, "crash-loop cooldown is reloaded");
+                AssertEqual(30, crashLoop.WindowMinutes, "crash-loop window is reloaded");
+                AssertFalse(dod.Enabled, "definition-of-done Enabled is reloaded");
+                AssertEqual(120, dod.CommandTimeoutSeconds, "definition-of-done timeout is reloaded");
+                AssertTrue(dod.AppliedPersonas.SequenceEqual(new[] { "Worker", "TestEngineer" }), "definition-of-done personas are reloaded");
+                AssertFalse(Object.ReferenceEquals(dod.AppliedPersonas, edited.DefinitionOfDone.AppliedPersonas), "the persona list is copied, not shared");
+                AssertFalse(dod.RunConsumerTests, "definition-of-done consumer tests switch is reloaded");
+                AssertEqual(20, live.CodeIndex.StalenessSweepIntervalCycles, "the code index staleness cadence is reloaded");
+                return Task.CompletedTask;
+            });
+
             await RunTest("ArmadaSettings LoadAsync NonExistentFile ReturnsDefaults", async () =>
             {
                 ArmadaSettings settings = await ArmadaSettings.LoadAsync("/nonexistent/path/settings.json");

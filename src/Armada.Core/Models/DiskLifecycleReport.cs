@@ -60,6 +60,18 @@ namespace Armada.Core.Models
         /// </summary>
         public List<DiskLifecycleAction> Actions { get; set; } = new List<DiskLifecycleAction>();
 
+        /// <summary>
+        /// Number of failures in this pass, such as a folder that could not be listed. A category whose
+        /// folder could not be read reports zero bytes, so a non-zero count means the totals are incomplete.
+        /// </summary>
+        public int ErrorCount { get; set; } = 0;
+
+        /// <summary>
+        /// Failure messages naming the path and the error. Capped to keep the payload bounded;
+        /// <see cref="ErrorCount"/> carries the full count.
+        /// </summary>
+        public List<string> Errors { get; set; } = new List<string>();
+
         #endregion
     }
 }

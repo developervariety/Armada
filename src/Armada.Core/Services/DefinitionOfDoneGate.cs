@@ -33,6 +33,15 @@ namespace Armada.Core.Services
         /// </summary>
         public const string ReadOnlyNoCommitSkipReason = "read_only_no_commit";
 
+        /// <summary>
+        /// Whether the gate is on. Read from the live settings section on every call, so a settings
+        /// reload turns the gate on or off without a restart.
+        /// </summary>
+        public bool IsEnabled
+        {
+            get => _Settings.Enabled;
+        }
+
         #endregion
 
         #region Private-Members

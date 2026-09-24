@@ -92,6 +92,21 @@ upstream integrations and excludes changes already present at that baseline.
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.
+- **Health loop isolation:** each admiral health-check sub-step and each of the four
+  background sweep triggers runs as its own isolated step. A step that throws is
+  logged and counted by name, and dispatch, the captain pool, voyage completion,
+  escalation and every sweep still run in the same cycle.
+- **Coordination board fleet notes:** `[fleet]` notes for mirrored event types come
+  from the event store itself, so admiral, mission-service and landing events reach
+  the board. Voyage dispatch records a `voyage.dispatched` event.
+- **Settings reload:** `crashLoopDetection` and `definitionOfDone` reload in place,
+  so the crash-loop tracker and the definition-of-done gate use the new values
+  without a restart. The gate is always constructed and records a "disabled" skip
+  while off. `codeIndex.stalenessSweepIntervalCycles` and the model-endpoint health
+  interval also follow a reload.
+- **Disk lifecycle:** passes never overlap; a second pass waits for the running one.
+  A folder that cannot be listed is logged and reported by path in the report's
+  `Errors` and `ErrorCount` instead of reading as nothing to reclaim.
 - **Authentication and scope:** REST, MCP, WebSocket, chat, planning, and captain
   launch paths apply caller ownership. Captains receive scoped credentials;
   administrative tools and cross-tenant events remain restricted. Server-owned

@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Services;
     using Armada.Server;
     using Armada.Test.Common;
 
@@ -45,6 +46,30 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(8, ran.Count(r => r == "disk"), "disk reconciliation must run on every multiple of 50");
                 AssertEqual(4, failures, "each data expiry failure must be counted");
                 AssertTrue(failed.Count == 4 && failed.All(n => n == "data expiry"), "only the failing step may be reported, by name");
+            }).ConfigureAwait(false);
+
+            await RunTest("A health check that throws on every cycle still lets every sweep trigger run", async () =>
+            {
+                List<string> triggered = new List<string>();
+                List<string> failed = new List<string>();
+                List<HealthLoopMaintenanceStep> cycleSteps = ArmadaServer.BuildHealthCycleSteps(
+                    t => throw new InvalidOperationException("poison mission row"),
+                    t => triggered.Add("check runs"),
+                    t => triggered.Add("recovery"),
+                    t => triggered.Add("incidents"),
+                    t => triggered.Add("scheduler"));
+
+                int failures = 0;
+                for (int cycle = 1; cycle <= 3; cycle++)
+                {
+                    failures += await HealthLoopMaintenanceRunner.RunDueStepsAsync(
+                        cycle, cycleSteps, (name, ex) => failed.Add(name), CancellationToken.None).ConfigureAwait(false);
+                }
+
+                AssertEqual(3, failures, "the health check failure must be counted on each cycle");
+                AssertTrue(failed.All(n => n == "health check"), "only the failing health check may be reported, by name");
+                foreach (string sweep in new[] { "check runs", "recovery", "incidents", "scheduler" })
+                    AssertEqual(3, triggered.Count(t => t == sweep), "the " + sweep + " sweep must be triggered on every cycle");
             }).ConfigureAwait(false);
 
             await RunTest("A step that is not due does not run", async () =>
@@ -140,6 +165,33 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("The endpoint sweep runner reads the interval after every sweep so a reloaded heartbeat applies", async () =>
+            {
+                TimeSpan interval = TimeSpan.FromHours(1);
+                int sweeps = 0;
+                TaskCompletionSource<bool> reloadedThird = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using (CancellationTokenSource cancellation = new CancellationTokenSource())
+                {
+                    Task loop = ModelEndpointHealthSweepRunner.RunAsync(
+                        token =>
+                        {
+                            int count = Interlocked.Increment(ref sweeps);
+                            // The reload lands during the first sweep, before the first wait is read.
+                            if (count == 1) interval = TimeSpan.FromMilliseconds(10);
+                            if (count == 3) reloadedThird.TrySetResult(true);
+                            return Task.CompletedTask;
+                        },
+                        () => interval,
+                        _ => { },
+                        cancellation.Token);
+
+                    bool reloaded = await Task.WhenAny(reloadedThird.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false) == reloadedThird.Task;
+                    cancellation.Cancel();
+                    await loop.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    AssertTrue(reloaded, "a heartbeat interval shortened by a reload must shorten the next wait without a restart");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("The endpoint sweep runner never overlaps a blocked probe and cancels it cleanly", async () =>
             {
                 TaskCompletionSource<bool> sweepStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -172,7 +224,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 Interlocked.Decrement(ref activeSweeps);
                             }
                         },
-                        TimeSpan.Zero,
+                        () => TimeSpan.Zero,
                         _ => { },
                         cancellation.Token);
 

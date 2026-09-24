@@ -101,7 +101,8 @@ Coordination Board
     |
     +--> Every session posts what it is about to do (claim)
     +--> Every session reads the board before it acts
-    +--> The admiral mirrors voyage and mission events as system notes
+    +--> The admiral posts a [fleet] system note when a voyage is dispatched or
+         cancelled and when a mission completes, fails or is cancelled
     +--> Presence chips show who is active right now
 ```
 

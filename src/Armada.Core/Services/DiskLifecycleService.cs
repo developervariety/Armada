@@ -36,8 +36,11 @@ namespace Armada.Core.Services
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private SiblingLeaseRegistry _Leases;
+        private readonly SemaphoreSlim _PassGate = new SemaphoreSlim(1, 1);
+        private DiskLifecycleReport? _CurrentReport;
 
         private const int _MaxActionRecords = 2000;
+        private const int _MaxErrorRecords = 200;
         private const string _CategoryDocks = "docks";
         private const string _CategoryBareRepos = "bareRepos";
         private const string _CategoryMissionLogs = "missionLogs";
@@ -106,6 +109,11 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Test seam: invoked at the start of every pass while the pass holds the pass gate.
+        /// </summary>
+        internal Func<CancellationToken, Task>? OnPassStarted { get; set; }
+
+        /// <summary>
         /// The lease registry used to protect shared sibling worktrees from reclamation.
         /// </summary>
         public SiblingLeaseRegistry Leases
@@ -119,6 +127,23 @@ namespace Armada.Core.Services
 
         private async Task<DiskLifecycleReport> RunPassAsync(bool deleteWhenEnabled, CancellationToken token)
         {
+            // One pass at a time: the health loop and the operator tool can both start a pass, and two
+            // concurrent passes would reconcile the same leases and remove the same directories. A second
+            // caller waits for the running pass and then scans the result it left behind.
+            await _PassGate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                return await RunPassUnderGateAsync(deleteWhenEnabled, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _CurrentReport = null;
+                _PassGate.Release();
+            }
+        }
+
+        private async Task<DiskLifecycleReport> RunPassUnderGateAsync(bool deleteWhenEnabled, CancellationToken token)
+        {
             DiskLifecycleSettings section = _Settings.DiskLifecycle;
             bool delete = deleteWhenEnabled && section.Enabled && !section.DryRun;
             DiskLifecycleReport report = new DiskLifecycleReport
@@ -127,6 +152,10 @@ namespace Armada.Core.Services
                 DryRun = !delete,
                 ScannedUtc = DateTime.UtcNow
             };
+            _CurrentReport = report;
+
+            if (OnPassStarted != null)
+                await OnPassStarted(token).ConfigureAwait(false);
 
             try
             {
@@ -134,7 +163,7 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "sibling lease reconciliation failed: " + ex.Message);
+                RecordError("sibling lease reconciliation failed: " + ex.Message);
             }
 
             try
@@ -152,7 +181,7 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "disk lifecycle scan failed: " + ex.Message);
+                RecordError("disk lifecycle scan failed: " + ex.Message);
             }
 
             FinalizeReport(report);
@@ -1011,9 +1040,10 @@ namespace Armada.Core.Services
                 {
                     EventType = deleted ? "disk_lifecycle.reconcile" : "disk_lifecycle.scan",
                     EntityType = "system",
-                    Message = deleted
+                    Message = (deleted
                         ? "Disk lifecycle reconciliation " + (report.DryRun ? "dry-run " : "") + "completed: " + report.ReclaimableItems + " reclaimable items, " + FormatBytes(report.TotalReclaimableBytes)
-                        : "Disk lifecycle scan completed: " + report.ReclaimableItems + " reclaimable items, " + FormatBytes(report.TotalReclaimableBytes),
+                        : "Disk lifecycle scan completed: " + report.ReclaimableItems + " reclaimable items, " + FormatBytes(report.TotalReclaimableBytes))
+                        + (report.ErrorCount > 0 ? "; " + report.ErrorCount + " error" + (report.ErrorCount == 1 ? "" : "s") + ", first: " + report.Errors[0] : ""),
                     Payload = JsonSerializer.Serialize(new
                     {
                         dryRun = report.DryRun,
@@ -1023,6 +1053,8 @@ namespace Armada.Core.Services
                         reclaimableItems = report.ReclaimableItems,
                         skippedItems = report.SkippedItems,
                         protectedItems = report.ProtectedItems,
+                        errorCount = report.ErrorCount,
+                        errors = report.Errors,
                         categories = perCategory
                     })
                 };
@@ -1063,6 +1095,19 @@ namespace Armada.Core.Services
                 || status == MergeStatusEnum.Cancelled;
         }
 
+        /// <summary>
+        /// Record a failure of the running pass by name: logged, and carried on the report so an
+        /// unreadable folder never reads as "nothing to reclaim".
+        /// </summary>
+        private void RecordError(string message)
+        {
+            _Logging.Warn(_Header + message);
+            DiskLifecycleReport? report = _CurrentReport;
+            if (report == null) return;
+            report.ErrorCount++;
+            if (report.Errors.Count < _MaxErrorRecords) report.Errors.Add(message);
+        }
+
         private static DateTime SafeGetLastWriteTimeUtc(string path)
         {
             try
@@ -1099,7 +1144,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private static long SafeGetDirectoryBytes(string path)
+        private long SafeGetDirectoryBytes(string path)
         {
             long total = 0;
             foreach (string file in SafeEnumerateFiles(path, "*"))
@@ -1109,7 +1154,7 @@ namespace Armada.Core.Services
             return total;
         }
 
-        private static List<string> SafeEnumerateDirectories(string root)
+        private List<string> SafeEnumerateDirectories(string root)
         {
             List<string> result = new List<string>();
             try
@@ -1119,13 +1164,18 @@ namespace Armada.Core.Services
                     result.Add(dir);
                 }
             }
-            catch (Exception)
+            catch (DirectoryNotFoundException)
             {
+                // A directory removed between listing and reading holds nothing to account for.
+            }
+            catch (Exception ex)
+            {
+                RecordError("cannot list directories in " + root + ": " + ex.GetType().Name + ": " + ex.Message);
             }
             return result;
         }
 
-        private static List<string> SafeEnumerateFiles(string root, string pattern)
+        private List<string> SafeEnumerateFiles(string root, string pattern)
         {
             List<string> result = new List<string>();
             try
@@ -1135,13 +1185,18 @@ namespace Armada.Core.Services
                     result.Add(file);
                 }
             }
-            catch (Exception)
+            catch (DirectoryNotFoundException)
             {
+                // A directory removed between listing and reading holds nothing to account for.
+            }
+            catch (Exception ex)
+            {
+                RecordError("cannot list files in " + root + ": " + ex.GetType().Name + ": " + ex.Message);
             }
             return result;
         }
 
-        private static List<string> SafeEnumerateFileSystemEntries(string root)
+        private List<string> SafeEnumerateFileSystemEntries(string root)
         {
             List<string> result = new List<string>();
             try
@@ -1151,8 +1206,13 @@ namespace Armada.Core.Services
                     result.Add(entry);
                 }
             }
-            catch (Exception)
+            catch (DirectoryNotFoundException)
             {
+                // A directory removed between listing and reading holds nothing to account for.
+            }
+            catch (Exception ex)
+            {
+                RecordError("cannot list entries in " + root + ": " + ex.GetType().Name + ": " + ex.Message);
             }
             return result;
         }

@@ -28,6 +28,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(3, third, "Threshold count must include three distinct failures.");
             });
 
+            RunTest("A settings reload changes the threshold and window the running tracker counts against", () =>
+            {
+                ArmadaSettings live = new ArmadaSettings();
+                live.CrashLoopDetection.FailureThreshold = 5;
+                live.CrashLoopDetection.WindowMinutes = 60;
+                CaptainCrashLoopTracker tracker = new CaptainCrashLoopTracker(live.CrashLoopDetection);
+
+                ArmadaSettings edited = new ArmadaSettings();
+                edited.CrashLoopDetection.FailureThreshold = 2;
+                edited.CrashLoopDetection.WindowMinutes = 1;
+                live.ApplyHotReloadableFrom(edited);
+
+                DateTime now = DateTime.UtcNow;
+                AssertFalse(tracker.Record("cpt_reload", "p1:cpt_reload:m1", now, out int _), "First crash stays below the reloaded threshold.");
+                AssertTrue(tracker.Record("cpt_reload", "p2:cpt_reload:m2", now.AddSeconds(10), out int second),
+                    "The second crash must reach the reloaded threshold of two without a restart.");
+                AssertEqual(2, second, "Both crashes count inside the window.");
+                AssertFalse(tracker.Record("cpt_reload", "p3:cpt_reload:m3", now.AddMinutes(5), out int later),
+                    "A crash five minutes later must fall outside the reloaded one-minute window.");
+                AssertEqual(1, later, "The reloaded window must expire the earlier crashes.");
+            });
+
             RunTest("Duplicate process failure does not advance count", () =>
             {
                 CrashLoopDetectionSettings settings = new CrashLoopDetectionSettings { FailureThreshold = 2 };

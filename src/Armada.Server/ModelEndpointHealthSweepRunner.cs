@@ -9,16 +9,18 @@ namespace Armada.Server
     {
         /// <summary>Run one bounded, serial health sweep until cancellation.</summary>
         /// <param name="sweep">The endpoint sweep.</param>
-        /// <param name="interval">The delay between completed sweeps.</param>
+        /// <param name="interval">The delay between completed sweeps, read after every sweep so a
+        /// hot-reloaded heartbeat interval applies without a restart.</param>
         /// <param name="onFailure">The failure observer.</param>
         /// <param name="token">Cancellation token.</param>
         public static async Task RunAsync(
             Func<CancellationToken, Task> sweep,
-            TimeSpan interval,
+            Func<TimeSpan> interval,
             Action<Exception> onFailure,
             CancellationToken token)
         {
             if (sweep == null) throw new ArgumentNullException(nameof(sweep));
+            if (interval == null) throw new ArgumentNullException(nameof(interval));
             if (onFailure == null) throw new ArgumentNullException(nameof(onFailure));
 
             while (!token.IsCancellationRequested)
@@ -38,7 +40,7 @@ namespace Armada.Server
 
                 try
                 {
-                    await Task.Delay(interval, token).ConfigureAwait(false);
+                    await Task.Delay(interval(), token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {

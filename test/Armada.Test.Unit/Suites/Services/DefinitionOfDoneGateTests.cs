@@ -345,6 +345,31 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A settings reload that turns the gate off or on reaches the running gate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings live = new ArmadaSettings();
+                    live.DefinitionOfDone.Enabled = true;
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(live.DefinitionOfDone, testDb.Driver, CreateLogging());
+                    Mission mission = CreateWorkerMission("ten_reload", "vsl_reload");
+                    Dock dock = new Dock();
+
+                    ArmadaSettings disabled = new ArmadaSettings();
+                    disabled.DefinitionOfDone.Enabled = false;
+                    live.ApplyHotReloadableFrom(disabled);
+                    DefinitionOfDoneResult off = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+                    AssertEqual("DoD gate is disabled", off.SkippedReason, "A reload that disables the gate must skip it without a restart.");
+
+                    ArmadaSettings enabled = new ArmadaSettings();
+                    enabled.DefinitionOfDone.Enabled = true;
+                    live.ApplyHotReloadableFrom(enabled);
+                    DefinitionOfDoneResult on = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+                    AssertNull(on.SkippedReason, "A reload that enables the gate must make it evaluate again.");
+                    AssertEqual("dock-setup", on.CommandLabel, "The enabled gate evaluates the mission and reports the dock without a worktree.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate fails with actionable message when commands are missing", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

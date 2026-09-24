@@ -294,6 +294,22 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Observe every event this driver writes. Every event record, whichever service or route
+        /// produced it, is written through <see cref="Events"/>, so an observer added here sees each
+        /// one once, after it is stored. An observer that throws is reported through
+        /// <paramref name="onFailure"/> and never fails the event write.
+        /// </summary>
+        /// <param name="observer">Called with each stored event.</param>
+        /// <param name="onFailure">Called with the event and the exception when the observer throws.</param>
+        public void AddEventCreatedObserver(Func<Armada.Core.Models.ArmadaEvent, CancellationToken, Task> observer, Action<Armada.Core.Models.ArmadaEvent, Exception> onFailure)
+        {
+            if (observer == null) throw new ArgumentNullException(nameof(observer));
+            if (onFailure == null) throw new ArgumentNullException(nameof(onFailure));
+            if (Events == null) throw new InvalidOperationException("The driver has no event method set to observe.");
+            Events = new ObservedEventMethods(Events, observer, onFailure);
+        }
+
+        /// <summary>
         /// Initialize the database schema and seed data.
         /// </summary>
         public abstract Task InitializeAsync(CancellationToken token = default);

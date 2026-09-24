@@ -541,8 +541,9 @@ namespace Armada.Server
             _Admiral.OnCaptureDiff = _MissionLanding.HandleCaptureDiffAsync;
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
-            if (_Settings.DefinitionOfDone.Enabled)
             {
+                // The gate is always constructed and reads the live settings section, so a settings
+                // reload turns it on or off without a restart; while off, completion treats it as absent.
                 // The git seam enables consumer verification: a passing gate also builds the
                 // vessels that declare this one as a sibling, so a public-API break is caught
                 // while the producer's change is still unlanded.
@@ -738,6 +739,8 @@ namespace Armada.Server
                 _DispatchStalenessAdapter));
 
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
+            // Every stored fleet event of a mirrored type becomes a board note, whichever service wrote it.
+            CoordinationFleetEventMirror.Attach(_Database, _CoordinationService, _Logging);
             _CoordinationService.BoardWakeEmitter = async (participantKey, text, token) =>
             {
                 // participantKey null targets the registered AgentWake session.
@@ -2090,31 +2093,8 @@ namespace Armada.Server
                     }, Armada.Server.WebSocket.WebSocketDeliveryScope.ForOwner(evt.TenantId, evt.UserId));
                 }
 
-                // Mirror selected fleet events onto the coordination board so concurrent
-                // operator sessions see fleet activity in the chatroom.
-                try
-                {
-                    string? note = CoordinationService.BuildSystemNoteContent(
-                        eventType, message, entityType, entityId, voyageId, missionId, vesselId);
-                    if (note != null)
-                    {
-                        await _CoordinationService.PostMessageAsync(
-                            CoordinationService.DefaultRoomKey,
-                            Armada.Core.Enums.CoordinationAuthorTypeEnum.System,
-                            null,
-                            "armada",
-                            note,
-                            voyageId,
-                            missionId,
-                            vesselId,
-                            null,
-                            null).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "failed to mirror event to coordination board: " + ex.Message);
-                }
+                // A mirrored fleet event reaches the coordination board through the event-store
+                // observer attached at startup, like every other producer of that event type.
 
                 await _RemoteTunnel.PublishEventAsync(eventType, new
                 {
@@ -2200,19 +2180,26 @@ namespace Armada.Server
         _Logging.Warn(_Header + "startup disk lifecycle reconciliation error: " + ex.Message);
     }
 
-            // Run an immediate health check on startup to dispatch any pending missions
+            // Run an immediate health check on startup to dispatch any pending missions.
+            List<HealthLoopMaintenanceStep> cycleSteps = BuildHealthCycleSteps(
+                _Admiral.HealthCheckAsync,
+                _AutomaticCheckRuns.TriggerBackgroundSweep,
+                _AutonomousRecovery.TriggerBackgroundSweep,
+                _IncidentLifecycle.TriggerBackgroundSweep,
+                _ObjectiveScheduler.TriggerBackgroundSweep);
             try
             {
-                await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
-                _AutomaticCheckRuns.TriggerBackgroundSweep(token);
-                _AutonomousRecovery.TriggerBackgroundSweep(token);
-                _IncidentLifecycle.TriggerBackgroundSweep(token);
-                _ObjectiveScheduler.TriggerBackgroundSweep(token);
-                _Logging.Info(_Header + "startup health check completed");
+                int startupFailures = await HealthLoopMaintenanceRunner.RunDueStepsAsync(
+                    0,
+                    cycleSteps,
+                    (name, ex) => _Logging.Warn(_Header + "startup " + name + " failed: " + ex.Message),
+                    token).ConfigureAwait(false);
+                _Logging.Info(_Header + "startup health check completed"
+                    + (startupFailures > 0 ? " with " + startupFailures + " failed step(s)" : ""));
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                _Logging.Warn(_Header + "startup health check error: " + ex.Message);
+                return;
             }
 
             List<HealthLoopMaintenanceStep> maintenanceSteps = BuildHealthLoopMaintenanceSteps();
@@ -2222,24 +2209,14 @@ namespace Armada.Server
                 {
                     await Task.Delay(_HealthLoopInterval ?? TimeSpan.FromSeconds(_Settings.HeartbeatIntervalSeconds), token).ConfigureAwait(false);
 
-                    // The health check is isolated from maintenance: a health check that throws on
-                    // every tick must not stop the cycle count, or no periodic step would ever run.
-                    try
-                    {
-                        await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
-                        _AutomaticCheckRuns.TriggerBackgroundSweep(token);
-                        _AutonomousRecovery.TriggerBackgroundSweep(token);
-                        _IncidentLifecycle.TriggerBackgroundSweep(token);
-                        _ObjectiveScheduler.TriggerBackgroundSweep(token);
-                    }
-                    catch (OperationCanceledException) when (token.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _Logging.Warn(_Header + "health check error: " + ex.Message);
-                    }
+                    // The health check and each sweep trigger run as separate isolated steps: one that
+                    // throws on every tick must not stop the other sweeps, the cycle count, or the
+                    // periodic maintenance steps after it.
+                    await HealthLoopMaintenanceRunner.RunDueStepsAsync(
+                        _HealthCheckCycles,
+                        cycleSteps,
+                        (name, ex) => _Logging.Warn(_Header + name + " failed: " + ex.Message),
+                        token).ConfigureAwait(false);
 
                     _HealthCheckCycles++;
                     await HealthLoopMaintenanceRunner.RunDueStepsAsync(
@@ -2257,6 +2234,40 @@ namespace Armada.Server
                     _Logging.Warn(_Header + "health loop error: " + ex.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// The steps every health cycle runs, in order: the admiral health check, then each background
+        /// sweep trigger. Each is its own step, so a health check that throws still lets every sweep
+        /// run in the same cycle.
+        /// </summary>
+        /// <param name="admiralHealthCheck">The admiral health check.</param>
+        /// <param name="checkRunSweep">Automatic check-run sweep trigger.</param>
+        /// <param name="recoverySweep">Autonomous recovery sweep trigger.</param>
+        /// <param name="incidentSweep">Incident lifecycle sweep trigger.</param>
+        /// <param name="schedulerSweep">Objective scheduler sweep trigger.</param>
+        /// <returns>The steps, each due on every cycle.</returns>
+        internal static List<HealthLoopMaintenanceStep> BuildHealthCycleSteps(
+            Func<CancellationToken, Task> admiralHealthCheck,
+            Action<CancellationToken> checkRunSweep,
+            Action<CancellationToken> recoverySweep,
+            Action<CancellationToken> incidentSweep,
+            Action<CancellationToken> schedulerSweep)
+        {
+            if (admiralHealthCheck == null) throw new ArgumentNullException(nameof(admiralHealthCheck));
+            if (checkRunSweep == null) throw new ArgumentNullException(nameof(checkRunSweep));
+            if (recoverySweep == null) throw new ArgumentNullException(nameof(recoverySweep));
+            if (incidentSweep == null) throw new ArgumentNullException(nameof(incidentSweep));
+            if (schedulerSweep == null) throw new ArgumentNullException(nameof(schedulerSweep));
+
+            return new List<HealthLoopMaintenanceStep>
+            {
+                HealthLoopMaintenanceStep.EveryCycles("health check", () => 1, admiralHealthCheck),
+                HealthLoopMaintenanceStep.EveryCycles("check run sweep trigger", () => 1, stepToken => { checkRunSweep(stepToken); return Task.CompletedTask; }),
+                HealthLoopMaintenanceStep.EveryCycles("autonomous recovery sweep trigger", () => 1, stepToken => { recoverySweep(stepToken); return Task.CompletedTask; }),
+                HealthLoopMaintenanceStep.EveryCycles("incident lifecycle sweep trigger", () => 1, stepToken => { incidentSweep(stepToken); return Task.CompletedTask; }),
+                HealthLoopMaintenanceStep.EveryCycles("objective scheduler sweep trigger", () => 1, stepToken => { schedulerSweep(stepToken); return Task.CompletedTask; })
+            };
         }
 
         /// <summary>
@@ -2369,7 +2380,7 @@ namespace Armada.Server
         {
             await ModelEndpointHealthSweepRunner.RunAsync(
                 async sweepToken => await _ModelEndpointService.CheckHealthAllAsync(sweepToken).ConfigureAwait(false),
-                TimeSpan.FromMilliseconds(Math.Max(1, _Settings.HeartbeatIntervalSeconds) * 1000),
+                () => TimeSpan.FromMilliseconds(Math.Max(1, _Settings.HeartbeatIntervalSeconds) * 1000),
                 ex => _Logging.Warn(_Header + "model endpoint health sweep error: " + ex.Message),
                 token).ConfigureAwait(false);
         }

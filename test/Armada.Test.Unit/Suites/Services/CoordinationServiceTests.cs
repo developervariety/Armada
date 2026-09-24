@@ -2,15 +2,24 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
+    using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Microsoft.Data.Sqlite;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
 
     /// <summary>
     /// Tests for the coordination board service: default room provisioning,
@@ -176,22 +185,71 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, result.GetProperty("TruncatedMessageCount").GetInt32());
             }).ConfigureAwait(false);
 
-            await RunTest("BuildSystemNoteContent mirrors only selected event types and appends context", () =>
+            await RunTest("Fleet events written by the admiral reach the board as system notes", async () =>
             {
-                string? dispatched = CoordinationService.BuildSystemNoteContent(
-                    "voyage.dispatched", "Voyage dispatched", null, null, "vyg_example");
-                AssertNotNull(dispatched);
-                AssertContains("[fleet]", dispatched!);
-                AssertContains("vyg_example", dispatched);
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
+                    CoordinationFleetEventMirror.Attach(testDb.Driver, coordination, logging);
 
-                string? failed = CoordinationService.BuildSystemNoteContent(
-                    "mission.failed", "Mission failed", "mission", "msn_example", null, "msn_example");
-                AssertNotNull(failed);
-                AssertContains("msn_example", failed!);
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.StageWatchdogTimeoutMinutes = 5;
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    IMissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
+                        resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captains, missions,
+                        new VoyageService(logging, testDb.Driver), docks, git: git);
 
-                AssertNull(CoordinationService.BuildSystemNoteContent(
-                    "captain.updated", "Captain updated"));
-                AssertNull(CoordinationService.BuildSystemNoteContent("", "empty"));
+                    // voyage.dispatched: the admiral's dispatch path.
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("MirrorVessel", "https://github.com/test/repo")).ConfigureAwait(false);
+                    Voyage voyage = await admiral.DispatchVoyageAsync("Mirrored voyage", "A test", vessel.Id,
+                        new List<MissionDescription> { new MissionDescription("Mission 1", "Desc 1") }).ConfigureAwait(false);
+
+                    // mission.failed: the admiral's stage watchdog, run by its health check.
+                    Mission stale = await testDb.Driver.Missions.CreateAsync(new Mission("Stale stage mission")
+                    {
+                        Status = MissionStatusEnum.Assigned
+                    }).ConfigureAwait(false);
+                    await SetMissionLastUpdateUtcAsync(testDb, stale.Id, DateTime.UtcNow.AddMinutes(-6)).ConfigureAwait(false);
+                    await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                    List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    CoordinationMessage? dispatched = notes.FirstOrDefault(m => m.VoyageId == voyage.Id && m.Content.Contains("Voyage dispatched", StringComparison.Ordinal));
+                    AssertNotNull(dispatched, "the dispatched voyage must appear on the board; notes: " + String.Join(" | ", notes.Select(m => m.Content)));
+                    AssertEqual(CoordinationAuthorTypeEnum.System, dispatched!.AuthorType, "a mirrored note is a system note");
+                    AssertContains("[fleet]", dispatched.Content);
+
+                    CoordinationMessage? failed = notes.FirstOrDefault(m => m.MissionId == stale.Id);
+                    AssertNotNull(failed, "the mission failed by the stage watchdog must appear on the board");
+                    AssertContains("[fleet] Mission failed by stage watchdog", failed!.Content);
+                }
+            });
+
+            await RunTest("Event types the board does not mirror stay off the board", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
+                    CoordinationFleetEventMirror.Attach(testDb.Driver, coordination, logging);
+
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent("captain.launched", "Captain launched")).ConfigureAwait(false);
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent("mission.cancelled", "Mission cancelled: example")
+                    {
+                        MissionId = "msn_example"
+                    }).ConfigureAwait(false);
+
+                    List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    AssertEqual(1, notes.Count, "only the mirrored event type becomes a note");
+                    AssertEqual("[fleet] Mission cancelled: example (mission msn_example)", notes[0].Content);
+                }
             });
 
             await RunTest("Unknown rooms provision on demand and the default room arrives on first post", async () =>
@@ -240,6 +298,21 @@ namespace Armada.Test.Unit.Suites.Services
         private static JsonElement ReadResult(object result)
         {
             return JsonSerializer.SerializeToElement(result);
+        }
+
+        private static async Task SetMissionLastUpdateUtcAsync(TestDatabase testDb, string missionId, DateTime lastUpdateUtc)
+        {
+            using (SqliteConnection conn = new SqliteConnection(testDb.ConnectionString))
+            {
+                await conn.OpenAsync().ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE missions SET last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.Parameters.AddWithValue("@id", missionId);
+                    cmd.Parameters.AddWithValue("@last_update_utc", lastUpdateUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture));
+                    await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+            }
         }
 
         private static CoordinationService CreateService(TestDatabase testDb)
