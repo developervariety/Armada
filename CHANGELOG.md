@@ -153,8 +153,10 @@ upstream integrations and excludes changes already present at that baseline.
   stored events from before the split read as the legacy rule, keep their stored
   counts and are never rewritten. Token-usage summaries on REST, MCP and the
   dashboard total each bucket from bucketed records only and report legacy input
-  and the legacy record count apart. Migrations: SQLite 109, PostgreSQL 112, SQL
-  Server 104, MySQL 101 (nullable columns).
+  and the legacy record count apart. Every token count on `token_usage` is a
+  64-bit integer on every provider. Migrations: SQLite 109, PostgreSQL 112, SQL
+  Server 104, MySQL 101 (nullable bucket columns; existing counts widened to
+  BIGINT in the same version).
 
 - **Runtime provider failures:** every runtime writes one provider failure record,
   `[ARMADA:ACTIVITY] <runtime> error <message>`, for an error event, a failed turn

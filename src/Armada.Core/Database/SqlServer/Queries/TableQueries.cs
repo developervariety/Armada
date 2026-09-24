@@ -996,7 +996,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(101, "Drop the unused jobs table", JobsTableDropSchema.SqlServerStatements),
                 new SchemaMigration(102, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.SqlServerStatements),
                 new SchemaMigration(103, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.SqlServerStatements),
-                new SchemaMigration(104, "Persist token usage input buckets and the counting rule", TokenUsageInputBucketsPersistence.SqlServerStatements)
+                new SchemaMigration(104, "Persist token usage input buckets and the counting rule, and widen token counts to 64-bit", TokenUsageInputBucketsPersistence.SqlServerStatements)
             };
         }
 

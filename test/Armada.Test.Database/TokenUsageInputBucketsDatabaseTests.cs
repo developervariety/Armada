@@ -103,6 +103,46 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyWideCountsAsync(CancellationToken token)
+        {
+            // Each count is above the 32-bit limit and distinct, so a truncated or swapped column cannot pass.
+            const long Above32Bit = 2147483648L;
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            TokenUsageRecord wide = new TokenUsageRecord
+            {
+                Model = "wide-model-" + suffix,
+                Runtime = "Codex",
+                Source = "mission",
+                SourceId = "msn_wide_" + suffix,
+                UsageRule = TokenUsageRuleEnum.SeparateInputBuckets,
+                UncachedInputTokens = Above32Bit + 1,
+                CacheReadInputTokens = Above32Bit + 2,
+                CacheWriteInputTokens = Above32Bit + 3,
+                InputTokens = Above32Bit * 3 + 6,
+                OutputTokens = Above32Bit + 5,
+                CachedTokens = Above32Bit + 7,
+                TotalTokens = Above32Bit * 4 + 11
+            };
+            await _Driver.TokenUsage.CreateAsync(wide, token).ConfigureAwait(false);
+
+            try
+            {
+                TokenUsageRecord read = await ReadAsync(wide.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(Above32Bit + 1, read.UncachedInputTokens ?? -1, "uncached_input_tokens holds a 64-bit count");
+                DatabaseAssert.Equal(Above32Bit + 2, read.CacheReadInputTokens ?? -1, "cache_read_input_tokens holds a 64-bit count");
+                DatabaseAssert.Equal(Above32Bit + 3, read.CacheWriteInputTokens ?? -1, "cache_write_input_tokens holds a 64-bit count");
+                DatabaseAssert.Equal(Above32Bit * 3 + 6, read.InputTokens, "input_tokens holds a 64-bit count");
+                DatabaseAssert.Equal(Above32Bit + 5, read.OutputTokens, "output_tokens holds a 64-bit count");
+                DatabaseAssert.Equal(Above32Bit + 7, read.CachedTokens, "cached_tokens holds a 64-bit count");
+                DatabaseAssert.Equal(Above32Bit * 4 + 11, read.TotalTokens, "total_tokens holds a 64-bit count");
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                    await _Driver.TokenUsage.DeleteByFilterAsync(new TokenUsageQuery { SourceId = wide.SourceId }, token).ConfigureAwait(false);
+            }
+        }
+
         private async Task<TokenUsageRecord> ReadAsync(string id, CancellationToken token)
         {
             using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))

@@ -1189,7 +1189,7 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(109, "Drop the unused jobs table", JobsTableDropSchema.PostgresqlStatements),
                 new SchemaMigration(110, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.PostgresqlStatements),
                 new SchemaMigration(111, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.PostgresqlStatements),
-                new SchemaMigration(112, "Persist token usage input buckets and the counting rule", TokenUsageInputBucketsPersistence.PostgresqlStatements)
+                new SchemaMigration(112, "Persist token usage input buckets and the counting rule, and widen token counts to 64-bit", TokenUsageInputBucketsPersistence.PostgresqlStatements)
             };
         }
 
