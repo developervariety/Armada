@@ -9,6 +9,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -166,66 +167,42 @@ namespace Armada.Server.Mcp.Tools
                 return GitStatusResult.NotAvailable("dock path does not exist");
             }
 
-            using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
-            using (Process process = new Process())
+            // A diagnostic view: 1 MiB of status keeps its beginning and end with a marker naming the rest.
+            BoundedProcessRequest request = new BoundedProcessRequest(
+                GitProcessStartInfo.Create(dockPath, new[] { "status", "--short" }),
+                TimeSpan.FromSeconds(10))
             {
-                process.StartInfo = new ProcessStartInfo
-                {
-                    FileName = "git",
-                    WorkingDirectory = dockPath,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                process.StartInfo.ArgumentList.Add("status");
-                process.StartInfo.ArgumentList.Add("--short");
+                OutputLimitBytes = 1024 * 1024
+            };
 
-                try
-                {
-                    process.Start();
-                }
-                catch (Exception ex)
-                {
-                    return GitStatusResult.NotAvailable(ex.Message);
-                }
-
-                Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
-                Task<string> errorTask = process.StandardError.ReadToEndAsync();
-
-                try
-                {
-                    await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    try
-                    {
-                        process.Kill(true);
-                    }
-                    catch
-                    {
-                    }
-
-                    return GitStatusResult.NotAvailable("git status timed out");
-                }
-
-                string output = await outputTask.ConfigureAwait(false);
-                string error = await errorTask.ConfigureAwait(false);
-                output = output.TrimEnd('\r', '\n');
-                error = error.TrimEnd('\r', '\n');
-
-                if (process.ExitCode != 0)
-                {
-                    return GitStatusResult.NotAvailable(String.IsNullOrWhiteSpace(error) ? "git status failed" : error);
-                }
-
-                return new GitStatusResult
-                {
-                    Output = output,
-                    HasChanges = !String.IsNullOrWhiteSpace(output)
-                };
+            BoundedProcessResult result;
+            try
+            {
+                result = await BoundedProcessRunner.RunAsync(request).ConfigureAwait(false);
             }
+            catch (Exception ex)
+            {
+                return GitStatusResult.NotAvailable(ex.Message);
+            }
+
+            if (result.TimedOut)
+            {
+                return GitStatusResult.NotAvailable("git status timed out");
+            }
+
+            string output = result.StandardOutput.TrimEnd('\r', '\n');
+            string error = result.StandardError.TrimEnd('\r', '\n');
+
+            if (result.ExitCode != 0)
+            {
+                return GitStatusResult.NotAvailable(String.IsNullOrWhiteSpace(error) ? "git status failed" : error);
+            }
+
+            return new GitStatusResult
+            {
+                Output = output,
+                HasChanges = !String.IsNullOrWhiteSpace(output)
+            };
         }
 
         private sealed class GitStatusResult

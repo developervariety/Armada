@@ -698,6 +698,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("PushBranchAsync completes when a hook writes far more than a pipe buffer to stderr", async () =>
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    SkipTest("PushBranchAsync completes when a hook writes far more than a pipe buffer to stderr", "The hook fixture is a POSIX shell script.");
+                    return;
+                }
+
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string remoteDir = Path.Combine(rootDir, "remote.git");
+                string workDir = Path.Combine(rootDir, "work");
+
+                try
+                {
+                    Directory.CreateDirectory(workDir);
+                    await RunGitAsync(rootDir, "init", "--bare", "-b", "main", remoteDir).ConfigureAwait(false);
+                    await RunGitAsync(workDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(workDir, "README.md"), "hello\n").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    await RunGitAsync(workDir, "remote", "add", "origin", remoteDir).ConfigureAwait(false);
+
+                    // The hook writes 256 KiB to stderr while git still holds stdout open. A reader that drains
+                    // stdout to its end before reading stderr never sees stdout end: the hook is blocked on a
+                    // full stderr pipe, so git never exits.
+                    string hookPath = Path.Combine(workDir, ".git", "hooks", "pre-push");
+                    await File.WriteAllTextAsync(hookPath, "#!/bin/sh\nhead -c 262144 /dev/zero | tr '\\0' 'w' >&2\nexit 0\n").ConfigureAwait(false);
+                    File.SetUnixFileMode(hookPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+                    Stopwatch clock = Stopwatch.StartNew();
+                    await service.PushBranchAsync(workDir).ConfigureAwait(false);
+                    clock.Stop();
+
+                    string localHead = (await RunGitAsync(workDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    string remoteHead = (await RunGitAsync(remoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    AssertEqual(localHead, remoteHead, "the push reached the remote");
+                    AssertTrue(clock.Elapsed < TimeSpan.FromSeconds(60), "the push finished promptly, took " + clock.Elapsed);
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch (IOException) { }
+                    }
+                }
+            });
+
             await RunTest("GetRepositoryHeadRefAsync NullRepoPath Throws", async () =>
             {
                 GitService service = CreateService();

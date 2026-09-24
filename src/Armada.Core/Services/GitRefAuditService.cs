@@ -150,23 +150,19 @@ namespace Armada.Core.Services
 
         private static async Task<string> GitAsync(string path, CancellationToken token, params string[] arguments)
         {
-            ProcessStartInfo start = new ProcessStartInfo("git")
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(path, arguments), GitProcessTimeouts.Resolve())
             {
-                WorkingDirectory = path, UseShellExecute = false,
-                RedirectStandardOutput = true, RedirectStandardError = true
+                OutputLimitBytes = 1024 * 1024
             };
-            foreach (string argument in arguments) start.ArgumentList.Add(argument);
-            using (Process process = Process.Start(start) ?? throw new InvalidOperationException("git_start_failed"))
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
             {
-                Task<string> output = process.StandardOutput.ReadToEndAsync(token);
-                Task<string> error = process.StandardError.ReadToEndAsync(token);
-                try { await process.WaitForExitAsync(token).ConfigureAwait(false); }
-                catch { if (!process.HasExited) process.Kill(true); throw; }
-                string result = await output.ConfigureAwait(false);
-                string reason = await error.ConfigureAwait(false);
-                if (process.ExitCode != 0) throw new InvalidOperationException("ref_audit_git_failed: " + reason.Trim());
-                return result.Trim();
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
+            if (result.TimedOut) throw new TimeoutException("ref_audit_git_timed_out: git " + String.Join(" ", arguments));
+            if (result.ExitCode != 0) throw new InvalidOperationException("ref_audit_git_failed: " + result.StandardError.Trim());
+            return result.StandardOutput.Trim();
         }
 
         private const string _Hook = """

@@ -35,6 +35,9 @@ namespace Armada.Core.Services
 
         private const string _Header = "[SlopCheckRunner] ";
         private static readonly TimeSpan _GitTimeout = TimeSpan.FromMinutes(5);
+
+        /// <summary>Per-stream budget for one git command; the reviewed diff must fit whole.</summary>
+        private const int _GitOutputLimitBytes = 64 * 1024 * 1024;
         private readonly LoggingModule? _Logging;
         private readonly Func<IReadOnlyList<BannedDiffPatternRule>>? _BannedDiffPatterns;
 
@@ -116,6 +119,9 @@ namespace Armada.Core.Services
                 "-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "-U3", reviewBase, head).ConfigureAwait(false);
             if (diff.ExitCode != 0)
                 return SlopCheckOutcome.Failure("The Slop check could not read the reviewed diff " + Abbreviate(reviewBase) + ".." + Abbreviate(head) + ": " + diff.Describe() + " Nothing was examined.");
+            if (diff.Truncated)
+                return SlopCheckOutcome.Failure("The Slop check could not read the whole reviewed diff " + Abbreviate(reviewBase) + ".." + Abbreviate(head)
+                    + ": it is larger than " + (_GitOutputLimitBytes / (1024 * 1024)) + " MiB, and a partial reading could miss a banned line. Nothing was examined.");
 
             // The operator-configured banned-diff guard runs before the slop reading and is not
             // suppressible: a change whose added lines match a configured banned pattern fails the
@@ -222,71 +228,38 @@ namespace Armada.Core.Services
 
         private async Task<GitResult> RunGitAsync(string workingDirectory, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), _GitTimeout)
             {
-                FileName = "git",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                OutputLimitBytes = _GitOutputLimitBytes
             };
 
-            foreach (string arg in args) startInfo.ArgumentList.Add(arg);
-
-            using (Process process = new Process { StartInfo = startInfo })
-            {
-                try
-                {
-                    if (!process.Start())
-                        return new GitResult { ExitCode = -1, StdErr = "git did not start." };
-                }
-                catch (Win32Exception ex)
-                {
-                    return new GitResult { ExitCode = -1, StdErr = "git could not be started: " + ex.Message };
-                }
-
-                Task<string> stdout = process.StandardOutput.ReadToEndAsync();
-                Task<string> stderr = process.StandardError.ReadToEndAsync();
-
-                using (CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
-                {
-                    timeout.CancelAfter(_GitTimeout);
-                    try
-                    {
-                        await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        KillQuietly(process);
-                        if (token.IsCancellationRequested) throw;
-                        return new GitResult { ExitCode = -1, StdErr = "git " + String.Join(" ", args) + " timed out after " + _GitTimeout.TotalMinutes + " minutes." };
-                    }
-                }
-
-                return new GitResult
-                {
-                    ExitCode = process.ExitCode,
-                    StdOut = await stdout.ConfigureAwait(false),
-                    StdErr = await stderr.ConfigureAwait(false)
-                };
-            }
-        }
-
-        private void KillQuietly(Process process)
-        {
+            BoundedProcessResult result;
             try
             {
-                if (!process.HasExited) process.Kill(true);
-            }
-            catch (InvalidOperationException ex)
-            {
-                _Logging?.Debug(_Header + "git process had already exited when the timeout fired: " + ex.Message);
+                result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
             }
             catch (Win32Exception ex)
             {
-                _Logging?.Warn(_Header + "could not kill a timed-out git process: " + ex.Message);
+                return new GitResult { ExitCode = -1, StdErr = "git could not be started: " + ex.Message };
             }
+
+            if (result.KillError != null)
+                _Logging?.Warn(_Header + "could not kill a timed-out git process: " + result.KillError);
+            if (result.Cancelled)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
+            if (result.TimedOut)
+                return new GitResult { ExitCode = -1, StdErr = "git " + String.Join(" ", args) + " timed out after " + _GitTimeout.TotalMinutes + " minutes." };
+
+            return new GitResult
+            {
+                ExitCode = result.ExitCode ?? -1,
+                StdOut = result.StandardOutput,
+                StdErr = result.StandardError,
+                Truncated = result.StandardOutputTruncated
+            };
         }
 
         private static string Abbreviate(string? commit)
@@ -305,6 +278,7 @@ namespace Armada.Core.Services
             public int ExitCode { get; set; } = -1;
             public string StdOut { get; set; } = String.Empty;
             public string StdErr { get; set; } = String.Empty;
+            public bool Truncated { get; set; } = false;
 
             public string Describe()
             {

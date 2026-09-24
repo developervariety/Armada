@@ -4168,49 +4168,28 @@ namespace Armada.Core.Services
 
         private async Task<string> RunGitAsync(string workingDirectory, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            // 16 MiB per stream: the largest output here is a rename-aware name-status listing between two commits.
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), TimeSpan.FromSeconds(120))
             {
-                FileName = "git",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                OutputLimitBytes = 16 * 1024 * 1024
             };
-            startInfo.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
-            startInfo.EnvironmentVariables["GCM_INTERACTIVE"] = "Never";
-
-            foreach (string arg in args)
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
             {
-                startInfo.ArgumentList.Add(arg);
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
+            if (result.TimedOut) throw new TimeoutException("git timed out after 120 seconds");
+            if (result.Truncated)
+                _Logging.Warn(_Header + "git " + String.Join(" ", args) + ": " + BoundedProcessRunner.DescribeAnomalies(result));
+
+            if (result.ExitCode != 0)
+            {
+                string detail = !String.IsNullOrWhiteSpace(result.StandardError) ? result.StandardError.Trim() : result.StandardOutput.Trim();
+                throw new InvalidOperationException("git failed (exit " + (result.ExitCode ?? -1) + "): " + detail);
             }
 
-            using CancellationTokenSource timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-            using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-            using Process process = new Process { StartInfo = startInfo };
-            process.Start();
-
-            string stdout;
-            string stderr;
-            try
-            {
-                stdout = await process.StandardOutput.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-                stderr = await process.StandardError.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                throw new TimeoutException("git timed out after 120 seconds");
-            }
-
-            if (process.ExitCode != 0)
-            {
-                string detail = !String.IsNullOrWhiteSpace(stderr) ? stderr.Trim() : stdout.Trim();
-                throw new InvalidOperationException("git failed (exit " + process.ExitCode + "): " + detail);
-            }
-
-            return stdout;
+            return result.StandardOutput;
         }
 
         private static void TryDeleteDirectory(string path)

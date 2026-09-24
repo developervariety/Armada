@@ -1226,30 +1226,22 @@ namespace Armada.Server
         {
             try
             {
-                ProcessStartInfo startInfo = new ProcessStartInfo
+                BoundedProcessRequest request = new BoundedProcessRequest(
+                    GitProcessStartInfo.Create(repoPath, new[] { "rev-parse", "--verify", refName }),
+                    GitProcessTimeouts.Resolve())
                 {
-                    FileName = "git",
-                    WorkingDirectory = repoPath,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
+                    OutputLimitBytes = 64 * 1024
                 };
-                startInfo.ArgumentList.Add("rev-parse");
-                startInfo.ArgumentList.Add("--verify");
-                startInfo.ArgumentList.Add(refName);
-
-                using (Process process = new Process { StartInfo = startInfo })
+                BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request).ConfigureAwait(false);
+                if (result.TimedOut)
                 {
-                    process.Start();
-                    string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                    await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                    await process.WaitForExitAsync().ConfigureAwait(false);
-                    if (process.ExitCode != 0) return null;
-
-                    string commit = stdout.Trim();
-                    return String.IsNullOrWhiteSpace(commit) ? null : commit;
+                    _Logging.Warn(_Header + "git rev-parse " + refName + " in " + repoPath + " timed out");
+                    return null;
                 }
+                if (result.ExitCode != 0) return null;
+
+                string commit = result.StandardOutput.Trim();
+                return String.IsNullOrWhiteSpace(commit) ? null : commit;
             }
             catch (Exception ex)
             {

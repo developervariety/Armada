@@ -944,46 +944,21 @@ namespace Armada.Core.Services
 
         private async Task<int> RunGitAsync(string workingDirectory, TimeSpan timeout, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), timeout)
             {
-                FileName = "git",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                OutputLimitBytes = 1024 * 1024
             };
-
-            foreach (string arg in args)
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill git " + String.Join(" ", args) + "; it may still be running: " + result.KillError);
+            if (result.Cancelled)
             {
-                startInfo.ArgumentList.Add(arg);
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-
-            using Process process = new Process { StartInfo = startInfo };
-            if (!process.Start())
-            {
-                return -1;
-            }
-
-            Task<string> drainStdout = process.StandardOutput.ReadToEndAsync();
-            Task<string> drainStderr = process.StandardError.ReadToEndAsync();
-
-            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(timeout);
-
-            try
-            {
-                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                try { if (!process.HasExited) process.Kill(true); } catch { }
-                throw;
-            }
-
-            await drainStdout.ConfigureAwait(false);
-            await drainStderr.ConfigureAwait(false);
-            return process.ExitCode;
+            if (result.TimedOut)
+                throw new TimeoutException("git " + String.Join(" ", args) + " timed out after " + timeout.TotalSeconds.ToString("F0") + " seconds");
+            return result.ExitCode ?? -1;
         }
 
         private void RecordAction(DiskLifecycleReport report, DiskLifecycleCategory category, string path, string disposition, string reason)

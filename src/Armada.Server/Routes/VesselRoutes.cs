@@ -868,27 +868,18 @@ namespace Armada.Server.Routes
         /// </summary>
         private static async Task<string> RunGitCommandAsync(string workingDirectory, params string[] args)
         {
-            ProcessStartInfo psi = new ProcessStartInfo("git")
+            // Network git shares the admiral's git timeout; no prompt can hold the request open.
+            TimeSpan timeout = GitProcessTimeouts.Resolve();
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), timeout)
             {
-                WorkingDirectory = workingDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
+                OutputLimitBytes = 1024 * 1024
             };
-            foreach (string arg in args) psi.ArgumentList.Add(arg);
-
-            using (Process process = Process.Start(psi)!)
-            {
-                string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                await process.WaitForExitAsync().ConfigureAwait(false);
-                if (process.ExitCode != 0)
-                {
-                    string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                    throw new InvalidOperationException("git exited with code " + process.ExitCode + ": " + error.Trim());
-                }
-                return output;
-            }
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request).ConfigureAwait(false);
+            if (result.TimedOut)
+                throw new InvalidOperationException("git " + args[0] + " timed out after " + timeout.TotalSeconds.ToString("F0") + " seconds.");
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException("git exited with code " + (result.ExitCode ?? -1) + ": " + result.StandardError.Trim());
+            return result.StandardOutput;
         }
 
         private static string? NormalizeEmpty(string? value)

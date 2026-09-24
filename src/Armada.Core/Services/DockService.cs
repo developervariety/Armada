@@ -1598,22 +1598,22 @@ namespace Armada.Core.Services
             {
                 // Use git init (not clone) because cloning an empty repo creates a broken state.
                 Directory.CreateDirectory(tempPath);
-                await RunGitInDirAsync(tempPath, "init", token).ConfigureAwait(false);
-                await RunGitInDirAsync(tempPath, "checkout -b " + vessel.DefaultBranch, token).ConfigureAwait(false);
+                await RunGitInDirAsync(tempPath, token, "init").ConfigureAwait(false);
+                await RunGitInDirAsync(tempPath, token, "checkout", "-b", vessel.DefaultBranch).ConfigureAwait(false);
 
                 // Create README.md
                 string readmePath = Path.Combine(tempPath, "README.md");
                 await File.WriteAllTextAsync(readmePath, "# " + vessel.Name + "\n", token).ConfigureAwait(false);
 
                 // Commit
-                await RunGitInDirAsync(tempPath, "add README.md", token).ConfigureAwait(false);
-                await RunGitInDirAsync(tempPath, "commit -m \"Initial commit\"", token).ConfigureAwait(false);
+                await RunGitInDirAsync(tempPath, token, "add", "README.md").ConfigureAwait(false);
+                await RunGitInDirAsync(tempPath, token, "commit", "-m", "Initial commit").ConfigureAwait(false);
 
                 // Push to the remote
                 if (!String.IsNullOrEmpty(vessel.RepoUrl))
                 {
-                    await RunGitInDirAsync(tempPath, "remote add origin " + vessel.RepoUrl, token).ConfigureAwait(false);
-                    await RunGitInDirAsync(tempPath, "push -u origin " + vessel.DefaultBranch, token).ConfigureAwait(false);
+                    await RunGitInDirAsync(tempPath, token, "remote", "add", "origin", vessel.RepoUrl).ConfigureAwait(false);
+                    await RunGitInDirAsync(tempPath, token, "push", "-u", "origin", vessel.DefaultBranch).ConfigureAwait(false);
                     _Logging.Info(_Header + "pushed initial commit to remote for " + vessel.Name);
                 }
 
@@ -1648,26 +1648,29 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Run a git command in a specific directory.
+        /// Run a git command in a specific directory. The push to the remote is network git, so every command
+        /// shares the admiral's git timeout, and none can wait on a credential prompt.
         /// </summary>
-        private async Task RunGitInDirAsync(string workDir, string arguments, CancellationToken token)
+        private async Task RunGitInDirAsync(string workDir, CancellationToken token, params string[] arguments)
         {
-            System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo("git", arguments)
+            TimeSpan timeout = GitProcessTimeouts.Resolve();
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workDir, arguments), timeout)
             {
-                WorkingDirectory = workDir,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
+                OutputLimitBytes = 1024 * 1024
             };
-            System.Diagnostics.Process? proc = System.Diagnostics.Process.Start(psi);
-            if (proc == null) throw new InvalidOperationException("Failed to start git " + arguments);
-            await proc.WaitForExitAsync(token).ConfigureAwait(false);
-            if (proc.ExitCode != 0)
+            string commandText = "git " + String.Join(" ", arguments);
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill " + commandText + "; it may still be running: " + result.KillError);
+            if (result.Cancelled)
             {
-                string stderr = await proc.StandardError.ReadToEndAsync(token).ConfigureAwait(false);
-                throw new InvalidOperationException("git " + arguments + " failed (exit " + proc.ExitCode + "): " + stderr.Trim());
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
+            if (result.TimedOut)
+                throw new TimeoutException(commandText + " timed out after " + timeout.TotalSeconds.ToString("F0") + " seconds");
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException(commandText + " failed (exit " + (result.ExitCode ?? -1) + "): " + result.StandardError.Trim());
         }
 
         private async Task SeedDockMcpConfigAsync(Vessel vessel, string worktreePath, string? missionId, CancellationToken token)
@@ -2166,23 +2169,15 @@ namespace Armada.Core.Services
         {
             try
             {
-                ProcessStartInfo si = new ProcessStartInfo
+                BoundedProcessRequest request = new BoundedProcessRequest(
+                    GitProcessStartInfo.Create(repoPath, new[] { "rev-parse", "--git-path", "hooks" }),
+                    GitProcessTimeouts.Resolve())
                 {
-                    FileName = "git",
-                    WorkingDirectory = repoPath,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
+                    OutputLimitBytes = 64 * 1024
                 };
-                si.ArgumentList.Add("rev-parse");
-                si.ArgumentList.Add("--git-path");
-                si.ArgumentList.Add("hooks");
-
-                using Process proc = new Process { StartInfo = si };
-                proc.Start();
-                string stdout = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                await proc.WaitForExitAsync(token).ConfigureAwait(false);
+                BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+                if (result.ExitCode != 0) return Path.Combine(repoPath, "hooks");
+                string stdout = result.StandardOutput;
 
                 string hooksPath = stdout.Trim();
                 if (String.IsNullOrEmpty(hooksPath)) return Path.Combine(repoPath, "hooks");

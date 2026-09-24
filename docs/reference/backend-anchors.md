@@ -16,7 +16,7 @@ three sample locations per term. Stored paths are repository relative. Commit
 subjects use the shared secret redactor. Query failures use fixed error codes;
 raw command output and exception messages are not stored. Omitted or invalid
 details make the evidence incomplete. New history, tree and search commands cap
-each output stream at 1,048,576 characters and use the existing Git timeout.
+each output stream at 1,048,576 UTF-8 bytes and use the existing Git timeout.
 Overflow is an error, never a verified negative search result.
 
 The dedicated completion operation changes only snapshot JSON. It compares the

@@ -84,48 +84,36 @@ namespace Armada.Core.Services
             string[] args,
             CancellationToken token)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = executablePath,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = workingDirectory
-            };
-
+            ProcessStartInfo startInfo = new ProcessStartInfo(executablePath) { WorkingDirectory = workingDirectory };
             foreach (string arg in args)
                 startInfo.ArgumentList.Add(arg);
 
-            using CancellationTokenSource timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-            using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-
-            using Process process = new Process { StartInfo = startInfo };
-            process.Start();
-
-            string stdout;
-            string stderr;
-            try
+            // The CLI talks to the forge over the network, so git's prompts are off for any git it runs.
+            GitProcessStartInfo.ApplyNonInteractive(startInfo);
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, TimeSpan.FromSeconds(120))
             {
-                stdout = await process.StandardOutput.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-                stderr = await process.StandardError.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
+                OutputLimitBytes = 1024 * 1024
+            };
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-            catch (OperationCanceledException)
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-
+            if (result.TimedOut)
                 throw new TimeoutException(executablePath + " timed out after 120 seconds");
-            }
 
-            if (process.ExitCode != 0)
+            string stdout = result.StandardOutput;
+            string stderr = result.StandardError;
+            int exitCode = result.ExitCode ?? -1;
+            if (exitCode != 0)
             {
                 string detail = stderr.Trim();
                 if (String.IsNullOrEmpty(detail))
                     detail = stdout.Trim();
 
                 throw new InvalidOperationException(
-                    executablePath + " failed (exit " + process.ExitCode + "): " + detail);
+                    executablePath + " failed (exit " + exitCode + "): " + detail);
             }
 
             return stdout;

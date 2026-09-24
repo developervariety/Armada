@@ -25,6 +25,13 @@ namespace Armada.Core.Services
             new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
 
         private string _Header = "[GitService] ";
+
+        /// <summary>
+        /// Per-stream output budget for one git process: 64 MiB. Standard output carries whole diffs to review and
+        /// landing callers, so the budget sits far above any real mission diff; past it the result keeps the
+        /// beginning and the end with a marker naming the omitted bytes, and the run is logged as truncated.
+        /// </summary>
+        private const int _GitOutputLimitBytes = 64 * 1024 * 1024;
         private LoggingModule _Logging;
         private readonly DatabaseDriver? _Database;
         private readonly Func<PullRequestPlatform, string, IPullRequestService>? _PrServiceFactory;
@@ -1966,105 +1973,78 @@ namespace Armada.Core.Services
 
         private async Task<string> RunProcessAsync(string? workingDirectory, string command, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            bool isGit = string.Equals(command, "git", StringComparison.OrdinalIgnoreCase);
+            ProcessStartInfo startInfo;
+            if (isGit)
             {
-                FileName = command,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            // Force fail-fast on credential prompts. Without these env vars, a private
-            // repo HTTPS clone with no cached credentials triggers the Git Credential
-            // Manager UI (which the RunProcessAsync timeout cannot reliably kill) or
-            // hangs git waiting on stdin terminal input. Belt-and-suspenders: GIT_TERMINAL_PROMPT=0
-            // covers git's own prompt; GCM_INTERACTIVE=Never covers Git Credential Manager.
-            if (string.Equals(command, "git", StringComparison.OrdinalIgnoreCase))
-            {
-                startInfo.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
-                startInfo.EnvironmentVariables["GCM_INTERACTIVE"] = "Never";
+                // Fail fast on credential prompts: a private HTTPS remote with no cached credentials would
+                // otherwise open the Git Credential Manager interface or wait on terminal input.
+                startInfo = GitProcessStartInfo.Create(workingDirectory, args);
             }
-
-            if (!String.IsNullOrEmpty(workingDirectory))
-                startInfo.WorkingDirectory = workingDirectory;
-
-            foreach (string arg in args)
+            else
             {
-                startInfo.ArgumentList.Add(arg);
+                startInfo = new ProcessStartInfo(command);
+                if (!String.IsNullOrEmpty(workingDirectory)) startInfo.WorkingDirectory = workingDirectory;
+                foreach (string arg in args) startInfo.ArgumentList.Add(arg);
             }
 
             // Configurable process bound (default 120s): clone/push/fetch of large repos over slow
             // connections can easily exceed 30s, especially in CI or container environments.
             // Override with ARMADA_GIT_TIMEOUT_MS.
             TimeSpan processTimeout = GitProcessTimeouts.Resolve();
-            using CancellationTokenSource timeoutCts = new CancellationTokenSource(processTimeout);
-            using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, processTimeout)
+            {
+                // Standard output carries whole diffs and ref listings to callers that need all of it, so its
+                // budget is far above any real mission diff; standard error only feeds messages.
+                OutputLimitBytes = _GitOutputLimitBytes
+            };
 
             // Elapsed-ms instrumentation: without this a stalled git invocation is indistinguishable
             // from a slow one in the admiral log, which made a multi-minute dispatch hang invisible.
-            Stopwatch processWatch = Stopwatch.StartNew();
             _Logging.Debug(_Header + "git process start: " + command + " " + String.Join(" ", args)
                 + " timeoutMs=" + ((int)processTimeout.TotalMilliseconds));
 
-            using Process process = new Process { StartInfo = startInfo };
-            process.Start();
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill timed-out or cancelled git process " + command + "; it may still be running: " + result.KillError);
 
-            string stdout;
-            string stderr;
-            try
+            if (result.Cancelled)
             {
-                // Both ReadToEndAsync calls and WaitForExitAsync share the same
-                // linked cancellation token; the timeout can fire on any of them.
-                // Wrapping all three lets a single catch handle the kill regardless
-                // of which await observed the cancellation first.
-                stdout = await process.StandardOutput.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-                stderr = await process.StandardError.ReadToEndAsync(linkedCts.Token).ConfigureAwait(false);
-                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                processWatch.Stop();
-                try { process.Kill(entireProcessTree: true); }
-                catch (InvalidOperationException)
-                {
-                    // Silent by rule: Kill throws InvalidOperationException only when the process has
-                    // already exited, which is the state the kill wants.
-                }
-                catch (Exception killEx)
-                {
-                    _Logging.Warn(_Header + "could not kill timed-out or cancelled git process " + command + "; it may still be running: " + killEx.Message);
-                }
-
                 // A caller-initiated cancel is not a timeout -- surface it as cancellation so the
                 // caller-cancel-wins semantics are preserved and the log is not misleading.
-                if (token.IsCancellationRequested)
-                {
-                    _Logging.Debug(_Header + "git process cancelled by caller: " + command
-                        + " elapsedMs=" + processWatch.ElapsedMilliseconds);
-                    throw;
-                }
+                _Logging.Debug(_Header + "git process cancelled by caller: " + command
+                    + " elapsedMs=" + (long)result.Duration.TotalMilliseconds);
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
 
+            if (result.TimedOut)
+            {
                 _Logging.Warn(_Header + "git process TIMED OUT: " + command + " " + String.Join(" ", args)
-                    + " elapsedMs=" + processWatch.ElapsedMilliseconds
+                    + " elapsedMs=" + (long)result.Duration.TotalMilliseconds
                     + " timeoutMs=" + ((int)processTimeout.TotalMilliseconds));
                 throw new TimeoutException(
                     command + " timed out after " + processTimeout.TotalSeconds.ToString("F0") + " seconds");
             }
 
-            processWatch.Stop();
+            int exitCode = result.ExitCode ?? -1;
+            string stdout = result.StandardOutput;
+            string stderr = result.StandardError;
             _Logging.Debug(_Header + "git process end: " + command
-                + " exit=" + process.ExitCode
-                + " elapsedMs=" + processWatch.ElapsedMilliseconds);
+                + " exit=" + exitCode
+                + " elapsedMs=" + (long)result.Duration.TotalMilliseconds);
+            string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
+            if (anomalies.Length > 0)
+                _Logging.Warn(_Header + command + " " + String.Join(" ", args) + ": " + anomalies);
 
-            if (process.ExitCode != 0)
+            if (exitCode != 0)
             {
                 string trimmedStdErr = stderr.Trim();
                 string trimmedStdOut = stdout.Trim();
                 string detail = !String.IsNullOrEmpty(trimmedStdErr)
                     ? trimmedStdErr
                     : trimmedStdOut;
-                string errorMessage = command + " failed (exit " + process.ExitCode + "): " + detail;
+                string errorMessage = command + " failed (exit " + exitCode + "): " + detail;
 
                 // Demote expected "not found" messages during cleanup to Debug level
                 bool isExpectedFailure =

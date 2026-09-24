@@ -145,62 +145,28 @@ namespace Armada.Core.Services
 
         private static async Task<string> RunAnchorGitAsync(string path, CancellationToken token, params string[] arguments)
         {
-            System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo
+            token.ThrowIfCancellationRequested();
+
+            // A pinned query reads one file or listing; past 1 MiB it is refused rather than returned partial.
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(path, arguments), GitProcessTimeouts.Resolve())
             {
-                FileName = "git", WorkingDirectory = path, UseShellExecute = false,
-                RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
+                OutputLimitBytes = _AnchorOutputLimitBytes,
+                OutputShape = Armada.Core.Enums.BoundedOutputShapeEnum.Head
             };
-            start.Environment["GIT_TERMINAL_PROMPT"] = "0";
-            start.Environment["GCM_INTERACTIVE"] = "Never";
-            foreach (string argument in arguments) start.ArgumentList.Add(argument);
-            using (CancellationTokenSource timeout = new CancellationTokenSource(GitProcessTimeouts.Resolve()))
-            using (CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token))
-            using (System.Diagnostics.Process process = new System.Diagnostics.Process { StartInfo = start })
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
             {
                 token.ThrowIfCancellationRequested();
-                process.Start();
-                try
-                {
-                    Task<string> stdout = ReadAnchorOutputAsync(process.StandardOutput, process, linked.Token);
-                    Task<string> stderr = ReadAnchorOutputAsync(process.StandardError, process, linked.Token);
-                    await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
-                    await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
-                    if (process.ExitCode != 0)
-                        throw new GitCommandException(process.ExitCode, "Pinned Git query failed.");
-                    return await stdout.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (!token.IsCancellationRequested)
-                {
-                    throw new TimeoutException("Pinned Git query timed out.");
-                }
-                finally
-                {
-                    if (!process.HasExited)
-                    {
-                        try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-                    }
-                }
+                throw new OperationCanceledException(token);
             }
+            if (result.TimedOut) throw new TimeoutException("Pinned Git query timed out.");
+            if (result.Truncated) throw new InvalidOperationException("Pinned Git query output limit exceeded.");
+            if (result.ExitCode != 0)
+                throw new GitCommandException(result.ExitCode ?? -1, "Pinned Git query failed.");
+            return result.StandardOutput;
         }
 
-        private static async Task<string> ReadAnchorOutputAsync(System.IO.StreamReader reader,
-            System.Diagnostics.Process process, CancellationToken token)
-        {
-            const int maximumCharacters = 1048576;
-            System.Text.StringBuilder output = new System.Text.StringBuilder();
-            char[] buffer = new char[4096];
-            int count;
-            while ((count = await reader.ReadAsync(buffer.AsMemory(), token).ConfigureAwait(false)) > 0)
-            {
-                if (output.Length + count > maximumCharacters)
-                {
-                    try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-                    throw new InvalidOperationException("Pinned Git query output limit exceeded.");
-                }
-                output.Append(buffer, 0, count);
-            }
-            return output.ToString();
-        }
+        private const int _AnchorOutputLimitBytes = 1048576;
 
         private async Task<string> RequireAnchorRevisionAsync(string path, string revision, CancellationToken token)
         {

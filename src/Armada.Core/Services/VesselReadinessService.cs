@@ -40,6 +40,8 @@ namespace Armada.Core.Services
         {
             "for", "select", "case"
         };
+        private static readonly TimeSpan _VersionProbeTimeout = TimeSpan.FromSeconds(10);
+
         private static readonly Dictionary<string, string[]> _VersionProbeArgs = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
             { "dotnet", new[] { "--version" } },
@@ -793,8 +795,10 @@ namespace Armada.Core.Services
                 {
                     await RunGitCommandAsync(workingDirectory, "fetch", "origin", "--quiet").ConfigureAwait(false);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    // Ahead/behind still reads the last fetched remote refs; say why they may be stale.
+                    _Logging.Debug("[VesselReadinessService] fetch before ahead/behind failed: " + ex.Message);
                 }
 
                 string aheadOutput = await RunGitCommandAsync(workingDirectory, "rev-list", "--count", "origin/" + defaultBranch + "..HEAD").ConfigureAwait(false);
@@ -904,24 +908,21 @@ namespace Armada.Core.Services
 
             try
             {
-                ProcessStartInfo startInfo = new ProcessStartInfo(command)
-                {
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
+                ProcessStartInfo startInfo = new ProcessStartInfo(command);
                 foreach (string arg in args)
                 {
                     startInfo.ArgumentList.Add(arg);
                 }
 
-                using Process process = Process.Start(startInfo)
-                    ?? throw new InvalidOperationException("Failed to start version probe.");
-                string stdout = process.StandardOutput.ReadToEnd();
-                string stderr = process.StandardError.ReadToEnd();
-                process.WaitForExit(3000);
+                // A version probe prints one line; 64 KiB and ten seconds are far above any real toolchain.
+                BoundedProcessRequest request = new BoundedProcessRequest(startInfo, _VersionProbeTimeout)
+                {
+                    OutputLimitBytes = 64 * 1024
+                };
+                BoundedProcessResult result = BoundedProcessRunner.RunAsync(request).GetAwaiter().GetResult();
+                if (result.TimedOut) return null;
+                string stdout = result.StandardOutput;
+                string stderr = result.StandardError;
 
                 string output = String.IsNullOrWhiteSpace(stdout) ? stderr : stdout;
                 string line = output
@@ -1099,28 +1100,18 @@ namespace Armada.Core.Services
 
         private static async Task<string> RunGitCommandAsync(string workingDirectory, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo("git")
+            // Network git (fetch) shares the admiral's git timeout; no prompt can hold the probe open.
+            TimeSpan timeout = GitProcessTimeouts.Resolve();
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), timeout)
             {
-                WorkingDirectory = workingDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
+                OutputLimitBytes = 1024 * 1024
             };
-
-            foreach (string arg in args)
-            {
-                startInfo.ArgumentList.Add(arg);
-            }
-
-            using Process process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException("Failed to start git.");
-            string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-            string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-            await process.WaitForExitAsync().ConfigureAwait(false);
-            if (process.ExitCode != 0)
-                throw new InvalidOperationException(String.IsNullOrWhiteSpace(error) ? "git failed." : error.Trim());
-            return output;
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request).ConfigureAwait(false);
+            if (result.TimedOut)
+                throw new TimeoutException("git " + args[0] + " timed out after " + timeout.TotalSeconds.ToString("F0") + " seconds.");
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException(String.IsNullOrWhiteSpace(result.StandardError) ? "git failed." : result.StandardError.Trim());
+            return result.StandardOutput;
         }
 
         private sealed class InputReferenceResolutionResult

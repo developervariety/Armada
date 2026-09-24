@@ -16,7 +16,7 @@ namespace Armada.Core.Services
         /// <returns>True if the directory is in a git repo.</returns>
         public static bool IsGitRepository(string directory)
         {
-            string? result = RunGit(directory, "rev-parse --is-inside-work-tree");
+            string? result = RunGit(directory, "rev-parse", "--is-inside-work-tree");
             return result != null && result.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -27,7 +27,7 @@ namespace Armada.Core.Services
         /// <returns>Remote URL, or null if not found.</returns>
         public static string? GetRemoteUrl(string directory)
         {
-            string? result = RunGit(directory, "remote get-url origin");
+            string? result = RunGit(directory, "remote", "get-url", "origin");
             return result?.Trim();
         }
 
@@ -38,7 +38,7 @@ namespace Armada.Core.Services
         /// <returns>Root path, or null if not in a repo.</returns>
         public static string? GetRepoRoot(string directory)
         {
-            string? result = RunGit(directory, "rev-parse --show-toplevel");
+            string? result = RunGit(directory, "rev-parse", "--show-toplevel");
             return result?.Trim();
         }
 
@@ -50,7 +50,7 @@ namespace Armada.Core.Services
         public static string GetDefaultBranch(string directory)
         {
             // Try to get the remote HEAD
-            string? result = RunGit(directory, "symbolic-ref refs/remotes/origin/HEAD");
+            string? result = RunGit(directory, "symbolic-ref", "refs/remotes/origin/HEAD");
             if (!string.IsNullOrWhiteSpace(result))
             {
                 string branch = result.Trim();
@@ -61,7 +61,7 @@ namespace Armada.Core.Services
             }
 
             // Fallback: check if main or master exists
-            string? branches = RunGit(directory, "branch -r");
+            string? branches = RunGit(directory, "branch", "-r");
             if (branches != null)
             {
                 if (branches.Contains("origin/main")) return "main";
@@ -104,28 +104,17 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static string? RunGit(string workingDirectory, string arguments)
+        private static string? RunGit(string workingDirectory, params string[] arguments)
         {
             try
             {
-                ProcessStartInfo startInfo = new ProcessStartInfo
+                // Local, read-only queries: five seconds and 1 MiB are far above any real answer.
+                BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, arguments), TimeSpan.FromSeconds(5))
                 {
-                    FileName = "git",
-                    Arguments = arguments,
-                    WorkingDirectory = workingDirectory,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
+                    OutputLimitBytes = 1024 * 1024
                 };
-
-                using Process? process = Process.Start(startInfo);
-                if (process == null) return null;
-
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-
-                return process.ExitCode == 0 ? output : null;
+                BoundedProcessResult result = BoundedProcessRunner.RunAsync(request).GetAwaiter().GetResult();
+                return result.ExitCode == 0 ? result.StandardOutput : null;
             }
             catch
             {

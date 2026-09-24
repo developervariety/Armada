@@ -2021,36 +2021,30 @@ namespace Armada.Server
             if (runtimeType != AgentRuntimeEnum.Codex)
                 return;
 
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            BoundedProcessRequest request = new BoundedProcessRequest(
+                GitProcessStartInfo.Create(workingDirectory, new[] { "init", "--quiet" }),
+                GitProcessTimeouts.Resolve())
             {
-                FileName = "git",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                OutputLimitBytes = 64 * 1024
             };
-
-            startInfo.ArgumentList.Add("init");
-            startInfo.ArgumentList.Add("--quiet");
-
-            using (Process process = new Process { StartInfo = startInfo })
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
             {
-                if (!process.Start())
-                    throw new InvalidOperationException("Failed to initialize temporary validation repository.");
-
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-                if (process.ExitCode == 0)
-                    return;
-
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                string details = !String.IsNullOrWhiteSpace(stderr) ? stderr.Trim() : stdout.Trim();
-                if (String.IsNullOrWhiteSpace(details))
-                    details = "git init exited with code " + process.ExitCode + ".";
-
-                throw new InvalidOperationException("Failed to initialize temporary validation repository: " + details);
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
+            if (result.TimedOut)
+                throw new InvalidOperationException("Failed to initialize temporary validation repository: git init timed out.");
+            if (result.ExitCode == 0)
+                return;
+
+            string stderr = result.StandardError;
+            string stdout = result.StandardOutput;
+            string details = !String.IsNullOrWhiteSpace(stderr) ? stderr.Trim() : stdout.Trim();
+            if (String.IsNullOrWhiteSpace(details))
+                details = "git init exited with code " + result.ExitCode + ".";
+
+            throw new InvalidOperationException("Failed to initialize temporary validation repository: " + details);
         }
 
         #endregion

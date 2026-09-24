@@ -157,6 +157,15 @@ upstream integrations and excludes changes already present at that baseline.
   shell commands), and gives the readers a bounded drain window after exit or kill,
   so a background child holding a pipe cannot hang the call. `run_command`,
   merge-queue git and test commands, and self-deploy native commands use it.
+- **Git processes:** every admiral git command (GitService, pinned anchors, code
+  index, workspace, branch writes, readiness, vessel routes, dock seeding and hook
+  lookup, landing ref reads, ref audit, disk cleanup, check checkouts, the Slop
+  check, git inference, diagnostics) and `gh`/`glab` runs through the bounded
+  runner with prompts and the pager off. A hook or warning flood on stderr no
+  longer blocks git until its timeout. Network git that had no bound (readiness and
+  vessel-route fetch, dock seed push) uses the git timeout. The Slop check fails
+  with a named reason when the reviewed diff is larger than 64 MiB instead of
+  reading part of it.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.

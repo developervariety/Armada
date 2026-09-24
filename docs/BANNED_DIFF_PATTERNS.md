@@ -28,6 +28,8 @@ The list hot-reloads in place — a change takes effect without a restart.
 - Runs inside the Slop check (a required check), before the slop reading, and is **not
   suppressible**: unlike a slop finding, a banned-pattern match has no `slop-allow` override.
   A match fails the check, which blocks the mission's definition of done.
+- Reads the whole reviewed diff. A diff larger than 64 MiB fails the Slop check with a
+  reason that names the size, because a partial reading could miss a banned line.
 - Reads only **added** lines; a context or removed line introduces nothing. A pure comment
   line is skipped — the guard bans the path, not the mention of it.
 - A rule whose pattern is not a valid regex is skipped and named in the output, so one bad

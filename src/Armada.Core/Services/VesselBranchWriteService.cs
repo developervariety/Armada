@@ -467,44 +467,19 @@ namespace Armada.Core.Services
 
         private static async Task<GitRun> RunGitAsync(string workingDirectory, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), GitProcessTimeouts.Resolve())
             {
-                FileName = "git",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                OutputLimitBytes = 1024 * 1024
             };
-            startInfo.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
-            startInfo.EnvironmentVariables["GCM_INTERACTIVE"] = "Never";
-            foreach (string arg in args) startInfo.ArgumentList.Add(arg);
-
-            using CancellationTokenSource timeout = new CancellationTokenSource(GitProcessTimeouts.Resolve());
-            using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token);
-            using Process process = new Process { StartInfo = startInfo };
-            process.Start();
-            try
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
             {
-                Task<string> stdout = process.StandardOutput.ReadToEndAsync(linked.Token);
-                Task<string> stderr = process.StandardError.ReadToEndAsync(linked.Token);
-                await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
-                await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
-                return new GitRun { ExitCode = process.ExitCode, Stdout = stdout.Result, Stderr = stderr.Result };
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-            catch (OperationCanceledException)
-            {
-                try
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch (InvalidOperationException)
-                {
-                    // The process already exited; there is nothing left to stop.
-                }
-                if (token.IsCancellationRequested) throw;
+            if (result.TimedOut)
                 throw new TimeoutException("git " + (args.Length > 0 ? args[0] : String.Empty) + " exceeded the git process timeout.");
-            }
+            return new GitRun { ExitCode = result.ExitCode ?? -1, Stdout = result.StandardOutput, Stderr = result.StandardError };
         }
     }
 }
