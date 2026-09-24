@@ -732,6 +732,737 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyWorkflowProfilesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? profileId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("workflow-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "workflow-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "workflow-round-trip", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "workflow-round-trip", token).ConfigureAwait(false);
+                WorkflowProfile profile = new WorkflowProfile
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Name = "round-trip-workflow-" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    Description = "Workflow description ユニコード",
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    FleetId = fleet.Id,
+                    VesselId = vessel.Id,
+                    IsDefault = true,
+                    Active = false,
+                    LanguageHints = new List<string> { "csharp", "ユニコード" },
+                    LintCommand = "lint",
+                    BuildCommand = "build",
+                    UnitTestCommand = "unit",
+                    ContainerlessUnitTestCommand = "unit --no-containers",
+                    IntegrationTestCommand = "integration",
+                    E2ETestCommand = "e2e",
+                    MigrationCommand = "migrate",
+                    SecurityScanCommand = "scan",
+                    PerformanceCommand = "perf",
+                    PackageCommand = "package",
+                    DeploymentVerificationCommand = "verify",
+                    RollbackVerificationCommand = "verify-rollback",
+                    PublishArtifactCommand = "publish",
+                    ReleaseVersioningCommand = "version",
+                    ChangelogGenerationCommand = "changelog",
+                    EnvironmentVariables = new Dictionary<string, string> { { "FIXTURE_MODE", "round-trip" } },
+                    RequiredSecrets = new List<string> { "env:API_TOKEN" },
+                    ExpectedArtifacts = new List<string> { "artifacts/app.zip" },
+                    Environments = new List<WorkflowEnvironmentProfile>
+                    {
+                        new WorkflowEnvironmentProfile
+                        {
+                            EnvironmentName = "staging",
+                            DeployCommand = "deploy",
+                            RollbackCommand = "rollback",
+                            SmokeTestCommand = "smoke",
+                            HealthCheckCommand = "health",
+                            DeploymentVerificationCommand = "verify-deploy",
+                            RollbackVerificationCommand = "verify-rollback"
+                        }
+                    },
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                WorkflowProfile created = await _Driver.WorkflowProfiles.CreateAsync(profile, token).ConfigureAwait(false);
+                profileId = created.Id;
+                WorkflowProfileQuery scope = new WorkflowProfileQuery { TenantId = tenant.Id, UserId = user.Id };
+                DatabaseAssert.AllProperties(created, await _Driver.WorkflowProfiles.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "WorkflowProfile");
+
+                created.Description = null;
+                created.Scope = WorkflowProfileScopeEnum.Global;
+                created.FleetId = null;
+                created.VesselId = null;
+                created.IsDefault = false;
+                created.Active = true;
+                created.LanguageHints = new List<string>();
+                created.LintCommand = null;
+                created.ChangelogGenerationCommand = null;
+                created.EnvironmentVariables = new Dictionary<string, string>();
+                created.RequiredSecrets = new List<string>();
+                created.ExpectedArtifacts = new List<string>();
+                created.Environments = new List<WorkflowEnvironmentProfile>();
+                WorkflowProfile updated = await _Driver.WorkflowProfiles.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.WorkflowProfiles.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Reopened WorkflowProfile");
+                }
+            }
+            finally
+            {
+                if (profileId != null && !_NoCleanup) await _Driver.WorkflowProfiles.DeleteAsync(profileId, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyCheckRunsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? runId = null;
+            try
+            {
+                DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "check-round-trip", token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                CheckRun run = new CheckRun
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    WorkflowProfileId = graph.Profile.Id,
+                    VesselId = graph.Vessel.Id,
+                    MissionId = graph.Mission.Id,
+                    VoyageId = graph.Voyage.Id,
+                    DeploymentId = "dpl_check_" + suffix,
+                    Label = "Check label ユニコード",
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Source = CheckRunSourceEnum.External,
+                    Status = CheckRunStatusEnum.Failed,
+                    ProviderName = "provider",
+                    ExternalId = "external-" + suffix,
+                    ExternalUrl = "https://ci.example.test/" + suffix,
+                    EnvironmentName = "staging",
+                    Command = "dotnet test ユニコード",
+                    WorkingDirectory = "work/dir",
+                    BranchName = "feature/" + suffix,
+                    CommitHash = "0123456789abcdef0123456789abcdef01234567",
+                    RegressionPurpose = RegressionPurposeEnum.Consumer,
+                    RegressionObjectiveId = "obj_" + suffix,
+                    RegressionLandedCommit = "fedcba9876543210fedcba9876543210fedcba98",
+                    ExitCode = 3,
+                    Output = "Output ユニコード",
+                    Summary = "Summary",
+                    TestSummary = new CheckRunTestSummary { Format = "trx", Total = 10, Passed = 7, Failed = 2, Skipped = 1, DurationMs = 5000000000L },
+                    CoverageSummary = new CheckRunCoverageSummary { Format = "cobertura", SourcePath = "coverage.xml" },
+                    Artifacts = new List<CheckRunArtifact> { new CheckRunArtifact { Path = "artifacts/out.txt", SizeBytes = 42, LastWriteUtc = baseUtc } },
+                    DurationMs = 5000000000L,
+                    SlotRequestedUtc = baseUtc.AddMinutes(-3),
+                    StartedUtc = baseUtc.AddMinutes(-2),
+                    CompletedUtc = baseUtc.AddMinutes(-1),
+                    CreatedUtc = baseUtc.AddMinutes(-4)
+                };
+                CheckRun created = await _Driver.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+                runId = created.Id;
+                CheckRunQuery scope = new CheckRunQuery { TenantId = graph.Tenant.Id, UserId = graph.User.Id };
+                DatabaseAssert.AllProperties(created, await _Driver.CheckRuns.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "CheckRun");
+
+                created.WorkflowProfileId = null;
+                created.MissionId = null;
+                created.VoyageId = null;
+                created.DeploymentId = null;
+                created.Label = null;
+                created.Status = CheckRunStatusEnum.Passed;
+                created.ProviderName = null;
+                created.ExternalId = null;
+                created.ExternalUrl = null;
+                created.EnvironmentName = null;
+                created.WorkingDirectory = null;
+                created.BranchName = null;
+                created.CommitHash = null;
+                created.RegressionPurpose = RegressionPurposeEnum.None;
+                created.RegressionObjectiveId = null;
+                created.RegressionLandedCommit = null;
+                created.ExitCode = null;
+                created.Output = null;
+                created.Summary = null;
+                created.TestSummary = null;
+                created.CoverageSummary = null;
+                created.Artifacts = new List<CheckRunArtifact>();
+                created.DurationMs = null;
+                created.SlotRequestedUtc = null;
+                created.StartedUtc = null;
+                created.CompletedUtc = null;
+                CheckRun updated = await _Driver.CheckRuns.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.CheckRuns.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Reopened CheckRun");
+                }
+            }
+            finally
+            {
+                if (runId != null && !_NoCleanup) await _Driver.CheckRuns.DeleteAsync(runId, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyDeploymentEnvironmentsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? environmentId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("environment-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "environment-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "environment-round-trip", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "environment-round-trip", token).ConfigureAwait(false);
+                DeploymentEnvironment environment = new DeploymentEnvironment
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    VesselId = vessel.Id,
+                    Name = "round-trip-environment-" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    Description = "Environment description ユニコード",
+                    Kind = EnvironmentKindEnum.Production,
+                    ConfigurationSource = "config/production.json",
+                    BaseUrl = "https://production.example.test",
+                    HealthEndpoint = "/health",
+                    AccessNotes = "Access notes",
+                    DeploymentRules = "Deployment rules",
+                    VerificationDefinitions = new List<DeploymentVerificationDefinition>
+                    {
+                        new DeploymentVerificationDefinition
+                        {
+                            Name = "home",
+                            Method = "POST",
+                            Path = "/",
+                            RequestBody = "{}",
+                            Headers = new Dictionary<string, string> { { "X-Fixture", "1" } },
+                            ExpectedStatusCode = 201,
+                            MustContainText = "ok",
+                            Active = false
+                        }
+                    },
+                    RolloutMonitoringWindowMinutes = 45,
+                    RolloutMonitoringIntervalSeconds = 90,
+                    AlertOnRegression = false,
+                    RequiresApproval = true,
+                    IsDefault = true,
+                    Active = false,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                DeploymentEnvironment created = await _Driver.Environments.CreateAsync(environment, token).ConfigureAwait(false);
+                environmentId = created.Id;
+                DeploymentEnvironmentQuery scope = new DeploymentEnvironmentQuery { TenantId = tenant.Id, UserId = user.Id };
+                DatabaseAssert.AllProperties(created, await _Driver.Environments.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "DeploymentEnvironment");
+
+                created.Description = null;
+                created.Kind = EnvironmentKindEnum.Staging;
+                created.ConfigurationSource = null;
+                created.BaseUrl = null;
+                created.HealthEndpoint = null;
+                created.AccessNotes = null;
+                created.DeploymentRules = null;
+                created.VerificationDefinitions = new List<DeploymentVerificationDefinition>();
+                created.RolloutMonitoringWindowMinutes = 0;
+                created.RolloutMonitoringIntervalSeconds = 300;
+                created.AlertOnRegression = true;
+                created.RequiresApproval = false;
+                created.IsDefault = false;
+                created.Active = true;
+                DeploymentEnvironment updated = await _Driver.Environments.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Environments.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Reopened DeploymentEnvironment");
+                }
+            }
+            finally
+            {
+                if (environmentId != null && !_NoCleanup) await _Driver.Environments.DeleteAsync(environmentId, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyReleasesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? releaseId = null;
+            try
+            {
+                DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "release-round-trip", token).ConfigureAwait(false);
+                Release release = new Release
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    WorkflowProfileId = graph.Profile.Id,
+                    Title = "Round-trip release ユニコード",
+                    Version = "2.3.4",
+                    TagName = "v2.3.4",
+                    Summary = "Release summary",
+                    Notes = "Release notes ユニコード",
+                    Status = ReleaseStatusEnum.Shipped,
+                    VoyageIds = new List<string> { graph.Voyage.Id },
+                    MissionIds = new List<string> { graph.Mission.Id },
+                    CheckRunIds = new List<string> { graph.CheckRun.Id },
+                    Artifacts = new List<ReleaseArtifact>
+                    {
+                        new ReleaseArtifact { SourceType = "CheckRun", SourceId = graph.CheckRun.Id, Path = "artifacts/app.zip", SizeBytes = 5000000000L, LastWriteUtc = DateTime.UtcNow.AddMinutes(-3) }
+                    },
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    PublishedUtc = DateTime.UtcNow.AddMinutes(-1)
+                };
+                Release created = await _Driver.Releases.CreateAsync(release, token).ConfigureAwait(false);
+                releaseId = created.Id;
+                ReleaseQuery scope = new ReleaseQuery { TenantId = graph.Tenant.Id, UserId = graph.User.Id };
+                DatabaseAssert.AllProperties(created, await _Driver.Releases.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Release");
+
+                created.WorkflowProfileId = null;
+                created.Version = null;
+                created.TagName = null;
+                created.Summary = null;
+                created.Notes = null;
+                created.Status = ReleaseStatusEnum.Draft;
+                created.VoyageIds = new List<string>();
+                created.MissionIds = new List<string>();
+                created.CheckRunIds = new List<string>();
+                created.Artifacts = new List<ReleaseArtifact>();
+                created.PublishedUtc = null;
+                Release updated = await _Driver.Releases.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Releases.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Reopened Release");
+                }
+            }
+            finally
+            {
+                if (releaseId != null && !_NoCleanup) await _Driver.Releases.DeleteAsync(releaseId, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyDeploymentsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? deploymentId = null;
+            try
+            {
+                DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "deployment-round-trip", token).ConfigureAwait(false);
+                DeploymentEnvironment environment = await fixture.CreateDeploymentEnvironmentAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, "deployment-round-trip", token: token).ConfigureAwait(false);
+                Release release = await fixture.CreateReleaseAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, token: token).ConfigureAwait(false);
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                Deployment deployment = new Deployment
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    WorkflowProfileId = graph.Profile.Id,
+                    EnvironmentId = environment.Id,
+                    EnvironmentName = environment.Name,
+                    ReleaseId = release.Id,
+                    MissionId = graph.Mission.Id,
+                    VoyageId = graph.Voyage.Id,
+                    Title = "Round-trip deployment ユニコード",
+                    SourceRef = "refs/heads/main",
+                    Summary = "Deployment summary",
+                    Notes = "Deployment notes ユニコード",
+                    Status = DeploymentStatusEnum.RolledBack,
+                    VerificationStatus = DeploymentVerificationStatusEnum.Failed,
+                    ApprovalRequired = true,
+                    ApprovedByUserId = graph.User.Id,
+                    ApprovedUtc = baseUtc.AddMinutes(-9),
+                    ApprovalComment = "Approved ユニコード",
+                    DeployCheckRunId = graph.CheckRun.Id,
+                    SmokeTestCheckRunId = graph.CheckRun.Id,
+                    HealthCheckRunId = graph.CheckRun.Id,
+                    DeploymentVerificationCheckRunId = graph.CheckRun.Id,
+                    RollbackCheckRunId = graph.CheckRun.Id,
+                    RollbackVerificationCheckRunId = graph.CheckRun.Id,
+                    CheckRunIds = new List<string> { graph.CheckRun.Id },
+                    RequestHistorySummary = new RequestHistorySummaryResult { TotalCount = 4, SuccessCount = 3, FailureCount = 1, SuccessRate = 75, AverageDurationMs = 12.5, FromUtc = baseUtc.AddMinutes(-8), ToUtc = baseUtc, BucketMinutes = 15 },
+                    CreatedUtc = baseUtc.AddMinutes(-10),
+                    StartedUtc = baseUtc.AddMinutes(-8),
+                    CompletedUtc = baseUtc.AddMinutes(-7),
+                    VerifiedUtc = baseUtc.AddMinutes(-6),
+                    RolledBackUtc = baseUtc.AddMinutes(-5),
+                    MonitoringWindowEndsUtc = baseUtc.AddMinutes(30),
+                    LastMonitoredUtc = baseUtc.AddMinutes(-4),
+                    LastRegressionAlertUtc = baseUtc.AddMinutes(-3),
+                    LatestMonitoringSummary = "Monitoring summary ユニコード",
+                    MonitoringFailureCount = 4
+                };
+                Deployment created = await _Driver.Deployments.CreateAsync(deployment, token).ConfigureAwait(false);
+                deploymentId = created.Id;
+                DeploymentQuery scope = new DeploymentQuery { TenantId = graph.Tenant.Id, UserId = graph.User.Id };
+                DatabaseAssert.AllProperties(created, await _Driver.Deployments.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Deployment");
+
+                created.WorkflowProfileId = null;
+                created.ReleaseId = null;
+                created.MissionId = null;
+                created.VoyageId = null;
+                created.SourceRef = null;
+                created.Summary = null;
+                created.Notes = null;
+                created.Status = DeploymentStatusEnum.PendingApproval;
+                created.VerificationStatus = DeploymentVerificationStatusEnum.NotRun;
+                created.ApprovalRequired = false;
+                created.ApprovedByUserId = null;
+                created.ApprovedUtc = null;
+                created.ApprovalComment = null;
+                created.DeployCheckRunId = null;
+                created.SmokeTestCheckRunId = null;
+                created.HealthCheckRunId = null;
+                created.DeploymentVerificationCheckRunId = null;
+                created.RollbackCheckRunId = null;
+                created.RollbackVerificationCheckRunId = null;
+                created.CheckRunIds = new List<string>();
+                created.RequestHistorySummary = null;
+                created.StartedUtc = null;
+                created.CompletedUtc = null;
+                created.VerifiedUtc = null;
+                created.RolledBackUtc = null;
+                created.MonitoringWindowEndsUtc = null;
+                created.LastMonitoredUtc = null;
+                created.LastRegressionAlertUtc = null;
+                created.LatestMonitoringSummary = null;
+                created.MonitoringFailureCount = 0;
+                Deployment updated = await _Driver.Deployments.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Deployments.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Reopened Deployment");
+                }
+            }
+            finally
+            {
+                if (deploymentId != null && !_NoCleanup) await _Driver.Deployments.DeleteAsync(deploymentId, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyMemoriesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? memoryId = null;
+            string? tenantId = null;
+            try
+            {
+                DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "memory-round-trip", token).ConfigureAwait(false);
+                tenantId = graph.Tenant.Id;
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                Memory memory = new Memory
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    Scope = MemoryScopeEnum.UserSpecific,
+                    Type = MemoryTypeEnum.Procedural,
+                    Topic = "topic ユニコード",
+                    Key = "round-trip/" + suffix,
+                    Summary = "Summary ユニコード",
+                    Content = "Content ユニコード",
+                    Salience = 0.625,
+                    SourceKind = MemorySourceKindEnum.Voyage,
+                    SourceVoyageId = graph.Voyage.Id,
+                    SourceMissionId = graph.Mission.Id,
+                    SourceVesselId = graph.Vessel.Id,
+                    SourceDetail = "Source detail",
+                    VesselId = graph.Vessel.Id,
+                    Tags = new List<string> { "alpha", "ユニコード" },
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                Memory created = await _Driver.Memories.CreateAsync(memory, token).ConfigureAwait(false);
+                memoryId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Memories.ReadAsync(graph.Tenant.Id, created.Id, token).ConfigureAwait(false), "Memory");
+                DatabaseAssert.AllProperties(created, await _Driver.Memories.ReadByKeyAsync(graph.Tenant.Id, created.Key!, token).ConfigureAwait(false), "Memory by key");
+
+                Memory changed = DatabaseAssert.NotNull(await _Driver.Memories.ReadAsync(created.Id, token).ConfigureAwait(false), "Memory to update");
+                int expectedVersion = changed.Version;
+                changed.Scope = MemoryScopeEnum.TenantWide;
+                changed.Type = MemoryTypeEnum.Semantic;
+                changed.Topic = null;
+                changed.Summary = null;
+                changed.Content = "Updated content";
+                changed.Salience = 0.25;
+                changed.SourceKind = MemorySourceKindEnum.Manual;
+                changed.SourceVoyageId = null;
+                changed.SourceMissionId = null;
+                changed.SourceVesselId = null;
+                changed.SourceDetail = null;
+                changed.VesselId = null;
+                changed.Tags = new List<string>();
+                changed.Version = expectedVersion + 1;
+                changed.LastUpdateUtc = DateTime.UtcNow;
+                DatabaseAssert.True(await _Driver.Memories.UpdateAsync(changed, expectedVersion, token).ConfigureAwait(false), "Memory update applies");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(changed, await reopened.Memories.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Memory");
+                }
+            }
+            finally
+            {
+                if (memoryId != null && tenantId != null && !_NoCleanup) await _Driver.Memories.DeleteAsync(tenantId, memoryId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyModelEndpointsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? endpointId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("endpoint-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "endpoint-round-trip", token: token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                ModelEndpoint endpoint = new ModelEndpoint
+                {
+                    Id = "mep_round_trip_" + suffix,
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Name = "Endpoint ユニコード " + suffix,
+                    Kind = ModelEndpointKindEnum.Embedding,
+                    Scope = ScopeEnum.UserSpecific,
+                    Provider = ModelProviderEnum.OpenAICompatible,
+                    BaseUrl = "http://localhost:9999/v1",
+                    Model = "model ユニコード",
+                    Dimensionality = 1536,
+                    TimeoutMs = 45000,
+                    Enabled = false,
+                    ApiKey = "api-key-" + suffix,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                ModelEndpoint created = await _Driver.ModelEndpoints.CreateAsync(endpoint, token).ConfigureAwait(false);
+                endpointId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.ModelEndpoints.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "ModelEndpoint");
+
+                ModelEndpoint health = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(created.Id, token).ConfigureAwait(false), "Endpoint for health");
+                DateTime expectedLastUpdateUtc = health.LastUpdateUtc;
+                DateTime checkedUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                health.HealthStatus = EndpointHealthStatusEnum.Unhealthy;
+                health.LastHealthCheckUtc = checkedUtc;
+                health.LastHealthError = "Health error ユニコード";
+                health.LastLatencyMs = 4321;
+                health.HealthHistory = new List<ModelEndpointHealthRecord>
+                {
+                    new ModelEndpointHealthRecord { TimestampUtc = checkedUtc.AddMinutes(-1), Success = true },
+                    new ModelEndpointHealthRecord { TimestampUtc = checkedUtc, Success = false }
+                };
+                health.LastUpdateUtc = DateTime.UtcNow;
+                DatabaseAssert.True(await _Driver.ModelEndpoints.UpdateHealthAsync(health, expectedLastUpdateUtc, token).ConfigureAwait(false), "Endpoint health update applies");
+                DatabaseAssert.AllProperties(health, await _Driver.ModelEndpoints.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "ModelEndpoint after health");
+
+                health.TenantId = tenant.Id;
+                health.Model = null;
+                health.Dimensionality = 0;
+                health.TimeoutMs = 120000;
+                health.Enabled = true;
+                health.ApiKey = null;
+                ModelEndpoint updated = await _Driver.ModelEndpoints.UpdateAsync(health, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.ModelEndpoints.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened ModelEndpoint");
+                }
+            }
+            finally
+            {
+                if (endpointId != null && !_NoCleanup) await _Driver.ModelEndpoints.DeleteAsync(endpointId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyPromptTemplatesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? templateId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("template-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "template-round-trip", token: token).ConfigureAwait(false);
+                PromptTemplate template = new PromptTemplate
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    OwnershipScope = OwnershipScopeEnum.UserSpecific,
+                    Name = "round-trip.template." + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    Description = "Template description ユニコード",
+                    Category = "persona",
+                    Content = "Template content ユニコード {{value}}",
+                    IsBuiltIn = true,
+                    Active = false,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                PromptTemplate created = await _Driver.PromptTemplates.CreateAsync(template, token).ConfigureAwait(false);
+                templateId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.PromptTemplates.ReadAsync(created.Id, token).ConfigureAwait(false), "PromptTemplate");
+                DatabaseAssert.AllProperties(created, await _Driver.PromptTemplates.ReadByNameAsync(tenant.Id, created.Name, token).ConfigureAwait(false), "PromptTemplate by name");
+
+                created.OwnershipScope = OwnershipScopeEnum.TenantWide;
+                created.Description = null;
+                created.Category = "mission";
+                created.Content = "Updated content";
+                created.IsBuiltIn = false;
+                created.Active = true;
+                PromptTemplate updated = await _Driver.PromptTemplates.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.PromptTemplates.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened PromptTemplate");
+                }
+            }
+            finally
+            {
+                if (templateId != null && !_NoCleanup) await _Driver.PromptTemplates.DeleteAsync(templateId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyTokenUsageRecordsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? sourceId = null;
+            try
+            {
+                DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "usage-round-trip", token).ConfigureAwait(false);
+                sourceId = "msn_usage_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+                TokenUsageRecord full = new TokenUsageRecord
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    Model = "model ユニコード",
+                    Runtime = "Codex",
+                    Source = "mission",
+                    SourceId = sourceId,
+                    VesselId = graph.Vessel.Id,
+                    CaptainId = graph.Captain.Id,
+                    InputTokens = 5000000001L,
+                    OutputTokens = 5000000002L,
+                    CachedTokens = 5000000003L,
+                    TotalTokens = 15000000006L,
+                    UsageRule = TokenUsageRuleEnum.SeparateInputBuckets,
+                    UncachedInputTokens = 5000000004L,
+                    CacheReadInputTokens = 5000000005L,
+                    CacheWriteInputTokens = 5000000006L,
+                    Estimated = true,
+                    CreatedUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560)
+                };
+                TokenUsageRecord sparse = new TokenUsageRecord
+                {
+                    TenantId = graph.Tenant.Id,
+                    Model = "sparse-model",
+                    Source = "mission",
+                    SourceId = sourceId,
+                    InputTokens = 1,
+                    OutputTokens = 2,
+                    TotalTokens = 3,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-1)
+                };
+                TokenUsageRecord createdFull = await _Driver.TokenUsage.CreateAsync(full, token).ConfigureAwait(false);
+                TokenUsageRecord createdSparse = await _Driver.TokenUsage.CreateAsync(sparse, token).ConfigureAwait(false);
+                TokenUsageQuery scope = new TokenUsageQuery { TenantId = graph.Tenant.Id };
+                DatabaseAssert.AllProperties(createdFull, await _Driver.TokenUsage.ReadAsync(createdFull.Id, scope, token).ConfigureAwait(false), "TokenUsageRecord");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(createdFull, await reopened.TokenUsage.ReadAsync(createdFull.Id, scope, token).ConfigureAwait(false), "Reopened TokenUsageRecord");
+                    DatabaseAssert.AllProperties(createdSparse, await reopened.TokenUsage.ReadAsync(createdSparse.Id, scope, token).ConfigureAwait(false), "Reopened sparse TokenUsageRecord");
+                }
+            }
+            finally
+            {
+                if (sourceId != null && !_NoCleanup) await _Driver.TokenUsage.DeleteByFilterAsync(new TokenUsageQuery { SourceId = sourceId }, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyRequestHistoryAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            List<string> ids = new List<string>();
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("history-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "history-round-trip", token: token).ConfigureAwait(false);
+                Credential credential = await fixture.CreateCredentialAsync(tenant.Id, user.Id, "history-round-trip", token: token).ConfigureAwait(false);
+                RequestHistoryEntry entry = new RequestHistoryEntry
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    CredentialId = credential.Id,
+                    PrincipalDisplay = "Principal ユニコード",
+                    AuthMethod = "Bearer",
+                    Method = "POST",
+                    Route = "/api/v1/round-trip",
+                    RouteTemplate = "/api/v1/{name}",
+                    QueryString = "?a=1",
+                    StatusCode = 503,
+                    DurationMs = 12.5,
+                    RequestSizeBytes = 123456,
+                    ResponseSizeBytes = 654321,
+                    RequestContentType = "application/json",
+                    ResponseContentType = "text/plain",
+                    IsSuccess = false,
+                    ClientIp = "192.0.2.1",
+                    CorrelationId = "corr-" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    CreatedUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560)
+                };
+                RequestHistoryDetail detail = new RequestHistoryDetail
+                {
+                    RequestHistoryId = entry.Id,
+                    PathParamsJson = "{\"name\":\"round-trip\"}",
+                    QueryParamsJson = "{\"a\":\"1\"}",
+                    RequestHeadersJson = "{\"X-Fixture\":\"1\"}",
+                    ResponseHeadersJson = "{\"X-Reply\":\"1\"}",
+                    RequestBodyText = "Request body ユニコード",
+                    ResponseBodyText = "Response body",
+                    RequestBodyTruncated = true,
+                    ResponseBodyTruncated = true
+                };
+                RequestHistoryRecord created = await _Driver.RequestHistory.CreateAsync(entry, detail, token).ConfigureAwait(false);
+                ids.Add(created.Entry.Id);
+                RequestHistoryEntry bare = new RequestHistoryEntry { Method = "GET", Route = "/api/v1/bare", CreatedUtc = DateTime.UtcNow.AddMinutes(-1) };
+                RequestHistoryRecord createdBare = await _Driver.RequestHistory.CreateAsync(bare, null, token).ConfigureAwait(false);
+                ids.Add(createdBare.Entry.Id);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    RequestHistoryRecord read = DatabaseAssert.NotNull(await reopened.RequestHistory.ReadAsync(created.Entry.Id, null, token).ConfigureAwait(false), "Reopened RequestHistoryRecord");
+                    DatabaseAssert.AllProperties(created.Entry, read.Entry, "Reopened RequestHistoryEntry");
+                    DatabaseAssert.AllProperties(created.Detail!, DatabaseAssert.NotNull(read.Detail, "Reopened RequestHistoryDetail"), "Reopened RequestHistoryDetail");
+                    RequestHistoryRecord readBare = DatabaseAssert.NotNull(await reopened.RequestHistory.ReadAsync(createdBare.Entry.Id, null, token).ConfigureAwait(false), "Reopened bare RequestHistoryRecord");
+                    DatabaseAssert.AllProperties(createdBare.Entry, readBare.Entry, "Reopened bare RequestHistoryEntry");
+                }
+            }
+            finally
+            {
+                if (!_NoCleanup) foreach (string id in ids) await _Driver.RequestHistory.DeleteAsync(id, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<DeliveryGraph> CreateDeliveryGraphAsync(DatabaseFixture fixture, string prefix, CancellationToken token)
+        {
+            DeliveryGraph graph = new DeliveryGraph();
+            graph.Tenant = await fixture.CreateTenantAsync(prefix, token: token).ConfigureAwait(false);
+            graph.User = await fixture.CreateUserAsync(graph.Tenant.Id, prefix, token: token).ConfigureAwait(false);
+            Fleet fleet = await fixture.CreateFleetAsync(graph.Tenant.Id, graph.User.Id, prefix, token).ConfigureAwait(false);
+            graph.Vessel = await fixture.CreateVesselAsync(graph.Tenant.Id, graph.User.Id, fleet.Id, prefix, token).ConfigureAwait(false);
+            graph.Captain = await fixture.CreateCaptainAsync(graph.Tenant.Id, graph.User.Id, prefix, token).ConfigureAwait(false);
+            graph.Voyage = await fixture.CreateVoyageAsync(graph.Tenant.Id, graph.User.Id, prefix, token).ConfigureAwait(false);
+            graph.Mission = await fixture.CreateMissionAsync(graph.Tenant.Id, graph.User.Id, graph.Voyage.Id, graph.Vessel.Id, graph.Captain.Id, prefix, token).ConfigureAwait(false);
+            graph.Profile = await fixture.CreateWorkflowProfileAsync(graph.Tenant.Id, graph.User.Id, prefix, token: token).ConfigureAwait(false);
+            graph.CheckRun = await fixture.CreateCheckRunAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, graph.Profile.Id, token: token).ConfigureAwait(false);
+            return graph;
+        }
+
+        private sealed class DeliveryGraph
+        {
+            internal TenantMetadata Tenant { get; set; } = null!;
+            internal UserMaster User { get; set; } = null!;
+            internal Vessel Vessel { get; set; } = null!;
+            internal Captain Captain { get; set; } = null!;
+            internal Voyage Voyage { get; set; } = null!;
+            internal Mission Mission { get; set; } = null!;
+            internal WorkflowProfile Profile { get; set; } = null!;
+            internal CheckRun CheckRun { get; set; } = null!;
+        }
+
         internal async Task VerifyDamagedJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

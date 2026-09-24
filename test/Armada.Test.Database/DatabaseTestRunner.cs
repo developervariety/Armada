@@ -169,6 +169,16 @@ namespace Armada.Test.Database
             await RunTest("Signal_Every_Property_Create_MarkRead_Reopen", "Operational", () => roundTrips.VerifySignalsAsync(token), token);
             await RunTest("Event_Every_Property_Create_Reopen", "Operational", () => roundTrips.VerifyEventsAsync(token), token);
             await RunTest("Captain_Every_Property_Create_Liveness_Update_Reopen", "Operational", () => roundTrips.VerifyCaptainsAsync(token), token);
+            await RunTest("WorkflowProfile_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyWorkflowProfilesAsync(token), token);
+            await RunTest("CheckRun_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyCheckRunsAsync(token), token);
+            await RunTest("DeploymentEnvironment_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyDeploymentEnvironmentsAsync(token), token);
+            await RunTest("Release_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyReleasesAsync(token), token);
+            await RunTest("Deployment_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyDeploymentsAsync(token), token);
+            await RunTest("Memory_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyMemoriesAsync(token), token);
+            await RunTest("ModelEndpoint_Every_Property_Create_Health_Update_Reopen", "Operational", () => roundTrips.VerifyModelEndpointsAsync(token), token);
+            await RunTest("PromptTemplate_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyPromptTemplatesAsync(token), token);
+            await RunTest("TokenUsage_Every_Property_Full_And_Sparse_Reopen", "Operational", () => roundTrips.VerifyTokenUsageRecordsAsync(token), token);
+            await RunTest("RequestHistory_Every_Property_Entry_And_Detail_Reopen", "Operational", () => roundTrips.VerifyRequestHistoryAsync(token), token);
             await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
             await RunTest("Pipeline_Same_Order_Stages_Keep_Submitted_Order", "Operational", () => TestPipelineSiblingOrderAsync(token), token);
             await RunTest("RequestHistory_Timestamp_RoundTrip_And_Same_Day_Range", "Operational", () => TestRequestHistorySameDayRangeAsync(token), token);
