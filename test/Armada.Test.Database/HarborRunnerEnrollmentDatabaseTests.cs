@@ -55,6 +55,14 @@ namespace Armada.Test.Database
             foreach (bool result in reenrollResults) if (result) reenrollWinners++;
             DatabaseAssert.Equal(1, reenrollWinners, "Exactly one provider CAS re-enrollment wins");
 
+            // A re-enrollment that expects a later generation must never create the row: the row the caller
+            // read may have been removed since, and every provider refuses rather than recreating it.
+            string vanishedRunnerId = "hbr_vanished_" + suffix;
+            DatabaseAssert.True(!await _Driver.HarborRunnerEnrollments.TryEnrollAsync(NewEnrollment(vanishedRunnerId, 5), 4, token).ConfigureAwait(false),
+                "Re-enrollment against a missing row is refused");
+            DatabaseAssert.True(await _Driver.HarborRunnerEnrollments.ReadAsync(vanishedRunnerId, token).ConfigureAwait(false) == null,
+                "Refused re-enrollment creates no row");
+
             if (_Settings.Type == DatabaseTypeEnum.Mysql)
             {
                 string overlengthRunnerId = "hbr_" + new string('界', 447);

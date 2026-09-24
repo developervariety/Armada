@@ -85,6 +85,10 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **PostgreSQL runner enrollment compare-and-set:** a Harbor runner
+  re-enrollment that expects a generation above zero updates the existing
+  inactive row or is refused. It no longer inserts a new enrollment when the
+  row is gone, which matches SQLite, MySQL and SQL Server.
 - **PostgreSQL skill and project profile timestamps:** skill and project
   profile timestamps (stored as text) read through the shared PostgreSQL UTC
   reader, which honours the stored offset, so a host outside UTC no longer
