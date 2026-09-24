@@ -372,6 +372,12 @@ context paths are passed as separate arguments. Set `ARMADA_DOCKER_BIN` only
 when supplying a Docker-compatible test double; do not use it to bypass the
 retention checks.
 
+The build always passes the context's commit as `GIT_SHA`. Set
+`ARMADA_CLI_REFRESH` to a number, such as the output of `date +%s`, to also pass
+it as the Dockerfile's `CLI_REFRESH` argument: the agent CLI layer is then rebuilt
+and every CLI is installed at its latest version. Any other value is refused
+before the retention step.
+
 ---
 
 ## Database Client Tools

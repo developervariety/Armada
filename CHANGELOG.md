@@ -81,6 +81,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Image rebuild helper:** `rebuild-local-image.sh` passes `ARMADA_CLI_REFRESH`
+  (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
+  refresh the agent CLIs without editing the Dockerfile, and its behavioural test
+  covers the `GIT_SHA` build argument the helper already sends.
 - **Tenant scope for ids in request bodies:** voyage and mission create, mission
   update, vessel build-context, merge-queue enqueue, incident create and update,
   and planning-session create read every record their body names by id with the

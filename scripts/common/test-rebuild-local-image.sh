@@ -122,7 +122,9 @@ assert_contains "retained_running_image=sha256:running" <(printf '%s\n' "$OUTPUT
 assert_contains "retained_mutable_image=sha256:mutable" <(printf '%s\n' "$OUTPUT_ONE")
 assert_contains $'image\ttag\tsha256:running\t' "$LOG_SUCCESS"
 assert_contains $'image\ttag\tsha256:mutable\t' "$LOG_SUCCESS"
-assert_contains $'build\t--file\t' "$LOG_SUCCESS"
+assert_contains $'build\t--build-arg\tGIT_SHA=' "$LOG_SUCCESS"
+assert_contains $'\t--file\t' "$LOG_SUCCESS"
+assert_not_contains 'CLI_REFRESH=' "$LOG_SUCCESS"
 assert_not_contains $'--push\t' "$LOG_SUCCESS"
 assert_contains "$DOCKERFILE" "$LOG_SUCCESS"
 assert_contains "$CONTEXT" "$LOG_SUCCESS"
@@ -141,6 +143,11 @@ FIRST_TAG_LINE="$(grep -n $'^image\ttag\t' "$LOG_SUCCESS" | head -n 1 | cut -d: 
 BUILD_LINE="$(grep -n $'^build\t' "$LOG_SUCCESS" | head -n 1 | cut -d: -f1)"
 [ "$FIRST_TAG_LINE" -lt "$BUILD_LINE" ] || fail "build started before image retention"
 
+LOG_REFRESH="${TMP}/refresh.log"
+ARMADA_CLI_REFRESH=1727000000 run_helper "$LOG_REFRESH" armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT" >/dev/null \
+    || fail "rebuild with a CLI refresh value returned failure"
+assert_contains $'--build-arg\tCLI_REFRESH=1727000000\t' "$LOG_REFRESH"
+
 run_failure_case() {
     local name="$1"
     shift
@@ -150,6 +157,9 @@ run_failure_case() {
     fi
     assert_not_contains $'build\t' "$log"
 }
+
+ARMADA_CLI_REFRESH='1; rm -rf x' run_failure_case unsafe-cli-refresh \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
 
 ARMADA_FAKE_CONTAINER_MISSING=1 run_failure_case missing-container \
     armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"

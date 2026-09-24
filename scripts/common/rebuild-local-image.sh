@@ -8,7 +8,10 @@ Usage: rebuild-local-image.sh <running-container> <mutable-image-tag> <dockerfil
 
 The helper records and retains the image used by the running container and the
 current mutable tag before it runs a local `docker build`. Set
-ARMADA_DOCKER_BIN to inject a Docker-compatible test double.
+ARMADA_DOCKER_BIN to inject a Docker-compatible test double. Set
+ARMADA_CLI_REFRESH to a number (for example `date +%s`) to pass it as the
+Dockerfile's CLI_REFRESH build argument, which re-installs the agent CLIs at
+their latest versions.
 USAGE
 }
 
@@ -29,6 +32,11 @@ if [ "$#" -ne 4 ]; then
     usage
     exit 2
 fi
+
+CLI_REFRESH_VALUE="${ARMADA_CLI_REFRESH:-}"
+case "$CLI_REFRESH_VALUE" in
+    *[!0-9]*) die "ARMADA_CLI_REFRESH must contain digits only (for example the output of date +%s)" ;;
+esac
 
 CONTAINER="$1"
 MUTABLE_TAG="$2"
@@ -138,4 +146,8 @@ echo "building_mutable_tag=${MUTABLE_TAG}"
 # Dockerfile cannot run git itself. An empty value (no git, detached, or a
 # non-repository context) keeps the unknown-commit behaviour.
 BUILD_COMMIT="$(git -C "$CONTEXT" rev-parse HEAD 2>/dev/null || true)"
-"${DOCKER[@]}" build --build-arg "GIT_SHA=${BUILD_COMMIT}" --file "$DOCKERFILE" --tag "$MUTABLE_TAG" "$CONTEXT"
+BUILD_ARGS=(--build-arg "GIT_SHA=${BUILD_COMMIT}")
+if [ -n "$CLI_REFRESH_VALUE" ]; then
+    BUILD_ARGS+=(--build-arg "CLI_REFRESH=${CLI_REFRESH_VALUE}")
+fi
+"${DOCKER[@]}" build "${BUILD_ARGS[@]}" --file "$DOCKERFILE" --tag "$MUTABLE_TAG" "$CONTEXT"
