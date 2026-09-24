@@ -50,6 +50,21 @@ namespace Armada.Core.Services
         /// <summary>Whether the process was still running when the post-kill wait ended.</summary>
         public bool StillRunningAfterKill { get; set; } = false;
 
+        /// <summary>
+        /// Descendants killed after the group and tree kill because they carried the run identifier, having left both
+        /// the process tree and the process group. Linux group-owning runs only; zero elsewhere.
+        /// </summary>
+        public int EscapedProcessesKilled { get; set; } = 0;
+
+        /// <summary>
+        /// Processes of the same user whose environment the kernel refused to show during the containment sweep, so
+        /// they could not be checked for the run identifier.
+        /// </summary>
+        public int ContainmentUnreadableProcesses { get; set; } = 0;
+
+        /// <summary>Why the containment sweep stopped before it was sure it had found every descendant; null when it finished or did not run.</summary>
+        public string? ContainmentSweepError { get; set; } = null;
+
         /// <summary>Why writing standard input failed; null when it succeeded or there was none.</summary>
         public string? StandardInputError { get; set; } = null;
 

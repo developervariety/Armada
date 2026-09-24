@@ -20,9 +20,12 @@ namespace Armada.Core.Services
     /// </para>
     /// <para>
     /// The timeout and the caller's cancellation both kill the process with its whole live tree, and with its
-    /// process group when the request owns one (so a background child the process left behind dies too). After a
-    /// kill, and after a normal exit, the readers get a bounded drain window: a descendant that still holds a pipe
-    /// cannot keep the call from returning. Such a descendant is reported, not waited for.
+    /// process group when the request owns one (so a background child the process left behind dies too). On Linux a
+    /// group-owning run also tags every process it starts with a run identifier, and the kill then sweeps the
+    /// processes that carry it, so a descendant that started its own session and left the tree dies too (see
+    /// <see cref="ContainmentMarker"/>). After a kill, and after a normal exit, the readers get a bounded drain
+    /// window: a descendant that still holds a pipe cannot keep the call from returning. Such a descendant is
+    /// reported, not waited for. A normal exit kills nothing.
     /// </para>
     /// <para>
     /// Standard input is always redirected and closed, after any input the request supplies, so a child that
@@ -76,6 +79,7 @@ namespace Armada.Core.Services
             startInfo.RedirectStandardOutput = true;
             startInfo.RedirectStandardError = true;
             bool ownsProcessGroup = request.OwnProcessGroup && ApplyGroupLauncher(startInfo);
+            string? containmentId = ownsProcessGroup ? ContainmentMarker.Apply(startInfo) : null;
 
             BoundedOutput? combined = null;
             BoundedTextCapture? stdoutCapture = null;
@@ -122,6 +126,7 @@ namespace Armada.Core.Services
                         result.TimedOut = !result.Cancelled;
                         inputStop.Cancel();
                         result.KillError = Kill(process, ownsProcessGroup);
+                        if (containmentId != null) Sweep(containmentId, result);
                         result.StillRunningAfterKill = !await WaitForExitAsync(process, request.KillDrainTimeout).ConfigureAwait(false);
                         if (!await DrainAsync(pumps, request.KillDrainTimeout, readersStop).ConfigureAwait(false))
                             result.OutputDrainTimedOut = true;
@@ -173,6 +178,9 @@ namespace Armada.Core.Services
             if (result.Cancelled) parts.Add("cancelled");
             if (result.KillError != null) parts.Add("kill_failed=" + result.KillError);
             if (result.StillRunningAfterKill) parts.Add("still_running_after_kill");
+            if (result.EscapedProcessesKilled > 0) parts.Add("escaped_processes_killed=" + result.EscapedProcessesKilled);
+            if (result.ContainmentUnreadableProcesses > 0) parts.Add("containment_unreadable=" + result.ContainmentUnreadableProcesses);
+            if (result.ContainmentSweepError != null) parts.Add("containment_sweep_incomplete=" + result.ContainmentSweepError);
             if (result.OutputDrainTimedOut) parts.Add("output_pipe_held_open");
             if (result.StandardOutputTruncated) parts.Add("stdout_omitted_bytes=" + result.StandardOutputOmittedBytes);
             if (result.StandardErrorTruncated) parts.Add("stderr_omitted_bytes=" + result.StandardErrorOmittedBytes);
@@ -297,6 +305,17 @@ namespace Armada.Core.Services
             {
                 return ex.GetType().Name + ": " + ex.Message;
             }
+        }
+
+        /// <summary>
+        /// Kill the descendants that left both the tree and the group, found by the run identifier they carry.
+        /// </summary>
+        private static void Sweep(string containmentId, BoundedProcessResult result)
+        {
+            ContainmentSweepOutcome outcome = ContainmentMarker.Sweep(containmentId);
+            result.EscapedProcessesKilled = outcome.Killed;
+            result.ContainmentUnreadableProcesses = outcome.Unreadable;
+            result.ContainmentSweepError = outcome.Error;
         }
 
         private static async Task<bool> WaitForExitAsync(Process process, TimeSpan bound)

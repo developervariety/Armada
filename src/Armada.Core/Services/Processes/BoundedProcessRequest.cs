@@ -89,6 +89,9 @@ namespace Armada.Core.Services
         /// resolves, in the order Process.Start uses, to a file this process may execute. An executable that does not
         /// resolve starts without the group, so a missing or non-executable file is the same start failure it is
         /// without this option. Requires <see cref="ProcessStartInfo.ArgumentList"/> rather than an argument string.
+        /// On Linux the run also sets <see cref="ContainmentMarker.VariableName"/> in the child's environment, and a
+        /// timeout or cancellation kills every process of the same user that still carries it, so a descendant that
+        /// started its own session and left the tree dies too.
         /// </summary>
         public bool OwnProcessGroup { get; set; } = false;
 

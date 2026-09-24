@@ -671,9 +671,16 @@ upstream integrations and excludes changes already present at that baseline.
   shell commands), and gives the readers a bounded drain window after exit or kill,
   so a background child holding a pipe cannot hang the call. `run_command`,
   merge-queue git and test commands, and self-deploy native commands use it.
-  Containment limits are documented and pinned by a KnownGap test: on Linux and
-  macOS a descendant that starts its own session and leaves the live tree escapes
-  both the group and the tree kill; on Windows only the live tree is killed.
+  Containment differs by platform (see the next bullet).
+- **Escaped descendants on Linux:** a group-owning run tags every process it
+  starts with a run-unique `ARMADA_CONTAINMENT_ID` in its environment. A timeout
+  or cancellation, after the group and tree kill, kills every process of the same
+  user that still carries the identifier, so a descendant that called `setsid`
+  and double-forked out of the tree and the group dies with the run. Processes
+  without the identifier are never signalled; the result names the processes
+  killed, the ones it could not read, and an incomplete sweep. macOS still lets
+  such a descendant escape (its environment is not readable), and on Windows only
+  the live tree is killed.
 - **Git processes:** every admiral git command (GitService, pinned anchors, code
   index, workspace, branch writes, readiness, vessel routes, dock seeding and hook
   lookup, landing ref reads, ref audit, disk cleanup, check checkouts, the Slop

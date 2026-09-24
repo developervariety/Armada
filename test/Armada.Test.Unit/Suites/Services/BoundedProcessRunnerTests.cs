@@ -151,38 +151,111 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("KnownGap: a descendant that starts its own session and leaves the tree survives a group kill", async () =>
+            await RunTest("A timeout kills a descendant that started its own session and left the tree when the run owns a process group", async () =>
             {
-                const string name = "KnownGap: a descendant that starts its own session and leaves the tree survives a group kill";
-                if (SkipOnWindows(name)) return;
-                if (BoundedProcessRunner.GroupLauncher == null || !OnPath("perl"))
-                {
-                    SkipTest(name, "No process-group launcher or no perl to start a new session on this host.");
-                    return;
-                }
-
+                const string name = "A timeout kills a descendant that started its own session and left the tree when the run owns a process group";
+                if (SkipUnlessContainmentSweep(name)) return;
                 string pidFile = TempFile();
                 try
                 {
-                    // The subshell exits at once, so the grandchild is re-parented out of the live tree, and it calls
-                    // setsid, so it leaves the run's process group as well. Neither kill can name it. This pins the
-                    // documented containment limit; a change that contains it must flip this assertion.
-                    string escape = "(perl -e 'use POSIX (); POSIX::setsid(); exec \"sleep\", \"30\"' >/dev/null 2>&1 & echo $! > '" + pidFile + "'); sleep 60";
-                    BoundedProcessRequest request = new BoundedProcessRequest(Shell(escape), TimeSpan.FromMilliseconds(1500))
+                    BoundedProcessRequest request = new BoundedProcessRequest(Shell(EscapeScript(pidFile) + "; sleep 60"), TimeSpan.FromMilliseconds(1500))
                     {
                         OwnProcessGroup = true
                     };
                     BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request);
                     AssertTrue(result.TimedOut, "timed out");
                     int escaped = ReadPid(pidFile);
-                    await Task.Delay(500);
-                    AssertTrue(IsAlive(escaped), "a descendant in its own session outside the tree is not contained");
+                    AssertTrue(await ProcessGoneAsync(escaped), "the descendant in its own session outside the tree must die with the run");
+                    AssertTrue(result.EscapedProcessesKilled >= 1, "the sweep names what it killed: " + BoundedProcessRunner.DescribeAnomalies(result));
+                    AssertNull(result.ContainmentSweepError, "the sweep finished");
                 }
                 finally
                 {
                     KillPid(pidFile);
                     Cleanup(pidFile);
                 }
+            });
+
+            await RunTest("A caller cancellation kills a descendant that started its own session and left the tree when the run owns a process group", async () =>
+            {
+                const string name = "A caller cancellation kills a descendant that started its own session and left the tree when the run owns a process group";
+                if (SkipUnlessContainmentSweep(name)) return;
+                string pidFile = TempFile();
+                try
+                {
+                    BoundedProcessRequest request = new BoundedProcessRequest(Shell(EscapeScript(pidFile) + "; sleep 60"), TimeSpan.FromSeconds(60))
+                    {
+                        OwnProcessGroup = true
+                    };
+                    BoundedProcessResult result;
+                    using (CancellationTokenSource cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500)))
+                    {
+                        result = await BoundedProcessRunner.RunAsync(request, cancel.Token);
+                    }
+
+                    AssertTrue(result.Cancelled, "cancelled");
+                    int escaped = ReadPid(pidFile);
+                    AssertTrue(await ProcessGoneAsync(escaped), "the descendant in its own session outside the tree must die with the run");
+                    AssertTrue(result.EscapedProcessesKilled >= 1, "the sweep names what it killed: " + BoundedProcessRunner.DescribeAnomalies(result));
+                }
+                finally
+                {
+                    KillPid(pidFile);
+                    Cleanup(pidFile);
+                }
+            });
+
+            await RunTest("The containment sweep never signals a process without the run identifier", async () =>
+            {
+                const string name = "The containment sweep never signals a process without the run identifier";
+                if (SkipUnlessContainmentSweep(name)) return;
+                string pidFile = TempFile();
+                using (Process unmarked = StartSleeper(null))
+                using (Process otherRun = StartSleeper("0123456789abcdef0123456789abcdef"))
+                {
+                    try
+                    {
+                        BoundedProcessRequest request = new BoundedProcessRequest(Shell(EscapeScript(pidFile) + "; sleep 60"), TimeSpan.FromMilliseconds(1500))
+                        {
+                            OwnProcessGroup = true
+                        };
+                        BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request);
+                        AssertTrue(result.TimedOut, "timed out");
+                        AssertTrue(await ProcessGoneAsync(ReadPid(pidFile)), "the run's own descendant died");
+                        await Task.Delay(300);
+                        AssertTrue(IsAlive(unmarked.Id), "a process with no run identifier is untouched");
+                        AssertTrue(IsAlive(otherRun.Id), "a process carrying another run's identifier is untouched");
+                    }
+                    finally
+                    {
+                        KillQuietly(unmarked);
+                        KillQuietly(otherRun);
+                        KillPid(pidFile);
+                        Cleanup(pidFile);
+                    }
+                }
+            });
+
+            await RunTest("Only a group-owning run carries the run identifier, appended to one it inherits", async () =>
+            {
+                const string name = "Only a group-owning run carries the run identifier, appended to one it inherits";
+                if (SkipUnlessContainmentSweep(name)) return;
+                const string probe = "echo \"[${" + MarkerVariable + "-unset}]\"";
+
+                // A run that does not own a group passes on exactly what this process has: nothing is added.
+                string inherited = Environment.GetEnvironmentVariable(MarkerVariable) ?? "unset";
+                BoundedProcessResult plain = await BoundedProcessRunner.RunAsync(new BoundedProcessRequest(Shell(probe), TimeSpan.FromSeconds(20)));
+                AssertEqual("[" + inherited + "]\n", plain.StandardOutput, "a run that does not own a group adds no identifier");
+
+                ProcessStartInfo groupedStart = Shell(probe);
+                groupedStart.Environment.Remove(MarkerVariable);
+                BoundedProcessResult grouped = await BoundedProcessRunner.RunAsync(new BoundedProcessRequest(groupedStart, TimeSpan.FromSeconds(20)) { OwnProcessGroup = true });
+                AssertTrue(System.Text.RegularExpressions.Regex.IsMatch(grouped.StandardOutput, "^\\[[0-9a-f]{32}\\]\n$"), "a group-owning run carries one identifier: " + grouped.StandardOutput);
+
+                ProcessStartInfo nestedStart = Shell(probe);
+                nestedStart.Environment[MarkerVariable] = "outer";
+                BoundedProcessResult nested = await BoundedProcessRunner.RunAsync(new BoundedProcessRequest(nestedStart, TimeSpan.FromSeconds(20)) { OwnProcessGroup = true });
+                AssertTrue(System.Text.RegularExpressions.Regex.IsMatch(nested.StandardOutput, "^\\[outer:[0-9a-f]{32}\\]\n$"), "a run inside a run keeps the outer identifier: " + nested.StandardOutput);
             });
 
             await RunTest("A background child holding the output pipe after exit cannot hang the run", async () =>
@@ -357,6 +430,60 @@ namespace Armada.Test.Unit.Suites.Services
             if (!OperatingSystem.IsWindows()) return false;
             SkipTest(name, "The fixture uses a POSIX shell.");
             return true;
+        }
+
+        private const string MarkerVariable = "ARMADA_CONTAINMENT_ID";
+
+        /// <summary>
+        /// Skip where the host cannot enforce the contract: Linux alone exposes other processes' environments to the
+        /// sweep, and the escape fixture needs a process-group launcher and perl.
+        /// </summary>
+        private bool SkipUnlessContainmentSweep(string name)
+        {
+            if (!OperatingSystem.IsLinux())
+            {
+                SkipTest(name, "The containment sweep reads /proc and runs on Linux only.");
+                return true;
+            }
+
+            if (BoundedProcessRunner.GroupLauncher == null || !OnPath("perl"))
+            {
+                SkipTest(name, "No process-group launcher or no perl to start a new session on this host.");
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// A double fork with setsid in between: the grandchild is re-parented out of the live tree and leads a new
+        /// session, so neither the tree kill nor the group kill can name it. It writes its own pid, then sleeps.
+        /// </summary>
+        private static string EscapeScript(string pidFile)
+        {
+            return "perl -e 'use POSIX (); exit 0 if fork; POSIX::setsid(); exit 0 if fork; "
+                + "open(my $f, \">\", $ARGV[0]) or die; print $f $$; close($f); exec \"sleep\", \"30\"' '" + pidFile + "' >/dev/null 2>&1";
+        }
+
+        private static Process StartSleeper(string? marker)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo("sleep") { UseShellExecute = false };
+            startInfo.ArgumentList.Add("30");
+            startInfo.Environment.Remove(MarkerVariable);
+            if (marker != null) startInfo.Environment[MarkerVariable] = marker;
+            return Process.Start(startInfo) ?? throw new InvalidOperationException("sleep did not start");
+        }
+
+        private static void KillQuietly(Process process)
+        {
+            try
+            {
+                if (!process.HasExited) process.Kill();
+            }
+            catch (InvalidOperationException)
+            {
+                // Already gone.
+            }
         }
 
         private static bool OnPath(string name)
