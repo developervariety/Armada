@@ -8,6 +8,7 @@ namespace Test.Shared.Infrastructure
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// End-to-end check, shared by every test host, that a dispatched mission starts the non-launching test
@@ -67,14 +68,17 @@ namespace Test.Shared.Infrastructure
             }
             finally
             {
-                // Cancelling a voyage cancels only its Pending and Assigned missions. A started mission and its agent
-                // keep running, as a real agent would, so the test cancels that mission and stops its captain.
+                // Cancelling a voyage cancels its active missions and recalls the captains working them. A mission
+                // the voyage cancel left active is cancelled on its own; a finished mission keeps its outcome and
+                // refuses a cancel, so it is already cleaned up. The captain is stopped either way.
                 HttpResponseMessage cancel = await client.DeleteAsync("/api/v1/voyages/" + voyage.Id).ConfigureAwait(false);
                 if (cancel.StatusCode != HttpStatusCode.OK)
                     throw new InvalidOperationException("Cancelling voyage " + voyage.Id + " returned " + (int)cancel.StatusCode + ".");
                 if (started != null)
                 {
-                    await DeleteAsync(client, "/api/v1/missions/" + started.Id).ConfigureAwait(false);
+                    Mission current = await GetAsync<Mission>(client, "/api/v1/missions/" + started.Id).ConfigureAwait(false);
+                    if (MissionStateMachine.IsValidTransition(current.Status, MissionStatusEnum.Cancelled))
+                        await DeleteAsync(client, "/api/v1/missions/" + started.Id).ConfigureAwait(false);
                     await PostAsync<object>(client, "/api/v1/captains/" + started.CaptainId + "/stop", new { }).ConfigureAwait(false);
                 }
             }
@@ -146,6 +150,17 @@ namespace Test.Shared.Infrastructure
             {
                 string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 throw new InvalidOperationException("POST " + route + " returned " + (int)response.StatusCode + ": " + text);
+            }
+            return await JsonHelper.DeserializeAsync<T>(response).ConfigureAwait(false);
+        }
+
+        private static async Task<T> GetAsync<T>(HttpClient client, string route)
+        {
+            HttpResponseMessage response = await client.GetAsync(route).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                throw new InvalidOperationException("GET " + route + " returned " + (int)response.StatusCode + ": " + text);
             }
             return await JsonHelper.DeserializeAsync<T>(response).ConfigureAwait(false);
         }
