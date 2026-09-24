@@ -1436,6 +1436,214 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyPersonasAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? personaId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("persona-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "persona-round-trip", token: token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "persona-round-trip", token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                Persona persona = new Persona
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    OwnershipScope = OwnershipScopeEnum.UserSpecific,
+                    Name = "RoundTripPersona" + suffix,
+                    Description = "Persona description ユニコード",
+                    DefaultCaptainId = captain.Id,
+                    PromptTemplateName = "persona.worker",
+                    IsBuiltIn = true,
+                    DefaultPlaybooks = "[{\"playbookId\":\"pbk_" + suffix + "\",\"deliveryMode\":\"InstructionWithReference\"}]",
+                    MinimumTier = CaptainTierEnum.Premium,
+                    Active = false,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                Persona created = await _Driver.Personas.CreateAsync(persona, token).ConfigureAwait(false);
+                personaId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Personas.ReadAsync(created.Id, token).ConfigureAwait(false), "Persona");
+                DatabaseAssert.AllProperties(created, await _Driver.Personas.ReadByNameAsync(tenant.Id, created.Name, token).ConfigureAwait(false), "Persona by name");
+
+                created.OwnershipScope = OwnershipScopeEnum.TenantWide;
+                created.Description = null;
+                created.DefaultCaptainId = null;
+                created.PromptTemplateName = "persona.judge";
+                created.IsBuiltIn = false;
+                created.DefaultPlaybooks = null;
+                created.MinimumTier = null;
+                created.Active = true;
+                Persona updated = await _Driver.Personas.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Personas.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Persona");
+                }
+            }
+            finally
+            {
+                if (personaId != null && !_NoCleanup) await _Driver.Personas.DeleteAsync(personaId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyPipelinesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? pipelineId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("pipeline-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "pipeline-round-trip", token: token).ConfigureAwait(false);
+                Pipeline pipeline = new Pipeline
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    OwnershipScope = OwnershipScopeEnum.UserSpecific,
+                    Name = "RoundTripPipeline" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    Description = "Pipeline description ユニコード",
+                    IsBuiltIn = true,
+                    Active = false,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage
+                        {
+                            Order = 1,
+                            PersonaName = "Worker",
+                            IsOptional = true,
+                            Description = "Stage description ユニコード",
+                            PreferredModel = "model ユニコード",
+                            RequiresReview = true,
+                            ReviewDenyAction = ReviewDenyActionEnum.FailPipeline
+                        },
+                        new PipelineStage
+                        {
+                            Order = 2,
+                            PersonaName = "Judge"
+                        }
+                    }
+                };
+                Pipeline created = await _Driver.Pipelines.CreateAsync(pipeline, token).ConfigureAwait(false);
+                pipelineId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Pipelines.ReadAsync(created.Id, token).ConfigureAwait(false), "Pipeline");
+                DatabaseAssert.AllProperties(created, await _Driver.Pipelines.ReadByNameAsync(tenant.Id, created.Name, token).ConfigureAwait(false), "Pipeline by name");
+
+                created.OwnershipScope = OwnershipScopeEnum.TenantWide;
+                created.Description = null;
+                created.IsBuiltIn = false;
+                created.Active = true;
+                created.Stages[0].IsOptional = false;
+                created.Stages[0].Description = null;
+                created.Stages[0].PreferredModel = null;
+                created.Stages[0].RequiresReview = false;
+                created.Stages[0].ReviewDenyAction = ReviewDenyActionEnum.RetryStage;
+                Pipeline updated = await _Driver.Pipelines.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Pipelines.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Pipeline");
+                }
+            }
+            finally
+            {
+                if (pipelineId != null && !_NoCleanup) await _Driver.Pipelines.DeleteAsync(pipelineId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyDocksAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? dockId = null;
+            try
+            {
+                DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "dock-round-trip", token).ConfigureAwait(false);
+                Dock dock = new Dock
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    CaptainId = graph.Captain.Id,
+                    WorktreePath = "docks/round-trip ユニコード",
+                    BranchName = "armada/round-trip",
+                    Active = false,
+                    CreatedUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560)
+                };
+                Dock created = await _Driver.Docks.CreateAsync(dock, token).ConfigureAwait(false);
+                dockId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Docks.ReadAsync(created.Id, token).ConfigureAwait(false), "Dock");
+                DatabaseAssert.AllProperties(created, await _Driver.Docks.ReadAsync(graph.Tenant.Id, graph.User.Id, created.Id, token).ConfigureAwait(false), "Dock by tenant and user");
+
+                created.CaptainId = null;
+                created.WorktreePath = null;
+                created.BranchName = null;
+                created.Active = true;
+                Dock updated = await _Driver.Docks.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Docks.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Dock");
+                }
+            }
+            finally
+            {
+                if (dockId != null && !_NoCleanup) await _Driver.Docks.DeleteAsync(dockId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyVoyagesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? voyageId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("voyage-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "voyage-round-trip", token: token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                Voyage voyage = new Voyage("Round-trip voyage ユニコード", "Voyage description ユニコード")
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Status = VoyageStatusEnum.Failed,
+                    CreatedUtc = baseUtc.AddMinutes(-5),
+                    CompletedUtc = baseUtc,
+                    AutoPush = true,
+                    AutoCreatePullRequests = false,
+                    AutoMergePullRequests = true,
+                    LandingMode = LandingModeEnum.MergeQueue,
+                    SourcePlanningSessionId = "pls_" + suffix,
+                    SourcePlanningMessageId = "plm_" + suffix,
+                    CaptainOverridesJson = "{\"Worker\":\"cpt_" + suffix + "\"}"
+                };
+                Voyage created = await _Driver.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
+                voyageId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Voyages.ReadAsync(created.Id, token).ConfigureAwait(false), "Voyage");
+                DatabaseAssert.AllProperties(created, await _Driver.Voyages.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "Voyage by tenant and user");
+
+                created.Description = null;
+                created.Status = VoyageStatusEnum.Open;
+                created.CompletedUtc = null;
+                created.AutoPush = null;
+                created.AutoCreatePullRequests = null;
+                created.AutoMergePullRequests = null;
+                created.LandingMode = null;
+                created.SourcePlanningSessionId = null;
+                created.SourcePlanningMessageId = null;
+                created.CaptainOverridesJson = null;
+                Voyage updated = await _Driver.Voyages.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Voyages.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Voyage");
+                }
+            }
+            finally
+            {
+                if (voyageId != null && !_NoCleanup) await _Driver.Voyages.DeleteAsync(voyageId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

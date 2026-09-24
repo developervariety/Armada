@@ -180,6 +180,10 @@ namespace Armada.Test.Database
             await RunTest("PromptTemplate_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyPromptTemplatesAsync(token), token);
             await RunTest("TokenUsage_Every_Property_Full_And_Sparse_Reopen", "Operational", () => roundTrips.VerifyTokenUsageRecordsAsync(token), token);
             await RunTest("RequestHistory_Every_Property_Entry_And_Detail_Reopen", "Operational", () => roundTrips.VerifyRequestHistoryAsync(token), token);
+            await RunTest("Persona_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyPersonasAsync(token), token);
+            await RunTest("Pipeline_Every_Property_With_Stages_Create_Update_Reopen", "Operational", () => roundTrips.VerifyPipelinesAsync(token), token);
+            await RunTest("Dock_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyDocksAsync(token), token);
+            await RunTest("Voyage_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyVoyagesAsync(token), token);
             await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
             await RunTest("Pipeline_Same_Order_Stages_Keep_Submitted_Order", "Operational", () => TestPipelineSiblingOrderAsync(token), token);
             await RunTest("RequestHistory_Timestamp_RoundTrip_And_Same_Day_Range", "Operational", () => TestRequestHistorySameDayRangeAsync(token), token);
