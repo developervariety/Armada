@@ -1302,9 +1302,9 @@ namespace Armada.Server
         /// <param name="signal">Parsed signal.</param>
         private void RouteAgentSignal(string captainId, string? missionId, ProgressParser.ProgressSignal signal)
         {
-            // The first terminal marker ends the stage even if the process keeps running; later
-            // markers (a re-review) never replace it.
-            if (_TerminalMarkers != null && !String.IsNullOrEmpty(missionId) && TerminalMarkerTracker.IsTerminalMarker(signal)
+            // The first stage-ending marker (a terminal marker or BLOCKED) ends the stage even if the
+            // process keeps running; later markers (a re-review) never replace it.
+            if (_TerminalMarkers != null && !String.IsNullOrEmpty(missionId) && TerminalMarkerTracker.IsStageEndingMarker(signal)
                 && _TerminalMarkers.TryRecordFirst(missionId, signal, DateTime.UtcNow))
             {
                 _Logging.Info(_Header + "mission " + missionId + " emitted its first terminal marker [" + signal.Type + "] " + signal.Value);

@@ -5,7 +5,7 @@ namespace Armada.Core.Services
     using System.Threading;
 
     /// <summary>
-    /// In-memory record of the first terminal marker each running mission emitted.
+    /// In-memory record of the first stage-ending marker each running mission emitted.
     /// </summary>
     /// <remarks>
     /// A captain that prints its terminal marker and keeps its process running is finished, but it
@@ -66,8 +66,25 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Record a terminal marker for a mission. Only the first marker is kept; later markers
-        /// (for example a re-review) never replace it.
+        /// True when the signal ends the captain's stage: a terminal marker
+        /// (<see cref="IsTerminalMarker"/>) or <c>[ARMADA:RESULT] BLOCKED</c>. A blocked stage makes no
+        /// completion claim, but it is finished: a captain that waits after it would otherwise be nudged
+        /// to continue without the owner's answer. The completion path still reads the final outcome and
+        /// fails the stage with its question (<see cref="CaptainBlockedResult"/>).
+        /// </summary>
+        /// <param name="signal">Parsed progress signal.</param>
+        /// <returns>True when the signal ends the captain's stage.</returns>
+        public static bool IsStageEndingMarker(ProgressParser.ProgressSignal? signal)
+        {
+            if (IsTerminalMarker(signal)) return true;
+            if (signal == null) return false;
+            return String.Equals(signal.Type, "result", StringComparison.OrdinalIgnoreCase)
+                && ProgressParser.ValueStartsWithWord(signal.Value?.Trim(), CaptainBlockedResult.BlockedWord);
+        }
+
+        /// <summary>
+        /// Record a stage-ending marker (<see cref="IsStageEndingMarker"/>) for a mission. Only the first
+        /// marker is kept; later markers (for example a re-review) never replace it.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>
         /// <param name="signal">Parsed terminal marker.</param>
@@ -76,13 +93,15 @@ namespace Armada.Core.Services
         public bool TryRecordFirst(string missionId, ProgressParser.ProgressSignal signal, DateTime utc)
         {
             if (String.IsNullOrWhiteSpace(missionId)) return false;
-            if (!IsTerminalMarker(signal)) return false;
+            if (!IsStageEndingMarker(signal)) return false;
 
             DateTime normalized = utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime();
+            // A blocked marker may carry the captain's question; the record keeps only the marker word.
+            string value = IsTerminalMarker(signal) ? signal.Value.Trim().ToUpperInvariant() : CaptainBlockedResult.BlockedWord;
             TerminalMarkerRecord record = new TerminalMarkerRecord(
                 missionId,
                 signal.Type.ToLowerInvariant(),
-                signal.Value.Trim().ToUpperInvariant(),
+                value,
                 normalized);
             return _FirstMarkers.TryAdd(missionId, record);
         }

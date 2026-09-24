@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A captain that ends BLOCKED and keeps running is finished:** the stall
+  nudge is withheld and the process is stopped after the terminal-marker grace
+  period, so the stage fails with its question instead of being told to
+  continue without the owner's answer. BLOCKED is still not a completion
+  claim.
 - **A stage that ends `[ARMADA:RESULT] BLOCKED` waits for the owner:** every
   persona and mission mode reads a blocked result through one rule: the final
   result or verdict marker at the start of a line is `[ARMADA:RESULT] BLOCKED`.

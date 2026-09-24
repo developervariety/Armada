@@ -1191,6 +1191,42 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A captain that ends BLOCKED and keeps running is finished: no stall nudge, stopped after the grace period", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StopRecordingRuntime runtime = new StopRecordingRuntime();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, new StubAdmiralService(),
+                        new StopRecordingRuntimeFactory(CreateLogging(), runtime));
+                    settings.AutonomousRecovery.TerminalMarkerGraceSeconds = 60;
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("blocked-captain", AgentRuntimeEnum.ClaudeCode)).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Worker mission") { Persona = "Worker", CaptainId = captain.Id }).ConfigureAwait(false);
+
+                    int processId = 939494;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+
+                    handler.HandleAgentOutput(processId, "If the owner must decide, end with [ARMADA:RESULT] BLOCKED.");
+                    AssertFalse(markers.TryGet(mission.Id, out _), "A marker in the middle of a line does not end the stage.");
+
+                    handler.HandleAgentOutput(processId, "[ARMADA:RESULT] BLOCKED: which retention window is authoritative, 30 or 90 days?");
+                    AssertTrue(markers.TryGet(mission.Id, out TerminalMarkerRecord? first), "A blocked result ends the stage, so the stall nudge is withheld.");
+                    AssertEqual("BLOCKED", first!.Value, "The record keeps the marker word, not the question.");
+                    AssertFalse(ProgressParser.HasTerminalMarker("[ARMADA:RESULT] BLOCKED"), "A blocked result is still not a completion claim.");
+
+                    bool stoppedEarly = await handler.EnforceTerminalMarkerGraceAsync(
+                        processId, captain.Id, mission.Id, first.FirstSeenUtc.AddSeconds(30)).ConfigureAwait(false);
+                    AssertFalse(stoppedEarly, "Inside the grace period the process may still exit on its own.");
+
+                    bool stopped = await handler.EnforceTerminalMarkerGraceAsync(
+                        processId, captain.Id, mission.Id, first.FirstSeenUtc.AddSeconds(61)).ConfigureAwait(false);
+                    AssertTrue(stopped, "After the grace period the handler stops the waiting process.");
+                    AssertEqual(1, runtime.StopCalls.Count);
+                }
+            });
+
             await RunTest("A refused stop after the terminal marker grace is reported as refused, not stopped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
