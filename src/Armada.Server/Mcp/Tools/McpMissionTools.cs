@@ -505,7 +505,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "armada_get_mission_diff",
-                    "Get the git diff of changes made by a captain for a mission. Returns saved diff if available, otherwise live worktree diff.",
+                    "Get the git diff of changes made by a captain for a mission: the saved diff file, then the diff snapshot stored on the mission, then the live worktree diff.",
                     new
                     {
                         type = "object",
@@ -519,58 +519,14 @@ namespace Armada.Server.Mcp.Tools
                     {
                         MissionIdArgs request = JsonSerializer.Deserialize<MissionIdArgs>(args!.Value, _JsonOptions)!;
                         string missionId = request.MissionId;
-                        Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
+                        Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
                         if (mission == null) return (object)new { Error = "Mission not found" };
 
-                        // Check for a saved diff file first
-                        string savedDiffPath = Path.Combine(settings.LogDirectory, "diffs", missionId + ".diff");
-                        if (File.Exists(savedDiffPath))
-                        {
-                            string savedDiff = await McpToolHelpers.ReadTextFileSafeAsync(savedDiffPath).ConfigureAwait(false);
-                            return (object)new { MissionId = missionId, Branch = mission.BranchName ?? "", Diff = savedDiff };
-                        }
-
-                        // Check for database-persisted diff snapshot
-                        if (!String.IsNullOrEmpty(mission.DiffSnapshot))
-                        {
-                            return (object)new { MissionId = missionId, Branch = mission.BranchName ?? "", Diff = mission.DiffSnapshot };
-                        }
-
-                        // Fall back to live worktree diff
-                        if (git == null)
-                            return (object)new { Error = "No saved diff available and git service not configured" };
-
-                        Dock? dock = null;
-                        if (!String.IsNullOrEmpty(mission.DockId))
-                        {
-                            dock = await database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false);
-                        }
-
-                        if (dock == null && !String.IsNullOrEmpty(mission.CaptainId))
-                        {
-                            Captain? captain = await database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false);
-                            if (captain != null && !String.IsNullOrEmpty(captain.CurrentDockId))
-                                dock = await database.Docks.ReadAsync(captain.CurrentDockId).ConfigureAwait(false);
-                        }
-
-                        if (dock == null && !String.IsNullOrEmpty(mission.BranchName) && !String.IsNullOrEmpty(mission.VesselId))
-                        {
-                            List<Dock> docks = await database.Docks.EnumerateByVesselAsync(mission.VesselId).ConfigureAwait(false);
-                            dock = docks.FirstOrDefault(d => d.BranchName == mission.BranchName && d.Active);
-                        }
-
-                        if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
-                            return (object)new { Error = "No diff available — worktree was already reclaimed and no saved diff exists" };
-
-                        string baseBranch = "main";
-                        if (!String.IsNullOrEmpty(mission.VesselId))
-                        {
-                            Vessel? vessel = await database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
-                            if (vessel != null) baseBranch = vessel.DefaultBranch;
-                        }
-
-                        string diff = await git.DiffAsync(dock.WorktreePath, baseBranch).ConfigureAwait(false);
-                        return (object)new { MissionId = missionId, Branch = dock.BranchName ?? "", Diff = diff };
+                        // REST, WebSocket and MCP read a diff through one reader: the saved diff file, then the stored
+                        // snapshot, then the live worktree.
+                        MissionDiffResult diff = await MissionDiffReader.ReadAsync(database, settings.LogDirectory, git, mission).ConfigureAwait(false);
+                        if (!diff.Available) return (object)new { Error = diff.Message };
+                        return (object)new { MissionId = missionId, Branch = diff.Branch, Diff = diff.Diff };
                     });
 
                 register(

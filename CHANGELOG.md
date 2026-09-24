@@ -182,6 +182,11 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One mission diff reader:** REST, WebSocket and MCP read a mission diff through
+  one reader: the saved diff file, then the stored diff snapshot, then the live
+  worktree. MCP read the mission's summary row, which carries no snapshot, so it
+  reported no diff for a mission whose worktree was reclaimed. REST returns `404`
+  when there is no diff instead of an error body under HTTP 200.
 - **One captain create and update:** REST, WebSocket and MCP create and update
   captains through `CaptainAdministrationService`, which owns the name rule,
   runtime-option normalization for whole-body writes, and model validation

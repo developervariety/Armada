@@ -224,16 +224,6 @@ namespace Armada.Server.WebSocket
         #region Private-Methods
 
         /// <summary>
-        /// Reads all text from a file using FileShare.ReadWrite to avoid locking conflicts with writer processes.
-        /// </summary>
-        private async Task<string> ReadFileSharedAsync(string path)
-        {
-            using System.IO.FileStream fs = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite);
-            using System.IO.StreamReader reader = new System.IO.StreamReader(fs);
-            return await reader.ReadToEndAsync().ConfigureAwait(false);
-        }
-
-        /// <summary>
         /// Refusal for a record the caller may not read or that does not exist; the two read the same.
         /// </summary>
         private static object NotFound(string action, string message)
@@ -917,63 +907,21 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>get_mission_diff</c> command.
+        /// Run the <c>get_mission_diff</c> command through the shared diff reader REST and MCP use: the saved diff file,
+        /// then the stored snapshot, then the live worktree.
         /// </summary>
         private async Task<object> GetMissionDiffCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             string mdId = command.Id ?? "";
             Mission? mdMission = await _Database.Missions.ReadAsync(mdId).ConfigureAwait(false);
             if (mdMission == null)
-                return new { type = "command.error", action = "get_mission_diff", error = "Mission not found" };
-            else if (_Settings == null)
+                return NotFound("get_mission_diff", "Mission not found");
+            if (_Settings == null)
                 return new { type = "command.error", action = "get_mission_diff", error = "Diff not available — settings not configured" };
-            else
-            {
-                string savedDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", mdId + ".diff");
-                if (System.IO.File.Exists(savedDiffPath))
-                {
-                    string savedDiff = await ReadFileSharedAsync(savedDiffPath).ConfigureAwait(false);
-                    return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdMission.BranchName ?? "", Diff = savedDiff } };
-                }
-                else if (!String.IsNullOrEmpty(mdMission.DiffSnapshot))
-                {
-                    return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdMission.BranchName ?? "", Diff = mdMission.DiffSnapshot } };
-                }
-                else
-                {
-                    Dock? mdDock = null;
-                    if (!String.IsNullOrEmpty(mdMission.DockId))
-                    {
-                        mdDock = await _Database.Docks.ReadAsync(mdMission.DockId).ConfigureAwait(false);
-                    }
-                    if (mdDock == null && !String.IsNullOrEmpty(mdMission.CaptainId))
-                    {
-                        Captain? mdCaptain = await _Database.Captains.ReadAsync(mdMission.CaptainId).ConfigureAwait(false);
-                        if (mdCaptain != null && !String.IsNullOrEmpty(mdCaptain.CurrentDockId))
-                            mdDock = await _Database.Docks.ReadAsync(mdCaptain.CurrentDockId).ConfigureAwait(false);
-                    }
-                    if (mdDock == null && !String.IsNullOrEmpty(mdMission.BranchName) && !String.IsNullOrEmpty(mdMission.VesselId))
-                    {
-                        List<Dock> mdDocks = await _Database.Docks.EnumerateByVesselAsync(mdMission.VesselId).ConfigureAwait(false);
-                        mdDock = mdDocks.FirstOrDefault(d => d.BranchName == mdMission.BranchName && d.Active);
-                    }
-                    if (mdDock == null || String.IsNullOrEmpty(mdDock.WorktreePath) || !System.IO.Directory.Exists(mdDock.WorktreePath))
-                        return new { type = "command.error", action = "get_mission_diff", error = "No diff available — worktree was already reclaimed and no saved diff exists" };
-                    else if (_Git == null)
-                        return new { type = "command.error", action = "get_mission_diff", error = "Git service not available" };
-                    else
-                    {
-                        string baseBranch = "main";
-                        if (!String.IsNullOrEmpty(mdMission.VesselId))
-                        {
-                            Vessel? mdVessel = await _Database.Vessels.ReadAsync(mdMission.VesselId).ConfigureAwait(false);
-                            if (mdVessel != null) baseBranch = mdVessel.DefaultBranch;
-                        }
-                        string diff = await _Git.DiffAsync(mdDock.WorktreePath, baseBranch).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = mdDock.BranchName ?? "", Diff = diff } };
-                    }
-                }
-            }
+            MissionDiffResult diff = await MissionDiffReader.ReadAsync(_Database, _Settings.LogDirectory, _Git, mdMission).ConfigureAwait(false);
+            if (!diff.Available)
+                return new { type = "command.error", action = "get_mission_diff", error = diff.Message };
+            return new { type = "command.result", action = "get_mission_diff", data = (object)new { MissionId = mdId, Branch = diff.Branch, Diff = diff.Diff } };
         }
 
         /// <summary>

@@ -2083,7 +2083,7 @@ mission is refused with `code: "use_retry_landing"` and a reason that names retr
 
 #### get_mission_diff
 
-Get the git diff for a mission. Returns a saved diff file if available, otherwise attempts a live diff from the worktree.
+Get the git diff for a mission through the same reader as `GET /api/v1/missions/{id}/diff`: the saved diff file, then the diff snapshot stored on the mission, then a live diff from the worktree.
 
 **Request:**
 

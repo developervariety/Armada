@@ -1989,7 +1989,9 @@ failed (the reason names a missing branch, a missing vessel, or a conflict)
 
 #### GET /api/v1/missions/{id}/diff
 
-Returns the git diff of changes made by a captain in the mission's worktree. Checks for a saved diff file first (captured at completion), then falls back to a live worktree diff.
+Returns the git diff of changes made by a captain in the mission's worktree. REST, WebSocket `get_mission_diff` and MCP
+`armada_get_mission_diff` read it through one reader: the saved diff file (captured at completion), then the diff
+snapshot stored on the mission, then a live worktree diff. When none exists the route returns `404`.
 
 **Path Parameters:**
 | Parameter | Description |

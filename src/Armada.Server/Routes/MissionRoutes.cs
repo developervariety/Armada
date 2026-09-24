@@ -1119,68 +1119,32 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                // Check for a saved diff file first (captured at completion time)
-                string savedDiffPath = Path.Combine(_settings.LogDirectory, "diffs", id + ".diff");
-                if (File.Exists(savedDiffPath))
-                {
-                    string savedDiff = await ReadFileSharedAsync(savedDiffPath).ConfigureAwait(false);
-                    return (object)new { MissionId = id, Branch = mission.BranchName ?? "", Diff = savedDiff };
-                }
-
-                // Check for database-persisted diff snapshot
-                if (!String.IsNullOrEmpty(mission.DiffSnapshot))
-                {
-                    return (object)new { MissionId = id, Branch = mission.BranchName ?? "", Diff = mission.DiffSnapshot };
-                }
-
-                // Fall back to live worktree diff
-                Dock? dock = null;
-                if (!String.IsNullOrEmpty(mission.DockId))
-                {
-                    dock = ctx.IsAdmin
-                        ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
+                // REST, WebSocket and MCP read a diff through one reader: the saved diff file, then the stored snapshot,
+                // then the live worktree, reading docks and captains in the caller's scope.
+                MissionDiffResult diff = await MissionDiffReader.ReadAsync(
+                    _database,
+                    _settings.LogDirectory,
+                    _git,
+                    mission,
+                    dockId => ctx.IsAdmin
+                        ? _database.Docks.ReadAsync(dockId)
                         : ctx.IsTenantAdmin
-                            ? await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false)
-                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
-                }
-
-                if (dock == null && !String.IsNullOrEmpty(mission.CaptainId))
-                {
-                    Captain? captain = ctx.IsAdmin
-                        ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
+                            ? _database.Docks.ReadAsync(ctx.TenantId!, dockId)
+                            : _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, dockId),
+                    captainId => ctx.IsAdmin
+                        ? _database.Captains.ReadAsync(captainId)
                         : ctx.IsTenantAdmin
-                            ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
-                            : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
-                    if (captain != null && !String.IsNullOrEmpty(captain.CurrentDockId))
-                    {
-                        dock = ctx.IsAdmin
-                            ? await _database.Docks.ReadAsync(captain.CurrentDockId).ConfigureAwait(false)
-                            : ctx.IsTenantAdmin
-                                ? await _database.Docks.ReadAsync(ctx.TenantId!, captain.CurrentDockId).ConfigureAwait(false)
-                                : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, captain.CurrentDockId).ConfigureAwait(false);
-                    }
-                }
-
-                if (dock == null && !String.IsNullOrEmpty(mission.BranchName) && !String.IsNullOrEmpty(mission.VesselId))
+                            ? _database.Captains.ReadAsync(ctx.TenantId!, captainId)
+                            : _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, captainId),
+                    vesselId => ctx.IsAdmin
+                        ? _database.Docks.EnumerateByVesselAsync(vesselId)
+                        : _database.Docks.EnumerateByVesselAsync(ctx.TenantId!, vesselId)).ConfigureAwait(false);
+                if (!diff.Available)
                 {
-                    List<Dock> docks = ctx.IsAdmin
-                        ? await _database.Docks.EnumerateByVesselAsync(mission.VesselId).ConfigureAwait(false)
-                        : await _database.Docks.EnumerateByVesselAsync(ctx.TenantId!, mission.VesselId).ConfigureAwait(false);
-                    dock = docks.FirstOrDefault(d => d.BranchName == mission.BranchName && d.Active);
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = diff.Message };
                 }
-
-                if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "No diff available — worktree was already reclaimed and no saved diff exists" };
-
-                string baseBranch = "main";
-                if (!String.IsNullOrEmpty(mission.VesselId))
-                {
-                    Vessel? vessel = await _database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
-                    if (vessel != null) baseBranch = vessel.DefaultBranch;
-                }
-
-                string diff = await _git.DiffAsync(dock.WorktreePath, baseBranch).ConfigureAwait(false);
-                return (object)new { MissionId = id, Branch = dock.BranchName ?? "", Diff = diff };
+                return (object)new { MissionId = id, Branch = diff.Branch, Diff = diff.Diff };
             },
             api => api
                 .WithTag("Missions")
