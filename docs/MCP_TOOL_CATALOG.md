@@ -115,7 +115,29 @@ other than a global administrator. `clear` releases the hold and runs the
 handoff or landing the hold stopped; `fail` fails the mission and cancels its
 dependent stages. Each records `mission.hold_cleared` or `mission.hold_failed`
 naming the operator and reason. A mission that is not held is refused with
-`not_held`.
+`not_held`. A held mission keeps its voyage open. Under a voyage that has
+already ended, the decision settles the mission and leaves the voyage status
+and completion time unchanged.
+
+One rule decides when a voyage ends. Three paths apply it: mission state
+changes, the health-loop completion check, and the landing drain. They all
+reach the same answer for the same voyage. The rule runs these steps in order:
+
+1. A voyage that is `Complete`, `Failed` or `Cancelled` stays as it is. This is
+   the terminal set of the voyage. Missions, merge entries, landing jobs and
+   Checks each have their own terminal set.
+2. A voyage with no missions stays open. A voyage stays open while any mission
+   is `Pending`, `Assigned`, `InProgress`, `Testing`, `Review` or
+   `PullRequestOpen`. It also stays open while a `WorkProduced` mission is held
+   for operator review. All other mission statuses are finished:
+   `WorkProduced`, `Complete`, `Failed`, `LandingFailed` and `Cancelled`.
+3. If a finished mission is `Failed` or `LandingFailed`, the voyage becomes
+   `Failed`.
+4. If a voyage has code missions, its Checks decide the result. This includes
+   Checks attached to its missions. A failed Check makes the voyage `Failed`,
+   and a Pending or Running Check keeps it open. A voyage with green Checks or
+   no Checks becomes `Complete`. A voyage whose missions are all Audit or
+   Research skips this step.
 
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `nextOffset` until `hasMore` is false. Then verify `sha256`, `finalized`, and
@@ -875,8 +897,9 @@ never left out, so "nothing to train on" is always visible rather than silent.
 WorkProduced means that work exists and a later stage or landing will act on
 it. That is a valid resting state only while the voyage is `Open` or
 `InProgress`. The paths that end a voyage count WorkProduced as finished and
-leave the mission in place: the completion check, the landing drain, the halt
-after a failed stage, and every cancel surface. Without reconciliation those
+leave the mission in place: the voyage completion rule (8.4), the halt after a
+failed stage, and every cancel surface. The completion rule keeps the voyage
+open only for a WorkProduced mission that is held for operator review. Without reconciliation those
 missions read as live forever to branch cleanup, capacity and recovery.
 
 One rule gives each such mission a terminal status. It uses landing evidence,

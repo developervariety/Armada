@@ -255,6 +255,64 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(VoyageStatusEnum.Complete, updated!.Status, "Idle voyage with only terminal missions should complete.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_AllDoneWithPendingCheck_HoldsVoyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                await CreateCompletionMissionAsync(testDb, vessel, voyage, MissionStatusEnum.Complete).ConfigureAwait(false);
+                await AddVoyageCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Pending).ConfigureAwait(false);
+
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, new RecordingMergeQueueService());
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                Voyage? updated = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                AssertEqual(VoyageStatusEnum.Open, updated!.Status, "A pending Check holds completion in the landing drain too.");
+                AssertNull(updated.CompletedUtc, "A held voyage has no completion time.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_PullRequestStillOpen_HoldsVoyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                await CreateCompletionMissionAsync(testDb, vessel, voyage, MissionStatusEnum.Complete).ConfigureAwait(false);
+                await CreateCompletionMissionAsync(testDb, vessel, voyage, MissionStatusEnum.PullRequestOpen).ConfigureAwait(false);
+
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, new RecordingMergeQueueService());
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                Voyage? updated = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                AssertEqual(VoyageStatusEnum.Open, updated!.Status, "A mission whose pull request is still open keeps its voyage open.");
+            }).ConfigureAwait(false);
+
+            // Every writer of voyage completion must reach the same answer for the same voyage. The
+            // table covers the voyage terminal set, each mission-state class and each Check state.
+            await RunTest("VoyageCompletion_AllWritersAgree_AcrossMissionAndCheckStates", async () =>
+            {
+                List<string> mismatches = new List<string>();
+                foreach (VoyageCompletionCase row in BuildVoyageCompletionTable())
+                {
+                    VoyageStatusEnum healthCycle = await RunCompletionWriterAsync(row, CompletionWriter.HealthCycleSweep).ConfigureAwait(false);
+                    VoyageStatusEnum missionPath = await RunCompletionWriterAsync(row, CompletionWriter.MissionCompletion).ConfigureAwait(false);
+                    VoyageStatusEnum landingDrain = await RunCompletionWriterAsync(row, CompletionWriter.LandingDrain).ConfigureAwait(false);
+
+                    if (healthCycle != missionPath || missionPath != landingDrain || landingDrain != row.Expected)
+                    {
+                        mismatches.Add(row.Name + ": expected " + row.Expected
+                            + ", health-cycle sweep " + healthCycle
+                            + ", mission completion " + missionPath
+                            + ", landing drain " + landingDrain);
+                    }
+                }
+
+                AssertTrue(mismatches.Count == 0, "Voyage completion writers disagree:\n" + String.Join("\n", mismatches));
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_WorkProducedWithPendingDependent_DoesNotOpenIncident", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1343,6 +1401,155 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         #region Helpers
+
+        private enum CompletionWriter
+        {
+            HealthCycleSweep,
+            MissionCompletion,
+            LandingDrain
+        }
+
+        private sealed class VoyageCompletionCase
+        {
+            public VoyageCompletionCase(string name, VoyageStatusEnum start, MissionStatusEnum[] missions, CheckRunStatusEnum? check, VoyageStatusEnum expected, bool lastHeldForOperatorReview = false)
+            {
+                LastHeldForOperatorReview = lastHeldForOperatorReview;
+                Name = name;
+                Start = start;
+                Missions = missions;
+                Check = check;
+                Expected = expected;
+            }
+
+            public string Name { get; }
+            public VoyageStatusEnum Start { get; }
+            public MissionStatusEnum[] Missions { get; }
+            public CheckRunStatusEnum? Check { get; }
+            public VoyageStatusEnum Expected { get; }
+            public bool LastHeldForOperatorReview { get; }
+        }
+
+        private static List<VoyageCompletionCase> BuildVoyageCompletionTable()
+        {
+            VoyageStatusEnum live = VoyageStatusEnum.InProgress;
+            MissionStatusEnum done = MissionStatusEnum.Complete;
+            return new List<VoyageCompletionCase>
+            {
+                new VoyageCompletionCase("all complete, no Checks", live, new[] { done }, null, VoyageStatusEnum.Complete),
+                new VoyageCompletionCase("all complete, green Check", live, new[] { done }, CheckRunStatusEnum.Passed, VoyageStatusEnum.Complete),
+                new VoyageCompletionCase("all complete, pending Check", live, new[] { done }, CheckRunStatusEnum.Pending, live),
+                new VoyageCompletionCase("all complete, running Check", live, new[] { done }, CheckRunStatusEnum.Running, live),
+                new VoyageCompletionCase("all complete, failed Check", live, new[] { done }, CheckRunStatusEnum.Failed, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("work produced and complete", live, new[] { MissionStatusEnum.WorkProduced, done }, null, VoyageStatusEnum.Complete),
+                new VoyageCompletionCase("work produced, held for operator review", live, new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.WorkProduced }, null, live, lastHeldForOperatorReview: true),
+                new VoyageCompletionCase("one failed", live, new[] { done, MissionStatusEnum.Failed }, null, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("one landing failed", live, new[] { done, MissionStatusEnum.LandingFailed }, null, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("one failed, pending Check", live, new[] { done, MissionStatusEnum.Failed }, CheckRunStatusEnum.Pending, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("one cancelled", live, new[] { done, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Complete),
+                new VoyageCompletionCase("pull request still open", live, new[] { done, MissionStatusEnum.PullRequestOpen }, null, live),
+                new VoyageCompletionCase("one still pending", live, new[] { done, MissionStatusEnum.Pending }, null, live),
+                new VoyageCompletionCase("one still in progress", live, new[] { done, MissionStatusEnum.InProgress }, null, live),
+                new VoyageCompletionCase("cancelled voyage, missions done", VoyageStatusEnum.Cancelled, new[] { done }, null, VoyageStatusEnum.Cancelled),
+                new VoyageCompletionCase("cancelled voyage, one failed", VoyageStatusEnum.Cancelled, new[] { done, MissionStatusEnum.Failed }, null, VoyageStatusEnum.Cancelled),
+                new VoyageCompletionCase("failed voyage, missions complete", VoyageStatusEnum.Failed, new[] { done }, null, VoyageStatusEnum.Failed),
+                new VoyageCompletionCase("complete voyage, one landing failed", VoyageStatusEnum.Complete, new[] { MissionStatusEnum.LandingFailed }, null, VoyageStatusEnum.Complete)
+            };
+        }
+
+        private static async Task<VoyageStatusEnum> RunCompletionWriterAsync(VoyageCompletionCase row, CompletionWriter writer)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+            {
+                return await RunCompletionWriterAsync(testDb, row, writer).ConfigureAwait(false);
+            }
+        }
+
+        private static async Task<VoyageStatusEnum> RunCompletionWriterAsync(TestDatabase testDb, VoyageCompletionCase row, CompletionWriter writer)
+        {
+            await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+            Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+            Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Completion parity", row.Name)
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Status = row.Start,
+                LastUpdateUtc = DateTime.UtcNow
+            }).ConfigureAwait(false);
+
+            Mission? last = null;
+            foreach (MissionStatusEnum status in row.Missions)
+                last = await CreateCompletionMissionAsync(testDb, vessel, voyage, status).ConfigureAwait(false);
+            if (row.LastHeldForOperatorReview && last != null)
+            {
+                last.HeldForOperatorReview = true;
+                last.HeldForOperatorReviewReason = "held for the parity table";
+                await testDb.Driver.Missions.UpdateAsync(last).ConfigureAwait(false);
+            }
+            if (row.Check.HasValue)
+                await AddVoyageCheckAsync(testDb, voyage.Id, row.Check.Value).ConfigureAwait(false);
+
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            switch (writer)
+            {
+                case CompletionWriter.HealthCycleSweep:
+                    await new VoyageService(logging, testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
+                    break;
+                case CompletionWriter.MissionCompletion:
+                    ArmadaSettings missionSettings = new ArmadaSettings();
+                    missionSettings.DocksDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_parity_docks_" + Guid.NewGuid().ToString("N"));
+                    missionSettings.ReposDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_parity_repos_" + Guid.NewGuid().ToString("N"));
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, missionSettings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, missionSettings, git, docks);
+                    MissionService missions = new MissionService(logging, testDb.Driver, missionSettings, docks, captains, git: git,
+                        resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(missionSettings));
+                    await missions.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    break;
+                case CompletionWriter.LandingDrain:
+                    // Rescue dispatch would add a mission to a failed row and change the table's input.
+                    ArmadaSettings drainSettings = new ArmadaSettings();
+                    drainSettings.AutonomousRecovery.DispatchRescueMissions = false;
+                    AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, new RecordingMergeQueueService(), settings: drainSettings);
+                    await orchestrator.SweepAsync().ConfigureAwait(false);
+                    break;
+            }
+
+            Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+            return after!.Status;
+        }
+
+        private static async Task<Mission> CreateCompletionMissionAsync(TestDatabase testDb, Vessel vessel, Voyage voyage, MissionStatusEnum status)
+        {
+            return await testDb.Driver.Missions.CreateAsync(new Mission
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                VesselId = vessel.Id,
+                VoyageId = voyage.Id,
+                Persona = "Worker",
+                Title = status + " worker",
+                Status = status,
+                LastUpdateUtc = DateTime.UtcNow.AddHours(-1)
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task AddVoyageCheckAsync(TestDatabase testDb, string voyageId, CheckRunStatusEnum status)
+        {
+            await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+            {
+                VoyageId = voyageId,
+                Label = "Build",
+                Type = CheckRunTypeEnum.Build,
+                Source = CheckRunSourceEnum.Armada,
+                Status = status,
+                Command = "dotnet build",
+                WorkingDirectory = "C:/temp",
+                ExitCode = status == CheckRunStatusEnum.Passed ? 0 : (status == CheckRunStatusEnum.Failed ? 1 : null),
+                Summary = "check"
+            }).ConfigureAwait(false);
+        }
 
         private static async Task SetMissionLastUpdateUtcAsync(TestDatabase testDb, string missionId, DateTime lastUpdateUtc)
         {

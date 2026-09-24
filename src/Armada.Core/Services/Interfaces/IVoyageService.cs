@@ -8,10 +8,10 @@ namespace Armada.Core.Services.Interfaces
     public interface IVoyageService
     {
         /// <summary>
-        /// Check all active voyages and mark complete if all child missions are done.
+        /// Apply <see cref="VoyageCompletionRule"/> to every Open and InProgress voyage.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>List of voyages that were marked complete during this check.</returns>
+        /// <returns>Voyages the rule moved to Complete or Failed during this check.</returns>
         Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default);
 
         /// <summary>

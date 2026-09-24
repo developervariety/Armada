@@ -11,8 +11,8 @@ namespace Armada.Test.Unit
     using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
 
     /// <summary>
-    /// Verifies the real-signal completion gate in UpdateVoyageTerminalStatusAsync: a voyage may only
-    /// reach Complete when its Checks are green. A failed Check overrides a Judge PASS (voyage Fails);
+    /// Verifies the real-signal Check gate of the voyage completion rule, through the mission-completion
+    /// path and the health-cycle sweep: a voyage may only reach Complete when its Checks are green. A failed Check overrides a Judge PASS (voyage Fails);
     /// a pending Check holds completion; a voyage with no Checks is unaffected (backward compatible).
     /// </summary>
     public sealed class JudgeChecksGateTests : TestSuite
@@ -278,6 +278,45 @@ namespace Armada.Test.Unit
                     await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
                     Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
                     AssertEqual(VoyageStatusEnum.InProgress, after!.Status, "a pending Check holds completion -> voyage not Complete");
+                }
+            }).ConfigureAwait(false);
+
+            // The health-cycle sweep writes voyage completion too, so it must apply the same gate.
+            await RunTest("HealthCycleSweep_PendingCheck_HoldsCompletion", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService _, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Pending).ConfigureAwait(false);
+                    List<Voyage> ended = await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.InProgress, after!.Status, "a pending Check holds completion in the health-cycle sweep");
+                    AssertEqual(0, ended.Count, "a held voyage is not reported as completed");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("HealthCycleSweep_FailedCheck_FailsVoyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService _, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Failed).ConfigureAwait(false);
+                    await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Failed, after!.Status, "a failed Check overrides the Judge PASS in the health-cycle sweep");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("HealthCycleSweep_GreenChecks_VoyageCompletes", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService _, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Passed).ConfigureAwait(false);
+                    List<Voyage> ended = await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status, "green Checks -> the health-cycle sweep completes the voyage");
+                    AssertEqual(1, ended.Count, "the completed voyage is reported for the completion callback");
                 }
             }).ConfigureAwait(false);
 

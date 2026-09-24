@@ -480,7 +480,7 @@ namespace Armada.Server
 
             List<MissionSummary> refreshed = await _Database.Missions
                 .EnumerateMissionSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
-            await TryCompleteIdleVoyageAsync(voyage, refreshed, token).ConfigureAwait(false);
+            voyage = await TryCompleteIdleVoyageAsync(voyage, token).ConfigureAwait(false);
             await DetectStuckOpenVoyageAsync(voyage, refreshed, token).ConfigureAwait(false);
         }
 
@@ -576,28 +576,13 @@ namespace Armada.Server
             }
         }
 
-        private async Task TryCompleteIdleVoyageAsync(Voyage voyage, List<MissionSummary> summaries, CancellationToken token)
+        // Returns the voyage as the completion rule left it, so the stuck-voyage check that follows
+        // sees a voyage the rule just finished (or one another writer ended) as terminal.
+        private async Task<Voyage> TryCompleteIdleVoyageAsync(Voyage voyage, CancellationToken token)
         {
-            if (voyage.Status == VoyageStatusEnum.Complete ||
-                voyage.Status == VoyageStatusEnum.Cancelled ||
-                voyage.Status == VoyageStatusEnum.Failed)
-            {
-                return;
-            }
-
-            if (summaries.Any(item => IsLandingDrainLiveMission(item.Status)))
-                return;
-
-            bool allTerminal = summaries.All(item => IsVoyageDrainTerminalStatus(item.Status));
-            if (!allTerminal) return;
-
-            bool anyFailed = summaries.Any(item =>
-                item.Status == MissionStatusEnum.Failed || item.Status == MissionStatusEnum.LandingFailed);
-
-            voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
-            voyage.CompletedUtc = DateTime.UtcNow;
-            voyage.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, token).ConfigureAwait(false);
+            if (!result.Written) return result.Voyage ?? voyage;
+            voyage = result.Voyage!;
 
             if (voyage.Status == VoyageStatusEnum.Complete)
             {
@@ -624,6 +609,8 @@ namespace Armada.Server
                     _Logging.Warn(_Header + "OnVoyageComplete failed for voyage " + voyage.Id + ": " + ex.Message);
                 }
             }
+
+            return voyage;
         }
 
         private async Task DetectStuckOpenVoyageAsync(Voyage voyage, List<MissionSummary> summaries, CancellationToken token)
@@ -862,23 +849,6 @@ namespace Armada.Server
             };
 
             await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
-        }
-
-        private static bool IsLandingDrainLiveMission(MissionStatusEnum status)
-        {
-            return status == MissionStatusEnum.InProgress ||
-                status == MissionStatusEnum.Assigned ||
-                status == MissionStatusEnum.Testing ||
-                status == MissionStatusEnum.Review;
-        }
-
-        private static bool IsVoyageDrainTerminalStatus(MissionStatusEnum status)
-        {
-            return status == MissionStatusEnum.Complete ||
-                status == MissionStatusEnum.Failed ||
-                status == MissionStatusEnum.Cancelled ||
-                status == MissionStatusEnum.LandingFailed ||
-                status == MissionStatusEnum.PullRequestOpen;
         }
 
         // A mission is waiting for assignment when it is Pending and its assignment pipeline state

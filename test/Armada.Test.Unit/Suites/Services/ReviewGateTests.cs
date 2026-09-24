@@ -231,6 +231,11 @@ namespace Armada.Test.Unit.Suites.Services
                     Dock? dock = judge.DockId == null ? null : await testDb.Driver.Docks.ReadAsync(judge.DockId).ConfigureAwait(false);
                     AssertNotNull(dock, "The held Judge keeps its dock for the later landing");
                     AssertTrue(dock!.Active, "The held Judge dock stays active");
+                    Voyage? heldVoyage = await testDb.Driver.Voyages.ReadAsync(held.Scenario.Voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.InProgress, heldVoyage!.Status, "A held review keeps its voyage open until the operator decides");
+                    await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
+                    heldVoyage = await testDb.Driver.Voyages.ReadAsync(held.Scenario.Voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.InProgress, heldVoyage!.Status, "The health-cycle sweep does not complete a voyage with a held review");
 
                     // A duplicate completion report for the held Judge does not land it either.
                     Captain judgeCaptain = (await testDb.Driver.Captains.ReadAsync(judge.CaptainId!).ConfigureAwait(false))!;
@@ -320,6 +325,58 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("the review never checked the decoder boundary", events.Objects[0].Message ?? String.Empty, "The event names the reason");
                 }
             });
+
+            // A voyage in the voyage terminal set is never rewritten by completion: an operator decision
+            // on a held review under a cancelled voyage settles the mission and leaves the voyage alone.
+            await RunTest("Failing a held Judge PASS under a cancelled voyage keeps the voyage cancelled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    HeldJudgeScenario held = await CompleteHeldJudgeAsync(testDb).ConfigureAwait(false);
+                    DateTime cancelledUtc = await CancelVoyageRecordAsync(testDb, held.Scenario.Voyage.Id).ConfigureAwait(false);
+
+                    await held.Scenario.Missions.FailOperatorReviewHoldAsync(
+                        held.Judge.Id, "operator-c", "the voyage was abandoned").ConfigureAwait(false);
+
+                    Mission? judge = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    Voyage? voyage = await testDb.Driver.Voyages.ReadAsync(held.Scenario.Voyage.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, judge!.Status, "The held mission is failed");
+                    AssertEqual(VoyageStatusEnum.Cancelled, voyage!.Status, "The cancelled voyage is not rewritten to Failed");
+                    AssertEqual(cancelledUtc, voyage.CompletedUtc, "The cancel time is not rewritten");
+                }
+            });
+
+            await RunTest("Clearing a held Judge PASS under a cancelled voyage keeps the voyage cancelled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    HeldJudgeScenario held = await CompleteHeldJudgeAsync(testDb).ConfigureAwait(false);
+                    DateTime cancelledUtc = await CancelVoyageRecordAsync(testDb, held.Scenario.Voyage.Id).ConfigureAwait(false);
+
+                    await held.Scenario.Missions.ClearOperatorReviewHoldAsync(
+                        held.Judge.Id, "operator-c", "the review is adequate").ConfigureAwait(false);
+
+                    Mission? judge = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    Voyage? voyage = await testDb.Driver.Voyages.ReadAsync(held.Scenario.Voyage.Id).ConfigureAwait(false);
+                    AssertEqual(1, held.LandedMissionIds.Count, "The cleared PASS still reaches the landing handler");
+                    AssertEqual(MissionStatusEnum.Complete, judge!.Status, "The cleared PASS completes");
+                    AssertEqual(VoyageStatusEnum.Cancelled, voyage!.Status, "The cancelled voyage is not rewritten to Complete");
+                    AssertEqual(cancelledUtc, voyage.CompletedUtc, "The cancel time is not rewritten");
+                }
+            });
+        }
+
+        /// <summary>Marks the voyage record Cancelled, as an operator cancel leaves it, and returns the cancel time.</summary>
+        private static async Task<DateTime> CancelVoyageRecordAsync(TestDatabase testDb, string voyageId)
+        {
+            Voyage voyage = await testDb.Driver.Voyages.ReadAsync(voyageId).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Expected the voyage.");
+            DateTime cancelledUtc = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            voyage.Status = VoyageStatusEnum.Cancelled;
+            voyage.CompletedUtc = cancelledUtc;
+            voyage.LastUpdateUtc = cancelledUtc;
+            await testDb.Driver.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+            return cancelledUtc;
         }
 
         private sealed class HeldJudgeScenario

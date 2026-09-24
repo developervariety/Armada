@@ -568,13 +568,6 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
             {
                 Mission? dependency = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
-                // A dependency is honoured only inside the vessel's tenant: the dependency's branch and commit
-                // become this mission's starting point, so another tenant's mission reads as absent.
-                if (dependency != null && !Armada.Core.Authorization.OwnershipPolicy.SameTenant(dependency.TenantId, vessel.TenantId))
-                {
-                    _Logging.Warn(_Header + "mission " + mission.Id + " depends on " + mission.DependsOnMissionId + " of another tenant -- dependency not honoured");
-                    dependency = null;
-                }
                 if (dependency == null)
                 {
                     _Logging.Warn(_Header + "mission " + mission.Id + " depends on " + mission.DependsOnMissionId + " which was not found -- skipping assignment");
@@ -2320,12 +2313,9 @@ namespace Armada.Core.Services
             // nothing. Skip the gate with a named reason. A read-only mission that did commit, and every
             // Implementation mission, keeps the gate unchanged. When either commit cannot be read the
             // gate runs, because a skip must rest on proof that nothing was committed.
-            // The gate exists for the process lifetime and reads its settings live. While it is off, the
-            // pre-gate skips below do not apply; the gate itself records its own "disabled" skip.
-            bool dodGateEnabled = _DefinitionOfDoneGate != null && _DefinitionOfDoneGate.IsEnabled;
             bool dodSkippedForReadOnlyNoCommit = false;
             if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
-                && dodGateEnabled && mission.IsReadOnlyMode)
+                && _DefinitionOfDoneGate != null && mission.IsReadOnlyMode)
             {
                 string? readOnlyNoCommitDetail = await DescribeReadOnlyNoCommitAsync(dock, token).ConfigureAwait(false);
                 if (readOnlyNoCommitDetail != null)
@@ -2342,7 +2332,7 @@ namespace Armada.Core.Services
             }
 
             if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
-                && dodGateEnabled && !dodGateHasWorkToVerify)
+                && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
             {
                 await AppendMissionActivityAsync(
                     mission.Id,
@@ -7639,77 +7629,26 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Apply <see cref="VoyageCompletionRule"/> to a mission's voyage after the mission changed state.
+        /// </summary>
         internal async Task UpdateVoyageTerminalStatusAsync(string? voyageId, CancellationToken token)
         {
-            if (String.IsNullOrEmpty(voyageId)) return;
-
-            Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
-            if (voyage == null) return;
-
-            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
-            if (missions.Count == 0) return;
-
-            bool anyActive = missions.Any(m =>
-                m.Status == MissionStatusEnum.Pending ||
-                m.Status == MissionStatusEnum.Assigned ||
-                m.Status == MissionStatusEnum.InProgress ||
-                m.Status == MissionStatusEnum.Testing ||
-                m.Status == MissionStatusEnum.Review ||
-                m.Status == MissionStatusEnum.PullRequestOpen);
-
-            if (anyActive) return;
-
-            bool allDone = missions.All(m =>
-                m.Status == MissionStatusEnum.Complete ||
-                m.Status == MissionStatusEnum.Failed ||
-                m.Status == MissionStatusEnum.Cancelled ||
-                m.Status == MissionStatusEnum.LandingFailed ||
-                m.Status == MissionStatusEnum.WorkProduced);
-
-            if (!allDone) return;
-
-            bool anyFailed = missions.Any(m =>
-                m.Status == MissionStatusEnum.Failed ||
-                m.Status == MissionStatusEnum.LandingFailed);
-
-            // Real-signal completion gate: a Judge PASS is the agent's own self-report. A voyage may
-            // only reach Complete (which authorizes landing) when its Checks -- the Build/UnitTest run
-            // from real command output -- reflect that. A failed Check overrides a Judge PASS;
-            // unresolved Checks hold completion. Voyages with no Checks are unaffected (backward compatible).
-            bool isFullyReportOnly = VoyageReportOnlyClassifier.IsFullyReportOnly(missions);
-            if (!anyFailed && !isFullyReportOnly)
+            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyageId, token).ConfigureAwait(false);
+            if (result.Written)
             {
-                VoyageCheckGate gate = await EvaluateVoyageChecksAsync(voyage, missions, token).ConfigureAwait(false);
-                if (gate == VoyageCheckGate.HasFailed)
-                {
-                    anyFailed = true;
+                if (result.Verdict.Reason == VoyageCompletionRule.ReasonCheckFailed)
                     _Logging.Warn(_Header + "voyage " + voyageId + " has a failed Check -- overriding Judge verdict to Failed (real-signal gate)");
-                }
-                else if (gate == VoyageCheckGate.HasPending)
-                {
-                    _Logging.Info(_Header + "voyage " + voyageId + " missions are done but its Checks are not green yet -- holding completion until Checks resolve (real-signal gate)");
-                    return;
-                }
+                _Logging.Info(_Header + "voyage " + voyageId + " reached terminal status " + result.Voyage!.Status + " during mission completion");
             }
-
-            voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
-            voyage.CompletedUtc = DateTime.UtcNow;
-            voyage.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
-            _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status + " during mission completion");
-        }
-
-        /// <summary>Outcome of evaluating a voyage's Checks for the real-signal completion gate.</summary>
-        private enum VoyageCheckGate
-        {
-            /// <summary>No (non-canceled) Checks attached -- gate does not apply.</summary>
-            NoChecks,
-            /// <summary>All Checks are Passed.</summary>
-            AllGreen,
-            /// <summary>At least one Check Failed.</summary>
-            HasFailed,
-            /// <summary>At least one Check is still Pending/Running (unresolved).</summary>
-            HasPending
+            else if (result.Verdict.Reason == VoyageCompletionRule.ReasonChecksPending)
+            {
+                _Logging.Info(_Header + "voyage " + voyageId + " missions are done but its Checks are not green yet -- holding completion until Checks resolve (real-signal gate)");
+            }
+            else if (result.Verdict.Reason == VoyageCompletionRule.ReasonVoyageTerminal)
+            {
+                _Logging.Debug(_Header + "voyage " + voyageId + " is already " + result.Voyage!.Status + " -- completion does not rewrite a terminal voyage");
+            }
         }
 
         /// <summary>Outcome of evaluating the independent Checks behind a Judge PASS.</summary>
@@ -7725,33 +7664,6 @@ namespace Armada.Core.Services
             NoChecksWithExclusion,
             /// <summary>No Checks attached and no documented exclusion -- PASS is rejected.</summary>
             NoChecksNoExclusion
-        }
-
-        /// <summary>
-        /// Evaluates the Checks attached to a voyage and its missions to decide whether the real
-        /// signal permits the voyage to complete. Canceled Checks are ignored. This is the
-        /// enforcement point for "a Judge PASS must be backed by green independent Checks".
-        /// </summary>
-        private async Task<VoyageCheckGate> EvaluateVoyageChecksAsync(
-            Voyage voyage, List<Mission> missions, CancellationToken token)
-        {
-            List<CheckRunQuery> queries = new List<CheckRunQuery>
-            {
-                new CheckRunQuery { VoyageId = voyage.Id }
-            };
-            foreach (Mission m in missions) queries.Add(new CheckRunQuery { MissionId = m.Id });
-            Dictionary<string, CheckRun> checks = await CheckRunEnumeration
-                .ReadAllAsync(_Database, voyage.TenantId, queries, token).ConfigureAwait(false);
-
-            // An armed record on a voyage that has committed work is queued work the executor will
-            // run, so it holds completion; before any commit it is an inert marker and is ignored.
-            string? workCommit = StaleCheckSupersessionService.SelectWorkUnderReview(missions)?.CommitHash;
-            List<CheckRun> active = checks.Values
-                .Where(c => CheckRunGateRules.ParticipatesInRealSignalGate(c, workCommit)).ToList();
-            if (active.Count == 0) return VoyageCheckGate.NoChecks;
-            if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return VoyageCheckGate.HasFailed;
-            if (active.Any(c => CheckRunGateRules.IsUnresolved(c, workCommit))) return VoyageCheckGate.HasPending;
-            return VoyageCheckGate.AllGreen;
         }
 
         /// <summary>
@@ -9916,7 +9828,10 @@ namespace Armada.Core.Services
         public static bool CaptainServesTenant(Captain captain, string? missionTenantId)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
-            return Armada.Core.Authorization.OwnershipPolicy.SameTenant(captain.TenantId, missionTenantId);
+            return String.Equals(
+                Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(captain.TenantId),
+                Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(missionTenantId),
+                StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -10615,7 +10530,7 @@ namespace Armada.Core.Services
                 }
                 else if (!String.IsNullOrEmpty(mission.RequestedCaptainId))
                 {
-                    CaptainTierEnum? preferredTier = await CaptainEffectiveTierAsync(mission.RequestedCaptainId, mission.TenantId, token).ConfigureAwait(false);
+                    CaptainTierEnum? preferredTier = await CaptainEffectiveTierAsync(mission.RequestedCaptainId, token).ConfigureAwait(false);
                     if (preferredTier != null)
                     {
                         mission.Tier = preferredTier;
@@ -10667,12 +10582,11 @@ namespace Armada.Core.Services
                 record => record.Name).ConfigureAwait(false);
         }
 
-        private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, string? missionTenantId, CancellationToken token)
+        private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, CancellationToken token)
         {
             if (String.IsNullOrEmpty(captainId)) return null;
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
-            // A captain of another tenant can never take the mission, so its tier never shapes it.
-            if (captain == null || !CaptainServesTenant(captain, missionTenantId)) return null;
+            if (captain == null) return null;
             return CaptainTierSelector.EffectiveTier(captain);
         }
 
