@@ -102,6 +102,72 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("ClaudeCode", decision.Reason, "the reason names the refusing runtime");
             });
 
+            await RunTest("A pinned model no alternate runs is a tier floor for the continuation, as it is for assignment", () =>
+            {
+                Captain refusing = MakeCaptain("refusing", AgentRuntimeEnum.ClaudeCode);
+                refusing.Model = "claude-opus-4-7";
+                refusing.Tier = CaptainTierEnum.Premium;
+                Captain premiumAlternate = MakeCaptain("premium-alternate", AgentRuntimeEnum.Codex);
+                premiumAlternate.Model = "gpt-5.6-sol";
+                premiumAlternate.Tier = CaptainTierEnum.Premium;
+                Mission mission = MakeMission();
+                mission.PreferredModel = "claude-opus-4-7";
+
+                PolicyRefusalContinuationDecision decision = PolicyRefusalContinuationService.Decide(
+                    mission, refusing, Declared(), policyPresent: true, continuationAlreadyUsed: false,
+                    new List<Captain> { refusing, premiumAlternate }, new ModelTierSettings());
+
+                AssertEqual(PolicyRefusalContinuationOutcomeEnum.Continue, decision.Outcome,
+                    "a Premium alternate meets the Premium floor of a pinned model only the refusing runtime runs: " + decision.Reason);
+                AssertEqual("Codex", String.Join(",", decision.AlternateRuntimes), "the alternate runtime is named");
+            });
+
+            await RunTest("Every alternate captain is approved exactly when the assignment selector could choose it", () =>
+            {
+                ModelTierSettings tiers = new ModelTierSettings();
+                Captain refusing = MakeCaptain("refusing", AgentRuntimeEnum.ClaudeCode);
+                refusing.Model = "claude-opus-4-7";
+                refusing.Tier = CaptainTierEnum.Premium;
+
+                List<Captain> alternates = new List<Captain>();
+                foreach (CaptainTierEnum tier in new[] { CaptainTierEnum.Economy, CaptainTierEnum.Standard, CaptainTierEnum.Premium })
+                {
+                    foreach (string model in new[] { "claude-opus-4-7", "gpt-5.6-sol", "example-model" })
+                    {
+                        Captain open = MakeCaptain("open-" + tier + "-" + model, AgentRuntimeEnum.Codex);
+                        open.Model = model;
+                        open.Tier = tier;
+                        alternates.Add(open);
+                        Captain locked = MakeCaptain("judge-only-" + tier + "-" + model, AgentRuntimeEnum.Codex);
+                        locked.Model = model;
+                        locked.Tier = tier;
+                        locked.AllowedPersonas = "[\"Judge\"]";
+                        alternates.Add(locked);
+                    }
+                }
+
+                int approved = 0;
+                int refused = 0;
+                foreach (string? preferredModel in new[] { null, "low", "mid", "high", "claude-opus-4-7", "gpt-5.6-sol", "example-model", "unrun-model" })
+                {
+                    Mission mission = MakeMission();
+                    mission.PreferredModel = preferredModel;
+                    foreach (Captain alternate in alternates)
+                    {
+                        bool couldSelect = LegacyCaptainSelector.CouldSelect(tiers, mission, alternate);
+                        PolicyRefusalContinuationDecision decision = PolicyRefusalContinuationService.Decide(
+                            mission, refusing, Declared(), policyPresent: true, continuationAlreadyUsed: false,
+                            new List<Captain> { refusing, alternate }, tiers);
+                        bool continued = decision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue;
+                        AssertEqual(couldSelect, continued,
+                            "pin " + (preferredModel ?? "(none)") + ", captain " + alternate.Name + ": the continuation must approve exactly the captains assignment could choose");
+                        if (continued) approved++; else refused++;
+                    }
+                }
+
+                AssertTrue(approved > 0 && refused > 0, "the domain holds both approved and refused alternates");
+            });
+
             await RunTest("HandleAsync records the refusal, continues once, then stops with the reason on a second refusal", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

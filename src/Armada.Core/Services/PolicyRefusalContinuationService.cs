@@ -135,10 +135,13 @@ namespace Armada.Core.Services
                 return decision;
             }
 
+            // An alternate is approved when the assignment selector could choose it, so a pinned model that no
+            // alternate runs is a tier floor here exactly as it is in assignment.
+            ModelTierSettings tiers = modelTierSettings ?? new ModelTierSettings();
             List<Captain> approvedAlternates = all
                 .Where(captain => captain.Runtime != refusingCaptain.Runtime)
                 .Where(captain => captain.State != CaptainStateEnum.Benched && captain.State != CaptainStateEnum.Quarantined)
-                .Where(captain => MissionService.CaptainSatisfiesPreferredRouting(captain, mission.Persona, mission.PreferredModel, modelTierSettings))
+                .Where(captain => LegacyCaptainSelector.CouldSelect(tiers, mission, captain))
                 .ToList();
 
             decision.AlternateRuntimes = approvedAlternates

@@ -210,6 +210,10 @@ upstream integrations and excludes changes already present at that baseline.
   a pinned model no captain runs as a tier floor. A requested captain whose persona
   allow-list, runtime capability, or minimum tier excludes the persona is never
   assigned; assignment falls back at its tier and names the reason.
+- **Policy refusal continuation:** the alternate captains for a mission continued
+  after a policy refusal are the captains the assignment selector could choose, so
+  a pinned model that no alternate runs is a tier floor, and a captain below the
+  pinned model's tier is not approved because it runs the model.
 - **Settings reload:** the manual reload endpoint and the settings-file watcher share
   one reload path bound to the server's own settings file. Settings updates and both
   reloads share one candidate validator for account key paths and captain runtime

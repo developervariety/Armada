@@ -10124,7 +10124,9 @@ namespace Armada.Core.Services
         /// <summary>
         /// Returns why no captain of the mission's tenant, in any state, can ever serve the mission, or null
         /// when at least one could. Quarantine, benching and busy captains are temporary and do not count.
-        /// Smart Routing only filters the Legacy Routing order, so the same verdict holds with it enabled.
+        /// The verdict covers the tenant, the persona lock and the Legacy Routing tier floor only. It does not
+        /// read Smart Routing persona routes, which remove captains before the Legacy Routing order: a mission
+        /// whose persona routes admit no eligible captain waits forever and is not reported here.
         /// </summary>
         private async Task<string?> DescribeUnassignableByConstructionAsync(Mission mission, CancellationToken token)
         {

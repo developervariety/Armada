@@ -54,6 +54,11 @@ use a Premium captain when no Standard captain is available. A captain below
 the effective floor is never chosen, even when a persona model list names its
 model.
 
+A mission continued on another runtime after a policy refusal uses the same
+rule. A captain on another runtime is an approved alternate when this layer
+admits it, so a pinned model that only the refusing runtime runs is a tier
+floor for the continuation too.
+
 ## Layer 2: order (Legacy Routing)
 
 The eligible captains are ordered by these keys, first key first:
