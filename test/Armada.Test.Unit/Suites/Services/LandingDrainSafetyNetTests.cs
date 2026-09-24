@@ -1575,8 +1575,12 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static async Task AddVoyageCheckAsync(TestDatabase testDb, string voyageId, CheckRunStatusEnum status)
         {
+            // A Check is recorded in its voyage's tenant, and the completion gate reads only that tenant.
+            Voyage? voyage = await testDb.Driver.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
             await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
             {
+                TenantId = voyage?.TenantId,
+                UserId = voyage?.UserId,
                 VoyageId = voyageId,
                 Label = "Build",
                 Type = CheckRunTypeEnum.Build,

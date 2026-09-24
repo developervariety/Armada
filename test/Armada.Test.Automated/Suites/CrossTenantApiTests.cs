@@ -1747,14 +1747,14 @@ using System.IO;
 
             await RunTest("BodyReference_Setup_CreateTenantBVessel", async () =>
             {
-                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/vessels",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Name = "xt-vessel-B-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl()
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, response.StatusCode);
-                vesselBId = (await JsonHelper.DeserializeAsync<Vessel>(response).ConfigureAwait(false)).Id;
+                Vessel vessel = await CreateVesselWithServerPathsAsync(
+                    _ClientB!,
+                    "xt-vessel-B-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    null,
+                    "main",
+                    TestRepoHelper.GetLocalBareRepoUrl(),
+                    null).ConfigureAwait(false);
+                vesselBId = vessel.Id;
             }).ConfigureAwait(false);
 
             await RunTest("BodyReference_VoyageCreateWithOtherTenantVessel_Returns404AndDispatchesNothing", async () =>
