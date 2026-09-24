@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System.Diagnostics;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using SyslogLogging;
 
@@ -115,67 +116,42 @@ namespace Armada.Core.Services
             TimeSpan timeout,
             CancellationToken token)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = ResolveMuxExecutable(),
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
+            ProcessStartInfo startInfo = new ProcessStartInfo(ResolveMuxExecutable());
             foreach (string argument in arguments)
             {
                 startInfo.ArgumentList.Add(argument);
             }
 
-            using Process process = new Process
+            // Mux prints small JSON documents; 4 MiB per stream is far above any endpoint listing.
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, timeout)
             {
-                StartInfo = startInfo
+                OutputLimitBytes = 4 * 1024 * 1024,
+                OutputShape = BoundedOutputShapeEnum.Head
             };
-
-            if (!process.Start())
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill mux; it may still be running: " + result.KillError);
+            if (result.Cancelled)
             {
-                throw new InvalidOperationException("Failed to start mux.");
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-
-            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-
-            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(timeout);
-
-            try
-            {
-                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(true);
-                    }
-                }
-                catch
-                {
-                }
-
+            if (result.TimedOut)
                 throw new TimeoutException("mux command timed out after " + timeout.TotalSeconds.ToString("0") + " seconds.");
-            }
+            if (result.StandardOutputTruncated)
+                throw new InvalidOperationException("mux output exceeded " + request.OutputLimitBytes + " bytes and was not parsed.");
 
-            string stdout = await stdoutTask.ConfigureAwait(false);
-            string stderr = await stderrTask.ConfigureAwait(false);
-
-            if (process.ExitCode != 0)
+            string stdout = result.StandardOutput;
+            string stderr = result.StandardError;
+            int exitCode = result.ExitCode ?? -1;
+            if (exitCode != 0)
             {
-                _Logging.Debug(_Header + "mux exited with code " + process.ExitCode + ": " + FirstNonEmptyLine(stderr, stdout));
+                _Logging.Debug(_Header + "mux exited with code " + exitCode + ": " + FirstNonEmptyLine(stderr, stdout));
             }
 
             return new MuxCommandExecutionResult
             {
-                ExitCode = process.ExitCode,
+                ExitCode = exitCode,
                 Stdout = stdout.Trim(),
                 Stderr = stderr.Trim()
             };

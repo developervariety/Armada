@@ -417,15 +417,7 @@ namespace Armada.Core.Services
                 WorkingDirectory = rootPath
             };
 
-            ProcessStartInfo psi = new ProcessStartInfo
-            {
-                WorkingDirectory = rootPath,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
+            ProcessStartInfo psi = new ProcessStartInfo { WorkingDirectory = rootPath };
             if (OperatingSystem.IsWindows())
             {
                 psi.FileName = "cmd.exe";
@@ -439,40 +431,28 @@ namespace Armada.Core.Services
                 psi.ArgumentList.Add(request.Command);
             }
 
-            const int maxOutputChars = 256 * 1024;
+            // 256 KiB per stream, keeping the beginning and the end with a marker naming what was dropped. The
+            // command owns a process group, so a timeout also stops a background child it left behind.
+            BoundedProcessRequest run = new BoundedProcessRequest(psi, TimeSpan.FromSeconds(timeoutSeconds))
+            {
+                OutputLimitBytes = 256 * 1024,
+                OwnProcessGroup = true
+            };
+
+            string stdout = String.Empty;
+            string stderr = String.Empty;
             Stopwatch stopwatch = Stopwatch.StartNew();
-            using Process process = new Process { StartInfo = psi };
-
-            StringBuilder stdout = new StringBuilder();
-            StringBuilder stderr = new StringBuilder();
-            process.OutputDataReceived += (_, e) => { if (e.Data != null && stdout.Length < maxOutputChars) stdout.AppendLine(e.Data); };
-            process.ErrorDataReceived += (_, e) => { if (e.Data != null && stderr.Length < maxOutputChars) stderr.AppendLine(e.Data); };
-
             try
             {
-                process.Start();
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
-
-                using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-
-                try
-                {
-                    await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
-                    result.ExitCode = process.ExitCode;
-                }
-                catch (OperationCanceledException)
-                {
-                    result.TimedOut = !token.IsCancellationRequested;
-                    try { process.Kill(entireProcessTree: true); } catch { }
-                    try { await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
-                    result.ExitCode = -1;
-                }
+                BoundedProcessResult runResult = await BoundedProcessRunner.RunAsync(run, token).ConfigureAwait(false);
+                stdout = runResult.StandardOutput;
+                stderr = runResult.StandardError;
+                result.TimedOut = runResult.TimedOut;
+                result.ExitCode = runResult.ExitCode ?? -1;
             }
             catch (Exception ex)
             {
-                stderr.AppendLine("Failed to start command: " + ex.Message);
+                stderr = "Failed to start command: " + ex.Message + Environment.NewLine;
                 result.ExitCode = -1;
             }
             finally
@@ -480,8 +460,8 @@ namespace Armada.Core.Services
                 stopwatch.Stop();
             }
 
-            result.Stdout = stdout.ToString();
-            result.Stderr = stderr.ToString();
+            result.Stdout = stdout;
+            result.Stderr = stderr;
             result.DurationMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2);
             return result;
         }
@@ -814,41 +794,25 @@ namespace Armada.Core.Services
 
         private static async Task<string> RunGitCommandAsync(string workingDirectory, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo psi = new ProcessStartInfo("git")
+            // Bound every git invocation so a wedged git can never hang the workspace endpoints. Never prompt for
+            // credentials or invoke a pager. 16 MiB per stream: a working-tree diff past it is shown with its
+            // beginning and end and a marker naming the omitted bytes.
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), TimeSpan.FromSeconds(_GitCommandTimeoutSeconds))
             {
-                WorkingDirectory = workingDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
+                OutputLimitBytes = 16 * 1024 * 1024
             };
-            // Never prompt for credentials or invoke a pager -- either would hang the request.
-            psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
-            psi.Environment["GIT_PAGER"] = "cat";
-            foreach (string arg in args) psi.ArgumentList.Add(arg);
-
-            using Process process = Process.Start(psi)
-                ?? throw new InvalidOperationException("Unable to start git.");
-
-            // Bound every git invocation so a wedged git can never hang the workspace endpoints.
-            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(_GitCommandTimeoutSeconds));
-
-            try
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
             {
-                string output = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false);
-                string error = await process.StandardError.ReadToEndAsync(timeoutCts.Token).ConfigureAwait(false);
-                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
-                if (process.ExitCode != 0)
-                    throw new InvalidOperationException("git exited with code " + process.ExitCode + ": " + error.Trim());
-
-                return output;
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-            catch (OperationCanceledException) when (!token.IsCancellationRequested)
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
+            if (result.TimedOut)
                 throw new InvalidOperationException("git command timed out after " + _GitCommandTimeoutSeconds + " seconds.");
-            }
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException("git exited with code " + (result.ExitCode ?? -1) + ": " + result.StandardError.Trim());
+
+            return result.StandardOutput;
         }
 
         private static WorkspaceChangesResult ParseGitStatus(string output)

@@ -87,20 +87,13 @@ namespace Armada.Core.Services
 
         private static void RunProcess(string command, params string[] arguments)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = command,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
+            ProcessStartInfo startInfo = new ProcessStartInfo(command);
             foreach (string arg in arguments)
                 startInfo.ArgumentList.Add(arg);
 
-            using Process? process = Process.Start(startInfo);
-            process?.WaitForExit(3000);
+            // A notification helper that has not returned in five seconds is killed rather than left running.
+            BoundedProcessRunner.RunAsync(new BoundedProcessRequest(startInfo, TimeSpan.FromSeconds(5)) { OutputLimitBytes = 64 * 1024 })
+                .GetAwaiter().GetResult();
         }
 
         /// <summary>

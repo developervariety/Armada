@@ -178,25 +178,11 @@ namespace Armada.Server.Routes
                 // 2. Git Availability
                 try
                 {
-                    ProcessStartInfo gitPsi = new ProcessStartInfo("git", "--version")
-                    {
-                        RedirectStandardOutput = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    using (Process? gitProc = Process.Start(gitPsi))
-                    {
-                        if (gitProc != null)
-                        {
-                            string gitOutput = gitProc.StandardOutput.ReadToEnd().Trim();
-                            gitProc.WaitForExit(5000);
-                            results.Add(new { Name = "Git", Status = "Pass", Message = gitOutput });
-                        }
-                        else
-                        {
-                            results.Add(new { Name = "Git", Status = "Fail", Message = "Could not start git process" });
-                        }
-                    }
+                    ProcessStartInfo gitPsi = new ProcessStartInfo("git");
+                    gitPsi.ArgumentList.Add("--version");
+                    BoundedProcessResult gitResult = await BoundedProcessRunner.RunAsync(
+                        new BoundedProcessRequest(gitPsi, TimeSpan.FromSeconds(5)) { OutputLimitBytes = 64 * 1024 }).ConfigureAwait(false);
+                    results.Add(new { Name = "Git", Status = "Pass", Message = gitResult.StandardOutput.Trim() });
                 }
                 catch
                 {
@@ -289,30 +275,17 @@ namespace Armada.Server.Routes
                             rtPsi.ArgumentList.Add("-c");
                             rtPsi.ArgumentList.Add("command -v " + runtimeCommands[i]);
                         }
-                        rtPsi.RedirectStandardOutput = true;
-                        rtPsi.RedirectStandardError = true;
-                        rtPsi.UseShellExecute = false;
-                        rtPsi.CreateNoWindow = true;
-                        using (Process? rtProc = Process.Start(rtPsi))
+                        BoundedProcessResult rtResult = await BoundedProcessRunner.RunAsync(
+                            new BoundedProcessRequest(rtPsi, TimeSpan.FromSeconds(5)) { OutputLimitBytes = 64 * 1024 }).ConfigureAwait(false);
+                        string rtOutput = rtResult.StandardOutput.Trim();
+                        if (rtResult.ExitCode == 0 && !string.IsNullOrEmpty(rtOutput))
                         {
-                            if (rtProc != null)
-                            {
-                                string rtOutput = rtProc.StandardOutput.ReadToEnd().Trim();
-                                rtProc.WaitForExit(5000);
-                                if (rtProc.ExitCode == 0 && !string.IsNullOrEmpty(rtOutput))
-                                {
-                                    string path = rtOutput.Split('\n')[0].Trim();
-                                    results.Add(new { Name = runtimeNames[i], Status = "Pass", Message = runtimeNames[i] + " found at " + path });
-                                }
-                                else
-                                {
-                                    results.Add(new { Name = runtimeNames[i], Status = "Warn", Message = runtimeNames[i] + " not found on PATH (optional)" });
-                                }
-                            }
-                            else
-                            {
-                                results.Add(new { Name = runtimeNames[i], Status = "Warn", Message = runtimeNames[i] + " not found (optional)" });
-                            }
+                            string path = rtOutput.Split('\n')[0].Trim();
+                            results.Add(new { Name = runtimeNames[i], Status = "Pass", Message = runtimeNames[i] + " found at " + path });
+                        }
+                        else
+                        {
+                            results.Add(new { Name = runtimeNames[i], Status = "Warn", Message = runtimeNames[i] + " not found on PATH (optional)" });
                         }
                     }
                     catch

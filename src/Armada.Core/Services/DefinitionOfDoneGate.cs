@@ -46,6 +46,7 @@ namespace Armada.Core.Services
         private readonly TypedFlakeScoreAdapter? _FlakeScoreAdapter;
         private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
 
+        private const int _CommandOutputLimitBytes = 16 * 1024 * 1024;
         private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
         private const int _MAX_SECTION_CHARS = 7800;
         private const int _MAX_LINE_CHARS = 2000;
@@ -994,116 +995,101 @@ namespace Armada.Core.Services
         {
             _Logging.Info(_Header + "running " + label + " command");
 
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            ProcessStartInfo startInfo = new ProcessStartInfo(GetShell()) { WorkingDirectory = workingDir };
+            if (OperatingSystem.IsWindows())
             {
-                FileName = GetShell(),
-                Arguments = GetShellArgs(command),
-                WorkingDirectory = workingDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                startInfo.Arguments = "/c " + command;
+            }
+            else
+            {
+                startInfo.ArgumentList.Add("-c");
+                startInfo.ArgumentList.Add(command);
+            }
+
+            // The command owns its process group, so a timeout or cancellation also stops a background child it
+            // started. Each stream keeps 16 MiB: the failing-test extraction below reads the whole runner output,
+            // and a truncated output marks the extracted set as incomplete.
+            TimeSpan commandTimeout = ResolveCommandTimeout();
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, commandTimeout)
+            {
+                OutputLimitBytes = _CommandOutputLimitBytes,
+                OwnProcessGroup = true
             };
 
-            TimeSpan commandTimeout = ResolveCommandTimeout();
-            using CancellationTokenSource timeoutCts = new CancellationTokenSource(commandTimeout);
-            using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-
-            Task<string>? stdoutTask = null;
-            Task<string>? stderrTask = null;
-
-            // Declare outside the try block so catch blocks can kill the process.
-            using Process process = new Process { StartInfo = startInfo };
+            BoundedProcessResult result;
             try
             {
-                if (!process.Start())
-                    throw new InvalidOperationException("The command process did not start.");
-
-                // Read both streams concurrently with the linked token so a hanging process
-                // cannot fill either redirected pipe while the process is running.
-                stdoutTask = process.StandardOutput.ReadToEndAsync();
-                stderrTask = process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-                await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-
-                string combined = CombineOutput(stdoutTask.Result, stderrTask.Result);
-
-                int exitCode = process.ExitCode;
-                _Logging.Info(_Header + label + " command exited " + exitCode);
-
-                if (exitCode == 0)
-                    return DefinitionOfDoneResult.Pass();
-
-                DefinitionOfDoneFailureClassEnum failureClass = _FailureClassifier.Classify(
-                    label,
-                    exitCode,
-                    combined);
-                DefinitionOfDoneResult failResult = DefinitionOfDoneResult.Fail(
-                    label,
-                    exitCode,
-                    BuildDiagnosticText(combined),
-                    failureClass);
-
-                // Extract the failing test identifiers here, where the runner output is still whole:
-                // the diagnostic text keeps only a bounded, redacted tail, so a later reader could not
-                // recover the complete set. Only a test failure carries a set; every other class leaves
-                // it null. A rescue-vs-parent comparison reads this set to detect an unchanged failure.
-                if (failureClass == DefinitionOfDoneFailureClassEnum.TestFail)
-                {
-                    FailedTestNameExtractor.FailedTestNameSet failedTests = FailedTestNameExtractor.Extract(combined);
-                    failResult.FailedTestNames = failedTests.Names;
-                    failResult.FailedTestNamesOverflow = failedTests.Overflow;
-                }
-
-                return failResult;
+                result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            catch (Exception ex)
             {
-                TryKillProcess(process);
-                throw;
+                string message = label + " command could not be started or completed: " + ex.Message;
+                _Logging.Warn(_Header + label + " command infrastructure failure");
+                return DefinitionOfDoneResult.Fail(
+                    label,
+                    -1,
+                    BuildDiagnosticText(message),
+                    DefinitionOfDoneFailureClassEnum.Infra);
             }
-            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill command process: " + result.KillError);
+            if (result.Cancelled)
             {
-                TryKillProcess(process);
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
+
+            string combined = CombineOutput(result.StandardOutput, result.StandardError);
+            if (result.TimedOut)
+            {
                 // Report the timeout that actually fired, not the configured one, so the message
                 // stays true when the two differ.
                 string message = label + " command timed out after "
                     + commandTimeout.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
                     + " seconds.";
-                string partialOutput = await CaptureOutputAsync(stdoutTask, stderrTask).ConfigureAwait(false);
-                string combined = String.IsNullOrWhiteSpace(partialOutput) ? message : message + "\n" + partialOutput;
+                string timedOutOutput = String.IsNullOrWhiteSpace(combined) ? message : message + "\n" + combined;
                 _Logging.Warn(_Header + message);
                 return DefinitionOfDoneResult.Fail(
                     label,
                     -1,
-                    BuildDiagnosticText(combined),
-                    _FailureClassifier.Classify(label, -1, combined, true));
+                    BuildDiagnosticText(timedOutOutput),
+                    _FailureClassifier.Classify(label, -1, timedOutOutput, true));
             }
-            catch (Exception ex)
-            {
-                TryKillProcess(process);
-                string partialOutput = await CaptureOutputAsync(stdoutTask, stderrTask).ConfigureAwait(false);
-                string message = label + " command could not be started or completed: " + ex.Message;
-                string combined = String.IsNullOrWhiteSpace(partialOutput) ? message : message + "\n" + partialOutput;
-                _Logging.Warn(_Header + label + " command infrastructure failure");
-                return DefinitionOfDoneResult.Fail(
-                    label,
-                    -1,
-                    BuildDiagnosticText(combined),
-                    DefinitionOfDoneFailureClassEnum.Infra);
-            }
-        }
 
-        private void TryKillProcess(Process process)
-        {
-            try
+            string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
+            if (anomalies.Length > 0)
+                _Logging.Warn(_Header + label + " command output: " + anomalies);
+
+            int exitCode = result.ExitCode ?? -1;
+            _Logging.Info(_Header + label + " command exited " + exitCode);
+
+            if (exitCode == 0)
+                return DefinitionOfDoneResult.Pass();
+
+            DefinitionOfDoneFailureClassEnum failureClass = _FailureClassifier.Classify(
+                label,
+                exitCode,
+                combined);
+            DefinitionOfDoneResult failResult = DefinitionOfDoneResult.Fail(
+                label,
+                exitCode,
+                BuildDiagnosticText(combined),
+                failureClass);
+
+            // Extract the failing test identifiers here, where the runner output is still whole:
+            // the diagnostic text keeps only a bounded, redacted tail, so a later reader could not
+            // recover the complete set. Only a test failure carries a set; every other class leaves
+            // it null. A rescue-vs-parent comparison reads this set to detect an unchanged failure,
+            // and a set read from truncated output is marked incomplete so it is never compared.
+            if (failureClass == DefinitionOfDoneFailureClassEnum.TestFail)
             {
-                process.Kill(true);
+                FailedTestNameExtractor.FailedTestNameSet failedTests = FailedTestNameExtractor.Extract(combined);
+                failResult.FailedTestNames = failedTests.Names;
+                failResult.FailedTestNamesOverflow = failedTests.Overflow || result.Truncated;
             }
-            catch (Exception killEx)
-            {
-                _Logging.Warn(_Header + "could not kill command process exceptionType=" + killEx.GetType().Name);
-            }
+
+            return failResult;
         }
 
         private static string CombineOutput(string? stdout, string? stderr)
@@ -1112,22 +1098,6 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(stderr))
                 combined += "\n--- STDERR ---\n" + stderr;
             return combined;
-        }
-
-        private static async Task<string> CaptureOutputAsync(
-            Task<string>? stdoutTask,
-            Task<string>? stderrTask)
-        {
-            try
-            {
-                string stdout = stdoutTask == null ? String.Empty : await stdoutTask.ConfigureAwait(false);
-                string stderr = stderrTask == null ? String.Empty : await stderrTask.ConfigureAwait(false);
-                return CombineOutput(stdout, stderr);
-            }
-            catch
-            {
-                return String.Empty;
-            }
         }
 
         private string BuildDiagnosticText(string output)
@@ -1241,12 +1211,6 @@ namespace Armada.Core.Services
         {
             if (OperatingSystem.IsWindows()) return "cmd.exe";
             return "/bin/sh";
-        }
-
-        private string GetShellArgs(string command)
-        {
-            if (OperatingSystem.IsWindows()) return "/c " + command;
-            return "-c \"" + command.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
 
         #endregion

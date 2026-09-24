@@ -29,6 +29,12 @@ namespace Armada.Core.Services
         /// </summary>
         public const string CheckoutDirectoryPrefix = "armada-chk-";
 
+        /// <summary>
+        /// Per-stream budget for a check command's output: 4 MiB. Past it the beginning and the end are kept, where
+        /// a build's first errors and a test runner's totals are, with a marker naming the omitted bytes.
+        /// </summary>
+        public const int CheckCommandOutputLimitBytes = 4 * 1024 * 1024;
+
         private const string _WorktreeLockReason = "armada check run in progress";
 
         private readonly string _Header = "[CheckRunService] ";
@@ -980,11 +986,7 @@ namespace Armada.Core.Services
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = isWindows ? "cmd.exe" : "/bin/sh",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                WorkingDirectory = workingDirectory
             };
 
             // Applied on top of the inherited environment, so a profile adds to the dock's shell
@@ -1010,47 +1012,38 @@ namespace Armada.Core.Services
                 startInfo.ArgumentList.Add(command);
             }
 
-            using Process process = new Process
+            // The check owns its process group, so a timeout or cancellation also stops a background child it
+            // started, and a build server left holding the output pipe cannot keep the run open after exit.
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, timeout)
             {
-                StartInfo = startInfo
+                OutputLimitBytes = CheckCommandOutputLimitBytes,
+                OwnProcessGroup = true
             };
-
-            if (!process.Start())
-                throw new InvalidOperationException("Failed to start check command.");
-
-            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-
-            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(timeout);
-
-            try
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill check command; it may still be running: " + result.KillError);
+            if (result.Cancelled)
             {
-                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-            catch (OperationCanceledException) when (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    if (!process.HasExited)
-                        process.Kill(true);
-                }
-                catch
-                {
-                }
-
+            if (result.TimedOut)
                 throw new TimeoutException("Check command timed out after " + timeout.TotalMinutes.ToString("0") + " minutes.");
-            }
 
-            string stdout = await stdoutTask.ConfigureAwait(false);
-            string stderr = await stderrTask.ConfigureAwait(false);
+            string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
+            if (anomalies.Length > 0)
+                _Logging.Warn(_Header + "check command output: " + anomalies);
+
+            string stdout = result.StandardOutput;
+            string stderr = result.StandardError;
             string output = CombineOutput(stdout, stderr);
+            int exitCode = result.ExitCode ?? -1;
 
-            _Logging.Debug(_Header + "command exited with code " + process.ExitCode + ": " + FirstNonEmptyLine(stderr, stdout));
+            _Logging.Debug(_Header + "command exited with code " + exitCode + ": " + FirstNonEmptyLine(stderr, stdout));
 
             return new CommandExecutionResult
             {
-                ExitCode = process.ExitCode,
+                ExitCode = exitCode,
                 Output = output
             };
         }
@@ -1589,42 +1582,8 @@ namespace Armada.Core.Services
             CancellationToken token,
             params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = "git",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            foreach (string arg in args)
-                startInfo.ArgumentList.Add(arg);
-
-            using Process process = new Process { StartInfo = startInfo };
-            if (!process.Start())
-                return -1;
-
-            Task<string> drainStdout = process.StandardOutput.ReadToEndAsync();
-            Task<string> drainStderr = process.StandardError.ReadToEndAsync();
-
-            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(timeout);
-
-            try
-            {
-                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                try { if (!process.HasExited) process.Kill(true); } catch { }
-                throw;
-            }
-
-            await drainStdout.ConfigureAwait(false);
-            await drainStderr.ConfigureAwait(false);
-            return process.ExitCode;
+            GitCommandResult result = await RunGitCaptureAsync(workingDirectory, timeout, token, args).ConfigureAwait(false);
+            return result.ExitCode;
         }
 
         private static async Task<GitCommandResult> RunGitCaptureAsync(
@@ -1633,42 +1592,20 @@ namespace Armada.Core.Services
             CancellationToken token,
             params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(workingDirectory, args), timeout)
             {
-                FileName = "git",
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                OutputLimitBytes = 1024 * 1024
             };
-
-            foreach (string arg in args)
-                startInfo.ArgumentList.Add(arg);
-
-            using Process process = new Process { StartInfo = startInfo };
-            if (!process.Start())
-                return new GitCommandResult { ExitCode = -1 };
-
-            Task<string> drainStdout = process.StandardOutput.ReadToEndAsync();
-            Task<string> drainStderr = process.StandardError.ReadToEndAsync();
-
-            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(timeout);
-
-            try
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.Cancelled)
             {
-                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-            catch (OperationCanceledException)
-            {
-                try { if (!process.HasExited) process.Kill(true); } catch { }
-                throw;
-            }
+            if (result.TimedOut)
+                throw new TimeoutException("git " + args[0] + " timed out after " + timeout.TotalSeconds.ToString("F0") + " seconds");
 
-            string stdout = await drainStdout.ConfigureAwait(false);
-            await drainStderr.ConfigureAwait(false);
-            return new GitCommandResult { ExitCode = process.ExitCode, StdOut = stdout };
+            return new GitCommandResult { ExitCode = result.ExitCode ?? -1, StdOut = result.StandardOutput };
         }
 
         private sealed class CommandExecutionResult

@@ -3669,7 +3669,10 @@ overlap context.
 
 Run a shell command in the vessel working tree (the in-browser dock terminal).
 The command runs through the platform shell (`cmd.exe` on Windows, `/bin/sh`
-elsewhere) and is killed with its process tree when it exceeds the timeout.
+elsewhere) as the leader of its own process group, and is killed with every
+process it started when it exceeds the timeout. `stdout` and `stderr` each keep
+256 KiB; past that the beginning and the end stay, with a marker naming the
+omitted bytes.
 **Tenant administrators only.**
 
 **Path Parameters:** `vesselId` (vessel ID).

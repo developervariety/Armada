@@ -49,19 +49,12 @@ namespace Armada.Core.Services
         {
             try
             {
-                ProcessStartInfo startInfo = new ProcessStartInfo
-                {
-                    FileName = command,
-                    Arguments = "--version",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                ProcessStartInfo startInfo = new ProcessStartInfo(command);
+                startInfo.ArgumentList.Add("--version");
 
-                using Process? process = Process.Start(startInfo);
-                if (process == null) return false;
-                process.WaitForExit(5000);
+                // The command exists when it starts; the probe waits five seconds for it and kills it after.
+                BoundedProcessRunner.RunAsync(new BoundedProcessRequest(startInfo, TimeSpan.FromSeconds(5)) { OutputLimitBytes = 64 * 1024 })
+                    .GetAwaiter().GetResult();
                 return true;
             }
             catch

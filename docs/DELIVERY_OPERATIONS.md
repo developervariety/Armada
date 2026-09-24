@@ -48,6 +48,16 @@ Check is executed in place when the Judge stage reaches it, which is what lets
 dispatch arm the build and unit-test gates without loading the host at the
 moment the first captain starts working.
 
+A check command runs through the platform shell as the leader of its own
+process group. Its timeout, and a cancellation, kill the command with every
+process it started. Both output streams are read at once, and each keeps 4 MiB:
+past that the beginning and the end stay, with a marker naming the omitted
+bytes. After the command exits, a background process that still holds its
+output (a build server, for example) gets five seconds; the check then records
+the exit code, and the admiral log names the held pipe. The Definition-of-Done
+gate runs its commands the same way with 16 MiB per stream, and a failing-test
+set read from truncated output is marked incomplete, so it is never compared.
+
 Use `list_workflow_profiles`, `get_workflow_profile`,
 `validate_workflow_profile`, and `preview_workflow_profile` to inspect the
 resolved command set. Use `create_workflow_profile` or

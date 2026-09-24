@@ -96,50 +96,36 @@ namespace Armada.Core.Services
                 info.Environment[CaptainAccountLaunch.CodexHomeVariable] = account.HomeDirectory;
             }
 
-            using (Process process = new Process { StartInfo = info })
-            using (CancellationTokenSource bound = CancellationTokenSource.CreateLinkedTokenSource(token))
+            BoundedProcessRequest request = new BoundedProcessRequest(info, timeout)
             {
-                try
-                {
-                    if (!process.Start()) return ReasonProbeUnavailable;
-                }
-                catch (Win32Exception)
-                {
-                    return ReasonProbeUnavailable;
-                }
-                catch (FileNotFoundException)
-                {
-                    return ReasonProbeUnavailable;
-                }
-
-                process.StandardInput.Close();
-                bound.CancelAfter(timeout);
-                Task<string> stdout = ReadBoundedAsync(process.StandardOutput);
-                Task<string> stderr = ReadBoundedAsync(process.StandardError);
-                try
-                {
-                    await process.WaitForExitAsync(bound.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { process.Kill(true); }
-                    catch (InvalidOperationException) { /* The process exited between the timeout and the kill. */ }
-                    catch (Win32Exception) { /* The process tree is already gone; the timeout result stands. */ }
-                    // The kill closes the pipes; wait briefly so the readers finish and nothing is left unobserved.
-                    try { await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false); }
-                    catch (TimeoutException) { /* A detached grandchild still holds a pipe; the timeout result stands. */ }
-                    catch (IOException) { /* The pipe broke during the kill; the timeout result stands. */ }
-                    catch (ObjectDisposedException) { /* The pipe closed during the kill; the timeout result stands. */ }
-                    token.ThrowIfCancellationRequested();
-                    return ReasonProbeTimeout;
-                }
-
-                string output = await stdout.ConfigureAwait(false);
-                string errors = await stderr.ConfigureAwait(false);
-                return runtime == AgentRuntimeEnum.ClaudeCode
-                    ? InterpretClaude(process.ExitCode, output)
-                    : InterpretCodex(process.ExitCode, output + "\n" + errors);
+                OutputLimitBytes = _MaxOutputChars,
+                OutputShape = BoundedOutputShapeEnum.Head
+            };
+            BoundedProcessResult result;
+            try
+            {
+                result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
             }
+            catch (Win32Exception)
+            {
+                return ReasonProbeUnavailable;
+            }
+            catch (FileNotFoundException)
+            {
+                return ReasonProbeUnavailable;
+            }
+
+            if (result.Cancelled)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
+            if (result.TimedOut) return ReasonProbeTimeout;
+
+            int exitCode = result.ExitCode ?? -1;
+            return runtime == AgentRuntimeEnum.ClaudeCode
+                ? InterpretClaude(exitCode, result.StandardOutput)
+                : InterpretCodex(exitCode, result.StandardOutput + "\n" + result.StandardError);
         }
 
         #endregion
@@ -160,19 +146,6 @@ namespace Armada.Core.Services
         {
             if (exitCode == 0) return null;
             return output.Contains("Not logged in", StringComparison.OrdinalIgnoreCase) ? ReasonLoginExpired : ReasonProbeFailed;
-        }
-
-        private static async Task<string> ReadBoundedAsync(StreamReader reader)
-        {
-            StringBuilder text = new StringBuilder();
-            char[] buffer = new char[4096];
-            int read;
-            while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
-            {
-                // Keep draining past the bound so the child never blocks on a full pipe.
-                if (text.Length < _MaxOutputChars) text.Append(buffer, 0, Math.Min(read, _MaxOutputChars - text.Length));
-            }
-            return text.ToString();
         }
 
         private sealed class ClaudeStatus

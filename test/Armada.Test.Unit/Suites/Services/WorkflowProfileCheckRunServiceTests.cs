@@ -331,6 +331,156 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RunAsync returns when a background child of the check still holds its output", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_checks", "usr_checks").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-run-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                string pidFile = Path.Combine(workingDirectory, "background.pid");
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_checks", "usr_checks", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // The background sleep inherits the command's output pipe and outlives the command, the way a
+                    // build server left by a build does.
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_checks",
+                        UserId = "usr_checks",
+                        Name = "Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "sleep 60 & echo $! > background.pid; echo built"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_checks", "usr_checks", false, false, "UnitTest");
+                    System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+                    clock.Stop();
+
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    AssertEqual(0, run.ExitCode ?? -1);
+                    AssertContains("built", run.Output ?? String.Empty, "output written before exit is kept");
+                    AssertTrue(clock.Elapsed < TimeSpan.FromSeconds(30), "the check returns within the drain bound, took " + clock.Elapsed);
+                }
+                finally
+                {
+                    if (File.Exists(pidFile) && Int32.TryParse(File.ReadAllText(pidFile).Trim(), out int pid))
+                    {
+                        try
+                        {
+                            using (System.Diagnostics.Process background = System.Diagnostics.Process.GetProcessById(pid)) background.Kill();
+                        }
+                        catch (ArgumentException)
+                        {
+                            // Already gone.
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Already gone.
+                        }
+                    }
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A cancelled check run stops its command instead of leaving it running", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_checks", "usr_checks").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-run-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                string pidFile = Path.Combine(workingDirectory, "shell.pid");
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_checks", "usr_checks", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_checks",
+                        UserId = "usr_checks",
+                        Name = "Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "echo $$ > shell.pid; sleep 60"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_checks", "usr_checks", false, false, "UnitTest");
+                    bool cancelled = false;
+                    using (CancellationTokenSource cancel = new CancellationTokenSource())
+                    {
+                        Task<CheckRun> running = checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Label = "Build"
+                        }, cancel.Token);
+
+                        DateTime started = DateTime.UtcNow;
+                        while (!File.Exists(pidFile) && DateTime.UtcNow - started < TimeSpan.FromSeconds(20))
+                            await Task.Delay(50).ConfigureAwait(false);
+                        AssertTrue(File.Exists(pidFile), "the command started");
+                        cancel.Cancel();
+                        try
+                        {
+                            await running.ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            cancelled = true;
+                        }
+                    }
+
+                    AssertTrue(cancelled, "the cancellation propagates");
+                    int pid = Int32.Parse(File.ReadAllText(pidFile).Trim());
+                    bool gone = false;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                    while (!gone && DateTime.UtcNow < deadline)
+                    {
+                        try
+                        {
+                            using (System.Diagnostics.Process shell = System.Diagnostics.Process.GetProcessById(pid)) gone = shell.HasExited;
+                        }
+                        catch (ArgumentException)
+                        {
+                            gone = true;
+                        }
+                        if (!gone) await Task.Delay(50).ConfigureAwait(false);
+                    }
+                    AssertTrue(gone, "the check command's shell is stopped");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RunAsync does not collect an expected artifact from a sibling directory that shares the working directory's name prefix", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

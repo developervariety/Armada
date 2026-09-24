@@ -64,43 +64,38 @@ namespace Armada.Core.Services
 
         private async Task<bool> ProbeAsync(string workingDirectory, CancellationToken token)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            ProcessStartInfo startInfo = new ProcessStartInfo("docker")
             {
-                FileName = "docker",
-                WorkingDirectory = String.IsNullOrWhiteSpace(workingDirectory) ? Environment.CurrentDirectory : workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                WorkingDirectory = String.IsNullOrWhiteSpace(workingDirectory) ? Environment.CurrentDirectory : workingDirectory
             };
             startInfo.ArgumentList.Add("info");
             startInfo.ArgumentList.Add("--format");
             startInfo.ArgumentList.Add("{{.ServerVersion}}");
 
-            using CancellationTokenSource timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(_TimeoutSeconds));
-            using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-
-            using Process process = new Process { StartInfo = startInfo };
+            BoundedProcessResult result;
             try
             {
-                if (!process.Start()) return false;
-
-                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-                Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-                await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-
-                // `docker info` exits 0 but prints an empty server version when the CLI is installed
-                // and the daemon is not reachable, so the version string is the real signal.
-                return process.ExitCode == 0 && !String.IsNullOrWhiteSpace(stdoutTask.Result);
+                result = await BoundedProcessRunner.RunAsync(
+                    new BoundedProcessRequest(startInfo, TimeSpan.FromSeconds(_TimeoutSeconds)) { OutputLimitBytes = 64 * 1024 },
+                    token).ConfigureAwait(false);
             }
             catch (Exception)
             {
-                // Missing binary, timeout, or any launch failure: treat as unavailable. The probe must
-                // never be the reason a gate fails.
-                try { process.Kill(true); } catch { }
+                // Missing binary or any launch failure: treat as unavailable. The probe must never be the
+                // reason a gate fails.
                 return false;
             }
+
+            // A caller cancellation is not an answer about the runtime, so it is not cached as one.
+            if (result.Cancelled)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
+
+            // `docker info` exits 0 but prints an empty server version when the CLI is installed
+            // and the daemon is not reachable, so the version string is the real signal.
+            return result.ExitCode == 0 && !String.IsNullOrWhiteSpace(result.StandardOutput);
         }
 
         #endregion

@@ -166,6 +166,12 @@ upstream integrations and excludes changes already present at that baseline.
   vessel-route fetch, dock seed push) uses the git timeout. The Slop check fails
   with a named reason when the reviewed diff is larger than 64 MiB instead of
   reading part of it.
+- **Check and probe commands:** check runs, Definition-of-Done commands, workspace
+  exec, Mux CLI calls, the Docker probe, runtime MCP listings, account login probes,
+  version and `command -v` probes, and notifications run through the bounded
+  runner. A caller cancellation kills the command instead of leaving it running,
+  check and gate commands own their process group, and a failing-test set read
+  from truncated output is marked incomplete.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.
