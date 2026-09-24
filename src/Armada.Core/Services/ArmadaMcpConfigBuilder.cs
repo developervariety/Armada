@@ -147,25 +147,26 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(environmentVariable)) throw new ArgumentNullException(nameof(environmentVariable));
 
-            // Mux sends an HTTP server's credential from its auth object and expands ${NAME} in the token,
-            // so the credential is referenced by variable name and never written into the file.
-            JsonObject server = new JsonObject
-            {
-                ["name"] = "armada",
-                ["transport"] = "http",
-                ["url"] = "http://localhost:" + mcpPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["mcpPath"] = "/mcp",
-                ["auth"] = new JsonObject
-                {
-                    ["scheme"] = "bearer_token",
-                    ["token"] = "${" + environmentVariable + "}",
-                },
-            };
-            JsonObject root = new JsonObject
-            {
-                ["servers"] = new JsonArray(server),
-            };
-            return root.ToJsonString(_IndentedOptions);
+            // Mux expands ${NAME} in the bearer token, so the credential is referenced by variable name and
+            // never written into the file.
+            MuxMcpServersDocument document = new MuxMcpServersDocument();
+            document.Servers.Add(BuildMuxServer(mcpPort, MuxMcpAuth.Bearer("${" + environmentVariable + "}")));
+            return document.ToJson();
+        }
+
+        /// <summary>
+        /// Build the Armada entry of a Mux servers document: the admiral's MCP endpoint over HTTP.
+        /// </summary>
+        /// <param name="mcpPort">The Admiral MCP port.</param>
+        /// <param name="auth">The credential Mux presents, or null for none.</param>
+        /// <returns>The server entry.</returns>
+        public static MuxMcpServer BuildMuxServer(int mcpPort, MuxMcpAuth? auth)
+        {
+            return MuxMcpServer.Http(
+                "armada",
+                "http://localhost:" + mcpPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "/mcp",
+                auth);
         }
 
         /// <summary>

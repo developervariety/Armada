@@ -207,9 +207,9 @@ namespace Test.Shared.Suites.Services
                             if (target.ClientName == "Mux") mux = target;
                         AssertNotNull(mux, "A present Mux config directory offers the Mux target.");
                         JsonNode? auth = mux!.ArmadaConfig!["auth"];
-                        AssertEqual("api_key", auth?["scheme"]?.GetValue<string>(), "Mux sends the API key in a header.");
-                        AssertEqual(McpConfigHelper.ApiKeyHeaderName, auth?["headerName"]?.GetValue<string>(), "Mux names the Armada API key header.");
-                        AssertEqual("${" + McpConfigHelper.ApiKeyEnvironmentVariable + "}", auth?["key"]?.GetValue<string>(), "Mux references the API key variable, never a value.");
+                        AssertEqual("apikey", auth?["type"]?.GetValue<string>(), "Mux sends the API key in a header.");
+                        AssertEqual(McpConfigHelper.ApiKeyHeaderName, auth?["apiKeyHeader"]?.GetValue<string>(), "Mux names the Armada API key header.");
+                        AssertEqual("${" + McpConfigHelper.ApiKeyEnvironmentVariable + "}", auth?["apiKeyValue"]?.GetValue<string>(), "Mux references the API key variable, never a value.");
                     }
                     finally
                     {

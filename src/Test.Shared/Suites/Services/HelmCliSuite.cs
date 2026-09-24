@@ -569,15 +569,16 @@ namespace Test.Shared.Suites.Services
                         headers.Add(new KeyValuePair<string, string>(header.Key, header.Value?.GetValue<string>() ?? String.Empty));
                 }
 
-                // Mux declares an HTTP server's credential in an auth object instead of a headers map: an
-                // api_key scheme sends the key in the named header, a bearer_token scheme in Authorization.
-                if (target.ArmadaConfig["auth"] is JsonObject auth)
+                // Mux declares an HTTP server's credential in an auth object instead of a headers map; read it
+                // through the shared Mux document model so the check sees the header Mux itself would send.
+                if (target.ArmadaConfig["auth"] is JsonObject)
                 {
-                    string scheme = auth["scheme"]?.GetValue<string>() ?? String.Empty;
-                    if (scheme == "api_key")
-                        headers.Add(new KeyValuePair<string, string>(auth["headerName"]?.GetValue<string>() ?? "X-API-Key", auth["key"]?.GetValue<string>() ?? String.Empty));
-                    else if (scheme == "bearer_token")
-                        headers.Add(new KeyValuePair<string, string>("Authorization", auth["token"]?.GetValue<string>() ?? String.Empty));
+                    Armada.Core.Services.MuxMcpAuth? auth = Armada.Core.Services.MuxMcpServer.FromJsonNode(target.ArmadaConfig)?.Auth;
+                    if (auth != null)
+                    {
+                        foreach (KeyValuePair<string, string> header in auth.BuildHeaders(value => value ?? String.Empty))
+                            headers.Add(header);
+                    }
                 }
             }
             else if (target.InstallArgs != null)

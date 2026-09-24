@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Mux MCP servers files use the auth fields Mux reads:** a Mux captain's
+  scoped `--mcp-config` file and the `armada mcp install` Mux entry write
+  `auth` as `type` plus `bearerToken` (or `apiKeyHeader` and `apiKeyValue`).
+  Mux ignores unknown auth fields, so the files sent no credential and the
+  endpoint refused every Mux captain. The captain tool inventory reads the same
+  file through the same model, so its probe sends exactly the headers Mux sends.
 - **Dispatch captain assignments reach the first stage:** a voyage stores its
   `captainAssignments` when it is created, before any mission exists, so the
   root stage's first assignment resolves the named captain as its requested

@@ -254,20 +254,8 @@ namespace Armada.Helm.Commands
                 targets.Add(new(
                     "Mux",
                     GetMuxMcpServersPath(),
-                    new JsonObject
-                    {
-                        ["name"] = "armada",
-                        ["transport"] = "http",
-                        ["url"] = $"http://localhost:{mcpPort}",
-                        ["mcpPath"] = "/mcp",
-                        // Mux reads an HTTP server's credential from its auth object and expands ${VAR}.
-                        ["auth"] = new JsonObject
-                        {
-                            ["scheme"] = "api_key",
-                            ["key"] = ApiKeyForDollarBraceExpansion,
-                            ["headerName"] = ApiKeyHeaderName,
-                        },
-                    },
+                    // Mux expands ${VAR} in the API key, so the key is referenced by variable name.
+                    ArmadaMcpConfigBuilder.BuildMuxServer(mcpPort, MuxMcpAuth.ApiKey(ApiKeyHeaderName, ApiKeyForDollarBraceExpansion)).ToJsonObject(),
                     IsMuxServers: true));
             }
 

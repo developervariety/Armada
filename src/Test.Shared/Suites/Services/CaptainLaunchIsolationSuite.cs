@@ -51,14 +51,14 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(json.Contains("\"http\""), "expected http transport");
             }));
 
-            cases.Add(Case("mux_config_uses_servers_array", "Mux config uses a named servers array with mcpPath", TestTags.Positive, () =>
+            cases.Add(Case("mux_config_is_the_exact_document_mux_reads", "Mux config is the exact servers document mux reads, with a bearer auth object", TestTags.Positive, () =>
             {
-                string json = ArmadaMcpConfigBuilder.BuildMuxServersJson(7891);
-                AssertTrue(json.Contains("\"servers\""), "expected servers array");
-                AssertTrue(json.Contains("\"name\""), "expected server name");
-                AssertTrue(json.Contains("armada"), "expected armada name");
-                AssertTrue(json.Contains("\"mcpPath\""), "expected mcpPath");
-                AssertTrue(json.Contains("http://localhost:7891"), "expected base url");
+                // Mux ignores auth fields it does not know and then connects with no credential, so the
+                // document is pinned field for field: auth.type "bearer" and auth.bearerToken.
+                string json = ArmadaMcpConfigBuilder.BuildMuxServersJson(7891, "ARMADA_MCP_TOKEN");
+                string expected = "{\"servers\":[{\"name\":\"armada\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"mcpPath\":\"/mcp\","
+                    + "\"auth\":{\"type\":\"bearer\",\"bearerToken\":\"${ARMADA_MCP_TOKEN}\"}}]}";
+                AssertEqual(expected, System.Text.Json.Nodes.JsonNode.Parse(json)!.ToJsonString(), "the Mux servers document");
             }));
 
             // ---- Planner: Claude Code ----
@@ -214,8 +214,8 @@ namespace Test.Shared.Suites.Services
                 // Mux reads an HTTP server's credential from its auth object and expands ${VAR} in the token.
                 System.Text.Json.Nodes.JsonObject muxServer = System.Text.Json.Nodes.JsonNode.Parse(
                     CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Mux, 7891, scoped, missionCredential).FilesToWrite[0].Contents)!["servers"]!.AsArray()[0]!.AsObject();
-                AssertEqual("bearer_token", muxServer["auth"]?["scheme"]?.GetValue<string>(), "Mux presents the scoped credential as a bearer token");
-                AssertEqual("${" + McpLaunchCredential.EnvironmentVariable + "}", muxServer["auth"]?["token"]?.GetValue<string>(), "Mux references the variable");
+                AssertEqual("bearer", muxServer["auth"]?["type"]?.GetValue<string>(), "Mux presents the scoped credential as a bearer token");
+                AssertEqual("${" + McpLaunchCredential.EnvironmentVariable + "}", muxServer["auth"]?["bearerToken"]?.GetValue<string>(), "Mux references the variable");
             }));
 
             cases.Add(Case("launch_plan_carries_credential_for_dock_config_runtimes", "With dock MCP delivery enabled every runtime launches with the credential its dock configuration references", TestTags.Positive, () =>
@@ -286,19 +286,22 @@ namespace Test.Shared.Suites.Services
                 try
                 {
                     string file = "{\"servers\":["
-                        + "{\"name\":\"bearer\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"mcpPath\":\"/mcp\",\"auth\":{\"scheme\":\"bearer_token\",\"token\":\"${" + variable + "}\"}},"
-                        + "{\"name\":\"keyed\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"auth\":{\"scheme\":\"api_key\",\"key\":\"${" + variable + "}\",\"headerName\":\"X-Api-Key\"}},"
-                        + "{\"name\":\"open\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"auth\":{\"scheme\":\"none\"}}]}";
+                        + "{\"name\":\"bearer\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"mcpPath\":\"/mcp\",\"auth\":{\"type\":\"bearer\",\"bearerToken\":\"${" + variable + "}\"}},"
+                        + "{\"name\":\"keyed\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"auth\":{\"type\":\"api_key\",\"apiKeyValue\":\"${" + variable + "}\",\"apiKeyHeader\":\"X-Api-Key\"}},"
+                        + "{\"name\":\"open\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"auth\":{\"type\":\"none\"}},"
+                        + "{\"name\":\"unknown-fields\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"auth\":{\"scheme\":\"bearer_token\",\"token\":\"${" + variable + "}\"}}]}";
 
                     IReadOnlyDictionary<string, string> bearer = Armada.Server.CaptainRuntimeToolCatalogService.BuildMuxProbeHeaders(file, "bearer");
-                    AssertTrue(bearer.TryGetValue("Authorization", out string? authorization), "a bearer_token server probes with an Authorization header");
+                    AssertTrue(bearer.TryGetValue("Authorization", out string? authorization), "a bearer server probes with an Authorization header");
                     AssertEqual("Bearer probe-secret", authorization, "the token reference expands from the environment");
 
                     IReadOnlyDictionary<string, string> keyed = Armada.Server.CaptainRuntimeToolCatalogService.BuildMuxProbeHeaders(file, "keyed");
-                    AssertTrue(keyed.TryGetValue("X-Api-Key", out string? key), "an api_key server probes with its named header");
+                    AssertTrue(keyed.TryGetValue("X-Api-Key", out string? key), "an apikey server probes with its named header, reading the type as Mux does");
                     AssertEqual("probe-secret", key, "the key reference expands from the environment");
 
                     AssertEqual(0, Armada.Server.CaptainRuntimeToolCatalogService.BuildMuxProbeHeaders(file, "open").Count, "a server without auth sends no credential");
+                    AssertEqual(0, Armada.Server.CaptainRuntimeToolCatalogService.BuildMuxProbeHeaders(file, "unknown-fields").Count,
+                        "auth fields Mux does not read send no credential, so the probe reports what Mux would actually send");
                 }
                 finally
                 {

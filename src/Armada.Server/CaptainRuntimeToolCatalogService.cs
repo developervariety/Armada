@@ -798,14 +798,14 @@ namespace Armada.Server
                 return new List<RuntimeMcpServerDefinition>();
             }
 
-            MuxMcpServersFile? file = JsonSerializer.Deserialize<MuxMcpServersFile>(json, _JsonOptions);
-            if (file?.Servers == null || file.Servers.Count == 0)
+            MuxMcpServersDocument file = MuxMcpServersDocument.Parse(json);
+            if (file.Servers.Count == 0)
             {
                 return new List<RuntimeMcpServerDefinition>();
             }
 
             List<RuntimeMcpServerDefinition> servers = new List<RuntimeMcpServerDefinition>();
-            foreach (MuxMcpServerConfig muxServer in file.Servers)
+            foreach (MuxMcpServer muxServer in file.Servers)
             {
                 string transport = NormalizeTransport(String.IsNullOrWhiteSpace(muxServer.Transport) ? "stdio" : muxServer.Transport);
                 string? url = null;
@@ -851,30 +851,15 @@ namespace Armada.Server
         /// <returns>Header names and values.</returns>
         internal static IReadOnlyDictionary<string, string> BuildMuxProbeHeaders(string mcpServersJson, string serverName)
         {
-            MuxMcpServersFile? file = JsonSerializer.Deserialize<MuxMcpServersFile>(mcpServersJson, JsonDefaults.Insensitive);
-            MuxMcpServerConfig? server = file?.Servers?.FirstOrDefault(s => String.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
+            MuxMcpServer? server = MuxMcpServersDocument.Parse(mcpServersJson).Servers.FirstOrDefault(s => String.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
             return server == null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : BuildMuxHeaders(server, Environment.GetEnvironmentVariable);
         }
 
-        private static Dictionary<string, string> BuildMuxHeaders(MuxMcpServerConfig server, Func<string, string?> readVariable)
+        private static Dictionary<string, string> BuildMuxHeaders(MuxMcpServer server, Func<string, string?> readVariable)
         {
-            // The probe presents the same credential Mux would: an api_key scheme sends the key in its named
-            // header (X-API-Key by default), a bearer_token scheme sends an Authorization bearer header.
-            Dictionary<string, string> headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            string scheme = server.Auth?.Scheme?.Trim() ?? String.Empty;
-            if (String.Equals(scheme, "api_key", StringComparison.OrdinalIgnoreCase))
-            {
-                string key = ExpandEnvironmentReference(server.Auth!.Key, readVariable);
-                if (key.Length > 0)
-                    headers[String.IsNullOrWhiteSpace(server.Auth.HeaderName) ? "X-API-Key" : server.Auth.HeaderName.Trim()] = key;
-            }
-            else if (String.Equals(scheme, "bearer_token", StringComparison.OrdinalIgnoreCase))
-            {
-                string bearer = ExpandEnvironmentReference(server.Auth!.Token, readVariable);
-                if (bearer.Length > 0)
-                    headers["Authorization"] = "Bearer " + bearer;
-            }
-            return headers;
+            // The probe presents the credential Mux would send for the same auth object.
+            if (server.Auth == null) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return server.Auth.BuildHeaders(value => ExpandEnvironmentReference(value, readVariable));
         }
 
         private async Task<List<CaptainToolSummary>> ProbeServerToolsAsync(RuntimeMcpServerDefinition server, CancellationToken token)
@@ -2277,54 +2262,6 @@ namespace Armada.Server
             public TimeSpan StartupTimeout { get; set; } = TimeSpan.FromSeconds(15);
             public TimeSpan ToolTimeout { get; set; } = TimeSpan.FromSeconds(15);
             public string Target { get; set; } = String.Empty;
-        }
-
-        private sealed class MuxMcpServersFile
-        {
-            [JsonPropertyName("servers")]
-            public List<MuxMcpServerConfig>? Servers { get; set; } = null;
-        }
-
-        private sealed class MuxMcpServerConfig
-        {
-            [JsonPropertyName("name")]
-            public string Name { get; set; } = String.Empty;
-
-            [JsonPropertyName("transport")]
-            public string? Transport { get; set; } = null;
-
-            [JsonPropertyName("command")]
-            public string? Command { get; set; } = null;
-
-            [JsonPropertyName("args")]
-            public List<string>? Args { get; set; } = null;
-
-            [JsonPropertyName("env")]
-            public Dictionary<string, string>? Env { get; set; } = null;
-
-            [JsonPropertyName("url")]
-            public string? Url { get; set; } = null;
-
-            [JsonPropertyName("mcpPath")]
-            public string? McpPath { get; set; } = null;
-
-            [JsonPropertyName("auth")]
-            public MuxMcpServerAuth? Auth { get; set; } = null;
-        }
-
-        private sealed class MuxMcpServerAuth
-        {
-            [JsonPropertyName("scheme")]
-            public string? Scheme { get; set; } = null;
-
-            [JsonPropertyName("token")]
-            public string? Token { get; set; } = null;
-
-            [JsonPropertyName("key")]
-            public string? Key { get; set; } = null;
-
-            [JsonPropertyName("headerName")]
-            public string? HeaderName { get; set; } = null;
         }
 
         private sealed class CodexMcpServerListEntry

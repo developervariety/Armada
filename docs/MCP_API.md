@@ -71,7 +71,9 @@ client's own syntax (`${ARMADA_API_KEY}` for Claude Code and Gemini CLI,
 `${env:ARMADA_API_KEY}` for Cursor, `{env:ARMADA_API_KEY}` for OpenCode), so set
 that variable in the client's environment. Codex uses the stdio bridge. The Mux
 entry authenticates through Mux's `auth` object:
-`"auth": { "scheme": "api_key", "key": "${ARMADA_API_KEY}", "headerName": "X-Api-Key" }`.
+`"auth": { "type": "apikey", "apiKeyHeader": "X-Api-Key", "apiKeyValue": "${ARMADA_API_KEY}" }`.
+Mux ignores an `auth` field it does not know and then connects with no
+credential, which the endpoint refuses; Mux reports no error for it.
 
 The Gemini CLI entry is registered with
 `gemini mcp add --scope user --transport http --header 'X-Api-Key: ${ARMADA_API_KEY}' armada http://localhost:7891/mcp`.
@@ -529,7 +531,7 @@ syntax:
 | Cursor | `"headers": { "Authorization": "Bearer ${env:ARMADA_MCP_TOKEN}" }` |
 | OpenCode | `"headers": { "Authorization": "Bearer {env:ARMADA_MCP_TOKEN}" }` |
 | Codex | `bearer_token_env_var = "ARMADA_MCP_TOKEN"` |
-| Mux | `"auth": { "scheme": "bearer_token", "token": "${ARMADA_MCP_TOKEN}" }` |
+| Mux | `"auth": { "type": "bearer", "bearerToken": "${ARMADA_MCP_TOKEN}" }` |
 
 The captain tool inventory of a running Mux mission captain lists the MCP
 servers that mission's launch delivers: it reads the servers file the launch
@@ -537,7 +539,13 @@ plan builds, not the captain's config directory, whose servers `mux print`
 never loads. With dock MCP delivery disabled the launch passes no
 `--mcp-config`, so the inventory lists no MCP server. It probes each delivered
 server with the credential its `auth` object declares, which for the Armada
-entry is the mission owner's own scoped token. The only Mux CLI call is
+entry is the mission owner's own scoped token. The probe is Armada's own MCP
+client, so it shows what the delivered file grants, not that the installed Mux
+client can use it: `mux print` does not report an MCP server it failed to
+connect, and a Mux build whose HTTP MCP client cannot read an event-stream
+response or an object `ping` result loads no tool from the Armada endpoint. The
+proof for a Mux captain is still the read-only smoke mission that lists its
+tools. The only Mux CLI call is
 `mux --version`, which makes no provider request. The inventory always lists a
 `Mux Built-In Tools` entry. Its tool calling flag, base URL and adapter come from
 the endpoint the launch selects in `endpoints.json` in the captain's config
