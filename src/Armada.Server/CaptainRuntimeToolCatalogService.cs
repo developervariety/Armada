@@ -439,7 +439,9 @@ namespace Armada.Server
         /// from the --mcp-config file the launch plan writes, never from the captain's config directory, so the
         /// servers listed here are the ones <see cref="CaptainLaunchIsolationPlanner.PlanForLaunch"/> builds for
         /// this mission, probed with the credential that launch carries. The only CLI call is a version check,
-        /// which makes no provider request; Mux exposes no built-in tool names, and the summary says so.
+        /// which makes no provider request. The Mux Built-In Tools entry is always listed: its tool calling flag,
+        /// base URL and adapter come from the endpoint the launch selects in endpoints.json, and it says that the
+        /// built-in tool count and names are not reported, because no provider-free Mux command reports them.
         /// </summary>
         private async Task<RuntimeToolCatalogSnapshot> DescribeMuxAsync(Captain captain, McpCredentialReference missionCredential, CancellationToken token)
         {
@@ -453,10 +455,7 @@ namespace Armada.Server
                 MuxProbeResult probe = await ProbeMuxCliAsync(captain, token).ConfigureAwait(false);
 
                 int builtInToolCount = Math.Max(0, probe.BuiltInToolCount);
-                if (probe.ToolsEnabled || builtInToolCount > 0)
-                {
-                    snapshot.Servers.Add(CreateMuxBuiltInSummary(probe, builtInToolCount));
-                }
+                snapshot.Servers.Add(CreateMuxBuiltInSummary(probe, builtInToolCount));
 
                 List<RuntimeMcpServerDefinition> servers = BuildMuxLaunchServers(captain, missionCredential);
                 snapshot.ConfiguredServerCount = servers.Count + snapshot.Servers.Count;
@@ -501,7 +500,9 @@ namespace Armada.Server
                 snapshot.EffectiveToolCount = builtInToolCount + snapshot.Tools.Count;
                 snapshot.AvailabilityVerified = true;
 
-                const string builtInNote = "Mux exposes no individual built-in tool names to Armada.";
+                string builtInNote = MuxBuiltInCountNote + (probe.EndpointConfigurationRead
+                    ? " Tool calling is " + (probe.ToolsEnabled ? "enabled" : "disabled") + " on endpoint '" + probe.EndpointName + "' in endpoints.json."
+                    : " Tool calling is unknown: " + probe.EndpointConfigurationError);
                 string cliNote = probe.Success
                     ? String.Empty
                     : " The Mux CLI version check failed: " + FirstNonEmptyLine(probe.ErrorMessage, probe.ErrorCode) + ".";
@@ -1974,8 +1975,25 @@ namespace Armada.Server
             };
         }
 
+        private const string MuxBuiltInCountNote = "The Mux built-in tool count and names are not reported by `mux --version`, and only a provider call reports them.";
+
         private static CaptainToolServerSummary CreateMuxBuiltInSummary(MuxProbeResult probe, int builtInToolCount)
         {
+            bool enabled = probe.EndpointConfigurationRead && probe.ToolsEnabled;
+            string status;
+            if (!probe.Success)
+                status = "Unreachable at query time";
+            else if (!probe.EndpointConfigurationRead)
+                status = "Tool calling unknown (endpoint configuration not read)";
+            else if (!probe.ToolsEnabled)
+                status = "Tool calling disabled on this endpoint";
+            else
+                status = builtInToolCount > 0 ? "Available (names unavailable)" : "Available (tool count not reported by mux --version)";
+
+            List<string> problems = new List<string>();
+            if (!probe.Success && !String.IsNullOrWhiteSpace(probe.ErrorMessage)) problems.Add(probe.ErrorMessage);
+            if (!probe.EndpointConfigurationRead && !String.IsNullOrWhiteSpace(probe.EndpointConfigurationError)) problems.Add(probe.EndpointConfigurationError);
+
             return new CaptainToolServerSummary
             {
                 Name = "Mux Built-In Tools",
@@ -1983,8 +2001,8 @@ namespace Armada.Server
                 Transport = "mux",
                 Target = BuildMuxBuiltInTarget(probe),
                 Url = SanitizeUrl(probe.BaseUrl),
-                Enabled = probe.ToolsEnabled,
-                Reachable = probe.Success && probe.ToolsEnabled,
+                Enabled = enabled,
+                Reachable = probe.Success && enabled,
                 ToolCount = builtInToolCount,
                 HeaderCount = 0,
                 EnvironmentVariableCount = 0,
@@ -1992,10 +2010,8 @@ namespace Armada.Server
                 DisabledToolFilterCount = 0,
                 StartupTimeoutSeconds = 0,
                 ToolTimeoutSeconds = 0,
-                Status = probe.Success
-                    ? (builtInToolCount > 0 ? "Available (names unavailable)" : "Available")
-                    : "Unreachable at query time",
-                ErrorMessage = probe.Success ? null : probe.ErrorMessage
+                Status = status,
+                ErrorMessage = problems.Count > 0 ? String.Join(" ", problems) : null
             };
         }
 

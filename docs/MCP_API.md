@@ -515,8 +515,16 @@ never loads. With dock MCP delivery disabled the launch passes no
 `--mcp-config`, so the inventory lists no MCP server. It probes each delivered
 server with the credential its `auth` object declares, which for the Armada
 entry is the mission owner's own scoped token. The only Mux CLI call is
-`mux --version`, which makes no provider request; Mux exposes no built-in tool
-names, and the inventory summary says so.
+`mux --version`, which makes no provider request. The inventory always lists a
+`Mux Built-In Tools` entry. Its tool calling flag, base URL and adapter come from
+the endpoint the launch selects in `endpoints.json` in the captain's config
+directory (`--config-dir`, else `MUX_CONFIG_DIR`, else `~/.mux`): the named
+endpoint, else the default one, else the first. Tool calling is on unless that
+endpoint's `quirks.supportsTools` is `false`. The built-in tool count and names
+are not reported by `mux --version`, and only `mux probe`, which sends a
+completion request to the provider, reports them, so the entry and the summary
+say that the count is not reported. When the endpoint cannot be read, the entry
+names the reason and does not report tool calling as enabled.
 
 Because the token is caller-scoped, a mission reaches only its owner's records
 and the tools that owner's tenant and user may use - never an operator-only or

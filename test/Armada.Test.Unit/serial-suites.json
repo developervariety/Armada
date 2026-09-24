@@ -22,6 +22,7 @@
     "MCP Voyage Tools": "Process-global: sets ARMADA_CODE_CONTEXT_TIMEOUT_MS.",
     "Self Deploy Build Runner": "Process-global: sets arbitrary environment variables through a scoped helper.",
     "Native Client Availability": "Process-global: sets PATH.",
+    "Captain Runtime Tool Catalog HTTP Probe": "Process-global: puts a fake mux CLI first on PATH.",
     "Self Deploy Service": "Process-global: sets the self-deploy rehearsal gate and hold environment variables.",
     "Typed Decision Key": "Starts an in-process server on ports found by binding port 0; changes provider key environment variables.",
     "TypeSafe Decision Client": "Process-global: clears the decision service API key environment variable.",

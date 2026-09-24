@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
     using System.Diagnostics;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using SyslogLogging;
@@ -15,6 +17,14 @@ namespace Armada.Core.Services
         private readonly string _Header = "[MuxCliService] ";
         private readonly LoggingModule _Logging;
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromSeconds(20);
+
+        // Mux reads endpoints.json case-insensitively and tolerates comments and trailing commas.
+        private static readonly JsonSerializerOptions _EndpointsJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            ReadCommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true
+        };
 
         #endregion
 
@@ -56,7 +66,7 @@ namespace Armada.Core.Services
                 _DefaultTimeout,
                 token).ConfigureAwait(false);
 
-            return new MuxProbeResult
+            MuxProbeResult result = new MuxProbeResult
             {
                 ContractVersion = 1,
                 Success = execution.ExitCode == 0,
@@ -70,6 +80,9 @@ namespace Armada.Core.Services
                 McpSupported = true,
                 DurationMs = Convert.ToInt64((DateTime.UtcNow - startUtc).TotalMilliseconds)
             };
+
+            ApplyEndpointConfiguration(result, model, options);
+            return result;
         }
 
         /// <summary>
@@ -157,6 +170,102 @@ namespace Armada.Core.Services
             };
         }
 
+        /// <summary>
+        /// Fill the probe result with the endpoint a `mux print` launch of these options selects, read from
+        /// endpoints.json in the config directory that launch uses. `mux --version` reports none of this, and
+        /// `mux probe` sends a completion request to the provider, so reading the file is the only source that
+        /// makes no provider call. Selection and defaults follow Mux: the named endpoint, else the default one,
+        /// else the first; tool calling is on unless the endpoint's quirks set supportsTools to false. The
+        /// built-in tool count is left unset because no provider-free Mux command reports it. Reading never
+        /// changes <see cref="MuxProbeResult.Success"/>; a failure is named in
+        /// <see cref="MuxProbeResult.EndpointConfigurationError"/>.
+        /// </summary>
+        private static void ApplyEndpointConfiguration(MuxProbeResult result, string? model, MuxCaptainOptions options)
+        {
+            string configDirectory = ResolveConfigDirectory(options);
+            result.ConfigDirectory = configDirectory;
+            result.SettingsFilePresent = File.Exists(Path.Combine(configDirectory, "settings.json"));
+            result.McpServersFilePresent = File.Exists(Path.Combine(configDirectory, "mcp-servers.json"));
+
+            string endpointsPath = Path.Combine(configDirectory, "endpoints.json");
+            result.EndpointsFilePresent = File.Exists(endpointsPath);
+            if (!result.EndpointsFilePresent)
+            {
+                result.EndpointConfigurationError = "endpoints.json was not found in the Mux config directory " + configDirectory + ".";
+                return;
+            }
+
+            try
+            {
+                string json = File.ReadAllText(endpointsPath);
+                MuxEndpointsFile? file = String.IsNullOrWhiteSpace(json)
+                    ? null
+                    : JsonSerializer.Deserialize<MuxEndpointsFile>(json, _EndpointsJsonOptions);
+                List<MuxEndpointEntry> endpoints = file?.Endpoints?.Where(e => e != null).ToList() ?? new List<MuxEndpointEntry>();
+
+                MuxEndpointEntry? selected;
+                string selectionSource;
+                if (!String.IsNullOrWhiteSpace(options.Endpoint))
+                {
+                    string endpointName = options.Endpoint!.Trim();
+                    selected = endpoints.FirstOrDefault(e => String.Equals(e.Name, endpointName, StringComparison.OrdinalIgnoreCase));
+                    selectionSource = "endpoint-option";
+                    if (selected == null)
+                    {
+                        result.EndpointConfigurationError = "endpoints.json names no endpoint '" + endpointName + "'.";
+                        return;
+                    }
+                }
+                else
+                {
+                    selected = endpoints.FirstOrDefault(e => e.IsDefault);
+                    selectionSource = "default";
+                    if (selected == null && endpoints.Count > 0)
+                    {
+                        selected = endpoints[0];
+                        selectionSource = "first";
+                    }
+                    if (selected == null)
+                    {
+                        result.EndpointConfigurationError = "endpoints.json lists no endpoint.";
+                        return;
+                    }
+                }
+
+                result.EndpointName = selected.Name ?? result.EndpointName;
+                result.AdapterType = selected.AdapterType ?? String.Empty;
+                result.BaseUrl = selected.BaseUrl ?? String.Empty;
+                if (String.IsNullOrWhiteSpace(model))
+                {
+                    result.Model = selected.Model ?? String.Empty;
+                }
+
+                result.ToolsEnabled = selected.Quirks?.SupportsTools ?? true;
+                result.EndpointSelectionSource = selectionSource;
+                result.EndpointConfigurationRead = true;
+            }
+            catch (Exception ex) when (ex is JsonException || ex is IOException || ex is UnauthorizedAccessException)
+            {
+                result.EndpointConfigurationError = "endpoints.json could not be read: " + ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// The config directory a `mux print` launch of these options uses: --config-dir when the captain sets
+        /// one, else the MUX_CONFIG_DIR variable, else ~/.mux.
+        /// </summary>
+        private static string ResolveConfigDirectory(MuxCaptainOptions options)
+        {
+            if (!String.IsNullOrWhiteSpace(options.ConfigDirectory))
+                return Path.GetFullPath(options.ConfigDirectory!.Trim());
+
+            string? environmentDirectory = Environment.GetEnvironmentVariable(MuxCommandBuilder.ConfigDirectoryEnvironmentVariable);
+            if (!String.IsNullOrWhiteSpace(environmentDirectory))
+                return Path.GetFullPath(environmentDirectory.Trim());
+
+            return Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mux"));
+        }
+
         private static string ResolveMuxExecutable()
         {
             if (!OperatingSystem.IsWindows())
@@ -199,6 +308,39 @@ namespace Armada.Core.Services
             }
 
             return String.Empty;
+        }
+
+        private sealed class MuxEndpointsFile
+        {
+            [JsonPropertyName("endpoints")]
+            public List<MuxEndpointEntry>? Endpoints { get; set; } = null;
+        }
+
+        private sealed class MuxEndpointEntry
+        {
+            [JsonPropertyName("name")]
+            public string? Name { get; set; } = null;
+
+            [JsonPropertyName("adapterType")]
+            public string? AdapterType { get; set; } = null;
+
+            [JsonPropertyName("baseUrl")]
+            public string? BaseUrl { get; set; } = null;
+
+            [JsonPropertyName("model")]
+            public string? Model { get; set; } = null;
+
+            [JsonPropertyName("isDefault")]
+            public bool IsDefault { get; set; } = false;
+
+            [JsonPropertyName("quirks")]
+            public MuxEndpointQuirks? Quirks { get; set; } = null;
+        }
+
+        private sealed class MuxEndpointQuirks
+        {
+            [JsonPropertyName("supportsTools")]
+            public bool? SupportsTools { get; set; } = null;
         }
 
         private sealed class MuxCommandExecutionResult

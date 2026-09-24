@@ -81,6 +81,17 @@ namespace Armada.Core.Models
         public bool ToolsEnabled { get; set; } = false;
 
         /// <summary>
+        /// Whether the selected endpoint was read from endpoints.json, so <see cref="ToolsEnabled"/>,
+        /// <see cref="BaseUrl"/> and <see cref="AdapterType"/> state that endpoint's configuration.
+        /// </summary>
+        public bool EndpointConfigurationRead { get; set; } = false;
+
+        /// <summary>
+        /// Why the selected endpoint could not be read from endpoints.json. Empty when it was read.
+        /// </summary>
+        public string EndpointConfigurationError { get; set; } = String.Empty;
+
+        /// <summary>
         /// Number of built-in tools compiled into mux.
         /// </summary>
         public int BuiltInToolCount { get; set; } = 0;

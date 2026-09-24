@@ -321,7 +321,11 @@ upstream integrations and excludes changes already present at that baseline.
   the launch plan, instead of the config directory's servers that `mux print`
   never loads; its Armada probe presents the credential the launch resolves for
   the same mission, and a Mux CLI that cannot start no longer hides the
-  delivered servers.
+  delivered servers. It always lists a Mux Built-In Tools entry whose tool
+  calling flag, base URL and adapter come from the endpoint the launch selects in
+  `endpoints.json`, and it states that the built-in tool count and names are not
+  reported by `mux --version`, because only `mux probe`, which calls the
+  provider, reports them.
 - **API-endpoint tool bounds:** `run_command` owns a process group and kills it on
   timeout or cancellation, including children the shell left behind, and caps
   output while reading instead of after a whole line. `edit_file` and `multi_edit`
