@@ -94,7 +94,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -122,7 +122,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -153,7 +153,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -247,7 +247,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PromptTemplateFromReader(reader));
+                            results.Add(PromptTemplateColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -306,7 +306,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PromptTemplateFromReader(reader));
+                            results.Add(PromptTemplateColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -363,29 +363,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #endregion
 
         #region Private-Methods
-
-        /// <summary>
-        /// Convert a MySqlDataReader row to a PromptTemplate model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>PromptTemplate instance.</returns>
-        private static PromptTemplate PromptTemplateFromReader(MySqlDataReader reader)
-        {
-            PromptTemplate template = new PromptTemplate();
-            template.Id = reader["id"].ToString()!;
-            template.TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]);
-            template.UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]);
-            template.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            template.Name = reader["name"].ToString()!;
-            template.Description = MysqlDatabaseDriver.NullableString(reader["description"]);
-            template.Category = reader["category"].ToString()!;
-            template.Content = reader["content"].ToString()!;
-            template.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
-            template.Active = Convert.ToInt64(reader["active"]) == 1;
-            template.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            template.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return template;
-        }
 
         private static DateTime ToDatabaseTimestamp(DateTime dt)
         {

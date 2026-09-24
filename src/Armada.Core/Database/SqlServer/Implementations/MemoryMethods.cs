@@ -223,7 +223,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(MemoryColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -297,31 +297,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
             if (includeCreated) cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(memory.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(memory.LastUpdateUtc));
-        }
-
-        private static Memory FromReader(SqlDataReader reader)
-        {
-            Memory memory = new Memory();
-            memory.Id = reader["id"].ToString()!;
-            memory.TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]);
-            memory.UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]);
-            memory.Scope = MemoryRows.ParseEnum(reader["scope"], MemoryScopeEnum.TenantWide);
-            memory.Type = MemoryRows.ParseEnum(reader["type"], MemoryTypeEnum.Semantic);
-            memory.Topic = SqlServerDatabaseDriver.NullableString(reader["topic"]);
-            memory.Key = SqlServerDatabaseDriver.NullableString(reader["memory_key"]);
-            memory.Summary = SqlServerDatabaseDriver.NullableString(reader["summary"]);
-            memory.Content = reader["content"]?.ToString() ?? String.Empty;
-            memory.Salience = Convert.ToDouble(reader["salience"], CultureInfo.InvariantCulture);
-            memory.Version = Convert.ToInt32(reader["version"], CultureInfo.InvariantCulture);
-            memory.SourceKind = MemoryRows.ParseEnum(reader["source_kind"], MemorySourceKindEnum.Manual);
-            memory.SourceVoyageId = SqlServerDatabaseDriver.NullableString(reader["source_voyage_id"]);
-            memory.SourceMissionId = SqlServerDatabaseDriver.NullableString(reader["source_mission_id"]);
-            memory.SourceVesselId = SqlServerDatabaseDriver.NullableString(reader["source_vessel_id"]);
-            memory.SourceDetail = SqlServerDatabaseDriver.NullableString(reader["source_detail"]);
-            memory.VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]);
-            memory.CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            memory.LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return memory;
         }
 
         #endregion

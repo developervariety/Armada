@@ -225,7 +225,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(MemoryColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -299,31 +299,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
             if (includeCreated) cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(memory.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(memory.LastUpdateUtc));
-        }
-
-        private static Memory FromReader(SqliteDataReader reader)
-        {
-            Memory memory = new Memory();
-            memory.Id = reader["id"].ToString()!;
-            memory.TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]);
-            memory.UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]);
-            memory.Scope = MemoryRows.ParseEnum(reader["scope"], MemoryScopeEnum.TenantWide);
-            memory.Type = MemoryRows.ParseEnum(reader["type"], MemoryTypeEnum.Semantic);
-            memory.Topic = SqliteDatabaseDriver.NullableString(reader["topic"]);
-            memory.Key = SqliteDatabaseDriver.NullableString(reader["memory_key"]);
-            memory.Summary = SqliteDatabaseDriver.NullableString(reader["summary"]);
-            memory.Content = reader["content"]?.ToString() ?? String.Empty;
-            memory.Salience = Convert.ToDouble(reader["salience"], CultureInfo.InvariantCulture);
-            memory.Version = Convert.ToInt32(reader["version"], CultureInfo.InvariantCulture);
-            memory.SourceKind = MemoryRows.ParseEnum(reader["source_kind"], MemorySourceKindEnum.Manual);
-            memory.SourceVoyageId = SqliteDatabaseDriver.NullableString(reader["source_voyage_id"]);
-            memory.SourceMissionId = SqliteDatabaseDriver.NullableString(reader["source_mission_id"]);
-            memory.SourceVesselId = SqliteDatabaseDriver.NullableString(reader["source_vessel_id"]);
-            memory.SourceDetail = SqliteDatabaseDriver.NullableString(reader["source_detail"]);
-            memory.VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]);
-            memory.CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            memory.LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return memory;
         }
 
         #endregion

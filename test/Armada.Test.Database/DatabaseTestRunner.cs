@@ -301,7 +301,7 @@ namespace Armada.Test.Database
                 {
                     await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false);
                 }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("Invalid model endpoint " + field, StringComparison.Ordinal))
+                catch (StoredRowException ex) when (ex.Entity == "ModelEndpoint" && ex.Column == field)
                 {
                     rejected = true;
                 }

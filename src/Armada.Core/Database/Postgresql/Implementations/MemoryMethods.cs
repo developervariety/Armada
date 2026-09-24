@@ -225,7 +225,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(MemoryColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -299,37 +299,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
             if (includeCreated) cmd.Parameters.AddWithValue("@created_utc", MemoryRows.AsUtc(memory.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", MemoryRows.AsUtc(memory.LastUpdateUtc));
-        }
-
-        private static Memory FromReader(NpgsqlDataReader reader)
-        {
-            Memory memory = new Memory();
-            memory.Id = reader["id"].ToString()!;
-            memory.TenantId = NullableString(reader["tenant_id"]);
-            memory.UserId = NullableString(reader["user_id"]);
-            memory.Scope = MemoryRows.ParseEnum(reader["scope"], MemoryScopeEnum.TenantWide);
-            memory.Type = MemoryRows.ParseEnum(reader["type"], MemoryTypeEnum.Semantic);
-            memory.Topic = NullableString(reader["topic"]);
-            memory.Key = NullableString(reader["memory_key"]);
-            memory.Summary = NullableString(reader["summary"]);
-            memory.Content = reader["content"]?.ToString() ?? String.Empty;
-            memory.Salience = Convert.ToDouble(reader["salience"], CultureInfo.InvariantCulture);
-            memory.Version = Convert.ToInt32(reader["version"], CultureInfo.InvariantCulture);
-            memory.SourceKind = MemoryRows.ParseEnum(reader["source_kind"], MemorySourceKindEnum.Manual);
-            memory.SourceVoyageId = NullableString(reader["source_voyage_id"]);
-            memory.SourceMissionId = NullableString(reader["source_mission_id"]);
-            memory.SourceVesselId = NullableString(reader["source_vessel_id"]);
-            memory.SourceDetail = NullableString(reader["source_detail"]);
-            memory.VesselId = NullableString(reader["vessel_id"]);
-            memory.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            memory.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return memory;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return value.ToString();
         }
 
         #endregion

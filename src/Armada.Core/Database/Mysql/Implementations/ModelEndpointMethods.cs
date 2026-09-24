@@ -261,7 +261,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return EndpointFromReader(reader);
+                            return ModelEndpointColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -282,7 +282,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EndpointFromReader(reader));
+                            results.Add(ModelEndpointColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -331,59 +331,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static string ToIso8601(DateTime value)
         {
             return value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff", System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        private static ModelEndpoint EndpointFromReader(MySqlDataReader reader)
-        {
-            ModelEndpoint endpoint = new ModelEndpoint
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString()!,
-                Kind = ParseRequiredEnum<ModelEndpointKindEnum>(reader["kind"], "kind"),
-                Scope = ParseRequiredEnum<ScopeEnum>(reader["scope"], "scope"),
-                Provider = ParseRequiredEnum<ModelProviderEnum>(reader["provider"], "provider"),
-                BaseUrl = reader["base_url"].ToString()!,
-                Model = MysqlDatabaseDriver.NullableString(reader["model"]),
-                Dimensionality = MysqlDatabaseDriver.NullableInt(reader["dimensionality"]) ?? 0,
-                TimeoutMs = MysqlDatabaseDriver.NullableInt(reader["timeout_ms"]) ?? 120000,
-                Enabled = (MysqlDatabaseDriver.NullableInt(reader["enabled"]) ?? 1) != 0,
-                HealthStatus = ParseEnum(reader["health_status"], EndpointHealthStatusEnum.Unknown),
-                LastHealthCheckUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["last_health_check_utc"]),
-                LastHealthError = MysqlDatabaseDriver.NullableString(reader["last_health_error"]),
-                LastLatencyMs = NullableLong(reader["last_latency_ms"]),
-                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
-                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
-            };
-
-            endpoint.ApiKey = MysqlDatabaseDriver.NullableString(reader["api_key"]);
-
-            string? historyJson = MysqlDatabaseDriver.NullableString(reader["health_history_json"]);
-            if (!String.IsNullOrWhiteSpace(historyJson))
-                endpoint.HealthHistory = JsonSerializer.Deserialize<List<ModelEndpointHealthRecord>>(historyJson, _Json) ?? new List<ModelEndpointHealthRecord>();
-
-            return endpoint;
-        }
-
-        private static long? NullableLong(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt64(value);
-        }
-
-        private static TEnum ParseEnum<TEnum>(object value, TEnum fallback) where TEnum : struct
-        {
-            if (value == null || value == DBNull.Value) return fallback;
-            return Enum.TryParse<TEnum>(value.ToString(), true, out TEnum parsed) ? parsed : fallback;
-        }
-
-        private static TEnum ParseRequiredEnum<TEnum>(object value, string column) where TEnum : struct, Enum
-        {
-            if (value == null || value == DBNull.Value || !Enum.TryParse(value.ToString(), true, out TEnum parsed)
-                || !Enum.IsDefined(parsed))
-                throw new InvalidOperationException("Invalid model endpoint " + column + " value in persisted row.");
-            return parsed;
         }
     }
 }

@@ -287,7 +287,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return EndpointFromReader(reader);
+                            return ModelEndpointColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -308,7 +308,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EndpointFromReader(reader));
+                            results.Add(ModelEndpointColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -352,53 +352,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json));
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(endpoint.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(endpoint.LastUpdateUtc));
-        }
-
-        private static ModelEndpoint EndpointFromReader(SqlDataReader reader)
-        {
-            ModelEndpoint endpoint = new ModelEndpoint
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString()!,
-                Kind = ParseRequiredEnum<ModelEndpointKindEnum>(reader["kind"], "kind"),
-                Scope = ParseRequiredEnum<ScopeEnum>(reader["scope"], "scope"),
-                Provider = ParseRequiredEnum<ModelProviderEnum>(reader["provider"], "provider"),
-                BaseUrl = reader["base_url"].ToString()!,
-                Model = SqlServerDatabaseDriver.NullableString(reader["model"]),
-                Dimensionality = SqlServerDatabaseDriver.NullableInt(reader["dimensionality"]) ?? 0,
-                TimeoutMs = SqlServerDatabaseDriver.NullableInt(reader["timeout_ms"]) ?? 120000,
-                Enabled = SqlServerDatabaseDriver.NullableBool(reader, "enabled") ?? true,
-                HealthStatus = ParseEnum(reader["health_status"], EndpointHealthStatusEnum.Unknown),
-                LastHealthCheckUtc = SqlServerDatabaseDriver.FromDatabaseTimestampNullable(reader["last_health_check_utc"]),
-                LastHealthError = SqlServerDatabaseDriver.NullableString(reader["last_health_error"]),
-                LastLatencyMs = reader["last_latency_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["last_latency_ms"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["created_utc"]),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["last_update_utc"])
-            };
-
-            endpoint.ApiKey = SqlServerDatabaseDriver.NullableString(reader["api_key"]);
-
-            string? historyJson = SqlServerDatabaseDriver.NullableString(reader["health_history_json"]);
-            if (!String.IsNullOrWhiteSpace(historyJson))
-                endpoint.HealthHistory = JsonSerializer.Deserialize<List<ModelEndpointHealthRecord>>(historyJson, _Json) ?? new List<ModelEndpointHealthRecord>();
-
-            return endpoint;
-        }
-
-        private static TEnum ParseEnum<TEnum>(object value, TEnum fallback) where TEnum : struct
-        {
-            if (value == null || value == DBNull.Value) return fallback;
-            return Enum.TryParse<TEnum>(value.ToString(), true, out TEnum parsed) ? parsed : fallback;
-        }
-
-        private static TEnum ParseRequiredEnum<TEnum>(object value, string column) where TEnum : struct, Enum
-        {
-            if (value == null || value == DBNull.Value || !Enum.TryParse(value.ToString(), true, out TEnum parsed)
-                || !Enum.IsDefined(parsed))
-                throw new InvalidOperationException("Invalid model endpoint " + column + " value in persisted row.");
-            return parsed;
         }
 
         #endregion

@@ -96,7 +96,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -120,7 +120,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -146,7 +146,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -229,7 +229,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PromptTemplateFromReader(reader));
+                            results.Add(PromptTemplateColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -285,7 +285,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PromptTemplateFromReader(reader));
+                            results.Add(PromptTemplateColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -329,45 +329,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     return count > 0;
                 }
             }
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        /// <summary>
-        /// Convert a NpgsqlDataReader row to a PromptTemplate model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>PromptTemplate instance.</returns>
-        private static PromptTemplate PromptTemplateFromReader(NpgsqlDataReader reader)
-        {
-            PromptTemplate template = new PromptTemplate();
-            template.Id = reader["id"].ToString()!;
-            template.TenantId = NullableString(reader["tenant_id"]);
-            template.UserId = NullableString(reader["user_id"]);
-            template.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            template.Name = reader["name"].ToString()!;
-            template.Description = NullableString(reader["description"]);
-            template.Category = reader["category"].ToString()!;
-            template.Content = reader["content"].ToString()!;
-            template.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
-            template.Active = Convert.ToBoolean(reader["active"]);
-            template.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            template.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return template;
-        }
-
-        /// <summary>
-        /// Return null if the value is DBNull or empty, otherwise return the string.
-        /// </summary>
-        /// <param name="value">Database value.</param>
-        /// <returns>String or null.</returns>
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion

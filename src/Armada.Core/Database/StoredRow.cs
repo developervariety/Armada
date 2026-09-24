@@ -147,6 +147,16 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Read a required double-precision number.
+        /// </summary>
+        internal double Double(string column)
+        {
+            object value = Required(column);
+            try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
+            catch (Exception ex) when (IsConversionFailure(ex)) { throw Unreadable(column, "a number", value, ex); }
+        }
+
+        /// <summary>
         /// Read a required timestamp as a UTC instant.
         /// </summary>
         internal DateTime Utc(string column)
@@ -169,13 +179,14 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
-        /// Read a required enum stored by its exact member name.
+        /// Read a required enum stored by its member name. The name must match exactly unless
+        /// <paramref name="ignoreCase"/> is set, and it must name a defined member.
         /// </summary>
-        internal TEnum Enum<TEnum>(string column) where TEnum : struct, System.Enum
+        internal TEnum Enum<TEnum>(string column, bool ignoreCase = false) where TEnum : struct, System.Enum
         {
             object value = Required(column);
             string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? String.Empty;
-            if (System.Enum.TryParse(text, false, out TEnum parsed)) return parsed;
+            if (System.Enum.TryParse(text, ignoreCase, out TEnum parsed) && System.Enum.IsDefined(parsed)) return parsed;
             throw Unreadable(column, "a " + typeof(TEnum).Name + " member", value, null);
         }
 

@@ -94,7 +94,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -117,7 +117,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -142,7 +142,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PromptTemplateFromReader(reader);
+                            return PromptTemplateColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -222,7 +222,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PromptTemplateFromReader(reader));
+                            results.Add(PromptTemplateColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -276,7 +276,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PromptTemplateFromReader(reader));
+                            results.Add(PromptTemplateColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -318,33 +318,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     return count > 0;
                 }
             }
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        /// <summary>
-        /// Convert a SqlDataReader row to a PromptTemplate model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>PromptTemplate instance.</returns>
-        private static PromptTemplate PromptTemplateFromReader(SqlDataReader reader)
-        {
-            PromptTemplate template = new PromptTemplate();
-            template.Id = reader["id"].ToString()!;
-            template.TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]);
-            template.UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]);
-            template.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            template.Name = reader["name"].ToString()!;
-            template.Description = SqlServerDatabaseDriver.NullableString(reader["description"]);
-            template.Category = reader["category"].ToString()!;
-            template.Content = reader["content"].ToString()!;
-            template.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
-            template.Active = Convert.ToBoolean(reader["active"]);
-            template.CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            template.LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return template;
         }
 
         #endregion

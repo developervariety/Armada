@@ -263,7 +263,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return EndpointFromReader(reader);
+                            return ModelEndpointColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -284,7 +284,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EndpointFromReader(reader));
+                            results.Add(ModelEndpointColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -328,86 +328,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json));
             cmd.Parameters.AddWithValue("@created_utc", endpoint.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", endpoint.LastUpdateUtc);
-        }
-
-        private static ModelEndpoint EndpointFromReader(NpgsqlDataReader reader)
-        {
-            ModelEndpoint endpoint = new ModelEndpoint
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Name = reader["name"].ToString()!,
-                Kind = ParseRequiredEnum<ModelEndpointKindEnum>(reader["kind"], "kind"),
-                Scope = ParseRequiredEnum<ScopeEnum>(reader["scope"], "scope"),
-                Provider = ParseRequiredEnum<ModelProviderEnum>(reader["provider"], "provider"),
-                BaseUrl = reader["base_url"].ToString()!,
-                Model = NullableString(reader["model"]),
-                Dimensionality = NullableInt(reader["dimensionality"]) ?? 0,
-                TimeoutMs = NullableInt(reader["timeout_ms"]) ?? 120000,
-                Enabled = NullableBool(reader["enabled"]) ?? true,
-                HealthStatus = ParseEnum(reader["health_status"], EndpointHealthStatusEnum.Unknown),
-                LastHealthCheckUtc = NullableDateTime(reader["last_health_check_utc"]),
-                LastHealthError = NullableString(reader["last_health_error"]),
-                LastLatencyMs = NullableLong(reader["last_latency_ms"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            endpoint.ApiKey = NullableString(reader["api_key"]);
-
-            string? historyJson = NullableString(reader["health_history_json"]);
-            if (!String.IsNullOrWhiteSpace(historyJson))
-                endpoint.HealthHistory = JsonSerializer.Deserialize<List<ModelEndpointHealthRecord>>(historyJson, _Json) ?? new List<ModelEndpointHealthRecord>();
-
-            return endpoint;
-        }
-
-        private static TEnum ParseEnum<TEnum>(object value, TEnum fallback) where TEnum : struct
-        {
-            string? raw = value?.ToString();
-            if (String.IsNullOrWhiteSpace(raw))
-                return fallback;
-
-            return Enum.TryParse<TEnum>(raw, true, out TEnum parsed) ? parsed : fallback;
-        }
-
-        private static TEnum ParseRequiredEnum<TEnum>(object value, string column) where TEnum : struct, Enum
-        {
-            if (value == null || value == DBNull.Value || !Enum.TryParse(value.ToString(), true, out TEnum parsed)
-                || !Enum.IsDefined(parsed))
-                throw new InvalidOperationException("Invalid model endpoint " + column + " value in persisted row.");
-            return parsed;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static DateTime? NullableDateTime(object value)
-        {
-            return PostgresqlDatabaseDriver.ReadUtcNullable(value);
-        }
-
-        private static int? NullableInt(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt32(value);
-        }
-
-        private static long? NullableLong(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt64(value);
-        }
-
-        private static bool? NullableBool(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToBoolean(value);
         }
     }
 }
