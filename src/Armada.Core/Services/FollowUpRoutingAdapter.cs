@@ -134,13 +134,20 @@ namespace Armada.Core.Services
             // Items are classified together in as few requests as the limits allow; each item is still
             // routed and recorded on its own, in order.
             IReadOnlyDictionary<string, TypedQuestion> questions = BuildQuestions(candidates.Count);
-            List<TypedDecisionBatchItem> batch = items
-                .Select(item => new TypedDecisionBatchItem(
-                    DecisionStateRedactor.RedactState(BuildState(followUp, objectiveTitle, item, candidates), _Settings.MaxStateChars),
-                    questions))
+            // The shared egress guard, per item: a follow-up on an excluded vessel, or an item naming an excluded
+            // marker, is not sent; it stays unrouted and records why.
+            List<string?> refusals = items
+                .Select(item => TypedDecisionEgress.Refusal(_Settings, DecisionPoint, followUp.VesselId, () => BuildState(followUp, objectiveTitle, item, candidates)))
                 .ToList();
-            List<TypedDecisionResult> decisions = await TypedDecisionBatcher.DecideAllAsync(
-                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+            List<TypedDecisionBatchItem?> batch = items
+                .Select((item, index) => refusals[index] != null
+                    ? null
+                    : new TypedDecisionBatchItem(
+                        DecisionStateRedactor.RedactState(BuildState(followUp, objectiveTitle, item, candidates), _Settings.MaxStateChars),
+                        questions))
+                .ToList();
+            List<TypedDecisionResult> decisions = await TypedDecisionEgress.DecideAllowedAsync(
+                _Client, DecisionPoint, batch, refusals, _Settings.MaxStateChars, token).ConfigureAwait(false);
 
             for (int index = 0; index < items.Count; index++)
             {
@@ -148,7 +155,7 @@ namespace Armada.Core.Services
                 FollowUpItemOutcome outcome;
                 try
                 {
-                    outcome = await RouteItemAsync(followUp, objectiveTitle, item, candidates, cfg, decisions[index], batch[index].State.Text, token).ConfigureAwait(false);
+                    outcome = await RouteItemAsync(followUp, objectiveTitle, item, candidates, cfg, decisions[index], batch[index]?.State.Text ?? String.Empty, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -157,7 +164,8 @@ namespace Armada.Core.Services
                     return result;
                 }
 
-                // The provider is unavailable for this section; route nothing further.
+                // A refused item stays unrouted; the provider being unavailable routes nothing further.
+                if (!outcome.Available && TypedDecisionEgress.IsRefusal(decisions[index])) continue;
                 if (!outcome.Available) return result;
                 if (outcome.Applied) result.Routes.Add(outcome.Route!);
             }

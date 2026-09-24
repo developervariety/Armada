@@ -184,6 +184,17 @@ namespace Armada.Core.Services
             // The same skeleton as TypedDecisionAdapterBase: state build and the client call never throw
             // into the listing, the caller's token is forwarded so the client links its settings timeout
             // to it, and any fault fails closed to the rule (no merge) with an unavailable event.
+            // The shared egress guard: a pair on an excluded vessel, or naming an excluded marker, is not sent. It
+            // stays unmerged and records why; the rest of the listing is still compared.
+            string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, a.VesselId, () => BuildPairState(a, b));
+            if (refusal != null)
+            {
+                await _Recorder.RecordUnavailableAsync(
+                    BuildContext(a, b, "no_merge", null, null, TypedDecisionEgress.Refused(refusal), String.Empty),
+                    token).ConfigureAwait(false);
+                return new PapercutMergeVerdict { Available = true, Merge = false, Confidence = 0.0 };
+            }
+
             object state;
             string redacted;
             TypedDecisionRequest request;

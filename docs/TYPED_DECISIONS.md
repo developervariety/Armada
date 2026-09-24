@@ -90,11 +90,16 @@ The safety contract holds whenever it is enabled:
 ## Egress rules
 
 Three rules decide whether a state leaves the host at all, and every path that
-sends state asks the same ones: the adapter skeleton, custom decisions, and the
-captain tools.
+sends state asks the same ones through one guard (`TypedDecisionEgress.Refusal`):
+the adapter skeleton, the standalone adapters (`prior_art`, `memory_review`,
+`papercut_merge`, `memory_candidate`, `followup_routing`, `preflight`,
+`criteria_lint`, `inbox_triage`), custom decisions, and the captain tools. A
+standalone adapter that decides several items at once asks per item: a refused
+item keeps its rule and records why, and the other items are still decided.
 
-- **Vessel exclusion.** A mission on a vessel in `egressExcludedVesselIds`
-  sends nothing (`egress_excluded_vessel`).
+- **Vessel exclusion.** A decision about a mission or a target vessel in
+  `egressExcludedVesselIds` sends nothing (`egress_excluded_vessel`). The vessel
+  is checked before any state is built.
 - **Content markers.** A state whose UNREDACTED text contains one of the
   markers that apply sends nothing (`egress_excluded_content`). The check
   reads the state before redaction because the redactor replaces absolute

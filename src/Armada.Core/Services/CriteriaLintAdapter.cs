@@ -149,16 +149,23 @@ namespace Armada.Core.Services
 
             // Criteria are independent, so they are answered together in as few requests as the limits
             // allow; each criterion still gets its own recorded event.
-            List<TypedDecisionBatchItem> batch = new List<TypedDecisionBatchItem>(criteria.Count);
+            // The shared egress guard, per criterion: a criterion naming an excluded marker is not sent; it records
+            // why and appends nothing.
+            List<string?> refusals = new List<string?>(criteria.Count);
+            List<TypedDecisionBatchItem?> batch = new List<TypedDecisionBatchItem?>(criteria.Count);
             for (int index = 0; index < criteria.Count; index++)
             {
-                batch.Add(new TypedDecisionBatchItem(
-                    DecisionStateRedactor.RedactState(BuildState(criteria[index], index + 1, kind, deliverable), _Settings.MaxStateChars),
+                string criterion = criteria[index];
+                int number = index + 1;
+                string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, (IEnumerable<string?>?)null, () => BuildState(criterion, number, kind, deliverable));
+                refusals.Add(refusal);
+                batch.Add(refusal != null ? null : new TypedDecisionBatchItem(
+                    DecisionStateRedactor.RedactState(BuildState(criterion, number, kind, deliverable), _Settings.MaxStateChars),
                     BuildQuestions()));
             }
 
-            List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
-                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+            List<TypedDecisionResult> results = await TypedDecisionEgress.DecideAllowedAsync(
+                _Client, DecisionPoint, batch, refusals, _Settings.MaxStateChars, token).ConfigureAwait(false);
 
             List<string> reviewLines = new List<string>();
             for (int index = 0; index < criteria.Count; index++)
@@ -166,7 +173,7 @@ namespace Armada.Core.Services
                 CriterionOutcome outcome;
                 try
                 {
-                    outcome = await RecordCriterionAsync(criteria[index], index + 1, cfg, results[index], batch[index].State.Text, token).ConfigureAwait(false);
+                    outcome = await RecordCriterionAsync(criteria[index], index + 1, cfg, results[index], batch[index]?.State.Text ?? String.Empty, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -175,8 +182,9 @@ namespace Armada.Core.Services
                     return;
                 }
 
-                // The provider is unavailable for this summary; append nothing. The deterministic
-                // summary is the fallback.
+                // A refused criterion appends nothing; the provider being unavailable for this summary
+                // appends nothing at all. The deterministic summary is the fallback.
+                if (!outcome.Available && TypedDecisionEgress.IsRefusal(results[index])) continue;
                 if (!outcome.Available) return;
 
                 if (outcome.ReviewLines.Count > 0) reviewLines.AddRange(outcome.ReviewLines);

@@ -148,6 +148,17 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
             if (cfg.Mode == TypedDecisionModeEnum.Off) return;
 
+            // The shared egress guard: a target vessel on the list, or a state naming an excluded marker, sends
+            // nothing. The preview stays deterministic and records why.
+            string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, vessel.Id,
+                () => BuildState(objective, vessel, pipeline, result));
+            if (refusal != null)
+            {
+                await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
+                    BuildContext(objective, vessel, TypedDecisionEgress.Refused(refusal), null, null, String.Empty), token)).ConfigureAwait(false);
+                return;
+            }
+
             string redacted;
             TypedDecisionRequest request;
             try

@@ -166,20 +166,37 @@ namespace Armada.Core.Services
                 // Records are reviewed against the same snapshot, so they are independent and are asked
                 // together in as few requests as the limits allow; each still gets its own event.
                 List<List<Memory>> candidateSets = written.Select(record => DuplicateCandidates(record, all, writtenIds)).ToList();
-                List<TypedDecisionBatchItem> batch = new List<TypedDecisionBatchItem>(written.Count);
+                // The shared egress guard, per record: the mission's vessel, then the record's own unredacted state.
+                List<string?> refusals = new List<string?>(written.Count);
+                List<TypedDecisionBatchItem?> batch = new List<TypedDecisionBatchItem?>(written.Count);
                 for (int index = 0; index < written.Count; index++)
                 {
-                    batch.Add(new TypedDecisionBatchItem(
-                        DecisionStateRedactor.RedactState(BuildState(written[index], candidateSets[index]), _Settings.MaxStateChars),
-                        Questions(candidateSets[index].Count)));
+                    Memory record = written[index];
+                    List<Memory> candidates = candidateSets[index];
+                    string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, mission.VesselId, () => BuildState(record, candidates));
+                    refusals.Add(refusal);
+                    batch.Add(refusal != null ? null : new TypedDecisionBatchItem(
+                        DecisionStateRedactor.RedactState(BuildState(record, candidates), _Settings.MaxStateChars),
+                        Questions(candidates.Count)));
                 }
-                List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
-                    _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+                List<TypedDecisionResult> results = await TypedDecisionEgress.DecideAllowedAsync(
+                    _Client, DecisionPoint, batch, refusals, _Settings.MaxStateChars, token).ConfigureAwait(false);
 
+                string? refusedReason = null;
+                int refused = 0;
                 for (int index = 0; index < written.Count; index++)
                 {
+                    if (refusals[index] != null)
+                    {
+                        // A refused record keeps its salience and records why; the other records are still reviewed.
+                        await _Recorder.RecordUnavailableAsync(Context(mission, "keep", null, null, results[index], String.Empty), token).ConfigureAwait(false);
+                        refusedReason = refusals[index];
+                        refused++;
+                        continue;
+                    }
+
                     bool available = await ReviewRecordAsync(
-                        mission, written[index], candidateSets[index], cfg, outcome, results[index], batch[index].State.Text, token).ConfigureAwait(false);
+                        mission, written[index], candidateSets[index], cfg, outcome, results[index], batch[index]!.State.Text, token).ConfigureAwait(false);
                     if (!available)
                     {
                         outcome.Reason = "unavailable";
@@ -187,7 +204,7 @@ namespace Armada.Core.Services
                     }
                 }
 
-                outcome.Reason = "reviewed";
+                outcome.Reason = refused == written.Count ? refusedReason! : "reviewed";
                 return outcome;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)

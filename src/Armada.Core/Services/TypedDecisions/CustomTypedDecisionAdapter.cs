@@ -195,24 +195,12 @@ namespace Armada.Core.Services
             if (cfg.Mode == TypedDecisionModeEnum.Off)
                 return CustomDecisionOutcome.Inactive(name);
 
-            // The same two egress rules the adapter skeleton applies, asked of the same settings: a mission on
-            // an excluded vessel, or a state whose UNREDACTED text names an excluded marker, sends nothing.
-            string? refusal = null;
-            if (!_Settings.AllowsEgress(mission?.VesselId)) refusal = TypedDecisionEgress.ExcludedVesselReason;
-            else
-            {
-                IReadOnlyList<string> markers = _Settings.MarkersForCustom(name);
-                if (markers.Count > 0)
-                {
-                    string raw;
-                    try { raw = TypedDecisionEgress.RawText(BuildState(definition, context)); }
-                    catch (Exception) { raw = ((char)0).ToString(); }
-                    if (TypedDecisionSettings.FirstMarkerIn(markers, raw) != null) refusal = TypedDecisionEgress.ExcludedContentReason;
-                }
-            }
+            // The shared egress guard, with this definition's markers: a mission on an excluded vessel, or a state
+            // whose UNREDACTED text names an excluded marker, sends nothing.
+            string? refusal = TypedDecisionEgress.Refusal(_Settings, _Settings.MarkersForCustom(name), new[] { mission?.VesselId }, () => BuildState(definition, context));
             if (refusal != null)
             {
-                TypedDecisionResult refused = new TypedDecisionResult { Available = false, UnavailableReason = refusal };
+                TypedDecisionResult refused = TypedDecisionEgress.Refused(refusal);
                 await _Recorder.RecordUnavailableAsync(new TypedDecisionEventContext
                 {
                     DecisionPoint = DecisionPointFor(name),

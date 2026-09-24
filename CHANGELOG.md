@@ -538,6 +538,14 @@ upstream integrations and excludes changes already present at that baseline.
   the display redactor removes too), and the string value of a property named as
   a secret. Both redactors apply one rule set. `DecisionStateRedactor.Version` is
   3, so samples redacted under earlier rules form their own cohort.
+- **Typed-decision egress guard:** one guard decides whether decision state may
+  leave the host, and every sending path asks it: the adapter skeleton, custom
+  decisions, the captain tools, and the standalone adapters `prior_art`,
+  `memory_review`, `papercut_merge`, `memory_candidate`, `followup_routing`,
+  `preflight`, `criteria_lint` and `inbox_triage`. A state about an excluded
+  vessel or naming an excluded marker is not sent and records
+  `egress_excluded_vessel` or `egress_excluded_content`; in a multi-item pass the
+  other items are still decided.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

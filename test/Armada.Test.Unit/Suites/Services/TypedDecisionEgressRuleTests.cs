@@ -3,13 +3,17 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Reflection;
+    using System.Runtime.CompilerServices;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
@@ -107,6 +111,239 @@ namespace Armada.Test.Unit.Suites.Services
             return (skeletonClient.CallCount, customClient.CallCount, captainClient.CallCount);
         }
 
+
+        // The three shapes of one decision call a standalone adapter is driven with: a state that may leave the
+        // host, a state about a mission or vessel on the exclusion list, and a state whose unredacted text names
+        // an excluded marker.
+        private enum EgressCase
+        {
+            Clean,
+            ExcludedVessel,
+            MarkedContent
+        }
+
+        private const string ExcludedVessel = "vsl_excluded";
+        private const string AllowedVessel = "vsl_allowed";
+
+        // One standalone decision seam: the decision it belongs to, whether it concerns a mission or vessel (so
+        // the vessel exclusion applies), and how to drive it once with a given case.
+        private sealed class StandaloneSender
+        {
+            public StandaloneSender(string decisionPoint, string seam, bool aboutVessel, Func<DatabaseDriver, TypedDecisionSettings, ITypedDecisionClient, string, string, Task> send)
+            {
+                DecisionPoint = decisionPoint;
+                Seam = seam;
+                AboutVessel = aboutVessel;
+                Send = send;
+            }
+
+            public string DecisionPoint { get; }
+            public string Seam { get; }
+            public bool AboutVessel { get; }
+
+            // (database, settings, client, vesselId, body)
+            public Func<DatabaseDriver, TypedDecisionSettings, ITypedDecisionClient, string, string, Task> Send { get; }
+        }
+
+        private sealed class NoCandidateRouter : IFollowUpRouter
+        {
+            public Task<IReadOnlyList<FollowUpDuplicateCandidate>> GetDuplicateCandidatesAsync(string? vesselId, int limit, CancellationToken token)
+                => Task.FromResult<IReadOnlyList<FollowUpDuplicateCandidate>>(new List<FollowUpDuplicateCandidate>());
+            public Task<string?> CreateTriagedObjectiveAsync(FollowUpRouteRequest request, CancellationToken token) => Task.FromResult<string?>(null);
+            public Task AppendEvidenceNoteAsync(FollowUpRouteRequest request, CancellationToken token) => Task.CompletedTask;
+            public Task LinkDuplicateAsync(FollowUpRouteRequest request, string existingObjectiveId, CancellationToken token) => Task.CompletedTask;
+            public Task FlagBlockingForOperatorAsync(FollowUpRouteRequest request, CancellationToken token) => Task.CompletedTask;
+        }
+
+        private static LoggingModule Quiet()
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return logging;
+        }
+
+        private static Vessel VesselOf(string vesselId)
+        {
+            return new Vessel { Id = vesselId, Name = "ExampleVessel", LocalPath = "/repo", DefaultBranch = "main" };
+        }
+
+        private static PapercutGroup PapercutOf(string vesselId, string key, string detail)
+        {
+            return new PapercutGroup
+            {
+                Key = vesselId + "|BriefContradiction|" + key,
+                VesselId = vesselId,
+                Category = PapercutCategoryEnum.BriefContradiction,
+                HighestSeverity = PapercutSeverityEnum.High,
+                SampleTitle = "The brief contradicts the decoder layout " + key,
+                SampleDetail = detail,
+                Count = 3,
+                DistinctCaptainCount = 2,
+                LastSeenUtc = DateTime.UtcNow
+            };
+        }
+
+        // Every decision that sends state from its own flow rather than through the adapter skeleton, one row
+        // per seam. A row drives the real adapter with the case's vessel and body.
+        private static List<StandaloneSender> StandaloneSenders()
+        {
+            return new List<StandaloneSender>
+            {
+                new StandaloneSender(TypedPriorArtAdapter.DecisionPoint, "preflight", true, async (db, settings, client, vesselId, body) =>
+                {
+                    TypedPriorArtAdapter adapter = new TypedPriorArtAdapter(client, new TypedDecisionRecorder(db, Quiet()), settings,
+                        new FakePriorArtRetriever(FakePriorArtRetriever.RetrievalOf(FakePriorArtRetriever.Candidate(PriorArtWhereEnum.Landed, "src/Existing.cs:12", body))), Quiet());
+                    await adapter.EvaluatePreflightAsync(new Objective { Id = "obj_egress", Title = "Port the decoder", Description = body },
+                        VesselOf(vesselId), new ObjectiveDispatchPreview { VesselId = vesselId }, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(TypedPriorArtAdapter.DecisionPoint, "judge", true, async (db, settings, client, vesselId, body) =>
+                {
+                    TypedPriorArtAdapter adapter = new TypedPriorArtAdapter(client, new TypedDecisionRecorder(db, Quiet()), settings,
+                        new FakePriorArtRetriever(FakePriorArtRetriever.RetrievalOf(FakePriorArtRetriever.Candidate(PriorArtWhereEnum.Landed, "src/Existing.cs:12", body))), Quiet());
+                    await adapter.EvaluateJudgeInstructionAsync(new Mission { Id = "msn_egress", VesselId = vesselId, Title = "port a decoder" },
+                        VesselOf(vesselId), "class Decoder " + body, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(RecorderMemoryReviewAdapter.DecisionPoint, "recorder", true, async (db, settings, client, vesselId, body) =>
+                {
+                    Mission mission = new Mission("Record lessons") { TenantId = Constants.DefaultTenantId, Persona = "Recorder", VesselId = vesselId };
+                    await db.Memories.CreateAsync(new Memory
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        Type = MemoryTypeEnum.Semantic,
+                        Topic = "build",
+                        Summary = "How the decoder is read",
+                        Content = body,
+                        Salience = 0.9,
+                        SourceMissionId = mission.Id,
+                        SourceKind = MemorySourceKindEnum.Mission,
+                        VesselId = vesselId
+                    }).ConfigureAwait(false);
+                    RecorderMemoryReviewAdapter adapter = new RecorderMemoryReviewAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()),
+                        new DatabaseMemoryCandidateProposalWriter(db, Quiet()), db, Quiet());
+                    await adapter.ReviewAsync(mission, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(PapercutMergeAdapter.DecisionPoint, "listing", true, async (db, settings, client, vesselId, body) =>
+                {
+                    PapercutMergeAdapter adapter = new PapercutMergeAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), db, Quiet());
+                    await adapter.MergeAsync(new List<PapercutGroup> { PapercutOf(vesselId, "a", body), PapercutOf(vesselId, "b", body) }, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(MemoryCandidateAdapter.DecisionPoint, "sweep", true, async (db, settings, client, vesselId, body) =>
+                {
+                    MemoryCandidateAdapter adapter = new MemoryCandidateAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()),
+                        new DatabaseMemoryCandidateProposalWriter(db, Quiet()), Quiet());
+                    await adapter.NominateAsync(new List<PapercutGroup> { PapercutOf(vesselId, "a", body) }, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(FollowUpRoutingAdapter.DecisionPoint, "judge_follow_up", true, async (db, settings, client, vesselId, body) =>
+                {
+                    FollowUpRoutingAdapter adapter = new FollowUpRoutingAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), new NoCandidateRouter(), Quiet());
+                    await adapter.RouteAsync(new JudgeFollowUp
+                    {
+                        JudgeMissionId = "msn_judge",
+                        ReviewedMissionId = "msn_reviewed",
+                        VesselId = vesselId,
+                        JudgeVerdict = "PASS",
+                        SuggestedFollowUps = "- " + body
+                    }, "Port the decoder", CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(PreflightTextAdapter.DecisionPoint, "dispatch_preview", true, async (db, settings, client, vesselId, body) =>
+                {
+                    PreflightTextAdapter adapter = new PreflightTextAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), new FakeOwnerDecisionNotePoster(), Quiet());
+                    await adapter.EvaluateAsync(new Objective { Id = "obj_egress", Title = "Port the decoder", Description = body, VesselIds = new List<string> { vesselId } },
+                        VesselOf(vesselId), null, new ObjectiveDispatchPreview { VesselId = vesselId }, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(CriteriaLintAdapter.DecisionPoint, "refinement_summary", false, async (db, settings, client, vesselId, body) =>
+                {
+                    CriteriaLintAdapter adapter = new CriteriaLintAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), Quiet());
+                    await adapter.EvaluateAsync(new ObjectiveRefinementSummaryResponse
+                    {
+                        Summary = "Port the decoder.",
+                        AcceptanceCriteria = new List<string> { body }
+                    }, ObjectiveKindEnum.Feature, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(InboxTriageAdapter.DecisionPoint, "inbox", false, async (db, settings, client, vesselId, body) =>
+                {
+                    InboxTriageAdapter adapter = new InboxTriageAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), Quiet());
+                    await adapter.TriageInboxAsync(new List<InboxItem> { new InboxItem { Kind = "papercut", Title = "Decoder read", Detail = body } }, CancellationToken.None).ConfigureAwait(false);
+                }),
+                new StandaloneSender(InboxTriageAdapter.DecisionPoint, "board_notes", false, async (db, settings, client, vesselId, body) =>
+                {
+                    InboxTriageAdapter adapter = new InboxTriageAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), Quiet());
+                    await adapter.TriageBoardNotesAsync(new List<BoardNoteTriageInput> { new BoardNoteTriageInput { Id = "note_1", AuthorType = "captain", Content = body } }, CancellationToken.None).ConfigureAwait(false);
+                })
+            };
+        }
+
+        private static TypedDecisionSettings StandaloneSettings()
+        {
+            TypedDecisionSettings settings = new TypedDecisionSettings
+            {
+                Mode = TypedDecisionModeEnum.Gate,
+                EgressExcludedMarkers = new List<string> { Marker },
+                EgressExcludedVesselIds = new List<string> { ExcludedVessel }
+            };
+            return settings;
+        }
+
+        private sealed class DriveResult
+        {
+            public int Calls { get; set; }
+            public List<string> Reasons { get; set; } = new List<string>();
+        }
+
+        // Drive one seam with one case and return the provider calls and the unavailable reasons it recorded.
+        private static async Task<DriveResult> DriveAsync(StandaloneSender sender, EgressCase egressCase)
+        {
+            using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+            {
+                // The provider is down for every call, so a sent state costs nothing downstream; the count of
+                // calls is the measure of what would have left the host.
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Unavailable("http_429"));
+                string vesselId = egressCase == EgressCase.ExcludedVessel ? ExcludedVessel : AllowedVessel;
+                string body = egressCase == EgressCase.MarkedContent ? MarkedBody : CleanBody;
+                await sender.Send(db.Driver, StandaloneSettings(), client, vesselId, body).ConfigureAwait(false);
+
+                List<string> reasons = await UnavailableReasonsAsync(db.Driver).ConfigureAwait(false);
+                return new DriveResult { Calls = client.CallCount, Reasons = reasons };
+            }
+        }
+
+        // The unavailable reasons recorded, read from each event's message ("... unavailable=<reason>").
+        private static async Task<List<string>> UnavailableReasonsAsync(DatabaseDriver database)
+        {
+            List<string> reasons = new List<string>();
+            foreach (ArmadaEvent evt in await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 100).ConfigureAwait(false))
+            {
+                int at = evt.Message.IndexOf("unavailable=", StringComparison.Ordinal);
+                if (at >= 0) reasons.Add(evt.Message.Substring(at + "unavailable=".Length).Trim());
+            }
+            return reasons;
+        }
+
+        // The decision points the adapter skeleton serves, read from the adapters themselves: each concrete
+        // subclass names its decision point as a constant, so an uninitialized instance can report it.
+        private static HashSet<string> SkeletonDecisionPoints()
+        {
+            HashSet<string> points = new HashSet<string>(StringComparer.Ordinal);
+            Type skeleton = typeof(TypedDecisionAdapterBase<,,>);
+            foreach (Type type in skeleton.Assembly.GetTypes())
+            {
+                if (type.IsAbstract || type.IsGenericTypeDefinition) continue;
+                bool derives = false;
+                for (Type? walk = type.BaseType; walk != null; walk = walk.BaseType)
+                    if (walk.IsGenericType && walk.GetGenericTypeDefinition() == skeleton) { derives = true; break; }
+                if (!derives) continue;
+
+                PropertyInfo? property = type.GetProperty("DecisionPoint", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                object instance = RuntimeHelpers.GetUninitializedObject(type);
+                if (property?.GetValue(instance) is string point) points.Add(point);
+            }
+            return points;
+        }
+
+        // Decisions whose only caller is a captain-facing helper tool: they send through the captain tool path,
+        // which asks the shared egress guard for every call.
+        private static readonly string[] CaptainToolDecisions = { "premise_check", "memory_record", "corpus_prelabel" };
+
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
@@ -164,6 +401,47 @@ namespace Armada.Test.Unit.Suites.Services
                 file.TypedDecisions.EgressExcludedMarkers.Add("added-later");
                 AssertEqual(null, live.TypedDecisions.ExcludedMarkerIn("failure_cause", "added-later"), "the live list is a copy");
             });
+
+            await RunTest("EveryShippedDecision_SendsThroughAGuardedPath", () =>
+            {
+                // A decision added later with its own send path and no row here fails this test until it is put
+                // behind the shared guard and driven below.
+                HashSet<string> covered = SkeletonDecisionPoints();
+                AssertTrue(covered.Count >= 10, "the skeleton adapters are found by reflection (" + covered.Count + ")");
+                foreach (StandaloneSender sender in StandaloneSenders()) covered.Add(sender.DecisionPoint);
+                foreach (string captainOnly in CaptainToolDecisions) covered.Add(captainOnly);
+                List<string> missing = TypedDecisionSettings.ShippedDecisionNames.Where(name => !covered.Contains(name)).ToList();
+                AssertEqual(0, missing.Count, "decisions with no guarded send path: " + String.Join(", ", missing));
+            });
+
+            foreach (StandaloneSender sender in StandaloneSenders())
+            {
+                string label = sender.DecisionPoint + "/" + sender.Seam;
+
+                await RunTest("Standalone_" + label + "_SendsACleanState", async () =>
+                {
+                    DriveResult clean = await DriveAsync(sender, EgressCase.Clean).ConfigureAwait(false);
+                    AssertTrue(clean.Calls >= 1, label + " reaches the provider with a clean state, so a refusal below is the guard's (calls=" + clean.Calls + ")");
+                }).ConfigureAwait(false);
+
+                await RunTest("Standalone_" + label + "_RefusesAMarkedState", async () =>
+                {
+                    DriveResult marked = await DriveAsync(sender, EgressCase.MarkedContent).ConfigureAwait(false);
+                    AssertEqual(0, marked.Calls, label + " sends nothing for a state carrying an excluded marker");
+                    AssertTrue(marked.Reasons.Contains(TypedDecisionEgress.ExcludedContentReason),
+                        label + " records " + TypedDecisionEgress.ExcludedContentReason + " (recorded: " + String.Join(",", marked.Reasons) + ")");
+                }).ConfigureAwait(false);
+
+                if (!sender.AboutVessel) continue;
+
+                await RunTest("Standalone_" + label + "_RefusesAnExcludedVessel", async () =>
+                {
+                    DriveResult excluded = await DriveAsync(sender, EgressCase.ExcludedVessel).ConfigureAwait(false);
+                    AssertEqual(0, excluded.Calls, label + " sends nothing about a vessel on the exclusion list");
+                    AssertTrue(excluded.Reasons.Contains(TypedDecisionEgress.ExcludedVesselReason),
+                        label + " records " + TypedDecisionEgress.ExcludedVesselReason + " (recorded: " + String.Join(",", excluded.Reasons) + ")");
+                }).ConfigureAwait(false);
+            }
 
             await RunTest("ARejectedRequest_IsRetriedOnceAtHalfTheState", async () =>
             {

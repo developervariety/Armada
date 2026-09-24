@@ -100,17 +100,12 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
             if (cfg.Mode == TypedDecisionModeEnum.Off) return ruleVerdict;
 
-            // Checked before the state is even built: nothing about a mission on an excluded vessel is
-            // serialized, let alone sent. The rule stands and the refusal is recorded, never silent.
-            if (!AllowsEgress(input))
+            // The shared egress guard: nothing about a mission on an excluded vessel is serialized, and a state
+            // naming an excluded marker is not sent. The rule stands and the refusal is recorded, never silent.
+            string? refusal = EgressRefusal(input);
+            if (refusal != null)
             {
-                await RecordUnavailableAsync(input, ruleVerdict, EgressExcluded(), String.Empty, token).ConfigureAwait(false);
-                return ruleVerdict;
-            }
-
-            if (CarriesExcludedContent(input))
-            {
-                await RecordUnavailableAsync(input, ruleVerdict, EgressExcludedContent(), String.Empty, token).ConfigureAwait(false);
+                await RecordUnavailableAsync(input, ruleVerdict, TypedDecisionEgress.Refused(refusal), String.Empty, token).ConfigureAwait(false);
                 return ruleVerdict;
             }
 
@@ -166,15 +161,10 @@ namespace Armada.Core.Services
             List<TypedDecisionBatchItem> batch = new List<TypedDecisionBatchItem>();
             for (int index = 0; index < inputs.Count; index++)
             {
-                if (!AllowsEgress(inputs[index]))
+                string? refusal = EgressRefusal(inputs[index]);
+                if (refusal != null)
                 {
-                    await RecordUnavailableAsync(inputs[index], ruleVerdicts[index], EgressExcluded(), String.Empty, token).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (CarriesExcludedContent(inputs[index]))
-                {
-                    await RecordUnavailableAsync(inputs[index], ruleVerdicts[index], EgressExcludedContent(), String.Empty, token).ConfigureAwait(false);
+                    await RecordUnavailableAsync(inputs[index], ruleVerdicts[index], TypedDecisionEgress.Refused(refusal), String.Empty, token).ConfigureAwait(false);
                     continue;
                 }
 
@@ -301,30 +291,23 @@ namespace Armada.Core.Services
         protected TypedDecisionSettings Settings => _Settings;
 
         /// <summary>
-        /// Whether the input's UNREDACTED state names one of this decision's excluded markers. Checked on the
-        /// state before redaction, because the redactor replaces absolute workspace paths, markers and all. A state that cannot
-        /// be built is treated as excluded: when the check cannot run, nothing is sent. A decision that
-        /// filters its own content at a finer grain overrides this.
+        /// Ask the shared egress guard about one input: the vessel of the mission it belongs to, then the
+        /// excluded markers in its UNREDACTED state. Null when the state may be sent.
         /// </summary>
         /// <param name="input">The decision input.</param>
-        /// <returns>True when the state must not leave the host.</returns>
-        protected virtual bool CarriesExcludedContent(TInput input)
+        /// <returns>The refusal reason, or null.</returns>
+        private string? EgressRefusal(TInput input)
         {
-            IReadOnlyList<string> markers = _Settings.MarkersFor(DecisionPoint);
-            if (markers.Count == 0) return false;
+            Mission? mission;
             try
             {
-                return TypedDecisionSettings.FirstMarkerIn(markers, TypedDecisionEgress.RawText(BuildState(input))) != null;
+                mission = MissionOf(input);
             }
             catch (Exception)
             {
-                return true;
+                mission = null;
             }
-        }
-
-        private static TypedDecisionResult EgressExcludedContent()
-        {
-            return new TypedDecisionResult { Available = false, UnavailableReason = EgressExcludedContentReason };
+            return TypedDecisionEgress.Refusal(_Settings, DecisionPoint, mission?.VesselId, () => BuildState(input));
         }
 
         private async Task<TypedDecisionResult> SendAsync(TypedDecisionBatchItem item, CancellationToken token)
@@ -347,25 +330,6 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "decision '" + DecisionPoint + "' client threw, rule stands: " + ex.Message);
                 return TypedDecisionResult.Exception();
             }
-        }
-
-        private bool AllowsEgress(TInput input)
-        {
-            Mission? mission;
-            try
-            {
-                mission = MissionOf(input);
-            }
-            catch (Exception)
-            {
-                mission = null;
-            }
-            return _Settings.AllowsEgress(mission?.VesselId);
-        }
-
-        private static TypedDecisionResult EgressExcluded()
-        {
-            return new TypedDecisionResult { Available = false, UnavailableReason = EgressExcludedReason };
         }
 
         private TypedDecisionBatchItem? Prepare(TInput input)

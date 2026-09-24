@@ -520,20 +520,16 @@ namespace Armada.Server.Mcp.Tools
                 object redacted = redactedDecisionState.State;
                 string redactedState = redactedDecisionState.Text;
 
-                // 0. A mission on a vessel whose content may not leave the host sends nothing. Recorded, so the
-                // refusal is counted rather than silent.
-                if (mission != null && !settings.TypedDecisions.AllowsEgress(mission.VesselId))
+                // 0. The shared egress guard: a mission on a vessel whose content may not leave the host, or a state
+                // whose UNREDACTED text names an excluded marker, sends nothing. Recorded, so the refusal is counted
+                // rather than silent.
+                string? refusal = TypedDecisionEgress.Refusal(settings.TypedDecisions, decisionPoint, mission?.VesselId, () => parsed.State);
+                if (refusal != null)
                 {
-                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("egress_excluded_vessel"), "egress_excluded_vessel").ConfigureAwait(false);
-                    return Unavailable("egress_excluded_vessel", "This vessel's content may not leave the host. Decide it yourself.");
-                }
-
-                // 0b. A state whose UNREDACTED text names an excluded marker sends nothing. Checked on the raw
-                // state because the redactor replaces absolute workspace paths, markers and all; the same rule every path asks.
-                if (TypedDecisionSettings.FirstMarkerIn(settings.TypedDecisions.MarkersFor(decisionPoint), TypedDecisionEgress.RawText(parsed.State)) != null)
-                {
-                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(TypedDecisionEgress.ExcludedContentReason), TypedDecisionEgress.ExcludedContentReason).ConfigureAwait(false);
-                    return Unavailable(TypedDecisionEgress.ExcludedContentReason, "This state carries content that may not leave the host. Decide it yourself.");
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(refusal), refusal).ConfigureAwait(false);
+                    return Unavailable(refusal, String.Equals(refusal, TypedDecisionEgress.ExcludedVesselReason, StringComparison.Ordinal)
+                        ? "This vessel's content may not leave the host. Decide it yourself."
+                        : "This state carries content that may not leave the host. Decide it yourself.");
                 }
 
                 // 1. The tool is disabled: no egress, one event, unavailable.

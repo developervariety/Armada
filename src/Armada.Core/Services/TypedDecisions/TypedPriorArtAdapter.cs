@@ -141,10 +141,10 @@ namespace Armada.Core.Services
 
             string deliverable = DeliverableOf(objective);
             (TypedDecisionResult? decision, PriorArtReading? reading, string redacted) =
-                await ConsultAsync(deliverable, retrieval, isJudge: false, token).ConfigureAwait(false);
+                await ConsultAsync(deliverable, retrieval, new[] { vessel.Id }, isJudge: false, token).ConfigureAwait(false);
             if (decision == null || reading == null)
             {
-                await RecordUnavailableAsync(retrieval, redacted, null, token).ConfigureAwait(false);
+                await RecordUnavailableAsync(retrieval, redacted, decision, null, token).ConfigureAwait(false);
                 return;
             }
 
@@ -235,10 +235,10 @@ namespace Armada.Core.Services
             if (!retrieval.HasCandidates) return null;
 
             (TypedDecisionResult? decision, PriorArtReading? reading, string redacted) =
-                await ConsultAsync(addedTypesText, retrieval, isJudge: true, token).ConfigureAwait(false);
+                await ConsultAsync(addedTypesText, retrieval, new[] { vessel.Id, mission?.VesselId }, isJudge: true, token).ConfigureAwait(false);
             if (decision == null || reading == null)
             {
-                await RecordUnavailableAsync(retrieval, redacted, mission, token).ConfigureAwait(false);
+                await RecordUnavailableAsync(retrieval, redacted, decision, mission, token).ConfigureAwait(false);
                 return null;
             }
 
@@ -279,9 +279,14 @@ namespace Armada.Core.Services
         private async Task<(TypedDecisionResult?, PriorArtReading?, string)> ConsultAsync(
             string deliverable,
             PriorArtRetrieval retrieval,
+            IEnumerable<string?> vesselIds,
             bool isJudge,
             CancellationToken token)
         {
+            // The candidates are excerpts of the vessel's own code, so the vessel rule applies to both seams.
+            string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, vesselIds, () => PriorArtDecisionShapes.BuildState(deliverable, retrieval));
+            if (refusal != null) return (TypedDecisionEgress.Refused(refusal), null, String.Empty);
+
             string redacted;
             TypedDecisionRequest request;
             int candidateCount = retrieval.Candidates.Count;
@@ -317,7 +322,7 @@ namespace Armada.Core.Services
                 return (null, null, redacted);
             }
 
-            if (decision == null || !decision.Available) return (null, null, redacted);
+            if (decision == null || !decision.Available) return (decision, null, redacted);
 
             PriorArtReading reading = PriorArtDecisionShapes.Interpret(decision, candidateCount);
             return (decision, reading, redacted);
@@ -337,10 +342,10 @@ namespace Armada.Core.Services
             return (objective.Title ?? String.Empty).Trim();
         }
 
-        private Task RecordUnavailableAsync(PriorArtRetrieval retrieval, string redacted, Mission? mission, CancellationToken token)
+        private Task RecordUnavailableAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult? result, Mission? mission, CancellationToken token)
         {
             return SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                BuildContext(retrieval, redacted, TypedDecisionResult.Exception(), null, mission), token));
+                BuildContext(retrieval, redacted, result ?? TypedDecisionResult.Exception(), null, mission), token));
         }
 
         private Task RecordShadowAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, TypedDecisionModeEnum mode, Mission? mission, CancellationToken token)

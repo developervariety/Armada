@@ -207,17 +207,30 @@ namespace Armada.Core.Services
 
             // Items are independent, so they are scored together in as few requests as the limits allow;
             // each item still gets its own recorded event.
-            List<TypedDecisionBatchItem> batch = rawStates
-                .Select(raw => new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(raw, _Settings.MaxStateChars), questions))
+            // The shared egress guard, per item: an item naming an excluded marker is not sent; it keeps its
+            // deterministic place and records why.
+            List<string?> refusals = rawStates
+                .Select(raw => TypedDecisionEgress.Refusal(_Settings, DecisionPoint, (IEnumerable<string?>?)null, () => raw))
                 .ToList();
-            List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
-                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+            List<TypedDecisionBatchItem?> batch = rawStates
+                .Select((raw, index) => refusals[index] != null ? null : new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(raw, _Settings.MaxStateChars), questions))
+                .ToList();
+            List<TypedDecisionResult> results = await TypedDecisionEgress.DecideAllowedAsync(
+                _Client, DecisionPoint, batch, refusals, _Settings.MaxStateChars, token).ConfigureAwait(false);
 
             List<AttentionOutcome> outcomes = new List<AttentionOutcome>(results.Count);
             for (int index = 0; index < results.Count; index++)
             {
                 TypedDecisionResult result = results[index];
-                string redacted = batch[index].State.Text;
+                string redacted = batch[index]?.State.Text ?? String.Empty;
+
+                if (TypedDecisionEgress.IsRefusal(result))
+                {
+                    await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
+                        BuildContext(ruleVerdict, null, null, result, redacted), token)).ConfigureAwait(false);
+                    outcomes.Add(new AttentionOutcome { Available = true, Applied = false });
+                    continue;
+                }
 
                 if (result == null || !result.Available)
                 {

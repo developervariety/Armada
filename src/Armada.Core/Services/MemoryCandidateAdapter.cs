@@ -93,15 +93,23 @@ namespace Armada.Core.Services
             // Groups are independent, so they are decided together in as few requests as the limits allow;
             // each group still gets its own recorded event.
             List<PapercutGroup> considered = groups.Where(group => group != null).ToList();
-            List<TypedDecisionBatchItem> batch = considered
-                .Select(group => new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(BuildState(group), _Settings.MaxStateChars), Questions()))
+            // The shared egress guard, per group: a group on an excluded vessel, or naming an excluded marker, is
+            // not sent; it records why and the other groups are still considered.
+            List<string?> refusals = considered
+                .Select(group => TypedDecisionEgress.Refusal(_Settings, DecisionPoint, group.VesselId, () => BuildState(group)))
                 .ToList();
-            List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
-                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+            List<TypedDecisionBatchItem?> batch = considered
+                .Select((group, index) => refusals[index] != null
+                    ? null
+                    : new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(BuildState(group), _Settings.MaxStateChars), Questions()))
+                .ToList();
+            List<TypedDecisionResult> results = await TypedDecisionEgress.DecideAllowedAsync(
+                _Client, DecisionPoint, batch, refusals, _Settings.MaxStateChars, token).ConfigureAwait(false);
 
             for (int index = 0; index < results.Count; index++)
             {
-                MemoryCandidateOutcome outcome = await RecordAsync(considered[index], cfg, results[index], batch[index].State.Text, token).ConfigureAwait(false);
+                MemoryCandidateOutcome outcome = await RecordAsync(considered[index], cfg, results[index], batch[index]?.State.Text ?? String.Empty, token).ConfigureAwait(false);
+                if (!outcome.Available && TypedDecisionEgress.IsRefusal(results[index])) continue;
                 if (!outcome.Available) return nominated; // provider down for this pass; fall back to no nomination
                 if (outcome.Nominated && outcome.Proposal != null) nominated.Add(outcome.Proposal);
             }
