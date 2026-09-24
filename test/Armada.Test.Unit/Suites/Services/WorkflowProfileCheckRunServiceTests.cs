@@ -1084,6 +1084,102 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RunAsync and ImportAsync refuse a regression objective from another tenant", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_regr_own", "usr_regr_own").ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_regr_foreign", "usr_regr_foreign").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-regr-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_regr_own", "usr_regr_own", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        TenantId = "ten_regr_own",
+                        UserId = "usr_regr_own",
+                        Name = "Regression Link Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "dotnet --version"
+                    }).ConfigureAwait(false);
+
+                    Objective ownObjective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = "ten_regr_own",
+                        UserId = "usr_regr_own",
+                        Title = "own objective"
+                    }).ConfigureAwait(false);
+                    Objective foreignObjective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = "ten_regr_foreign",
+                        UserId = "usr_regr_foreign",
+                        Title = "foreign objective"
+                    }).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_regr_own", "usr_regr_own", false, true, "UnitTest");
+
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.ImportAsync(auth, new CheckRunImportRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Status = CheckRunStatusEnum.Passed,
+                            RegressionPurpose = RegressionPurposeEnum.Consumer,
+                            RegressionObjectiveId = foreignObjective.Id
+                        }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.ImportOrUpdateAsync(auth, new CheckRunImportRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Status = CheckRunStatusEnum.Passed,
+                            ProviderName = "ci",
+                            ExternalId = "regr-1",
+                            RegressionPurpose = RegressionPurposeEnum.Ledger,
+                            RegressionObjectiveId = foreignObjective.Id
+                        }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            RegressionPurpose = RegressionPurposeEnum.Consumer,
+                            RegressionObjectiveId = foreignObjective.Id
+                        }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+
+                    EnumerationResult<CheckRun> all = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery()).ConfigureAwait(false);
+                    AssertFalse(all.Objects.Any(run => run.RegressionObjectiveId == foreignObjective.Id), "No record links the foreign objective");
+
+                    CheckRun own = await checkRuns.ImportAsync(auth, new CheckRunImportRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Passed,
+                        RegressionPurpose = RegressionPurposeEnum.Consumer,
+                        RegressionObjectiveId = ownObjective.Id
+                    }).ConfigureAwait(false);
+                    AssertEqual(ownObjective.Id, own.RegressionObjectiveId, "A regression objective inside the caller's scope is accepted");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RecordCompletedAsync consumes matching pending run in-place", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

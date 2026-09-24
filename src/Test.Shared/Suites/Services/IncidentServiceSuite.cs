@@ -354,6 +354,38 @@ namespace Test.Shared.Suites.Services
                 await incidents.EnsureCallerLinksVisibleAsync(globalAdmin, new IncidentUpsertRequest { Title = "admin", DeploymentId = foreign.Id }).ConfigureAwait(false);
             }));
 
+            cases.Add(CaseAsync("caller_links_other_tenant_regression_objective_refused", "EnsureCallerLinksVisibleAsync refuses another tenant's regression objective", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                await EnsureTenantAndUserAsync(testDb, "ten_incident_obj_a", "usr_incident_obj_a").ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_incident_obj_b", "usr_incident_obj_b").ConfigureAwait(false);
+
+                Objective own = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = "ten_incident_obj_a",
+                    UserId = "usr_incident_obj_a",
+                    Title = "Tenant A objective"
+                }).ConfigureAwait(false);
+                Objective foreign = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = "ten_incident_obj_b",
+                    UserId = "usr_incident_obj_b",
+                    Title = "Tenant B objective"
+                }).ConfigureAwait(false);
+
+                AuthContext tenantAdmin = AuthContext.Authenticated("ten_incident_obj_a", "usr_incident_obj_a", false, true, "UnitTest");
+                await AssertThrowsAsync<InvalidOperationException>(() => incidents.EnsureCallerLinksVisibleAsync(tenantAdmin,
+                    new IncidentUpsertRequest { Title = "cross", RegressionPurpose = RegressionPurposeEnum.Consumer, RegressionObjectiveId = foreign.Id }),
+                    "another tenant's regression objective is refused");
+                await incidents.EnsureCallerLinksVisibleAsync(tenantAdmin,
+                    new IncidentUpsertRequest { Title = "own", RegressionPurpose = RegressionPurposeEnum.Consumer, RegressionObjectiveId = own.Id }).ConfigureAwait(false);
+
+                AuthContext globalAdmin = AuthContext.Authenticated("ten_incident_obj_a", "usr_incident_obj_a", true, true, "UnitTest");
+                await incidents.EnsureCallerLinksVisibleAsync(globalAdmin,
+                    new IncidentUpsertRequest { Title = "admin", RegressionPurpose = RegressionPurposeEnum.Consumer, RegressionObjectiveId = foreign.Id }).ConfigureAwait(false);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.IncidentService",
                 displayName: "Incident Service",

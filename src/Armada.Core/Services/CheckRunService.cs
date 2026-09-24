@@ -7,6 +7,7 @@ namespace Armada.Core.Services
     using System.IO;
     using System.Linq;
     using System.Text.RegularExpressions;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -161,7 +162,7 @@ namespace Armada.Core.Services
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
-            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, token).ConfigureAwait(false);
+            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, request.RegressionObjectiveId, token).ConfigureAwait(false);
 
             if (request.Type == CheckRunTypeEnum.Slop && String.IsNullOrWhiteSpace(request.CommandOverride))
                 return await RunNewSlopAsync(auth, vessel, request, token).ConfigureAwait(false);
@@ -455,7 +456,7 @@ namespace Armada.Core.Services
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
-            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, token).ConfigureAwait(false);
+            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, request.RegressionObjectiveId, token).ConfigureAwait(false);
 
             WorkflowProfile? profile = await ResolveImportProfileAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
             CheckRun run = BuildImportedRun(auth, vessel, profile, request);
@@ -475,7 +476,7 @@ namespace Armada.Core.Services
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
-            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, token).ConfigureAwait(false);
+            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, request.RegressionObjectiveId, token).ConfigureAwait(false);
 
             WorkflowProfile? profile = await ResolveImportProfileAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
             CheckRun run = BuildImportedRun(auth, vessel, profile, request);
@@ -1019,10 +1020,17 @@ namespace Armada.Core.Services
             string? missionId,
             string? voyageId,
             string? deploymentId,
+            string? regressionObjectiveId,
             CancellationToken token)
         {
             if (auth.IsAdmin) return;
             string tenantId = auth.TenantId ?? String.Empty;
+
+            // The production summary attributes a regression Check to the objective it names, so the link is
+            // read in the caller's scope like any other id in the request body.
+            if (!String.IsNullOrWhiteSpace(regressionObjectiveId)
+                && await CallerScopedRead.ReadObjectiveAsync(_Database, auth, regressionObjectiveId.Trim(), token).ConfigureAwait(false) == null)
+                throw new InvalidOperationException("Regression objective not found or not accessible.");
 
             if (!String.IsNullOrWhiteSpace(missionId)
                 && await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false) == null)

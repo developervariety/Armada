@@ -221,7 +221,10 @@ title is never a classification.
   `POST /api/v1/check-runs`, or `POST /api/v1/check-runs/import`. A retry
   keeps them.
 - A link or cause without a purpose is rejected. An objective link must use
-  the `obj_` prefix. A landed commit must be 7 to 64 hexadecimal characters.
+  the `obj_` prefix and name an objective the caller can read: a global
+  administrator links any objective, a tenant administrator one in its tenant,
+  and any other caller one it owns. A landed commit must be 7 to 64
+  hexadecimal characters.
 
 A regression record is an incident with a purpose, or a failed Check with a
 purpose. An incident that names a Check classifies that Check, so the Check is

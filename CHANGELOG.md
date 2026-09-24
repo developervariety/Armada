@@ -128,6 +128,10 @@ upstream integrations and excludes changes already present at that baseline.
 - **Typed-decision status:** the operator status view reads the one no-key
   effective-mode rule the settings use.
 
+- **Regression objective links in the caller's scope:** a Check run, import or
+  import-update and an incident create or update read `RegressionObjectiveId`
+  with the caller's scope, like every other id in the body, and refuse an
+  objective the caller cannot read.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
