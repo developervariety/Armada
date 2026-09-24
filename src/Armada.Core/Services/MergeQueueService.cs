@@ -356,6 +356,12 @@ namespace Armada.Core.Services
             MergeEntry? entry = !String.IsNullOrEmpty(tenantId)
                 ? await _Database.MergeEntries.ReadAsync(tenantId, entryId, token).ConfigureAwait(false)
                 : await _Database.MergeEntries.ReadAsync(entryId, token).ConfigureAwait(false);
+            if (entry != null && MergeStatusRules.IsTerminal(entry.Status))
+            {
+                // A finished entry keeps its recorded outcome; a Landed entry must never read Cancelled.
+                _Logging.Info(_Header + "not cancelling " + entryId + ": it already finished as " + entry.Status);
+                return;
+            }
             if (entry != null)
             {
                 entry.Status = MergeStatusEnum.Cancelled;
@@ -1663,9 +1669,7 @@ namespace Armada.Core.Services
 
         private static bool IsTerminalMergeStatus(MergeStatusEnum status)
         {
-            return status == MergeStatusEnum.Landed
-                || status == MergeStatusEnum.Failed
-                || status == MergeStatusEnum.Cancelled;
+            return MergeStatusRules.IsTerminal(status);
         }
 
         private async Task EmitSafetyNetMergeEventAsync(

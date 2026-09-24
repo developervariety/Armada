@@ -182,6 +182,15 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One merge cancel that never rewrites a finished entry:** REST
+  `POST /api/v1/merge-queue/{id}/cancel` (new), the cancel branch of
+  `DELETE /api/v1/merge-queue/{id}`, WebSocket `cancel_merge` and MCP
+  `armada_cancel_merge` run one shared cancel. A Landed, Failed or Cancelled
+  entry keeps its outcome and completion time (WebSocket and MCP rewrote a
+  Landed entry to Cancelled), an unknown entry is refused instead of reported
+  cancelled, and a cancel writes `merge.cancelled`. `MergeQueueService.CancelAsync`
+  itself leaves a finished entry unchanged, and the merge entry terminal set has
+  one definition, `MergeStatusRules.IsTerminal`.
 - **One mission restart, and LandingFailed is not restarted:** REST, WebSocket and
   MCP restart run one shared operation whose eligibility lives in
   `MissionRestartService`. A LandingFailed mission is refused on every surface

@@ -23,7 +23,8 @@ namespace Armada.Core.Services.Interfaces
         Task ProcessQueueAsync(CancellationToken token = default);
 
         /// <summary>
-        /// Cancel a queued entry.
+        /// Cancel an active entry. A finished entry (Landed, Failed, Cancelled) is left unchanged, so its recorded
+        /// outcome is never rewritten; an operator cancel reports that refusal through the shared merge cancel.
         /// </summary>
         /// <param name="entryId">Merge entry identifier.</param>
         /// <param name="tenantId">Optional tenant ID for tenant-scoped reads. Null for system/admin context.</param>

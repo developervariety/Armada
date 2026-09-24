@@ -36,7 +36,8 @@ namespace Armada.Server.Mcp.Tools
         /// Database driver used to read an enqueue's vessel and mission in the caller's scope. Null skips
         /// that check, for hosts that register the tools without a database.
         /// </param>
-        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue, LongRunningJobService? jobs = null, DatabaseDriver? database = null)
+        /// <param name="notifier">Event sink for the shared merge cancel; null writes no events.</param>
+        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue, LongRunningJobService? jobs = null, DatabaseDriver? database = null, OperationNotifier? notifier = null)
         {
             register(
                 "armada_get_merge_entry",
@@ -104,7 +105,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_cancel_merge",
-                "Cancel a queued merge entry",
+                "Cancel an active merge entry. A finished entry (Landed, Failed, Cancelled) keeps its outcome and is refused; an unknown entry is refused as not found.",
                 new
                 {
                     type = "object",
@@ -117,8 +118,12 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     MergeEntryIdArgs request = JsonSerializer.Deserialize<MergeEntryIdArgs>(args!.Value, _JsonOptions)!;
+                    // The shared merge cancel REST and WebSocket use: an unknown entry and a finished entry are refused.
                     string entryId = request.EntryId;
-                    await mergeQueue.CancelAsync(entryId).ConfigureAwait(false);
+                    MergeEntryCancellationResult cancel = await new MergeEntryCancellation(mergeQueue, notifier)
+                        .CancelAsync(entryId, null).ConfigureAwait(false);
+                    if (!cancel.Succeeded)
+                        return (object)new { Error = cancel.Message, Code = cancel.Code };
                     return (object)new { Status = "cancelled", EntryId = entryId };
                 });
 

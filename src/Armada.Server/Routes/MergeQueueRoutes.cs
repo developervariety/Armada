@@ -19,6 +19,7 @@ namespace Armada.Server.Routes
         private readonly DatabaseDriver _database;
         private readonly IMergeQueueService _mergeQueue;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
+        private readonly MergeEntryCancellation _cancellation;
         private readonly JsonSerializerOptions _jsonOptions;
 
         /// <summary>
@@ -38,6 +39,7 @@ namespace Armada.Server.Routes
             _mergeQueue = mergeQueue;
             _emitEvent = emitEvent;
             _jsonOptions = jsonOptions;
+            _cancellation = new MergeEntryCancellation(mergeQueue, new OperationNotifier(emitEvent, null, null));
         }
 
         /// <summary>
@@ -183,8 +185,13 @@ namespace Armada.Server.Routes
                     : await _mergeQueue.DeleteAsync(id, ctx.TenantId).ConfigureAwait(false);
                 if (!deleted)
                 {
-                    // Fall back to cancel if not in a terminal state
-                    await _mergeQueue.CancelAsync(id, ctx.IsAdmin ? null : ctx.TenantId).ConfigureAwait(false);
+                    // An active entry is cancelled through the shared merge cancel, not deleted.
+                    MergeEntryCancellationResult cancel = await _cancellation.CancelAsync(id, ctx.IsAdmin ? null : ctx.TenantId).ConfigureAwait(false);
+                    if (!cancel.Succeeded)
+                    {
+                        req.Http.Response.StatusCode = cancel.NotFound ? 404 : 409;
+                        return new ApiErrorResponse { Error = cancel.NotFound ? ApiResultEnum.NotFound : ApiResultEnum.Conflict, Message = cancel.Message };
+                    }
                 }
                 req.Http.Response.StatusCode = 204;
                 return null;
@@ -192,9 +199,38 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("MergeQueue")
                 .WithSummary("Delete or cancel a merge queue entry")
-                .WithDescription("Permanently deletes a terminal merge entry (Cancelled, Landed, Failed) or cancels an active one.")
+                .WithDescription("Permanently deletes a terminal merge entry (Cancelled, Landed, Failed) or cancels an active one through the shared merge cancel. Use POST /api/v1/merge-queue/{id}/cancel to cancel without ever deleting.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/merge-queue/{id}/cancel", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+                string id = req.Parameters["id"];
+
+                // REST, WebSocket and MCP share one merge cancel: an unknown entry is 404, a finished entry keeps its
+                // outcome (409), and an active entry is cancelled with a merge.cancelled event.
+                MergeEntryCancellationResult cancel = await _cancellation.CancelAsync(id, ctx.IsAdmin ? null : ctx.TenantId).ConfigureAwait(false);
+                if (!cancel.Succeeded)
+                {
+                    req.Http.Response.StatusCode = cancel.NotFound ? 404 : 409;
+                    return new ApiErrorResponse { Error = cancel.NotFound ? ApiResultEnum.NotFound : ApiResultEnum.Conflict, Message = cancel.Message };
+                }
+                return (object)cancel.Entry!;
+            },
+            api => api
+                .WithTag("MergeQueue")
+                .WithSummary("Cancel a merge queue entry")
+                .WithDescription("Cancels an active merge entry. A finished entry (Landed, Failed, Cancelled) keeps its recorded outcome and is refused with 409; an unknown entry returns 404. WebSocket cancel_merge and MCP armada_cancel_merge run the same cancel.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<MergeEntry>("Cancelled merge entry"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The entry already finished"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/merge-queue/{id}/process", async (ApiRequest req) =>

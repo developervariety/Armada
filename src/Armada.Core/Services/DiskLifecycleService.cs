@@ -1090,9 +1090,7 @@ namespace Armada.Core.Services
 
         private static bool IsTerminalMergeStatus(MergeStatusEnum status)
         {
-            return status == MergeStatusEnum.Landed
-                || status == MergeStatusEnum.Failed
-                || status == MergeStatusEnum.Cancelled;
+            return MergeStatusRules.IsTerminal(status);
         }
 
         /// <summary>

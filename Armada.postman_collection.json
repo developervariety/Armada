@@ -6427,7 +6427,7 @@
 					}
 				},
 				{
-					"name": "Cancel Merge Entry",
+					"name": "Delete or Cancel Merge Entry",
 					"request": {
 						"method": "DELETE",
 						"header": [],
@@ -6443,7 +6443,28 @@
 								"{{mergeEntryId}}"
 							]
 						},
-						"description": "Cancels a queued merge entry by ID."
+						"description": "Permanently deletes a finished merge entry (Landed, Failed, Cancelled) or cancels an active one by ID."
+					}
+				},
+				{
+					"name": "Cancel Merge Entry",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/merge-queue/{{mergeEntryId}}/cancel",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"merge-queue",
+								"{{mergeEntryId}}",
+								"cancel"
+							]
+						},
+						"description": "Cancels an active merge entry by ID. A finished entry (Landed, Failed, Cancelled) keeps its outcome and is refused with 409; an unknown entry returns 404. The WebSocket cancel_merge command and the MCP armada_cancel_merge tool run the same cancel."
 					}
 				},
 				{

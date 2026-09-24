@@ -3008,7 +3008,8 @@ Get a single merge queue entry by ID.
 
 #### DELETE /api/v1/merge-queue/{id}
 
-Cancel a queued merge entry.
+Permanently delete a finished merge entry (`Landed`, `Failed`, `Cancelled`), or cancel an active one through the shared
+merge cancel described under `POST /api/v1/merge-queue/{id}/cancel`.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -3016,6 +3017,26 @@ Cancel a queued merge entry.
 | `id` | Merge entry ID (`mrg_` prefix) |
 
 **Response:** `204 No Content`
+
+**Error:** `404` - Merge entry not found
+
+---
+
+#### POST /api/v1/merge-queue/{id}/cancel
+
+Cancel an active merge entry without ever deleting it. REST, WebSocket `cancel_merge` and MCP `armada_cancel_merge`
+run this one cancel: an unknown entry is refused as not found; a finished entry (`Landed`, `Failed`, `Cancelled`)
+keeps its recorded outcome and completion time and is refused; an active entry is cancelled, its landing job is marked
+cancelled by operator, and a `merge.cancelled` event is written.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Merge entry ID (`mrg_` prefix) |
+
+**Response:** `200 OK` - the cancelled merge entry
+
+**Error:** `404` - Merge entry not found; `409` - the entry already finished
 
 ---
 
@@ -5247,7 +5268,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 67 | POST | `/api/v1/merge-queue/enumerate` | Enumerate merge queue | Yes |
 | 68 | POST | `/api/v1/merge-queue` | Enqueue branch | Yes |
 | 69 | GET | `/api/v1/merge-queue/{id}` | Get merge entry | Yes |
-| 70 | DELETE | `/api/v1/merge-queue/{id}` | Cancel merge entry | Yes |
+| 70 | DELETE | `/api/v1/merge-queue/{id}` | Delete a finished merge entry or cancel an active one | Yes |
 | 71 | POST | `/api/v1/merge-queue/process` | Process merge queue | Yes |
 | 72 | GET | `/api/v1/vessels/{vesselId}/code-index/status` | Get code-index status | Yes |
 | 73 | POST | `/api/v1/vessels/{vesselId}/code-index/update` | Refresh code index and graph sidecars | Yes |
@@ -5280,6 +5301,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 100 | GET | `/api/v1/vessels/{id}/branches` | List vessel branches and write-control availability | Yes |
 | 101 | POST | `/api/v1/vessels/{id}/branches/push` | Push a landing-repository branch to origin without force (tenant administrator) | Yes |
 | 102 | POST | `/api/v1/vessels/{id}/branches/merge` | Fast-forward or merge-commit landing-repository branches (tenant administrator) | Yes |
+| 103 | POST | `/api/v1/merge-queue/{id}/cancel` | Cancel an active merge entry; a finished entry is refused | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

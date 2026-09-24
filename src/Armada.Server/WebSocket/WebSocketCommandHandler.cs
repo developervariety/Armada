@@ -1184,9 +1184,15 @@ namespace Armada.Server.WebSocket
         /// </summary>
         private async Task<object> CancelMergeCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
+            // The shared merge cancel REST and MCP use: an unknown entry and a finished entry are refused.
             string cmEntryId = command.Id ?? "";
-            await _MergeQueue.CancelAsync(cmEntryId).ConfigureAwait(false);
-            return new { type = "command.result", action = "cancel_merge", data = (object)new { status = "cancelled" } };
+            MergeEntryCancellationResult cancel = await new MergeEntryCancellation(_MergeQueue, Operations.Notifier)
+                .CancelAsync(cmEntryId, null).ConfigureAwait(false);
+            if (cancel.NotFound)
+                return NotFound("cancel_merge", cancel.Message ?? "Merge entry not found");
+            if (!cancel.Succeeded)
+                return new { type = "command.error", action = "cancel_merge", error = cancel.Message, code = cancel.Code };
+            return new { type = "command.result", action = "cancel_merge", data = (object)new { status = "cancelled", entry = cancel.Entry } };
         }
 
         /// <summary>

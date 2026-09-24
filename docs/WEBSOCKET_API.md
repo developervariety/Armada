@@ -1005,7 +1005,7 @@ scope and global administrators. No other command broadcasts.
 | `list_merge_queue` | List | `GET /api/v1/merge-queue` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
 | `get_merge_entry` | Read | `GET /api/v1/merge-queue/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_merge_entry` (global admin) | GlobalAdmin | G0 |
 | `enqueue_merge` | Create | `POST /api/v1/merge-queue` | TenantAdmin | owner = caller | `armada_enqueue_merge` (global admin) | GlobalAdmin | G0 |
-| `cancel_merge` | Delete | `DELETE /api/v1/merge-queue/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_cancel_merge` (global admin) | GlobalAdmin | G0 |
+| `cancel_merge` | Action | `POST /api/v1/merge-queue/{id}/cancel` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_cancel_merge` (global admin) | GlobalAdmin | G0 |
 | `process_merge_queue` | Action | `POST /api/v1/merge-queue/process` | AdminOnly | fleet-wide, no record scope | `armada_process_merge_queue` (global admin) | GlobalAdmin | G0 |
 | `enumerate` | List | `POST /api/v1/<entity>/enumerate` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
 | `backup` | Action | `GET /api/v1/backup` | AdminOnly | fleet-wide, no record scope | `armada_backup` (global admin) | GlobalAdmin | G0 |
@@ -2511,7 +2511,9 @@ Enqueue a branch for merge.
 
 #### cancel_merge
 
-Cancel a merge queue entry.
+Cancel an active merge queue entry through the same shared cancel as `POST /api/v1/merge-queue/{id}/cancel` and
+`armada_cancel_merge`. An unknown entry returns `code: "not_found"`; a finished entry (`Landed`, `Failed`, `Cancelled`)
+keeps its outcome and returns `code: "merge_entry_finished"`.
 
 **Request:**
 

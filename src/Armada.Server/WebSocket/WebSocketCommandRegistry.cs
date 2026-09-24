@@ -73,7 +73,7 @@ namespace Armada.Server.WebSocket
             Rule("list_merge_queue", WebSocketCommandOperationEnum.List, WebSocketCommandRuleEnum.GlobalAdmin, "GET", "/api/v1/merge-queue", "armada_enumerate"),
             Rule("get_merge_entry", WebSocketCommandOperationEnum.Read, WebSocketCommandRuleEnum.GlobalAdmin, "GET", "/api/v1/merge-queue/{id}", "armada_get_merge_entry"),
             Rule("enqueue_merge", WebSocketCommandOperationEnum.Create, WebSocketCommandRuleEnum.GlobalAdmin, "POST", "/api/v1/merge-queue", "armada_enqueue_merge"),
-            Rule("cancel_merge", WebSocketCommandOperationEnum.Delete, WebSocketCommandRuleEnum.GlobalAdmin, "DELETE", "/api/v1/merge-queue/{id}", "armada_cancel_merge"),
+            Rule("cancel_merge", WebSocketCommandOperationEnum.Action, WebSocketCommandRuleEnum.GlobalAdmin, "POST", "/api/v1/merge-queue/{id}/cancel", "armada_cancel_merge"),
             Rule("process_merge_queue", WebSocketCommandOperationEnum.Action, WebSocketCommandRuleEnum.GlobalAdmin, "POST", "/api/v1/merge-queue/process", "armada_process_merge_queue"),
             Rule("enumerate", WebSocketCommandOperationEnum.List, WebSocketCommandRuleEnum.GlobalAdmin, "POST", "/api/v1/fleets/enumerate", "armada_enumerate"),
             Rule("backup", WebSocketCommandOperationEnum.Action, WebSocketCommandRuleEnum.GlobalAdmin, "GET", "/api/v1/backup", "armada_backup"),
