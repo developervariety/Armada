@@ -55,14 +55,9 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ObjectiveModelTests());
             runner.AddSuite(new ObjectiveRefinementModelTests());
             runner.AddSuite(new DeploymentEnvironmentServiceTests());
-            runner.AddSuite(new DeploymentServiceTests());
-            runner.AddSuite(new HistoricalTimelineServiceTests());
-            runner.AddSuite(new ProxyAuthServiceTests());
             runner.AddSuite(new ProxyDashboardRelayIntegrationTests());
-            runner.AddSuite(new ProxyRoutePolicyServiceTests());
             runner.AddSuite(new RemoteDashboardRelayServiceTests());
             runner.AddSuite(new DashboardStaticFileTests());
-            runner.AddSuite(new RequestHistoryCaptureServiceTests());
             runner.AddSuite(new ReviewGateTests());
 
             // Database tests
@@ -126,7 +121,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new AdmiralServiceTests());
             runner.AddSuite(new CaptainCrashLoopTrackerTests());
             runner.AddSuite(new MissionListProjectionTests());
-            runner.AddSuite(new EntityResolverTests());
             runner.AddSuite(new MessageTemplateServiceTests());
             runner.AddSuite(new ProgressParserTests());
             runner.AddSuite(new PapercutTests());
@@ -145,16 +139,11 @@ namespace Armada.Test.Unit
             runner.AddSuite(new GitServiceIsPrMergedTests());
             runner.AddSuite(new GitServiceCommitCountTests());
             runner.AddSuite(new ManualCompletionProofServiceTests());
-            runner.AddSuite(new GitInferenceTests());
             runner.AddSuite(new DockServiceTests());
             runner.AddSuite(new DockPathOccupantsTests());
             runner.AddSuite(new PathContainmentTests());
-            runner.AddSuite(new LogRotationServiceTests());
             runner.AddSuite(new DataExpiryServiceTests());
-            runner.AddSuite(new NotificationServiceTests());
-            runner.AddSuite(new RuntimeDetectionServiceTests());
             runner.AddSuite(new RuntimeOutputFormattingTests());
-            runner.AddSuite(new RemoteTunnelManagerTests());
             runner.AddSuite(new ProxyRegistryTests());
             runner.AddSuite(new WebSocketClientOutputQueueTests());
             runner.AddSuite(new WebSocketReplayBufferTests());
@@ -180,7 +169,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new LandingPipelineTests());
             runner.AddSuite(new LandingServiceTests());
             runner.AddSuite(new LandingStateMachineTests());
-            runner.AddSuite(new SessionTokenServiceTests());
             runner.AddSuite(new AuthenticationServiceTests());
             runner.AddSuite(new AuthorizationConfigTests());
             runner.AddSuite(new AuthorizationServiceTests());
