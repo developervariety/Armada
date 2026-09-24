@@ -9,14 +9,13 @@ import CopyButton, { copyToClipboard } from '../../components/shared/CopyButton'
 import RefreshButton from '../../components/shared/RefreshButton';
 import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../../lib/useAutoRefresh';
+import { useResourceTable } from '../../lib/useResourceTable';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
 
-type SortField = 'name' | 'userId' | 'active' | 'createdUtc';
-type SortDir = 'asc' | 'desc';
 
 export default function Credentials() {
   const { user, isAdmin, isTenantAdmin } = useAuth();
@@ -31,12 +30,6 @@ export default function Credentials() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Credential | null>(null);
   const [form, setForm] = useState({ userId: '', tenantId: '', name: '', active: true });
-  const [selected, setSelected] = useState<string[]>([]);
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [colFilters, setColFilters] = useState({ name: '', userId: '', tenantId: '' });
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
@@ -72,45 +65,28 @@ export default function Credentials() {
   useEffect(() => { load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('credentials', load);
 
-  const filtered = useMemo(() =>
-    items.filter(c =>
-      (!colFilters.name || (c.name ?? '').toLowerCase().includes(colFilters.name.toLowerCase())) &&
-      (!colFilters.userId || c.userId === colFilters.userId) &&
-      (!colFilters.tenantId || c.tenantId === colFilters.tenantId)
-    ),
-    [items, colFilters, userName]
-  );
-
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number = '', vb: string | number = '';
-      if (sortField === 'active') { va = a.active ? 1 : 0; vb = b.active ? 1 : 0; }
-      else if (sortField === 'createdUtc') { va = a.createdUtc; vb = b.createdUtc; }
-      else if (sortField === 'userId') { va = userName(a.userId).toLowerCase(); vb = userName(b.userId).toLowerCase(); }
-      else { va = (a.name ?? '').toLowerCase(); vb = (b.name ?? '').toLowerCase(); }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir, userName]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-  function sortIcon(field: SortField) { return sortField !== field ? '' : sortDir === 'asc' ? ' \u25B2' : ' \u25BC'; }
-
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) { setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
+  // The owner and tenant filters match the id exactly; the name filter matches a part of the name.
+  const [ownerFilters, setOwnerFilters] = useState({ userId: '', tenantId: '' });
+  const ownerRowFilter = useCallback((c: Credential) =>
+    (!ownerFilters.userId || c.userId === ownerFilters.userId) &&
+    (!ownerFilters.tenantId || c.tenantId === ownerFilters.tenantId), [ownerFilters]);
+  // Names compare without case; the owner column sorts by the owner's email.
+  const credentialColumns = useMemo<Record<string, (c: Credential) => string | number>>(() => ({
+    name: c => (c.name ?? '').toLowerCase(),
+    userId: c => userName(c.userId).toLowerCase(),
+    active: c => (c.active ? 1 : 0),
+    createdUtc: c => c.createdUtc,
+  }), [userName]);
+  const {
+    colFilters, setColFilter, handleSort, sortIcon, pageSize, setPageNumber, setPageSize, totalPages, currentPage,
+    sorted, paginated, selected, setSelected, toggleSelect, allSelected, selectAll, clearSelection,
+  } = useResourceTable<Credential>({
+    rows: items,
+    getId: c => c.id,
+    columnValues: credentialColumns,
+    rowFilter: ownerRowFilter,
+    initialSortField: 'name',
+  });
 
   function openCreate() {
     if (remoteProxyMode) return;
@@ -281,7 +257,7 @@ export default function Credentials() {
             <table>
               <thead>
                 <tr>
-                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? setSelected(filtered.map(c => c.id)) : setSelected([])} title={t('Select all credentials')} /></th>
+                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all credentials')} /></th>
                   <th className="sortable" onClick={() => handleSort('name')}>{t('Name')}{sortIcon('name')}</th>
                   <th>{t('ID')}</th>
                   <th className="sortable" onClick={() => handleSort('userId')}>{t('User')}{sortIcon('userId')}</th>
@@ -293,13 +269,13 @@ export default function Credentials() {
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name ?? ''} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
                   <td>
                     <select
                       className="col-filter"
-                      value={colFilters.userId}
-                      onChange={e => { setColFilters(f => ({ ...f, userId: e.target.value })); setPageNumber(1); }}
+                      value={ownerFilters.userId}
+                      onChange={e => { setOwnerFilters(f => ({ ...f, userId: e.target.value })); setPageNumber(1); }}
                     >
                       <option value="">{t('All users')}</option>
                       {users.map(u => (
@@ -310,8 +286,8 @@ export default function Credentials() {
                   <td>
                     <select
                       className="col-filter"
-                      value={colFilters.tenantId}
-                      onChange={e => { setColFilters(f => ({ ...f, tenantId: e.target.value })); setPageNumber(1); }}
+                      value={ownerFilters.tenantId}
+                      onChange={e => { setOwnerFilters(f => ({ ...f, tenantId: e.target.value })); setPageNumber(1); }}
                     >
                       <option value="">{t('All tenants')}</option>
                       {tenants.map(t => (

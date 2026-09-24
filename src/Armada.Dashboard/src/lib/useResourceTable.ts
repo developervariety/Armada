@@ -1,6 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { retainSelection } from './selection';
 
 export type SortDir = 'asc' | 'desc';
+
+// Stable defaults, so a page that passes no extractors does not recompute its rows on every render.
+const NO_COLUMNS = {};
+const NO_SEARCH_FIELDS: never[] = [];
 
 interface UseResourceTableOptions<T> {
   rows: T[];
@@ -9,6 +14,8 @@ interface UseResourceTableOptions<T> {
   columnValues?: Record<string, (row: T) => string | number | null | undefined>;
   /** Optional free-text search over these extractors (any match keeps the row). */
   searchFields?: Array<(row: T) => string | null | undefined>;
+  /** Page-owned filter applied with the column filters (an exact id or a category). Keep it stable with useCallback. */
+  rowFilter?: (row: T) => boolean;
   initialSortField?: string;
   initialSortDir?: SortDir;
   initialPageSize?: number;
@@ -24,8 +31,9 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
   const {
     rows,
     getId,
-    columnValues = {},
-    searchFields = [],
+    columnValues = NO_COLUMNS as NonNullable<UseResourceTableOptions<T>['columnValues']>,
+    searchFields = NO_SEARCH_FIELDS,
+    rowFilter,
     initialSortField = '',
     initialSortDir = 'asc',
     initialPageSize = 25,
@@ -37,7 +45,7 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
   const [sortDir, setSortDir] = useState<SortDir>(initialSortDir);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(initialPageSize);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [storedSelection, setSelected] = useState<string[]>([]);
 
   function setColFilter(key: string, value: string) {
     setColFiltersState((current) => ({ ...current, [key]: value }));
@@ -52,6 +60,7 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows.filter((row) => {
+      if (rowFilter && !rowFilter(row)) return false;
       if (term && searchFields.length > 0) {
         const hit = searchFields.some((accessor) => (accessor(row) ?? '').toString().toLowerCase().includes(term));
         if (!hit) return false;
@@ -64,7 +73,7 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
       }
       return true;
     });
-  }, [rows, search, colFilters, searchFields, columnValues]);
+  }, [rows, search, colFilters, searchFields, columnValues, rowFilter]);
 
   const sorted = useMemo(() => {
     if (!sortField || !columnValues[sortField]) return filtered;
@@ -101,6 +110,15 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
     if (sortField !== field) return '';
     return sortDir === 'asc' ? ' ▲' : ' ▼';
   }
+
+  // The selection holds only rows the current search and filters show: select-all takes the filtered rows, and a
+  // row that a filter hides or a reload no longer returns leaves the selection, so a bulk action never reaches a
+  // row that is not on the list. A row shown again later is not selected again.
+  const visibleIds = useMemo(() => filtered.map(getId), [filtered]);
+  const selected = useMemo(() => retainSelection(storedSelection, visibleIds), [storedSelection, visibleIds]);
+  useEffect(() => {
+    setSelected((prev) => retainSelection(prev, visibleIds));
+  }, [visibleIds]);
 
   const allSelected = selected.length > 0 && selected.length === filtered.length;
   function toggleSelect(id: string) {

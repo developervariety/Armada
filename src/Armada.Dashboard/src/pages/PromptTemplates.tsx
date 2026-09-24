@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPromptTemplate, resetPromptTemplate, listAllPromptTemplates } from '../api/client';
 import type { PromptTemplate } from '../types/models';
@@ -16,12 +16,21 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useResourceTable } from '../lib/useResourceTable';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
 
-type SortDir = 'asc' | 'desc';
-type SortField = 'name' | 'description' | 'category' | 'isBuiltIn' | 'contentLength' | 'active' | 'lastUpdateUtc';
+// Column values for filtering and sorting; text compares without case.
+const TEMPLATE_COLUMNS: Record<string, (template: PromptTemplate) => string | number> = {
+  name: template => template.name.toLowerCase(),
+  description: template => (template.description ?? '').toLowerCase(),
+  category: template => template.category.toLowerCase(),
+  isBuiltIn: template => (template.isBuiltIn ? 1 : 0),
+  contentLength: template => (template.content ?? '').length,
+  active: template => (template.active ? 1 : 0),
+  lastUpdateUtc: template => template.lastUpdateUtc ?? '',
+};
 
 const CATEGORY_OPTIONS = ['all', 'mission', 'persona', 'structure', 'commit', 'landing', 'agent'] as const;
 
@@ -45,19 +54,12 @@ export default function PromptTemplates() {
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('category');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
   // Category tab bar filter
   const [categoryFilter, setCategoryFilter] = useState('all');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ name: '', description: '' });
-
-  // Pagination
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const categoryRowFilter = useCallback(
+    (template: PromptTemplate) => categoryFilter === 'all' || template.category.toLowerCase() === categoryFilter.toLowerCase(),
+    [categoryFilter],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -75,52 +77,16 @@ export default function PromptTemplates() {
   useEffect(() => { load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('prompttemplates', load);
 
-  // Filtered rows
-  const filtered = useMemo(() => {
-    return templates.filter(t =>
-      (!colFilters.name || t.name.toLowerCase().includes(colFilters.name.toLowerCase())) &&
-      (!colFilters.description || (t.description ?? '').toLowerCase().includes(colFilters.description.toLowerCase())) &&
-      (categoryFilter === 'all' || t.category.toLowerCase() === categoryFilter.toLowerCase())
-    );
-  }, [templates, colFilters, categoryFilter]);
-
-  // Sorted rows
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number = '';
-      let vb: string | number = '';
-      if (sortField === 'name') { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
-      else if (sortField === 'description') { va = (a.description ?? '').toLowerCase(); vb = (b.description ?? '').toLowerCase(); }
-      else if (sortField === 'category') { va = a.category.toLowerCase(); vb = b.category.toLowerCase(); }
-      else if (sortField === 'isBuiltIn') { va = a.isBuiltIn ? 1 : 0; vb = b.isBuiltIn ? 1 : 0; }
-      else if (sortField === 'contentLength') { va = (a.content ?? '').length; vb = (b.content ?? '').length; }
-      else if (sortField === 'active') { va = a.active ? 1 : 0; vb = b.active ? 1 : 0; }
-      else if (sortField === 'lastUpdateUtc') { va = a.lastUpdateUtc ?? ''; vb = b.lastUpdateUtc ?? ''; }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  // Paginated
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
+  const {
+    colFilters, setColFilter, handleSort, sortIcon, pageSize, setPageNumber, setPageSize, totalPages, currentPage,
+    sorted, paginated,
+  } = useResourceTable<PromptTemplate>({
+    rows: templates,
+    getId: template => template.name,
+    columnValues: TEMPLATE_COLUMNS,
+    rowFilter: categoryRowFilter,
+    initialSortField: 'category',
+  });
 
   // Actions
   function handleResetToDefault(name: string) {
@@ -242,8 +208,8 @@ export default function PromptTemplates() {
                   <th className="text-right">{translate('Actions')}</th>
                 </tr>
                 <tr className="column-filter-row">
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name ?? ''} onChange={e => setColFilter('name', e.target.value)} placeholder={translate('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.description ?? ''} onChange={e => setColFilter('description', e.target.value)} placeholder={translate('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>

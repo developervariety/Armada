@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createCaptain, updateCaptain, deleteCaptain, stopCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, quarantineCaptain, unquarantineCaptain, listAllCaptains } from '../api/client';
 import type { Captain, CaptainQuarantineRequest, CaptainToolAccessResult, ModelEndpoint } from '../types/models';
@@ -16,6 +16,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useResourceTable } from '../lib/useResourceTable';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useAuth } from '../context/AuthContext';
@@ -25,8 +26,13 @@ import { canCaptainStartPlanning } from '../lib/captains';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
-type SortDir = 'asc' | 'desc';
-type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
+// Column values for filtering and sorting; text compares without case.
+const CAPTAIN_COLUMNS: Record<string, (c: Captain) => string> = {
+  name: c => c.name.toLowerCase(),
+  runtime: c => c.runtime.toLowerCase(),
+  state: c => (c.state ?? '').toLowerCase(),
+  createdUtc: c => c.createdUtc,
+};
 type CaptainFormState = {
   name: string;
   runtime: string;
@@ -75,20 +81,6 @@ export default function Captains() {
   const [quarantineTarget, setQuarantineTarget] = useState<Captain | null>(null);
   const [quarantining, setQuarantining] = useState(false);
 
-  // Selection
-  const [selected, setSelected] = useState<string[]>([]);
-
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  // Column filters
-  const [colFilters, setColFilters] = useState({ name: '', runtime: '', state: '' });
-
-  // Pagination
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -105,59 +97,10 @@ export default function Captains() {
   useEffect(() => { load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('captains', load);
 
-  // Filtered rows
-  const filtered = useMemo(() => {
-    return captains.filter(c =>
-      (!colFilters.name || c.name.toLowerCase().includes(colFilters.name.toLowerCase())) &&
-      (!colFilters.runtime || c.runtime.toLowerCase().includes(colFilters.runtime.toLowerCase())) &&
-      (!colFilters.state || (c.state ?? '').toLowerCase().includes(colFilters.state.toLowerCase()))
-    );
-  }, [captains, colFilters]);
-
-  // Sorted rows
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string = '';
-      let vb: string = '';
-      switch (sortField) {
-        case 'runtime': va = a.runtime.toLowerCase(); vb = b.runtime.toLowerCase(); break;
-        case 'state': va = (a.state ?? '').toLowerCase(); vb = (b.state ?? '').toLowerCase(); break;
-        case 'createdUtc': va = a.createdUtc; vb = b.createdUtc; break;
-        default: va = a.name.toLowerCase(); vb = b.name.toLowerCase();
-      }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  // Paginated
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-
-  function sortIcon(field: SortField) {
-    if (sortField !== field) return '';
-    return sortDir === 'asc' ? ' \u25B2' : ' \u25BC';
-  }
-
-  // Selection
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-  function selectAll() { setSelected(filtered.map(c => c.id)); }
-  function clearSelection() { setSelected([]); }
+  const {
+    colFilters, setColFilter, handleSort, sortIcon, pageSize, setPageNumber, setPageSize, totalPages, currentPage,
+    sorted, paginated, selected, setSelected, toggleSelect, allSelected, selectAll, clearSelection,
+  } = useResourceTable<Captain>({ rows: captains, getId: c => c.id, columnValues: CAPTAIN_COLUMNS, initialSortField: 'name' });
 
   // Load the configured inference endpoints so an API-endpoint captain can be pointed at one.
   useEffect(() => {
@@ -575,10 +518,10 @@ export default function Captains() {
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name ?? ''} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Filter...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.runtime} onChange={e => { setColFilters(f => ({ ...f, runtime: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.state} onChange={e => { setColFilters(f => ({ ...f, state: e.target.value })); setPageNumber(1); }} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.runtime ?? ''} onChange={e => setColFilter('runtime', e.target.value)} placeholder={t('Filter...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.state ?? ''} onChange={e => setColFilter('state', e.target.value)} placeholder={t('Filter...')} /></td>
                   <td></td>
                   <td></td>
                   <td></td>

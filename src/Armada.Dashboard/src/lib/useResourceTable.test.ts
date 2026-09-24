@@ -65,4 +65,33 @@ describe('useResourceTable', () => {
     act(() => result.current.clearSelection());
     expect(result.current.selected).toEqual([]);
   });
+
+  it('drops selected rows that a reload no longer returns', () => {
+    const { result, rerender } = renderHook(
+      ({ current }: { current: Row[] }) => useResourceTable<Row>({ rows: current, getId: (r) => r.id }),
+      { initialProps: { current: rows } },
+    );
+    act(() => result.current.toggleSelect('a'));
+    act(() => result.current.toggleSelect('b'));
+
+    rerender({ current: [rows[0], rows[2]] });
+
+    expect(result.current.selected).toEqual(['a']);
+  });
+
+  it('select-all takes only the rows the filter shows, and a narrower filter drops hidden rows', () => {
+    const { result } = setup();
+    act(() => result.current.setColFilter('name', 'a'));
+    act(() => result.current.selectAll());
+    expect([...result.current.selected].sort()).toEqual(['a', 'b', 'c']);
+
+    act(() => result.current.setColFilter('name', 'alpha'));
+
+    expect(result.current.selected).toEqual(['b']);
+    expect(result.current.allSelected).toBe(true);
+
+    // Clearing the filter shows the rows again but does not re-select them.
+    act(() => result.current.setColFilter('name', ''));
+    expect(result.current.selected).toEqual(['b']);
+  });
 });

@@ -212,4 +212,23 @@ describe('Captains', () => {
     expect(await screen.findByText('Mux captains require a named Mux endpoint.')).toBeInTheDocument();
     expect(createCaptain).not.toHaveBeenCalled();
   });
+
+  it('selection drops captains a refresh no longer returns and rows a filter hides', async () => {
+    const captain = (id: string, name: string) => ({ ...quarantined, id, name, state: 'Idle', quarantineReason: null, quarantineUntilUtc: null });
+    vi.mocked(listCaptains).mockResolvedValue(page([captain('cpt_a', 'alpha'), captain('cpt_b', 'bravo'), captain('cpt_c', 'charlie')]) as never);
+    renderCaptains();
+    await screen.findByText('alpha');
+
+    fireEvent.click(screen.getByTitle('Select all captains'));
+    expect(screen.getByRole('button', { name: /Delete Selected/ })).toHaveTextContent('(3)');
+
+    vi.mocked(listCaptains).mockResolvedValue(page([captain('cpt_a', 'alpha'), captain('cpt_b', 'bravo')]) as never);
+    fireEvent.click(screen.getByTitle('Refresh captain data'));
+    await waitFor(() => expect(screen.queryByText('charlie')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /Delete Selected/ })).toHaveTextContent('(2)');
+
+    const nameFilter = document.querySelectorAll('.column-filter-row input.col-filter')[0] as HTMLInputElement;
+    fireEvent.change(nameFilter, { target: { value: 'alp' } });
+    expect(screen.getByRole('button', { name: /Delete Selected/ })).toHaveTextContent('(1)');
+  });
 });

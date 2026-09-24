@@ -150,6 +150,12 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard table selection:** a table's selection holds only rows its current
+  search and filters show. Select-all takes the filtered rows; a row that a filter
+  hides or a refresh no longer returns leaves the selection, so "Delete Selected"
+  and other bulk actions never act on a row that is not on the list. Captains,
+  Prompt Templates, Users, Tenants and Credentials use the shared table state
+  (`useResourceTable`) with the other full-list tables, so the rule holds on each.
 - **Dashboard server-paged lists:** Missions, Signals, Events, Merge Queue, Voyages,
   Memories, Check Runs, Incidents and Requests share one paging state
   (`useServerPaging`). When a reload finds the list now ends before the page on

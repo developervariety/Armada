@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createTenant, updateTenant, deleteTenant, listAllTenants } from '../../api/client';
 import type { TenantMetadata } from '../../types/models';
 import Pagination from '../../components/shared/Pagination';
@@ -9,14 +9,19 @@ import CopyButton from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
 import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../../lib/useAutoRefresh';
+import { useResourceTable } from '../../lib/useResourceTable';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
 
-type SortField = 'name' | 'active' | 'createdUtc';
-type SortDir = 'asc' | 'desc';
+// Column values for filtering and sorting; names compare without case.
+const TENANT_COLUMNS: Record<string, (tenant: TenantMetadata) => string | number> = {
+  name: tenant => tenant.name.toLowerCase(),
+  active: tenant => (tenant.active ? 1 : 0),
+  createdUtc: tenant => tenant.createdUtc,
+};
 
 export default function Tenants() {
   const { user, isAdmin } = useAuth();
@@ -29,12 +34,6 @@ export default function Tenants() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<TenantMetadata | null>(null);
   const [form, setForm] = useState({ name: '', active: true });
-  const [selected, setSelected] = useState<string[]>([]);
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [colFilters, setColFilters] = useState({ name: '' });
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
@@ -56,40 +55,10 @@ export default function Tenants() {
   useEffect(() => { load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('tenants', load);
 
-  const filtered = useMemo(() =>
-    items.filter(t => !colFilters.name || t.name.toLowerCase().includes(colFilters.name.toLowerCase())),
-    [items, colFilters]
-  );
-
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number | boolean = '', vb: string | number | boolean = '';
-      if (sortField === 'active') { va = a.active ? 1 : 0; vb = b.active ? 1 : 0; }
-      else if (sortField === 'createdUtc') { va = a.createdUtc; vb = b.createdUtc; }
-      else { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-  function sortIcon(field: SortField) { return sortField !== field ? '' : sortDir === 'asc' ? ' \u25B2' : ' \u25BC'; }
-
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) { setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
+  const {
+    colFilters, setColFilter, handleSort, sortIcon, pageSize, setPageNumber, setPageSize, totalPages, currentPage,
+    sorted, paginated, selected, setSelected, toggleSelect, allSelected, selectAll, clearSelection,
+  } = useResourceTable<TenantMetadata>({ rows: items, getId: tenant => tenant.id, columnValues: TENANT_COLUMNS, initialSortField: 'name' });
 
   function openCreate() {
     if (remoteProxyMode) return;
@@ -217,7 +186,7 @@ export default function Tenants() {
             <table>
               <thead>
                 <tr>
-                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? setSelected(filtered.map(tenant => tenant.id)) : setSelected([])} title={t('Select all tenants')} /></th>
+                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all tenants')} /></th>
                   <th className="sortable" onClick={() => handleSort('name')}>{t('Name')}{sortIcon('name')}</th>
                   <th>{t('ID')}</th>
                   <th className="sortable" onClick={() => handleSort('active')}>{t('Active')}{sortIcon('active')}</th>
@@ -227,7 +196,7 @@ export default function Tenants() {
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.name} onChange={e => { setColFilters({ name: e.target.value }); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.name ?? ''} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td><td></td><td></td><td></td><td></td>
                 </tr>
               </thead>

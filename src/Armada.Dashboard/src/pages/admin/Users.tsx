@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createUser, updateUser, deleteUser, listAllTenants, listAllUsers } from '../../api/client';
 import type { UserMaster, TenantMetadata, UserUpsertRequest } from '../../types/models';
 import Pagination from '../../components/shared/Pagination';
@@ -9,14 +9,21 @@ import CopyButton from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
 import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../../lib/useAutoRefresh';
+import { useResourceTable } from '../../lib/useResourceTable';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
 
-type SortField = 'email' | 'firstName' | 'isAdmin' | 'active' | 'createdUtc';
-type SortDir = 'asc' | 'desc';
+// Column values for filtering and sorting; text compares without case.
+const USER_COLUMNS: Record<string, (u: UserMaster) => string | number> = {
+  email: u => u.email.toLowerCase(),
+  firstName: u => `${u.firstName ?? ''} ${u.lastName ?? ''}`.toLowerCase(),
+  isAdmin: u => (u.isAdmin ? 1 : 0),
+  active: u => (u.active ? 1 : 0),
+  createdUtc: u => u.createdUtc,
+};
 
 export default function Users() {
   const { user, isAdmin, isTenantAdmin } = useAuth();
@@ -40,12 +47,6 @@ export default function Users() {
     tenantId: '',
     active: true,
   });
-  const [selected, setSelected] = useState<string[]>([]);
-  const [sortField, setSortField] = useState<SortField>('email');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [colFilters, setColFilters] = useState({ email: '', firstName: '', tenantId: '' });
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
@@ -71,46 +72,19 @@ export default function Users() {
   useEffect(() => { load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('users', load);
 
-  const filtered = useMemo(() =>
-    items.filter(u =>
-      (!colFilters.email || u.email.toLowerCase().includes(colFilters.email.toLowerCase())) &&
-      (!colFilters.firstName || `${u.firstName ?? ''} ${u.lastName ?? ''}`.toLowerCase().includes(colFilters.firstName.toLowerCase())) &&
-      (!colFilters.tenantId || u.tenantId === colFilters.tenantId)
-    ),
-    [items, colFilters, tenantName]
-  );
-
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number = '', vb: string | number = '';
-      if (sortField === 'isAdmin') { va = a.isAdmin ? 1 : 0; vb = b.isAdmin ? 1 : 0; }
-      else if (sortField === 'active') { va = a.active ? 1 : 0; vb = b.active ? 1 : 0; }
-      else if (sortField === 'createdUtc') { va = a.createdUtc; vb = b.createdUtc; }
-      else if (sortField === 'firstName') { va = `${a.firstName ?? ''} ${a.lastName ?? ''}`.toLowerCase(); vb = `${b.firstName ?? ''} ${b.lastName ?? ''}`.toLowerCase(); }
-      else { va = a.email.toLowerCase(); vb = b.email.toLowerCase(); }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(pageNumber, totalPages);
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, currentPage, pageSize]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortDir('asc'); }
-  }
-  function sortIcon(field: SortField) { return sortField !== field ? '' : sortDir === 'asc' ? ' \u25B2' : ' \u25BC'; }
-
-  const allSelected = selected.length > 0 && selected.length === filtered.length;
-  function toggleSelect(id: string) { setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
+  // The tenant filter matches the tenant id exactly; the text filters match a part of the value.
+  const [tenantFilter, setTenantFilter] = useState('');
+  const tenantRowFilter = useCallback((u: UserMaster) => !tenantFilter || u.tenantId === tenantFilter, [tenantFilter]);
+  const {
+    colFilters, setColFilter, handleSort, sortIcon, pageSize, setPageNumber, setPageSize, totalPages, currentPage,
+    sorted, paginated, selected, setSelected, toggleSelect, allSelected, selectAll, clearSelection,
+  } = useResourceTable<UserMaster>({
+    rows: items,
+    getId: u => u.id,
+    columnValues: USER_COLUMNS,
+    rowFilter: tenantRowFilter,
+    initialSortField: 'email',
+  });
 
   function openCreate() {
     if (remoteProxyMode) return;
@@ -318,7 +292,7 @@ export default function Users() {
             <table>
               <thead>
                 <tr>
-                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? setSelected(filtered.map(u => u.id)) : setSelected([])} title={t('Select all users')} /></th>
+                  <th className="col-checkbox"><input type="checkbox" checked={allSelected} onChange={e => e.target.checked ? selectAll() : clearSelection()} title={t('Select all users')} /></th>
                   <th className="sortable" onClick={() => handleSort('email')}>{t('Email')}{sortIcon('email')}</th>
                   <th>{t('ID')}</th>
                   <th className="sortable" onClick={() => handleSort('firstName')}>{t('Name')}{sortIcon('firstName')}</th>
@@ -331,14 +305,14 @@ export default function Users() {
                 </tr>
                 <tr className="column-filter-row">
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.email} onChange={e => { setColFilters(f => ({ ...f, email: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.email ?? ''} onChange={e => setColFilter('email', e.target.value)} placeholder={t('Search...')} /></td>
                   <td></td>
-                  <td><input type="text" className="col-filter" value={colFilters.firstName} onChange={e => { setColFilters(f => ({ ...f, firstName: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} /></td>
+                  <td><input type="text" className="col-filter" value={colFilters.firstName ?? ''} onChange={e => setColFilter('firstName', e.target.value)} placeholder={t('Search...')} /></td>
                   <td>
                     <select
                       className="col-filter"
-                      value={colFilters.tenantId}
-                      onChange={e => { setColFilters(f => ({ ...f, tenantId: e.target.value })); setPageNumber(1); }}
+                      value={tenantFilter}
+                      onChange={e => { setTenantFilter(e.target.value); setPageNumber(1); }}
                     >
                       <option value="">{t('All tenants')}</option>
                       {tenants.map(t => (
