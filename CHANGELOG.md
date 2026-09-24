@@ -102,6 +102,31 @@ upstream integrations and excludes changes already present at that baseline.
   `merge --abort` (NUL-separated, so names arrive unquoted), so the failure
   classifier and the trivial-conflict recovery decision see the real files instead
   of an always-empty list.
+- **Provider limits have one definition:** the captain bench decision and the
+  crash-loop classifier read the same provider signatures. A throttle (HTTP 429,
+  "too many requests") or an overload (HTTP 529, "overloaded") at a process exit
+  benches the captain and re-routes the mission instead of failing it and halting
+  its dependents; with no published retry time it takes the configured default
+  backoff. Status codes count only in a status form, and credit, billing and
+  authentication signatures are provider phrases, so a crash that mentions a pool
+  capacity, a billing type, a process id, a line number or a filesystem
+  permission stays a crash and reaches crash-loop quarantine. The terminal-exit
+  "captain unavailable" check uses the same authentication rule.
+- **Test failures keep their rescue:** autonomous recovery reads only the first
+  line of a definition-of-done `Compile` or `TestFail` reason for its
+  environmental and human-review markers, so a failing test named for
+  authorization, quota or approval, or an assertion expecting `403 Forbidden`,
+  no longer blocks the rescue.
+- **Merge-queue host faults:** a merge-queue test run that the definition-of-done
+  classifier reads as host trouble is classified `InfraTestFailure` and surfaced,
+  not sent to a recovery captain.
+- **Secret checks at landing:** the manifest-digest exemption covers only the
+  digest, so a secret-shaped run beside a digest on a manifest line fails the
+  landing scanner; the auto-land convention audit applies the same exemption and
+  stores a CORE_RULE_5 violation with the secret replaced by `<redacted>`.
+- **Typed-decision status:** the operator status view reads the one no-key
+  effective-mode rule the settings use.
+
 - **Image rebuild helper:** `rebuild-local-image.sh` passes `ARMADA_CLI_REFRESH`
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test

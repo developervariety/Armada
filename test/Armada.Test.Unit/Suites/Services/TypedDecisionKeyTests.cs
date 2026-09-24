@@ -173,6 +173,28 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { Directory.Delete(data, true); }
             });
 
+            await RunTest("The status view and the settings resolve the effective mode with one rule for every stored mode, key or no key", async () =>
+            {
+                string data = TempDataDirectory();
+                try
+                {
+                    TypedDecisionKeyStore keys = new TypedDecisionKeyStore(data, _ => null);
+                    TypedDecisionSettings settings = Wire(keys);
+                    foreach (bool withKey in new[] { false, true })
+                    {
+                        if (withKey) await keys.WriteKeyAsync(_FileKey);
+                        foreach (TypedDecisionModeEnum stored in Enum.GetValues<TypedDecisionModeEnum>())
+                        {
+                            settings.Mode = stored;
+                            TypedDecisionStatus status = TypedDecisionStatusBuilder.Build(settings, keys);
+                            AssertEqual(settings.EffectiveMode, status.EffectiveMode, "stored " + stored + ", key " + withKey);
+                            AssertEqual(TypedDecisionSettings.ResolveEffectiveMode(stored, withKey), status.EffectiveMode, "stored " + stored + ", key " + withKey);
+                        }
+                    }
+                }
+                finally { Directory.Delete(data, true); }
+            });
+
             await RunTest("Writing the key file wires the provider client and restores the stored mode without a restart", async () =>
             {
                 string data = TempDataDirectory();

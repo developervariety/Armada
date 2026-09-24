@@ -2097,6 +2097,14 @@ namespace Armada.Test.Unit.Suites.Services
                         "[stderr] invalid_api_key\nAgent exited with code 1",
                         benchesCaptain: true),
                     new CrashLoopExcludedFailureCase(
+                        "throttle",
+                        "[stderr] stream error: exceeded retry limit, last status: 429 Too Many Requests\nAgent exited with code 1",
+                        benchesCaptain: true),
+                    new CrashLoopExcludedFailureCase(
+                        "overload",
+                        "[stderr] API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\nAgent exited with code 1",
+                        benchesCaptain: true),
+                    new CrashLoopExcludedFailureCase(
                         "safeguard",
                         "[stderr] Safety measures that flagged this message for a cybersecurity topic\nAgent exited with code 1",
                         benchesCaptain: false)
@@ -2166,6 +2174,47 @@ namespace Armada.Test.Unit.Suites.Services
                             CaptainStateEnum.Quarantined,
                             after!.State,
                             testCase.Name + " provider failure must not contribute to the generic crash-loop threshold.");
+                    }
+                }
+            });
+
+            // A crash whose output names a pool capacity, a billing module, a line number or a process id is
+            // still a crash: only a provider phrase or a status form reads as a provider limit.
+            await RunTest("HandleProcessExitAsync QuarantinesACrashLoopWhoseOutputMerelyMentionsCapacityOrBilling", async () =>
+            {
+                string[] crashLogs =
+                {
+                    "Unhandled exception. System.InvalidOperationException: Pool capacity exceeded\n   at Worker.Run() in Worker.cs:line 429\nAgent exited with code 134",
+                    "Unhandled exception. System.NullReferenceException in BillingTests.Setup (pid 14290)\nAgent exited with code 134"
+                };
+
+                foreach (string crashLog in crashLogs)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        SqliteDatabaseDriver db = testDb.Driver;
+                        ArmadaSettings settings = CreateSettings();
+                        settings.CrashLoopDetection.FailureThreshold = 2;
+                        settings.CrashLoopDetection.WindowMinutes = 10;
+                        settings.CrashLoopDetection.CooldownSeconds = 30;
+                        AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                        Captain captain = new Captain("capacity-crash-loop") { State = CaptainStateEnum.Idle };
+                        await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                        Directory.CreateDirectory(missionLogDir);
+
+                        for (int index = 0; index < 2; index++)
+                        {
+                            Mission mission = await CreateExitMissionAsync(db, captain, 9600 + index).ConfigureAwait(false);
+                            await File.WriteAllTextAsync(Path.Combine(missionLogDir, mission.Id + ".log"), crashLog).ConfigureAwait(false);
+                            await service.HandleProcessExitAsync(mission.ProcessId!.Value, 134, captain.Id, mission.Id).ConfigureAwait(false);
+                            captain = (await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                        }
+
+                        Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        AssertEqual(CaptainStateEnum.Quarantined, after!.State, "A repeated crash must reach crash-loop quarantine. Log: " + crashLog);
+                        AssertContains("Crash loop detected", after.QuarantineReason ?? String.Empty, "The hold must be the crash-loop hold, not a provider bench. Log: " + crashLog);
                     }
                 }
             });

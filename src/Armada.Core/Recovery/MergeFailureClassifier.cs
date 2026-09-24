@@ -4,6 +4,7 @@ namespace Armada.Core.Recovery
     using System.Collections.Generic;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -14,6 +15,8 @@ namespace Armada.Core.Recovery
     public sealed class MergeFailureClassifier : IMergeFailureClassifier
     {
         private const int _SUMMARY_MAX_LENGTH = 200;
+        private const string _TestCommandLabel = "merge-queue test";
+        private static readonly DefinitionOfDoneFailureClassifier _TestOutputClassifier = new DefinitionOfDoneFailureClassifier();
 
         /// <inheritdoc />
         public MergeFailureClassification Classify(MergeFailureContext context)
@@ -30,6 +33,19 @@ namespace Armada.Core.Recovery
             bool gitMergeSucceeded = gitMergeAttempted && context.GitExitCode!.Value == 0;
             bool testRan = context.TestExitCode.HasValue;
             bool testFailed = testRan && context.TestExitCode!.Value != 0;
+
+            // A test run that failed on the host names no defect in the work. The definition-of-done
+            // classifier owns what host trouble looks like, so the merge queue asks it rather than
+            // keeping a second list; a rebase or redispatch on the same host would fail the same way.
+            if (testFailed && (!gitMergeAttempted || gitMergeSucceeded)
+                && _TestOutputClassifier.Classify(_TestCommandLabel, context.TestExitCode!.Value, context.TestOutput) == DefinitionOfDoneFailureClassEnum.Infra)
+            {
+                string summary = "Test run failed on the host, not the work (exit " + context.TestExitCode!.Value + ")";
+                return new MergeFailureClassification(
+                    MergeFailureClassEnum.InfraTestFailure,
+                    Truncate(summary),
+                    conflictedFiles);
+            }
 
             // Test failure AFTER successful merge.
             if (testFailed && gitMergeSucceeded)

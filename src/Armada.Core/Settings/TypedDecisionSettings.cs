@@ -219,8 +219,20 @@ namespace Armada.Core.Settings
             get
             {
                 Func<bool>? keyAvailable = KeyAvailable;
-                return keyAvailable != null && !keyAvailable() ? TypedDecisionModeEnum.Off : Mode;
+                return ResolveEffectiveMode(Mode, keyAvailable == null || keyAvailable());
             }
+        }
+
+        /// <summary>
+        /// The one no-key rule: the global mode in effect is Off while no key resolves, otherwise the stored mode.
+        /// <see cref="EffectiveMode"/> and the operator status view both read it.
+        /// </summary>
+        /// <param name="storedMode">The stored global mode.</param>
+        /// <param name="keyPresent">Whether a provider key resolves.</param>
+        /// <returns>The global mode in effect.</returns>
+        public static TypedDecisionModeEnum ResolveEffectiveMode(TypedDecisionModeEnum storedMode, bool keyPresent)
+        {
+            return keyPresent ? storedMode : TypedDecisionModeEnum.Off;
         }
 
         /// <summary>The shipped decision names, in catalogue order.</summary>

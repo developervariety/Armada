@@ -1231,12 +1231,37 @@ namespace Armada.Server
                 && (gateClass == DefinitionOfDoneFailureClassEnum.Infra || gateClass == DefinitionOfDoneFailureClassEnum.Timeout))
                 return RecoveryDecision.Blocked("definition-of-done gate failure class " + gateClass
                     + " is a host fault that a rescue on the same host would repeat: " + reason);
-            if (IsEnvironmentalFailure(reason))
+            string markerText = FailureMarkerText(reason);
+            if (IsEnvironmentalFailure(markerText))
                 return RecoveryDecision.Blocked("environmental or provisioning fault, which no captain can repair: " + reason);
-            if (HasSeriousFailureReason(reason))
+            if (HasSeriousFailureReason(markerText))
                 return RecoveryDecision.Blocked("failure requires human review: " + reason);
 
             return RecoveryDecision.Rescue("recoverable mission failure");
+        }
+
+        /// <summary>
+        /// The part of a failure reason the environmental and human-review marker rules read. A
+        /// definition-of-done Compile or TestFail reason carries the command's own output after its
+        /// first line: test names, assertion text and HTTP status lines that the work under test
+        /// printed. That text describes the defect a rescue is meant to fix, not the platform, so a
+        /// test named for authorization or quota, or an assertion expecting 403 Forbidden, must not
+        /// read as an authorization or quota fault. Only the reason's first line is read for those
+        /// classes; every other reason is read whole.
+        /// </summary>
+        /// <param name="reason">Recorded mission failure reason.</param>
+        /// <returns>The text the marker rules read.</returns>
+        public static string FailureMarkerText(string? reason)
+        {
+            if (String.IsNullOrEmpty(reason)) return String.Empty;
+            if (!DefinitionOfDoneFailureClassifier.TryReadRecordedClass(reason, out DefinitionOfDoneFailureClassEnum gateClass))
+                return reason;
+            if (gateClass != DefinitionOfDoneFailureClassEnum.Compile && gateClass != DefinitionOfDoneFailureClassEnum.TestFail)
+                return reason;
+
+            string trimmed = reason.TrimStart();
+            int newline = trimmed.IndexOfAny(new[] { '\r', '\n' });
+            return newline < 0 ? trimmed : trimmed.Substring(0, newline);
         }
 
         /// <summary>

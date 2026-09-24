@@ -24,7 +24,7 @@ namespace Armada.Core.Services
             TypedDecisionStatus status = new TypedDecisionStatus
             {
                 StoredMode = settings.Mode,
-                EffectiveMode = keyPresent ? settings.Mode : TypedDecisionModeEnum.Off,
+                EffectiveMode = TypedDecisionSettings.ResolveEffectiveMode(settings.Mode, keyPresent),
                 EffectiveReason = keyPresent ? null : TypedDecisionKeyStore.ReasonNoKey,
                 KeyPresent = keyPresent,
                 KeySource = source

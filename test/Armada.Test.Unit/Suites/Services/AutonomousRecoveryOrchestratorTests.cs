@@ -184,6 +184,56 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A compile failure is the work's own defect; a rescue can fix it.");
             }).ConfigureAwait(false);
 
+            // A test failure keeps the rescue whatever the failing tests are named or assert: the
+            // marker rules read the gate's own head line, never the output of the work under test.
+            await RunTest("Gate failure class TestFail with authorization, quota or approval words in the test output still dispatches a rescue", async () =>
+            {
+                string[] outputs =
+                {
+                    "  Failed Api.Routes.DeleteVessel_AsViewer [12 ms]\n  Expected: 200 OK, Actual: 403 Forbidden\nFailed: 1, Passed: 812",
+                    "  Failed Api.Auth.RejectsMissingToken [4 ms]\n  Assert.Equal() Failure: expected Unauthorized, actual OK\nFailed: 1, Passed: 90",
+                    "  Failed Billing.QuotaTests.RejectsOverQuotaUpload [7 ms]\n  Expected quota error, got none\nFailed: 1, Passed: 44",
+                    "  Failed Workflow.ApprovalTests.RequiresApprovalBeforeMerge [3 ms]\nFailed: 1, Passed: 31",
+                    "  Failed Http.ClientTests.BacksOffOnRateLimit [9 ms]\n  Expected retry after rate limit\nFailed: 1, Passed: 12",
+                    "  Failed Config.SettingsTests.ReadsEnvironmentVariable [2 ms]\n  environment variable ARMADA_EXAMPLE was null\nFailed: 1, Passed: 7"
+                };
+
+                for (int i = 0; i < outputs.Length; i++)
+                {
+                    string reason = BuildGateFailureReason("TestFail", "unit-test", 1, outputs[i]);
+                    string tenantId = "ten_gate_words" + i;
+                    string userId = "usr_gate_words" + i;
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    Mission failed = await CreateFailedMissionAsync(testDb, vessel, reason).ConfigureAwait(false);
+
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                    await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                    AssertEqual(1, admiral.DispatchedMissions.Count, "A test failure keeps its rescue whatever its test output names. Output: " + outputs[i]);
+                    AssertEqual(
+                        "DoD gate failed: classification=TestFail; unit-test command exited 1",
+                        AutonomousRecoveryOrchestrator.FailureMarkerText(reason),
+                        "The marker rules must read only the gate head line of a TestFail reason.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("FailureMarkerText reads a non-gate reason, and an Infra gate reason, whole", () =>
+            {
+                string quota = "Captain stopped: provider quota exhausted\nretry later";
+                AssertEqual(quota, AutonomousRecoveryOrchestrator.FailureMarkerText(quota), "A reason that is not a gate test failure is read whole.");
+                string infra = BuildGateFailureReason("Infra", "unit-test", 1, "error NU1301: Unable to load the service index for source");
+                AssertEqual(infra, AutonomousRecoveryOrchestrator.FailureMarkerText(infra), "An Infra gate reason is read whole.");
+                string refused = BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y [1 ms]");
+                AssertFalse(AutonomousRecoveryOrchestrator.FailureMarkerText(refused).Contains("Failed X.Y", StringComparison.Ordinal), "A TestFail reason drops the output tail.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("AreComparableIdenticalTestSets: only complete, non-empty, identical sets compare equal", () =>
             {
                 AutonomousRecoveryOrchestrator.StoredFailedTestSet ab = FailedTestSet(false, "A", "B");

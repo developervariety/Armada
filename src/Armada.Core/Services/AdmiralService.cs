@@ -3827,12 +3827,7 @@ namespace Armada.Core.Services
                 return true;
             }
 
-            if (normalized.Contains("invalid api key", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("authentication failed", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("forbidden", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("not logged in", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("login required", StringComparison.OrdinalIgnoreCase))
+            if (ProviderQuotaLimitDetector.IsAuthFailureSignal(normalized))
             {
                 return true;
             }

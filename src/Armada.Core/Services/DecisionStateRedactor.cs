@@ -82,6 +82,10 @@ namespace Armada.Core.Services
             RegexOptions.Compiled);
 
         // Key-shaped tokens. The prefixed forms (provider keys) are unambiguous and always removed.
+        // SecretRedactor.RedactKeyShapes runs first and owns the shared key shapes with their minimum
+        // lengths, which keep display text readable. Egress errs toward removal instead: a key cut short by
+        // a log tail or a truncation is still key material, so these prefixes are removed at any length,
+        // including the display redactor's own "sk-[REDACTED]" remainder.
         // The generic long base64-ish run is decided by <see cref="EvaluateBlob"/>: the old
         // unconditional \b[A-Za-z0-9+/]{32,}={0,2} also matched any 32+-character identifier, so a
         // long method name (TruncatesLongestLeafAndStaysValidJson) was erased as &lt;secret&gt;.

@@ -510,7 +510,15 @@ below.
 
 When a captain fails on a quota, billing, or authentication signal, Armada holds
 its **whole account** Exhausted until the provider's retry time (reason
-`account_provider_failure`, with `exhaustedUntilUtc`). Idle captains on the same
+`account_provider_failure`, with `exhaustedUntilUtc`). A throttle (HTTP 429,
+"too many requests") or a provider overload (HTTP 529, "overloaded") is a
+provider signal too: the captain is benched and the mission re-routed. When the
+provider publishes no retry time, a throttle or overload uses the configured
+default backoff, not the usage-cap window. A status code counts only in a status
+form (`HTTP 429`, `status: 429`, `API Error: 529`, `429 Too Many Requests`), so a
+crash that prints a process id or a line number stays a crash and still counts
+toward crash-loop quarantine. The bench decision and the crash-loop classifier
+read the same provider signatures. Idle captains on the same
 account are quarantined until then, so the re-routed mission cannot land on
 them. A busy captain on the account keeps its running mission, and routing gives
 it no new work while the hold lasts. The hold is kept in memory and ends at a

@@ -105,6 +105,51 @@ namespace Armada.Test.Unit.Suites.Recovery
                 await Task.CompletedTask;
             });
 
+            // The merge queue asks the definition-of-done classifier what host trouble looks like, so a
+            // host fault is surfaced instead of spending a recovery captain that would fail the same way.
+            await RunTest("Classify_HostFaultTestOutput_AgreesWithTheGateClassifierAndSurfaces", async () =>
+            {
+                string[] outputs =
+                {
+                    "error NU1301: Unable to load the service index for source https://api.nuget.org/v3/index.json.",
+                    "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\nFailed: 12, Passed: 300",
+                    "The active test run was aborted. Reason: Test host process crashed",
+                    "dotnet: command not found",
+                    "FAIL: 3 tests failed",
+                    "  Failed Api.Routes.DeleteVessel_AsViewer [12 ms]\nFailed: 1, Passed: 812",
+                    "Parser.cs(12,5): error CS0103: The name 'x' does not exist in the current context"
+                };
+
+                MergeFailureClassifier classifier = new MergeFailureClassifier();
+                Armada.Core.Services.DefinitionOfDoneFailureClassifier gate = new Armada.Core.Services.DefinitionOfDoneFailureClassifier();
+                RecoveryRouter router = new RecoveryRouter();
+                foreach (int? gitExit in new int?[] { 0, null })
+                {
+                    foreach (string output in outputs)
+                    {
+                        MergeFailureContext context = new MergeFailureContext
+                        {
+                            GitExitCode = gitExit,
+                            TestExitCode = 1,
+                            TestOutput = output,
+                            ConflictedFiles = new List<string>()
+                        };
+
+                        MergeFailureClassification result = classifier.Classify(context);
+                        bool gateSaysHost = gate.Classify("unit-test", 1, output) == DefinitionOfDoneFailureClassEnum.Infra;
+                        AssertEqual(gateSaysHost, result.FailureClass == MergeFailureClassEnum.InfraTestFailure,
+                            "the merge queue and the gate classifier must agree on host trouble (git exit " + gitExit + "): " + output);
+
+                        RecoveryAction action = router.Route(result.FailureClass, false, 0);
+                        if (gateSaysHost)
+                        {
+                            AssertTrue(action is RecoveryAction.Surface, "a host fault must be surfaced, not sent to a captain: " + output);
+                        }
+                    }
+                }
+                await Task.CompletedTask;
+            });
+
             await RunTest("Classify_NoSignals_ReturnsUnknown", async () =>
             {
                 MergeFailureClassifier classifier = new MergeFailureClassifier();

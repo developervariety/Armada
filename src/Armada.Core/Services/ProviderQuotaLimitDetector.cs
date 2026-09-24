@@ -20,29 +20,52 @@ namespace Armada.Core.Services
         /// <returns>True when the text indicates a credit, billing, or auth failure.</returns>
         public static bool IsCreditAuthBenchSignal(string? text)
         {
+            return IsCreditSignal(text) || IsAuthFailureSignal(text);
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="text"/> is a provider credit, balance, billing, or payment failure.
+        /// Matches provider phrases and HTTP 402 status forms only, so a crash that merely names a billing
+        /// module or a balance field is not read as an exhausted account.
+        /// </summary>
+        /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
+        /// <returns>True when the text indicates a credit or billing failure.</returns>
+        public static bool IsCreditSignal(string? text)
+        {
             if (String.IsNullOrWhiteSpace(text))
             {
                 return false;
             }
 
-            string normalized = Normalize(text);
-            return normalized.Contains("credit", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("billing", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("payment", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("balance", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("insufficient_credits", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("authentication", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("authenticate", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("permission_denied", StringComparison.OrdinalIgnoreCase);
+            return _CreditPattern.IsMatch(Normalize(text));
         }
 
         /// <summary>
-        /// Returns true when <paramref name="text"/> looks like a provider usage or quota limit response.
+        /// Returns true when <paramref name="text"/> is a provider credential or authorization rejection. Matches
+        /// provider phrases and HTTP 401/403 status forms only, so a crash that prints a line number, a process id
+        /// or a filesystem "permission denied" is not read as a rejected key.
         /// </summary>
         /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
-        /// <returns>True when the text indicates a quota or usage limit.</returns>
+        /// <returns>True when the text indicates an authentication or authorization failure.</returns>
+        public static bool IsAuthFailureSignal(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            return _AuthFailurePattern.IsMatch(Normalize(text));
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="text"/> looks like a provider usage or quota limit response, a
+        /// request throttle (HTTP 429, "too many requests") or a provider overload (HTTP 529, "overloaded").
+        /// Each means the provider, not the work, refused the turn, so the captain is benched and the mission
+        /// re-routed. This is the one provider-limit definition: <see cref="RuntimeFailureClassifier"/> reads
+        /// it too, so the bench decision and the crash-loop classification agree about the same exit.
+        /// </summary>
+        /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
+        /// <returns>True when the text indicates a quota, usage, throttle or overload limit.</returns>
         public static bool IsQuotaLimitSignal(string? text)
         {
             if (String.IsNullOrWhiteSpace(text))
@@ -52,10 +75,44 @@ namespace Armada.Core.Services
 
             string normalized = Normalize(text);
             return ContainsUsageLimitText(normalized) ||
-                normalized.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase) ||
-                normalized.Contains("spend limit", StringComparison.OrdinalIgnoreCase);
+                _QuotaPattern.IsMatch(normalized) ||
+                _ThrottleOrOverloadPattern.IsMatch(normalized);
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="text"/> is a provider throttle or overload: HTTP 429 or 529 in a
+        /// status form, "too many requests", or a provider overload message. When no exhausted allowance is also
+        /// named, the bench uses the provider's published retry time or the configured default backoff, never
+        /// the multi-hour usage-cap window.
+        /// </summary>
+        /// <param name="text">Runtime stderr, validation output, or failure reason text.</param>
+        /// <returns>True when the text indicates a throttle or overload.</returns>
+        public static bool IsThrottleOrOverloadSignal(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            return _ThrottleOrOverloadPattern.IsMatch(Normalize(text));
+        }
+
+        /// <summary>
+        /// Classify a provider fault in runtime output: a usage, quota, throttle, overload, credit or spend
+        /// limit is <see cref="RuntimeFailureKindEnum.UsageLimit"/>; a credential rejection is
+        /// <see cref="RuntimeFailureKindEnum.AuthFailure"/>; anything else is
+        /// <see cref="RuntimeFailureKindEnum.Crash"/>. Built from the same predicates the bench decision reads,
+        /// so a text that benches a captain is never also counted as a crash.
+        /// </summary>
+        /// <param name="text">Runtime output tail or failure reason text.</param>
+        /// <returns>The provider fault kind, or Crash when the text names none.</returns>
+        public static RuntimeFailureKindEnum ClassifyProviderFault(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text)) return RuntimeFailureKindEnum.Crash;
+            if (IsQuotaLimitSignal(text) || IsCreditSignal(text) || IsProviderAccountSpendLimitSignal(text))
+                return RuntimeFailureKindEnum.UsageLimit;
+            if (IsAuthFailureSignal(text)) return RuntimeFailureKindEnum.AuthFailure;
+            return RuntimeFailureKindEnum.Crash;
         }
 
         /// <summary>
@@ -329,6 +386,13 @@ namespace Armada.Core.Services
                 return published;
             }
 
+            // A throttle or overload with no exhausted allowance clears in seconds or minutes, so it takes the
+            // configured default backoff rather than the usage-cap window.
+            if (IsTransientThrottleOnly(text))
+            {
+                return null;
+            }
+
             TimeSpan? window = GetQuotaFallbackWindow(runtime);
             return window.HasValue ? referenceUtc.Add(window.Value) : null;
         }
@@ -342,6 +406,47 @@ namespace Armada.Core.Services
         /// "will reset at" / "resets".
         /// </summary>
         private const string _RetryPhrase = @"(?:try again (?:at|on)|(?:will\s+)?resets?(?:\s+at)?)";
+
+        /// <summary>
+        /// An exhausted allowance: a quota, a rate limit, or a spend cap. "Disk quota" is a host error, not a
+        /// provider allowance, and "RateLimiter" is a type name; the anchors exclude both.
+        /// </summary>
+        private static readonly Regex _QuotaPattern = new Regex(
+            @"(?<!\bdisk\s)\bquota\b|\binsufficient[_ ]quota\b|\bresource_exhausted\b|\brate[ -]?limit(?:ed|s)?\b|\brate_limit(?:_error|_exceeded)?\b|\bspend limit\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// A status code counts only after a status cue ("HTTP 429", "status: 429", "API Error: 529",
+        /// "code=429") or before its reason phrase ("429 Too Many Requests"), never as a bare number that may
+        /// be a process id, a line number or a test count.
+        /// </summary>
+        private const string _StatusCue = @"(?:\bhttp(?:/\d(?:\.\d)?)?|\bstatus(?:[ _]?code)?|\bapi error|\berror|\bcode|\bresponse)\s*[:=]?\s*""?";
+
+        private static readonly Regex _ThrottleOrOverloadPattern = new Regex(
+            _StatusCue + @"(?:429|529)\b"
+            + @"|\btoo many requests\b"
+            + @"|\boverloaded_error\b"
+            + @"|\b(?:api|servers?|services?|models?|providers?|engines?|upstream|backend)\b[^\r\n]{0,24}\b(?:overloaded|over capacity|at capacity)\b"
+            + @"|""message""\s*:\s*""overloaded""",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _CreditPattern = new Regex(
+            _StatusCue + @"402\b"
+            + @"|\bpayment required\b|\bpayment (?:method|failed|is overdue|past due)\b"
+            + @"|\binsufficient[_ ](?:credits?|balance|funds)\b|\bout of (?:credits?|balance)\b|\bcredit balance\b|\bcredits? (?:exhausted|depleted|used up)\b"
+            + @"|\bbalance (?:is )?(?:too low|insufficient|exhausted|depleted)\b"
+            + @"|\bcheck your billing\b|\bbilling[_ ](?:hard[_ ]limit|not[_ ]active)\b"
+            + @"|\bbilling (?:account|details|information|profile) (?:is |has been )?(?:suspended|required|inactive|disabled|missing|invalid)\b"
+            + @"|\bbilling (?:issue|problem|error)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _AuthFailurePattern = new Regex(
+            _StatusCue + @"40[13]\b"
+            + @"|\b401\s+unauthorized\b|\b403\s+forbidden\b|\bunauthorized\b"
+            + @"|\binvalid[_ ]api[_ ]key\b|\bincorrect api key\b|\bno api key\b|\bmissing api key\b|\bapi key (?:is )?(?:invalid|missing|expired|revoked)\b"
+            + @"|\bauthentication[_ ](?:failed|error|required)\b|\bauth failed\b|\bfailed to authenticate\b|\bnot authenticated\b|\bcould not authenticate\b"
+            + @"|\bpermission_denied\b|\bnot logged in\b|\blogin required\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _RetryAtPattern = new Regex(
             _RetryPhrase + @"\s+(\d{1,2}:\d{2}\s*(?:[AP]M)?|\d{1,2}\s*[AP]M)",
@@ -410,6 +515,15 @@ namespace Armada.Core.Services
             }
 
             return normalized;
+        }
+
+        private static bool IsTransientThrottleOnly(string? text)
+        {
+            if (!IsThrottleOrOverloadSignal(text)) return false;
+            string normalized = Normalize(text!);
+            return !ContainsUsageLimitText(normalized)
+                && !_QuotaPattern.IsMatch(normalized)
+                && !IsCreditSignal(normalized);
         }
 
         private static bool ContainsUsageLimitText(string? text)

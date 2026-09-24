@@ -323,6 +323,36 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("IsQuotaLimitSignal_ThrottleAndOverloadStatusForms_ReturnTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("stream error: exceeded retry limit, last status: 429 Too Many Requests"),
+                    "a 429 throttle at exit must bench the captain, not fail the mission");
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"),
+                    "a provider overload at exit must bench the captain, not fail the mission");
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("at Parser.Read() in Parser.cs:line 429"),
+                    "a bare number is not a status form");
+                AssertFalse(
+                    ProviderQuotaLimitDetector.IsQuotaLimitSignal("Pool capacity exceeded"),
+                    "a crash naming a capacity is not a provider overload");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ResolveQuotaRetryAfterUtc_ThrottleWithoutResetTime_UsesDefaultBackoff", () =>
+            {
+                DateTime referenceUtc = new DateTime(2026, 6, 18, 22, 0, 0, DateTimeKind.Utc);
+                AssertNull(
+                    ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc("last status: 429 Too Many Requests", AgentRuntimeEnum.ClaudeCode, referenceUtc),
+                    "a throttle clears quickly and must take the configured default backoff, not the usage-cap window");
+                AssertEqual(
+                    referenceUtc.AddHours(5),
+                    ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc("You've hit your usage limit", AgentRuntimeEnum.ClaudeCode, referenceUtc),
+                    "an exhausted allowance keeps the usage-cap window");
+                return Task.CompletedTask;
+            });
+
             await RunTest("IsQuotaLimitSignal_UnrelatedError_ReturnsFalse", () =>
             {
                 AssertFalse(

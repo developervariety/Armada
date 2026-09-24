@@ -58,6 +58,10 @@ namespace Armada.Core.Recovery
                     // NEEDS_REVISION rather than the auto-recovery loop.
                     return new RecoveryAction.Surface("test_failure_before_merge");
 
+                case MergeFailureClassEnum.InfraTestFailure:
+                    // The host failed the test run; no captain on the same host can fix it.
+                    return new RecoveryAction.Surface("infra_test_failure");
+
                 case MergeFailureClassEnum.Unknown:
                 default:
                     // Conservative: surface rather than guess.

@@ -136,6 +136,56 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            // The exemption covers the digest, not the line: a secret-shaped run beside a digest on the same
+            // manifest line fires in the landing scanner and in the auto-land convention audit alike.
+            await RunTest("A secret-shaped run beside a digest on one manifest line still fires in the scanner and the audit", () =>
+            {
+                string[] lines =
+                {
+                    "\"checksum\": \"" + _SyntheticHexDigest + "\", \"sig\": \"" + GenuineBase64Chunk() + "\"",
+                    "\"sha256\": \"" + _SyntheticHexDigest + "\", \"token\": \"" + GenuineBase64Chunk() + "\"",
+                    "\"integrity\": \"" + _SyntheticSriValue + "\", \"key\": \"" + GenuineBase64Chunk() + "\""
+                };
+                foreach (string line in lines)
+                {
+                    string diff = FileBlock("package-lock.json", line);
+                    DockBoundaryScanResult result = scanner.Scan(diff, null, null, null, null, null, DefaultSettings());
+                    AssertFalse(result.Passed, "The scanner must flag the secret beside the digest: " + line);
+                    AssertEqual(_BaseChunkRule, result.Findings[0].FindingLabel);
+                    AssertFalse(ConventionChecker.IsManifestHashAllowed(_BaseChunkRule, line, "package-lock.json"),
+                        "The exemption must not cover a non-digest run: " + line);
+
+                    ConventionCheckResult audit = new ConventionChecker().Check(diff);
+                    AssertFalse(audit.Passed, "The convention audit must agree with the scanner: " + line);
+                }
+                return Task.CompletedTask;
+            });
+
+            await RunTest("The convention audit and the scanner agree on a digest-only manifest line", () =>
+            {
+                string line = "\"sha256\": \"" + _SyntheticHexDigest + "\"";
+                string diff = FileBlock("package-lock.json", line);
+                AssertTrue(scanner.Scan(diff, null, null, null, null, null, DefaultSettings()).Passed, "scanner passes a digest");
+                AssertTrue(new ConventionChecker().Check(diff).Passed, "audit passes a digest");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A stored CORE_RULE_5 audit violation names the rule without the secret bytes", () =>
+            {
+                string chunk = GenuineBase64Chunk();
+                string diff = FileBlock("src/Config.cs", "token = \"" + chunk + "\"", ApiKeyLine(), "Authorization: Bearer " + chunk);
+                ConventionCheckResult audit = new ConventionChecker().Check(diff);
+                AssertFalse(audit.Passed);
+                AssertTrue(audit.Violations.Count >= 3, "each secret line is reported");
+                foreach (ConventionViolation violation in audit.Violations)
+                {
+                    AssertFalse(violation.Line.Contains(chunk, System.StringComparison.Ordinal), violation.Rule + " stored the secret: " + violation.Line);
+                    AssertFalse(violation.Line.Contains("ABCDEF1234567890ABCDEF", System.StringComparison.Ordinal), violation.Rule + " stored the secret: " + violation.Line);
+                    AssertTrue(violation.Line.Contains(ConventionChecker.RedactedPlaceholder, System.StringComparison.Ordinal), violation.Rule + " must mark the removed secret: " + violation.Line);
+                }
+                return Task.CompletedTask;
+            });
+
             await RunTest("Two manifest hash lines in one file are both suppressed", () =>
             {
                 string line1 = "\"sha256\": \"" + _SyntheticHexDigest + "\"";

@@ -1710,7 +1710,7 @@ export interface MergeEntry {
   /** Base branch of that pull request. */
   prBaseBranch?: string | null;
   /** Why the last merge attempt failed, when it failed. */
-  mergeFailureClass?: 'StaleBase' | 'TextConflict' | 'TestFailureAfterMerge' | 'TestFailureBeforeMerge' | 'Unknown' | null;
+  mergeFailureClass?: 'StaleBase' | 'TextConflict' | 'TestFailureAfterMerge' | 'TestFailureBeforeMerge' | 'Unknown' | 'InfraTestFailure' | null;
   /** Files git reported as conflicted in the last merge attempt. */
   conflictedFiles?: string | null;
   /** Short description of the last merge failure. */

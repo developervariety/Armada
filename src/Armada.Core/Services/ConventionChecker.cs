@@ -33,6 +33,13 @@ namespace Armada.Core.Services
         // a quoted run is genuine secret material before the rule fires.
         internal const string Base64ChunkPatternString = "\"[A-Za-z0-9+/]{40,}={0,2}\"";
 
+        private static readonly Regex _Base64ChunkPattern = new Regex(Base64ChunkPatternString, RegexOptions.Compiled);
+
+        /// <summary>
+        /// Text a stored convention violation carries in place of matched secret material.
+        /// </summary>
+        public const string RedactedPlaceholder = "<redacted>";
+
         // Entropy-gate thresholds for CORE_RULE_5_base64_chunk, calibrated against the
         // single-line JSON command-catalog false-positive population (long
         // CamelCase identifiers, slash-joined path lists, hex-ID runs) and against real
@@ -64,7 +71,7 @@ namespace Armada.Core.Services
             ("CORE_RULE_4_log_interpolation", new Regex(@"\.(LogInformation|LogDebug|LogWarning|LogError|LogTrace|LogCritical)\s*\(\s*\$""", RegexOptions.Compiled)),
             // Every PEM private-key header: bare, RSA, EC, DSA, OPENSSH, ENCRYPTED.
             ("CORE_RULE_5_private_key", new Regex(@"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----", RegexOptions.Compiled)),
-            ("CORE_RULE_5_base64_chunk", new Regex(Base64ChunkPatternString, RegexOptions.Compiled)),
+            ("CORE_RULE_5_base64_chunk", _Base64ChunkPattern),
             ("CORE_RULE_5_password_literal", new Regex(@"password\s*[:=]\s*""\w{8,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_5_apikey_literal", new Regex(@"api_?key\s*[:=]\s*""\w{16,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_5_bearer_literal", new Regex(@"bearer\s+[A-Za-z0-9._~-]{20,}", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
@@ -238,7 +245,38 @@ namespace Armada.Core.Services
                 return false;
 
             // Context must indicate this is a hash field or a manifest/lockfile.
-            return _HashFieldKeywordPattern.IsMatch(addedLine) || IsKnownManifestFile(filePath);
+            if (!_HashFieldKeywordPattern.IsMatch(addedLine) && !IsKnownManifestFile(filePath))
+                return false;
+
+            // The exemption covers the digest, never the whole line: a secret-shaped run that sits
+            // beside a digest on the same line still fires.
+            foreach (Match match in _Base64ChunkPattern.Matches(addedLine))
+            {
+                string chunk = match.Value.Trim('"');
+                if (LooksLikeBase64Secret(chunk) && !IsDigestToken(chunk, addedLine)) return false;
+            }
+            return true;
+        }
+
+        private static bool IsDigestToken(string chunk, string line)
+        {
+            if (chunk.Length == 64 && _Sha256HexDigestPattern.IsMatch(chunk)) return true;
+            return line.Contains("sha256-" + chunk, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The text a convention violation stores for its line. A CORE_RULE_5 match is replaced with a
+        /// placeholder, so the audit notes name the rule and keep the surrounding code without holding the
+        /// secret bytes; every other rule keeps the line as written.
+        /// </summary>
+        private static string ViolationLine(string rule, Regex pattern, string line)
+        {
+            if (!rule.StartsWith("CORE_RULE_5", StringComparison.Ordinal)) return line;
+            if (!String.Equals(rule, "CORE_RULE_5_base64_chunk", StringComparison.Ordinal))
+                return pattern.Replace(line, RedactedPlaceholder);
+
+            return pattern.Replace(line, match =>
+                LooksLikeBase64Secret(match.Value.Trim('"')) ? "\"" + RedactedPlaceholder + "\"" : match.Value);
         }
 
         private static bool IsKnownManifestFile(string? filePath)
@@ -279,24 +317,31 @@ namespace Armada.Core.Services
             return false;
         }
 
-        /// <summary>Checks the unified diff and returns the result of all rule evaluations.</summary>
+        /// <summary>
+        /// Checks the unified diff and returns the result of all rule evaluations. The manifest-digest
+        /// exemption is the one <see cref="IsManifestHashAllowed"/> decides for the landing scanner, with the
+        /// file read from the diff's own headers. A CORE_RULE_5 violation stores its line with the secret
+        /// replaced by <see cref="RedactedPlaceholder"/>.
+        /// </summary>
         public ConventionCheckResult Check(string unifiedDiff)
         {
             ConventionCheckResult result = new ConventionCheckResult();
             if (string.IsNullOrEmpty(unifiedDiff)) return result;
 
-            // Only added lines: the shared reader skips file headers, context and removed lines, and
-            // keeps an added line whose content starts with "++".
-            foreach (GitDiffAddedLine added in GitDiffPaths.ReadAddedLines(unifiedDiff))
+            // Only added lines: the shared reader skips file headers, context and removed lines, keeps an
+            // added line whose content starts with "++", and names the file each line belongs to.
+            foreach (GitDiffAddedLine addedLine in GitDiffPaths.ReadAddedLines(unifiedDiff))
             {
-                string line = "+" + added.Text;
+                string line = "+" + addedLine.Text;
+                string added = addedLine.Text;
+                string? filePath = addedLine.Path;
                 foreach ((string rule, Regex pattern) in _Rules)
                 {
-                    if (RuleFiresOnLine(rule, pattern, line))
-                    {
-                        result.Violations.Add(new ConventionViolation(rule, line));
-                        result.Passed = false;
-                    }
+                    if (!RuleFiresOnLine(rule, pattern, line)) continue;
+                    if (IsManifestHashAllowed(rule, added, filePath)) continue;
+
+                    result.Violations.Add(new ConventionViolation(rule, ViolationLine(rule, pattern, line)));
+                    result.Passed = false;
                 }
             }
             return result;

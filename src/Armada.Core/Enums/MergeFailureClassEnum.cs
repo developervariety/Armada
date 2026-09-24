@@ -37,6 +37,14 @@ namespace Armada.Core.Enums
         /// Failure shape could not be classified. The router must surface conservatively
         /// rather than guess at a recovery action.
         /// </summary>
-        Unknown
+        Unknown,
+
+        /// <summary>
+        /// The test run failed on the host, not on the work: a package restore error, a missing
+        /// SDK or command, a dead container runtime, or a crashed test host, as
+        /// <see cref="Armada.Core.Services.DefinitionOfDoneFailureClassifier"/> reads the same
+        /// output. A captain on the same host would fail the same way, so the router surfaces it.
+        /// </summary>
+        InfraTestFailure
     }
 }
