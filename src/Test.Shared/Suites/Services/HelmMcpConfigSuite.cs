@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Threading.Tasks;
     using System.Text.Json.Nodes;
     using Armada.Core.Services;
     using Armada.Helm.Commands;
@@ -422,6 +423,21 @@ namespace Test.Shared.Suites.Services
                     {
                         if (Directory.Exists(root)) Directory.Delete(root, true);
                     }
+                }),
+                CaseAsync("client_cli_command_survives_output_past_a_pipe_buffer", "Helm MCP client commands do not block on a client that writes more than a pipe buffer", TestTags.Negative, async () =>
+                {
+                    if (OperatingSystem.IsWindows()) return;
+
+                    // 1 MiB on each stream: a caller that waits for exit without reading leaves the client blocked on a
+                    // full pipe, and the exit it waits for never comes.
+                    Task<bool> run = Task.Run(() => McpConfigHelper.RunCliCommandAsync("/bin/sh", new[]
+                    {
+                        "-c",
+                        "head -c 1048576 /dev/zero | tr '\\0' 'o'; head -c 1048576 /dev/zero | tr '\\0' 'e' >&2; exit 0"
+                    }));
+                    Task winner = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+                    AssertTrue(winner == run, "The client command must return while it writes more than a pipe buffer.");
+                    AssertTrue(await run.ConfigureAwait(false), "A client command that exits 0 reports success.");
                 })
             };
             return new TestSuiteDescriptor("Services.HelmMcpConfig", "Helm MCP configuration", cases);

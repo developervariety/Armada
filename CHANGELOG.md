@@ -185,7 +185,10 @@ upstream integrations and excludes changes already present at that baseline.
   input, no longer hangs the wake or the CLI; a build step that never finishes is
   killed after 15 minutes. The OpenCode server the admiral launches has both output
   streams drained at once into a fixed per-stream budget instead of being held
-  whole for the life of the daemon.
+  whole for the life of the daemon. Helm's MCP client install and remove commands
+  run through the bounded runner too, with a 2 minute kill, and `server start` on
+  Unix sends the Admiral's console streams to `/dev/null` (the Admiral writes its
+  own log), so the server never stops on a full pipe nobody reads.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.

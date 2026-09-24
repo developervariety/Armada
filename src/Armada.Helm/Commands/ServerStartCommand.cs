@@ -69,68 +69,83 @@ namespace Armada.Helm.Commands
             }
             else
             {
-                // On Unix, UseShellExecute=true doesn't launch executables the same way.
-                // Use UseShellExecute=false and redirect streams to avoid holding the CLI streams.
-                startInfo = new ProcessStartInfo
-                {
-                    FileName = serverExe,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    RedirectStandardInput = true,
-                    CreateNoWindow = true
-                };
+                startInfo = BuildUnixServerStartInfo(serverExe);
             }
 
-            Process process = new Process { StartInfo = startInfo };
-            bool started = process.Start();
-            if (!started)
+            // Disposing the handle releases it without stopping the server, which outlives this command.
+            using (Process process = new Process { StartInfo = startInfo })
             {
-                AnsiConsole.MarkupLine("[red]Failed to start server process.[/]");
-                return 1;
-            }
-
-            string baseUrl = GetBaseUrl();
-            AnsiConsole.MarkupLine($"[green]Admiral server starting...[/] (PID: {process.Id})");
-            AnsiConsole.MarkupLine($"[dim]  REST API:   {baseUrl}[/]");
-            AnsiConsole.MarkupLine($"[dim]  WebSocket:  ws://localhost:{Constants.DefaultAdmiralPort}/ws[/]");
-            AnsiConsole.MarkupLine($"[dim]  Dashboard:  {baseUrl}/dashboard[/]");
-            AnsiConsole.MarkupLine($"[dim]  MCP:        http://localhost:{Constants.DefaultMcpPort}[/]");
-
-            // Poll until the server is ready
-            bool ready = false;
-            for (int i = 0; i < 30; i++)
-            {
-                await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
-
-                if (process.HasExited)
+                bool started = process.Start();
+                if (!started)
                 {
-                    AnsiConsole.MarkupLine($"[red]Server process exited with code {process.ExitCode}.[/]");
-                    break;
+                    AnsiConsole.MarkupLine("[red]Failed to start server process.[/]");
+                    return 1;
                 }
 
-                try
+                string baseUrl = GetBaseUrl();
+                AnsiConsole.MarkupLine($"[green]Admiral server starting...[/] (PID: {process.Id})");
+                AnsiConsole.MarkupLine($"[dim]  REST API:   {baseUrl}[/]");
+                AnsiConsole.MarkupLine($"[dim]  WebSocket:  ws://localhost:{Constants.DefaultAdmiralPort}/ws[/]");
+                AnsiConsole.MarkupLine($"[dim]  Dashboard:  {baseUrl}/dashboard[/]");
+                AnsiConsole.MarkupLine($"[dim]  MCP:        http://localhost:{Constants.DefaultMcpPort}[/]");
+
+                // Poll until the server is ready
+                bool ready = false;
+                for (int i = 0; i < 30; i++)
                 {
-                    using HttpClient pollClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                    HttpResponseMessage pollResp = await pollClient.GetAsync(baseUrl + "/api/v1/status/health", cancellationToken).ConfigureAwait(false);
-                    if (pollResp.IsSuccessStatusCode)
+                    await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+
+                    if (process.HasExited)
                     {
-                        ready = true;
+                        AnsiConsole.MarkupLine($"[red]Server process exited with code {process.ExitCode}.[/]");
                         break;
                     }
+
+                    try
+                    {
+                        using HttpClient pollClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+                        HttpResponseMessage pollResp = await pollClient.GetAsync(baseUrl + "/api/v1/status/health", cancellationToken).ConfigureAwait(false);
+                        if (pollResp.IsSuccessStatusCode)
+                        {
+                            ready = true;
+                            break;
+                        }
+                    }
+                    catch { }
                 }
-                catch { }
-            }
 
-            if (ready)
+                if (ready)
+                {
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("[green]Admiral server is running![/]");
+                }
+                else if (!process.HasExited)
+                    AnsiConsole.MarkupLine("[gold1]Server is still starting. Check [green]armada server status[/] in a few seconds.[/]");
+
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Start information for the Admiral on Unix. The Admiral writes its own log file and outlives this CLI, so
+        /// nothing here reads its console: its standard streams go to /dev/null rather than to pipes, which would
+        /// stop the server at the first full pipe while it starts and be left without a reader once the CLI exits.
+        /// The shell replaces itself with the server, so the started process is the server itself.
+        /// </summary>
+        /// <param name="serverExe">Path of the Admiral executable.</param>
+        /// <returns>The start information.</returns>
+        internal static ProcessStartInfo BuildUnixServerStartInfo(string serverExe)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine("[green]Admiral server is running![/]");
-            }
-            else if (!process.HasExited)
-                AnsiConsole.MarkupLine("[gold1]Server is still starting. Check [green]armada server status[/] in a few seconds.[/]");
-
-            return 0;
+                FileName = "/bin/sh",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add("exec \"$0\" </dev/null >/dev/null 2>&1");
+            startInfo.ArgumentList.Add(serverExe);
+            return startInfo;
         }
 
         /// <summary>

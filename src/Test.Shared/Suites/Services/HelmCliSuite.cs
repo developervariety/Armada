@@ -362,6 +362,36 @@ namespace Test.Shared.Suites.Services
                     AssertFalse(result.TimedOut, "The step finished on its own, not by timeout.");
                     AssertTrue(result.StandardErrorTruncated, "Stderr past the step's budget is dropped and counted, not held whole.");
                     AssertTrue(result.StandardError.EndsWith("eeee", StringComparison.Ordinal), "The end of stderr, where a build explains its failure, is kept.");
+                }),
+                CaseAsync("server_start_launch_cannot_block_the_server_on_its_output", "Helm server start launches the Admiral so it never blocks writing its console output", TestTags.Negative, async () =>
+                {
+                    if (OperatingSystem.IsWindows()) return;
+
+                    // A stand-in server writes 1 MiB to each stream, then marks that it got past its output. Helm does
+                    // not read the server's output, so a launch that leaves the output on an unread pipe stops the
+                    // server at the first full pipe.
+                    string root = Path.Combine(Path.GetTempPath(), "armada-helm-launch-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    string marker = Path.Combine(root, "past-output");
+                    string server = Path.Combine(root, "server.sh");
+                    File.WriteAllText(server, "#!/bin/sh\nhead -c 1048576 /dev/zero | tr '\\0' 'o'\nhead -c 1048576 /dev/zero | tr '\\0' 'e' >&2\ntouch '" + marker + "'\n");
+                    File.SetUnixFileMode(server, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                    try
+                    {
+                        using (System.Diagnostics.Process process = new System.Diagnostics.Process { StartInfo = ServerStartCommand.BuildUnixServerStartInfo(server) })
+                        {
+                            process.Start();
+                            DateTime deadline = DateTime.UtcNow.AddSeconds(20);
+                            while (!File.Exists(marker) && DateTime.UtcNow < deadline) await Task.Delay(100).ConfigureAwait(false);
+                            bool pastOutput = File.Exists(marker);
+                            if (!process.HasExited) process.Kill(entireProcessTree: true);
+                            AssertTrue(pastOutput, "The launched server must get past writing more than a pipe buffer of output.");
+                        }
+                    }
+                    finally
+                    {
+                        Directory.Delete(root, true);
+                    }
                 })
             };
 

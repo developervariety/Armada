@@ -9,6 +9,8 @@ namespace Armada.Helm.Commands
 
     internal static class McpConfigHelper
     {
+        private static readonly TimeSpan _CliCommandTimeout = TimeSpan.FromMinutes(2);
+
         internal sealed record ConfigTarget(
             string ClientName,
             string FilePath,
@@ -850,33 +852,37 @@ namespace Armada.Helm.Commands
             return File.Exists(candidate) ? candidate : baseName;
         }
 
-        private static async Task<bool> RunCliCommandAsync(string command, IEnumerable<string> args)
+        /// <summary>
+        /// Run an MCP client's own CLI (install or remove an entry) through the bounded runner: both output streams are
+        /// read while it runs, so a client that writes more than a pipe buffer cannot block, and a client that never
+        /// finishes is killed with its tree.
+        /// </summary>
+        /// <param name="command">Client executable.</param>
+        /// <param name="args">Arguments.</param>
+        /// <returns>True when the client exited 0.</returns>
+        internal static async Task<bool> RunCliCommandAsync(string command, IEnumerable<string> args)
         {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = command
+            };
+
+            foreach (string arg in args)
+                startInfo.ArgumentList.Add(arg);
+
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, _CliCommandTimeout)
+            {
+                OutputLimitBytes = 64 * 1024
+            };
+
             try
             {
-                ProcessStartInfo startInfo = new ProcessStartInfo
-                {
-                    FileName = command,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                foreach (string arg in args)
-                    startInfo.ArgumentList.Add(arg);
-
-                using (Process? process = Process.Start(startInfo))
-                {
-                    if (process == null)
-                        return false;
-
-                    await process.WaitForExitAsync().ConfigureAwait(false);
-                    return process.ExitCode == 0;
-                }
+                BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request).ConfigureAwait(false);
+                return result.ExitCode == 0;
             }
-            catch
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception || ex is InvalidOperationException)
             {
+                // The client is not installed or not executable: the caller reports the install or removal as failed.
                 return false;
             }
         }
