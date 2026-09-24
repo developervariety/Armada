@@ -51,6 +51,21 @@ namespace Armada.Core.Authorization
         }
 
         /// <summary>
+        /// Ownership scope for a record a caller creates. An administrator's requested scope is kept, and
+        /// tenant-wide is the default; any other caller always creates a user-specific record, because a
+        /// tenant-wide record is one only an administrator may change or delete.
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="requested">Scope the request named, or null.</param>
+        /// <returns>Scope to store.</returns>
+        public static OwnershipScopeEnum CreateScopeFor(AuthContext auth, OwnershipScopeEnum? requested)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (IsAdministrator(auth)) return requested ?? OwnershipScopeEnum.TenantWide;
+            return OwnershipScopeEnum.UserSpecific;
+        }
+
+        /// <summary>
         /// Decide whether a caller may read a record.
         /// </summary>
         /// <param name="auth">Caller.</param>

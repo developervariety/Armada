@@ -147,7 +147,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | any `.../enumerate` | POST | Level of the matching `GET` list | An enumerate route reads through a POST body, so it takes the level of the list it mirrors and applies the same caller scope |
 | `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
-| `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant. Every tenant uses a built-in pipeline, so only a global admin may update one; anyone else receives `403` |
+| `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline by name as the caller sees it (the caller's own tenant first, then a built-in record) and require edit rights under the ownership rule. Every tenant uses a built-in pipeline, so only a global admin may update one; anyone else receives `403`. REST, MCP and WebSocket share one pipeline service, so a payload is validated and stored the same way on each |
 
 **Ownership rule for personas, pipelines and prompt templates.** Each record has
 `TenantId`, `UserId` and `OwnershipScope` (`TenantWide` or `UserSpecific`). The
@@ -3614,9 +3614,14 @@ Create a new pipeline with stages.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `Name` | string | yes | Pipeline name |
+| `Name` | string | yes | Pipeline name, unique inside the caller's tenant |
 | `Description` | string | no | Pipeline description |
-| `Stages` | array | yes | Ordered list of pipeline stages |
+| `Stages` | array | yes | Ordered list of pipeline stages; must not be empty |
+| `Active` | bool | no | Whether the pipeline is active (default: true) |
+| `OwnershipScope` | string | no | `TenantWide` (default) or `UserSpecific`. Kept for an administrator; any other caller's record is `UserSpecific` |
+
+Only these fields are read. `Id`, `TenantId`, `UserId`, `IsBuiltIn` and the
+timestamps come from the server, never the body.
 
 **Stage fields:**
 
@@ -3624,9 +3629,14 @@ Create a new pipeline with stages.
 |---|---|---|---|
 | `PersonaName` | string | yes | Name of the persona for this stage |
 | `IsOptional` | bool | no | Whether this stage can be skipped (default: false) |
+| `RequiresReview` | bool | no | Whether the stage needs an explicit review approval before the pipeline continues (default: false) |
+| `ReviewDenyAction` | string | no | `RetryStage` (default) or `FailPipeline` |
+| `PreferredModel` | string | no | Per-stage tier (`low`, `mid`, `high`) |
 | `Description` | string | no | Stage description |
+| `Order` | int | no | Execution order. Give every stage a positive `Order` (stages that share one run as parallel siblings) or none, and list position numbers the stages 1..n. A list that orders only some stages is refused with `400` |
 
 **Response:** `201 Created` - Pipeline
+**Error:** `400` - missing name, empty stages, a stage without a persona, or a body that is not valid JSON; `409` - the name is already used in the caller's tenant
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/pipelines \
@@ -3650,10 +3660,17 @@ Update an existing pipeline. Every tenant uses a built-in pipeline, so only a gl
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `Description` | string | no | Updated description |
-| `Stages` | array | no | Updated ordered list of pipeline stages (replaces all existing stages) |
+| `Stages` | array | no | Updated ordered list of pipeline stages (replaces all existing stages). An empty list is refused with `400`; omit the field to keep the stages |
+| `Active` | bool | no | Whether the pipeline is active |
+
+Only supplied fields change. Stage fields are those of the create. In a
+replacement list, a stage field left out keeps the value of the existing stage
+for the same persona (matched in order), so an update that does not name
+`RequiresReview` keeps the review gate; send `false` to turn it off. An explicit
+`null` clears a stage's `Description` or `PreferredModel`.
 
 **Response:** `200 OK` - Pipeline
-**Error:** `404` - Pipeline not found
+**Error:** `400` - invalid stages; `403` - a pipeline the caller may read but not change; `404` - Pipeline not found
 
 ```bash
 curl -X PUT http://localhost:7890/api/v1/pipelines/review-pipeline \
@@ -3674,7 +3691,8 @@ Delete a pipeline. Built-in pipelines cannot be deleted.
 
 **Response:** `204 No Content`
 **Error:** `404` - Pipeline not found
-**Error:** `403` - Built-in pipeline cannot be deleted
+**Error:** `400` - Built-in pipeline cannot be deleted
+**Error:** `403` - a pipeline the caller may read but not change
 
 ```bash
 curl -X DELETE http://localhost:7890/api/v1/pipelines/review-pipeline

@@ -2078,10 +2078,14 @@ using System.IO;
                 AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's persona must not be reachable by name");
             }).ConfigureAwait(false);
 
-            await RunTest("Pipeline_DeleteBuiltInFromOtherTenant_Returns404", async () =>
+            await RunTest("Pipeline_DeleteBuiltInFromOtherTenant_IsRefusedAndKept", async () =>
             {
+                // A built-in pipeline is readable by every tenant, so the refusal names it as built-in
+                // rather than hiding it; what matters is that it is never deleted.
                 HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/pipelines/FullPipeline").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's pipeline must not be reachable by name");
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, "A built-in pipeline cannot be deleted");
+                HttpResponseMessage kept = await _AdminClient.GetAsync("/api/v1/pipelines/FullPipeline").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, kept.StatusCode, "The built-in pipeline is still stored");
             }).ConfigureAwait(false);
 
             await RunTest("Persona_CreateFromTenantAdmin_RecordsCallerTenant", async () =>

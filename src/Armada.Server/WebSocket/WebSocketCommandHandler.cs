@@ -1361,59 +1361,65 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>create_pipeline</c> command. Ownership comes from the caller, and a request cannot create a
-        /// built-in pipeline.
+        /// Run the <c>create_pipeline</c> command through the shared pipeline rule.
         /// </summary>
         private async Task<object> CreatePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            Pipeline newPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
-            newPipeline.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
-            newPipeline.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
-            newPipeline.IsBuiltIn = false;
-            newPipeline = await _Database.Pipelines.CreateAsync(newPipeline).ConfigureAwait(false);
-            return new { type = "command.result", action = "create_pipeline", data = (object)newPipeline };
+            PipelineWriteRequest? request = ReadWriteRequest<PipelineWriteRequest>(rawBody, "create_pipeline", out object? refusal);
+            if (request == null) return refusal!;
+            RecordWriteResult<Pipeline> result = await new Armada.Core.Services.PipelineService(_Database).CreateAsync(caller, request).ConfigureAwait(false);
+            return WriteResult("create_pipeline", result, result.Record);
         }
 
         /// <summary>
-        /// Run the <c>update_pipeline</c> command.
+        /// Run the <c>update_pipeline</c> command through the shared pipeline rule.
         /// </summary>
         private async Task<object> UpdatePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            Pipeline? existPipeline = await ReadVisiblePipelineAsync(caller, command.Id).ConfigureAwait(false);
-            if (existPipeline == null)
-                return NotFound("update_pipeline", "Pipeline not found");
-            else if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, existPipeline))
-                return Forbidden("update_pipeline", "You may not change this pipeline");
-            else
+            PipelineWriteRequest? request = ReadWriteRequest<PipelineWriteRequest>(rawBody, "update_pipeline", out object? refusal);
+            if (request == null) return refusal!;
+            RecordWriteResult<Pipeline> result = await new Armada.Core.Services.PipelineService(_Database).UpdateAsync(caller, command.Id, request).ConfigureAwait(false);
+            return WriteResult("update_pipeline", result, result.Record);
+        }
+
+        /// <summary>
+        /// Run the <c>delete_pipeline</c> command through the shared pipeline rule.
+        /// </summary>
+        private async Task<object> DeletePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        {
+            RecordWriteResult<Pipeline> result = await new Armada.Core.Services.PipelineService(_Database).DeleteAsync(caller, command.Id).ConfigureAwait(false);
+            return WriteResult("delete_pipeline", result, new { Status = "deleted", Name = result.Record?.Name });
+        }
+
+        /// <summary>
+        /// Read a command's data object into a write request. A data object that is not valid for the request
+        /// type is refused with a command error instead of failing the command.
+        /// </summary>
+        private T? ReadWriteRequest<T>(string rawBody, string action, out object? refusal) where T : class, new()
+        {
+            refusal = null;
+            try
             {
-                Pipeline patchPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
-                if (patchPipeline.Description != null) existPipeline.Description = patchPipeline.Description;
-                if (patchPipeline.Stages != null && patchPipeline.Stages.Count > 0)
-                {
-                    existPipeline.Stages = patchPipeline.Stages;
-                    foreach (PipelineStage stage in existPipeline.Stages)
-                        stage.PipelineId = existPipeline.Id;
-                }
-                existPipeline = await _Database.Pipelines.UpdateAsync(existPipeline).ConfigureAwait(false);
-                return new { type = "command.result", action = "update_pipeline", data = (object)existPipeline };
+                return JsonSerializer.Deserialize<WebSocketDataCommand<T>>(rawBody, _JsonOptions)?.Data ?? new T();
+            }
+            catch (JsonException ex)
+            {
+                refusal = new { type = "command.error", action = action, error = "Request data is not valid: " + ex.Message, code = "invalid" };
+                return null;
             }
         }
 
         /// <summary>
-        /// Run the <c>delete_pipeline</c> command.
+        /// Map a shared configuration-record write result to a command reply: the given data on success, or a
+        /// command error carrying the same refusal message and code MCP returns.
         /// </summary>
-        private async Task<object> DeletePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
+        private static object WriteResult<T>(string action, RecordWriteResult<T> result, object? successData) where T : class
         {
-            string delPipelineName = command.Id ?? "";
-            Pipeline? delPipeline = await ReadVisiblePipelineAsync(caller, delPipelineName).ConfigureAwait(false);
-            if (delPipeline == null)
-                return NotFound("delete_pipeline", "Pipeline not found");
-            if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, delPipeline))
-                return Forbidden("delete_pipeline", "You may not delete this pipeline");
-            if (delPipeline.IsBuiltIn)
-                return new { type = "command.error", action = "delete_pipeline", error = "Cannot delete built-in pipeline" };
-            await _Database.Pipelines.DeleteAsync(delPipeline.Id).ConfigureAwait(false);
-            return new { type = "command.result", action = "delete_pipeline", data = (object)new { Status = "deleted", Name = delPipelineName } };
+            if (result.Succeeded) return new { type = "command.result", action = action, data = successData };
+            string code = Armada.Server.Mcp.McpRecordWriteResult.CodeOf(result);
+            if (result.Outcome == RecordWriteOutcomeEnum.NotFound) code = WebSocketCommandRefusal.NotFoundCode;
+            if (result.Outcome == RecordWriteOutcomeEnum.Forbidden) code = WebSocketCommandRefusal.ForbiddenCode;
+            return new { type = "command.error", action = action, error = result.Message, code = code };
         }
 
         #endregion

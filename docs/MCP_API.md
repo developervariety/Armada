@@ -973,6 +973,35 @@ administrator may set them; for any other caller both tools return an error and
 write nothing. A vessel name must be one path segment: no `/` or `\`, no `..`,
 no `:`, no control characters, and no leading `.`.
 
+## Configuration Record Writes
+
+Pipelines, personas, prompt templates, playbooks, workflow profiles and
+objectives each have one service that owns their create, update and delete:
+validation, defaults, the field allow-list, the caller-scoped lookup and the
+edit check. The MCP tools, the REST routes and the WebSocket commands only map
+its result, so one payload is stored, or refused, the same way on all three. A
+refusal is a tool error with `Error` (the message REST returns) and `Code`
+(`invalid`, `not_found`, `forbidden`, `conflict`, or a specific code such as
+`specialist_retired`). A record the caller may not read returns `not_found`; one
+it may read but not change returns `forbidden`.
+
+### Pipelines
+
+`create_pipeline` requires `name` and a non-empty `stages` list, and accepts
+`description`, `active` and `ownershipScope`. A name already used in the
+caller's tenant returns `conflict`. Each stage requires `personaName` and
+accepts `order`, `isOptional`, `requiresReview`, `reviewDenyAction`
+(`RetryStage` or `FailPipeline`), `description` and `preferredModel`. Give every
+stage an `order` (stages that share one run as parallel siblings) or none, and
+list position numbers the stages 1..n; a list that orders only some stages is
+refused.
+
+`update_pipeline` changes only the supplied fields. A non-empty `stages` list
+replaces the stages; an empty list is refused. In a replacement list, a stage
+field left out keeps the value of the existing stage for the same persona, so an
+update that does not name `requiresReview` keeps the review gate; send `false`
+to turn it off, or `null` to clear a stage's `description` or `preferredModel`.
+
 ## Client Names
 
 MCP clients can add a transport prefix to tool names in their own UI or prompt

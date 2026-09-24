@@ -894,8 +894,8 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `update_persona` | Update persona properties | `id` (persona name), `data` (partial Persona) |
 | | `delete_persona` | Delete a custom persona (blocked for built-in) | `id` (persona name) |
 | **Pipeline** | `get_pipeline` | Get a pipeline by name | `id` (pipeline name) |
-| | `create_pipeline` | Create a pipeline with stages | `data` (Pipeline object with Stages) |
-| | `update_pipeline` | Update pipeline and stages | `id` (pipeline name), `data` (partial Pipeline) |
+| | `create_pipeline` | Create a pipeline with stages, through the pipeline service REST and MCP use | `data` (name, description, stages, active, ownershipScope) |
+| | `update_pipeline` | Update pipeline and stages; a stage field left out keeps the existing stage's value | `id` (pipeline name), `data` (description, stages, active) |
 | | `delete_pipeline` | Delete a custom pipeline (blocked for built-in) | `id` (pipeline name) |
 | **Prompt Template** | `get_prompt_template` | Get a prompt template by name | `id` (template name) |
 | | `update_prompt_template` | Update template content | `id` (template name), `data` (partial PromptTemplate) |

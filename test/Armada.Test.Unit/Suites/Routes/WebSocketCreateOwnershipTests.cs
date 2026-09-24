@@ -237,7 +237,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertEqual(caller.TenantId, persona!.TenantId, "the persona belongs to the caller's tenant");
                     AssertEqual(caller.UserId, persona.UserId, "the persona belongs to the calling user");
 
-                    string pipelineJson = await SendAsync(handler, "create_pipeline", new { Name = "WsOwnedPipeline" }, caller).ConfigureAwait(false);
+                    string pipelineJson = await SendAsync(handler, "create_pipeline", new { Name = "WsOwnedPipeline", Stages = new[] { new { PersonaName = "Worker" } } }, caller).ConfigureAwait(false);
                     Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("WsOwnedPipeline").ConfigureAwait(false);
                     AssertNotNull(pipeline, "the pipeline is created: " + pipelineJson);
                     AssertEqual(caller.TenantId, pipeline!.TenantId, "the pipeline belongs to the caller's tenant");

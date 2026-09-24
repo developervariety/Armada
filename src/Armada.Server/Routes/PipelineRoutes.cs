@@ -10,6 +10,7 @@ namespace Armada.Server.Routes
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -120,62 +121,46 @@ namespace Armada.Server.Routes
                 .WithSecurity("ApiKey"));
 
             // Create pipeline
-            app.Post<Pipeline>("/api/v1/pipelines", async (ApiRequest req) =>
+            app.Post<PipelineWriteRequest>("/api/v1/pipelines", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                Pipeline pipeline = JsonSerializer.Deserialize<Pipeline>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as Pipeline.");
-                // Ownership comes from the caller, never from the body. Built-in records are
-                // seeded by the server, so a request cannot create one.
-                pipeline.TenantId = ctx.TenantId;
-                pipeline.UserId = ctx.UserId;
-                pipeline.IsBuiltIn = false;
-                pipeline = await _database.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
-                req.Http.Response.StatusCode = 201;
-                return pipeline;
+                if (!RecordWriteResponse.TryReadBody(req, _jsonOptions, out PipelineWriteRequest? body, out object? refusal)) return refusal;
+                RecordWriteResult<Pipeline> result = await new PipelineService(_database).CreateAsync(ctx, body).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 201);
             },
             api => api
                 .WithTag("Pipelines")
                 .WithSummary("Create a pipeline")
-                .WithDescription("Creates a new pipeline with stages defining the persona workflow.")
-                .WithRequestBody(OpenApiJson.BodyFor<Pipeline>("Pipeline data (Name, Description, Stages array)", true))
+                .WithDescription("Creates a new pipeline with stages defining the persona workflow. Name and a non-empty Stages list are required; each stage needs a PersonaName and may set IsOptional, RequiresReview, ReviewDenyAction, Description and PreferredModel. A list without orders runs in list order (1..n); a list that gives every stage an Order keeps it, and stages sharing an order run as parallel siblings; a list that orders only some stages is refused. Ownership, identifiers and timestamps come from the server, never the body. A name already used in the caller's tenant returns 409.")
+                .WithRequestBody(OpenApiJson.BodyFor<PipelineWriteRequest>("Pipeline data (Name, Description, Stages array, Active, OwnershipScope)", true))
                 .WithResponse(201, OpenApiJson.For<Pipeline>("Created pipeline"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("A pipeline with that name already exists"))
                 .WithSecurity("ApiKey"));
 
             // Update pipeline by name
-            app.Put<Pipeline>("/api/v1/pipelines/{name}", async (ApiRequest req) =>
+            app.Put<PipelineWriteRequest>("/api/v1/pipelines/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string name = req.Parameters["name"];
-                // A global administrator reaches every tenant; anyone else stays inside their own.
-                Pipeline? existing = ctx.IsAdmin
-                    ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
-                    : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanView(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
-                // Every tenant uses a built-in pipeline, so only a global administrator may change it.
-                if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) return RouteAuthRefusal.Forbid(req, existing.IsBuiltIn ? "Built-in pipelines can be changed only by a global administrator" : "You may not change this pipeline");
-                Pipeline body = JsonSerializer.Deserialize<Pipeline>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as Pipeline.");
-                if (body.Description != null) existing.Description = body.Description;
-                if (body.Stages != null && body.Stages.Count > 0) existing.Stages = body.Stages;
-                existing.LastUpdateUtc = DateTime.UtcNow;
-                Pipeline updated = await _database.Pipelines.UpdateAsync(existing).ConfigureAwait(false);
-                return (object)updated;
+                if (!RecordWriteResponse.TryReadBody(req, _jsonOptions, out PipelineWriteRequest? body, out object? refusal)) return refusal;
+                RecordWriteResult<Pipeline> result = await new PipelineService(_database).UpdateAsync(ctx, req.Parameters["name"], body).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 200);
             },
             api => api
                 .WithTag("Pipelines")
                 .WithSummary("Update a pipeline")
-                .WithDescription("Updates an existing pipeline by name. Replaces stages if provided. Every tenant uses a built-in pipeline, so only a global administrator may change one; any other caller receives 403.")
+                .WithDescription("Updates an existing pipeline by name. Only supplied fields change. A non-empty Stages list replaces the stages; an empty list is refused. A stage field left out keeps the value of the existing stage for the same persona, so an update that does not name RequiresReview keeps the review gate. Every tenant uses a built-in pipeline, so only a global administrator may change one; any other caller receives 403.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Pipeline name (e.g. WorkerOnly, FullPipeline)"))
-                .WithRequestBody(OpenApiJson.BodyFor<Pipeline>("Updated pipeline data", true))
+                .WithRequestBody(OpenApiJson.BodyFor<PipelineWriteRequest>("Updated pipeline data", true))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(200, OpenApiJson.For<Pipeline>("Updated pipeline"))
                 .WithResponse(403, OpenApiResponseMetadata.Forbidden())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
@@ -189,21 +174,14 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string name = req.Parameters["name"];
-                // A global administrator reaches every tenant; anyone else stays inside their own.
-                Pipeline? existing = ctx.IsAdmin
-                    ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
-                    : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || (!existing.IsBuiltIn && !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing))) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
-                if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in pipelines cannot be deleted" }; }
-                await _database.Pipelines.DeleteAsync(existing.Id).ConfigureAwait(false);
-                req.Http.Response.StatusCode = 204;
-                return null;
+                RecordWriteResult<Pipeline> result = await new PipelineService(_database).DeleteAsync(ctx, req.Parameters["name"]).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 204);
             },
             api => api
                 .WithTag("Pipelines")
                 .WithSummary("Delete a pipeline")
-                .WithDescription("Deletes a pipeline by name. Built-in pipelines cannot be deleted.")
+                .WithDescription("Deletes a pipeline by name. Built-in pipelines cannot be deleted (400); a pipeline the caller may read but not change returns 403.")
+                .WithResponse(403, OpenApiResponseMetadata.Forbidden())
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Pipeline name (e.g. WorkerOnly, FullPipeline)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())

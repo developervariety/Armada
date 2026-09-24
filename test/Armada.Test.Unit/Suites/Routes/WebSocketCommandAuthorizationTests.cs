@@ -182,11 +182,11 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertNotNull(storedPersona, "the persona is created in the caller's tenant, not the tenant the body names");
 
                     string pipelineName = "WsTenantPipeline" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                    string refusedPipeline = await SendAsync(handler, "create_pipeline", null, new { Name = pipelineName }, callers.UserA).ConfigureAwait(false);
+                    string refusedPipeline = await SendAsync(handler, "create_pipeline", null, new { Name = pipelineName, Stages = new[] { new { PersonaName = "Worker" } } }, callers.UserA).ConfigureAwait(false);
                     AssertContains("\"code\":\"tenant_administrator_required\"", refusedPipeline, "a tenant user cannot create a pipeline: " + refusedPipeline);
                     AssertNull(await testDb.Driver.Pipelines.ReadByNameAsync(callers.TenantA, pipelineName).ConfigureAwait(false), "the refused create writes nothing");
 
-                    string createdPipeline = await SendAsync(handler, "create_pipeline", null, new { Name = pipelineName, TenantId = callers.TenantB }, callers.AdminA).ConfigureAwait(false);
+                    string createdPipeline = await SendAsync(handler, "create_pipeline", null, new { Name = pipelineName, TenantId = callers.TenantB, Stages = new[] { new { PersonaName = "Worker" } } }, callers.AdminA).ConfigureAwait(false);
                     AssertContains("command.result", createdPipeline, "a tenant administrator creates a pipeline: " + createdPipeline);
                     AssertNotNull(await testDb.Driver.Pipelines.ReadByNameAsync(callers.TenantA, pipelineName).ConfigureAwait(false), "the pipeline is created in the caller's tenant");
                 }
@@ -329,7 +329,7 @@ namespace Armada.Test.Unit.Suites.Routes
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    string json = await SendAsync(CreateHandler(testDb), "create_pipeline", null, new { Name = "WsAuthBuiltInPipeline", IsBuiltIn = true }, McpTestCaller.Operator).ConfigureAwait(false);
+                    string json = await SendAsync(CreateHandler(testDb), "create_pipeline", null, new { Name = "WsAuthBuiltInPipeline", IsBuiltIn = true, Stages = new[] { new { PersonaName = "Worker" } } }, McpTestCaller.Operator).ConfigureAwait(false);
                     Pipeline? stored = await testDb.Driver.Pipelines.ReadByNameAsync("WsAuthBuiltInPipeline").ConfigureAwait(false);
                     AssertNotNull(stored, "the pipeline is created: " + json);
                     AssertFalse(stored!.IsBuiltIn, "a request cannot create a built-in pipeline");

@@ -436,6 +436,28 @@ upstream integrations and excludes changes already present at that baseline.
   one (an enrollment another tenant holds reads only as `runner_already_enrolled`).
   A deployment environment cannot move to a vessel in another tenant, and deleting
   an objective with no row purges only the caller's own tenant's orphan snapshots.
+  update, vessel build-context, merge-queue enqueue, incident create and update,
+  and planning-session create read every record their body names by id with the
+  caller's scope, as they read a path id, and return `404` (`400` for an
+  incident create) for a record outside it; the MCP and WebSocket create surfaces
+  apply the same rule. Caller-less paths read linked records only inside the
+  owning tenant: mission dependencies, Judge follow-up association, incident
+  lifecycle evidence, and fleet and captain default playbooks.
+- **Pipeline writes:** REST, MCP and WebSocket create, update and delete a
+  pipeline through one service, so a payload is validated, defaulted and stored
+  the same way on each. MCP `create_pipeline` and `update_pipeline` accept
+  `requiresReview` and `reviewDenyAction`, and a replacement stage list keeps
+  each omitted stage field from the existing stage for the same persona, so an
+  update no longer turns a review gate off by leaving it out. A stage list without
+  orders runs in list order on every surface; REST and WebSocket stored such a
+  list with every stage at order 1, which ran them all as parallel siblings. MCP
+  accepts `order`, so it can define parallel stages too, and a list that orders
+  only some stages is refused. A missing name, an empty stage list (create or update) or a stage
+  without a persona is refused on every surface, and a duplicate name returns
+  `409` instead of a database error. REST and WebSocket read only the allow-listed
+  fields, so an id, tenant, built-in flag or timestamp in the body is ignored. A
+  global administrator's update or delete by name reaches its own tenant's record
+  before another tenant's.
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.

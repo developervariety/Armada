@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Registers MCP tools for pipeline CRUD operations.
@@ -17,7 +18,8 @@ namespace Armada.Server.Mcp.Tools
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
         };
 
         /// <summary>
@@ -27,68 +29,29 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="database">Database driver for pipeline data access.</param>
         public static void Register(RegisterToolDelegate register, DatabaseDriver database)
         {
+            PipelineService pipelines = new PipelineService(database);
+
             register(
                 "create_pipeline",
-                "Create a new pipeline with an ordered sequence of persona stages",
+                "Create a new pipeline with an ordered sequence of persona stages. Without explicit orders the stages run in list order; stages that share an order run as parallel siblings.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Pipeline name (e.g. 'WorkerOnly', 'FullPipeline', 'Reviewed')" },
+                        name = new { type = "string", description = "Pipeline name (e.g. 'WorkerOnly', 'FullPipeline', 'Reviewed'). A name already used in the caller's tenant is refused with code conflict." },
                         description = new { type = "string", description = "Human-readable description of the pipeline workflow" },
-                        stages = new
-                        {
-                            type = "array",
-                            description = "Ordered list of pipeline stages",
-                            items = new
-                            {
-                                type = "object",
-                                properties = new
-                                {
-                                    personaName = new { type = "string", description = "Persona name for this stage" },
-                                    isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
-                                    description = new { type = "string", description = "Description of what this stage does" },
-                                    preferredModel = new { type = "string", description = "Optional per-stage complexity tier: 'low', 'mid', or 'high'. When set, this stage uses that tier instead of the per-mission preferredModel. Null means inherit the dispatch's preferredModel." }
-                                },
-                                required = new[] { "personaName" }
-                            }
-                        }
+                        active = new { type = "boolean", description = "Whether the pipeline is active (default true)" },
+                        ownershipScope = OwnershipScopeSchema(),
+                        stages = StagesSchema("Ordered list of pipeline stages; must not be empty")
                     },
                     required = new[] { "name", "stages" }
                 },
                 async (args) =>
                 {
-                    PipelineArgs request = JsonSerializer.Deserialize<PipelineArgs>(args!.Value, _JsonOptions)!;
-                    if (String.IsNullOrEmpty(request.Name)) return (object)new { Error = "name is required" };
-                    if (request.Stages == null || request.Stages.Count == 0) return (object)new { Error = "stages is required and must not be empty" };
-
-                    Pipeline pipeline = new Pipeline(request.Name);
-                    AuthContext caller = McpCallerContext.Require();
-                    pipeline.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
-                    pipeline.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
-                    if (request.Description != null)
-                        pipeline.Description = request.Description;
-
-                    List<PipelineStage> stages = new List<PipelineStage>();
-                    for (int i = 0; i < request.Stages.Count; i++)
-                    {
-                        PipelineStageArgs stageArgs = request.Stages[i];
-                        if (String.IsNullOrEmpty(stageArgs.PersonaName)) return (object)new { Error = "personaName is required for stage " + (i + 1) };
-
-                        PipelineStage stage = new PipelineStage(i + 1, stageArgs.PersonaName);
-                        if (stageArgs.IsOptional.HasValue)
-                            stage.IsOptional = stageArgs.IsOptional.Value;
-                        if (stageArgs.Description != null)
-                            stage.Description = stageArgs.Description;
-                        if (stageArgs.PreferredModel != null)
-                            stage.PreferredModel = stageArgs.PreferredModel;
-                        stages.Add(stage);
-                    }
-                    pipeline.Stages = stages;
-
-                    pipeline = await database.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
-                    return (object)pipeline;
+                    PipelineWriteRequest request = JsonSerializer.Deserialize<PipelineWriteRequest>(args!.Value, _JsonOptions) ?? new PipelineWriteRequest();
+                    RecordWriteResult<Pipeline> result = await pipelines.CreateAsync(McpCallerContext.Require(), request).ConfigureAwait(false);
+                    return McpRecordWriteResult.From(result);
                 });
 
             register(
@@ -105,17 +68,17 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    PipelineArgs request = JsonSerializer.Deserialize<PipelineArgs>(args!.Value, _JsonOptions)!;
-                    string name = request.Name;
+                    PipelineWriteRequest request = JsonSerializer.Deserialize<PipelineWriteRequest>(args!.Value, _JsonOptions) ?? new PipelineWriteRequest();
+                    string name = request.Name ?? "";
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-                    Pipeline? pipeline = await ReadVisibleAsync(database, McpCallerContext.Require(), name).ConfigureAwait(false);
+                    Pipeline? pipeline = await pipelines.ReadVisibleAsync(McpCallerContext.Require(), name).ConfigureAwait(false);
                     if (pipeline == null) return (object)new { Error = "Pipeline not found: " + name };
                     return (object)pipeline;
                 });
 
             register(
                 "update_pipeline",
-                "Update an existing pipeline's properties and stages",
+                "Update an existing pipeline. Only supplied fields change. A non-empty stages list replaces the stages; an empty list is refused. A stage field left out keeps the value of the existing stage for the same persona, so an update that does not name requiresReview keeps the review gate.",
                 new
                 {
                     type = "object",
@@ -123,63 +86,18 @@ namespace Armada.Server.Mcp.Tools
                     {
                         name = new { type = "string", description = "Pipeline name (used to look up the pipeline)" },
                         description = new { type = "string", description = "New description" },
-                        stages = new
-                        {
-                            type = "array",
-                            description = "New ordered list of pipeline stages (replaces existing stages)",
-                            items = new
-                            {
-                                type = "object",
-                                properties = new
-                                {
-                                    personaName = new { type = "string", description = "Persona name for this stage" },
-                                    isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
-                                    description = new { type = "string", description = "Description of what this stage does" },
-                                    preferredModel = new { type = "string", description = "Optional per-stage complexity tier: 'low', 'mid', or 'high'. When set, this stage uses that tier instead of the per-mission preferredModel. Null means inherit the dispatch's preferredModel." }
-                                },
-                                required = new[] { "personaName" }
-                            }
-                        }
+                        active = new { type = "boolean", description = "Whether the pipeline is active" },
+                        stages = StagesSchema("New ordered list of pipeline stages (replaces existing stages); must not be empty")
                     },
                     required = new[] { "name" }
                 },
                 async (args) =>
                 {
-                    PipelineArgs request = JsonSerializer.Deserialize<PipelineArgs>(args!.Value, _JsonOptions)!;
-                    string name = request.Name;
-                    if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-
-                    AuthContext caller = McpCallerContext.Require();
-                    Pipeline? pipeline = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
-                    if (pipeline == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, pipeline)) return (object)new { Error = "Pipeline not found: " + name };
-
-                    if (request.Description != null)
-                        pipeline.Description = request.Description;
-
-                    if (request.Stages != null)
-                    {
-                        List<PipelineStage> stages = new List<PipelineStage>();
-                        for (int i = 0; i < request.Stages.Count; i++)
-                        {
-                            PipelineStageArgs stageArgs = request.Stages[i];
-                            if (String.IsNullOrEmpty(stageArgs.PersonaName)) return (object)new { Error = "personaName is required for stage " + (i + 1) };
-
-                            PipelineStage stage = new PipelineStage(i + 1, stageArgs.PersonaName);
-                            stage.PipelineId = pipeline.Id;
-                            if (stageArgs.IsOptional.HasValue)
-                                stage.IsOptional = stageArgs.IsOptional.Value;
-                            if (stageArgs.Description != null)
-                                stage.Description = stageArgs.Description;
-                            if (stageArgs.PreferredModel != null)
-                                stage.PreferredModel = stageArgs.PreferredModel;
-                            stages.Add(stage);
-                        }
-                        pipeline.Stages = stages;
-                    }
-
-                    pipeline.LastUpdateUtc = DateTime.UtcNow;
-                    pipeline = await database.Pipelines.UpdateAsync(pipeline).ConfigureAwait(false);
-                    return (object)pipeline;
+                    PipelineWriteRequest request = JsonSerializer.Deserialize<PipelineWriteRequest>(args!.Value, _JsonOptions) ?? new PipelineWriteRequest();
+                    // The name addresses the record; an update never takes ownership scope from the request.
+                    request.OwnershipScope = null;
+                    RecordWriteResult<Pipeline> result = await pipelines.UpdateAsync(McpCallerContext.Require(), request.Name, request).ConfigureAwait(false);
+                    return McpRecordWriteResult.From(result);
                 });
 
             register(
@@ -196,28 +114,40 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    PipelineArgs request = JsonSerializer.Deserialize<PipelineArgs>(args!.Value, _JsonOptions)!;
-                    string name = request.Name;
-                    if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-
-                    AuthContext caller = McpCallerContext.Require();
-                    Pipeline? pipeline = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
-                    if (pipeline == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, pipeline)) return (object)new { Error = "Pipeline not found: " + name };
-                    if (pipeline.IsBuiltIn) return (object)new { Error = "Cannot delete built-in pipeline: " + name };
-
-                    await database.Pipelines.DeleteAsync(pipeline.Id).ConfigureAwait(false);
-                    return (object)new { Status = "deleted", Name = name };
+                    PipelineWriteRequest request = JsonSerializer.Deserialize<PipelineWriteRequest>(args!.Value, _JsonOptions) ?? new PipelineWriteRequest();
+                    RecordWriteResult<Pipeline> result = await pipelines.DeleteAsync(McpCallerContext.Require(), request.Name).ConfigureAwait(false);
+                    if (!result.Succeeded) return McpRecordWriteResult.From(result);
+                    return (object)new { Status = "deleted", Name = result.Record!.Name };
                 });
         }
 
-        private static Task<Pipeline?> ReadVisibleAsync(DatabaseDriver database, AuthContext caller, string name)
+        private static object OwnershipScopeSchema()
         {
-            return Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
-                caller,
-                name,
-                (tenantId, pipelineName) => database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
-                () => database.Pipelines.EnumerateAsync(),
-                record => record.Name);
+            return new { type = "string", @enum = new[] { "TenantWide", "UserSpecific" }, description = "Who may see the record inside its tenant. An administrator's choice is kept (TenantWide when omitted); any other caller's record is UserSpecific." };
+        }
+
+        private static object StagesSchema(string description)
+        {
+            return new
+            {
+                type = "array",
+                description = description,
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        personaName = new { type = "string", description = "Persona name for this stage" },
+                        order = new { type = "integer", description = "Execution order. Give every stage an order (stages that share one run as parallel siblings) or none, and list position numbers the stages 1..n." },
+                        isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
+                        requiresReview = new { type = "boolean", description = "Whether this stage requires an explicit review approval before the pipeline continues (default false)" },
+                        reviewDenyAction = new { type = "string", @enum = new[] { "RetryStage", "FailPipeline" }, description = "Action when the review is denied (default RetryStage)" },
+                        description = new { type = "string", description = "Description of what this stage does" },
+                        preferredModel = new { type = "string", description = "Optional per-stage complexity tier: 'low', 'mid', or 'high'. When set, this stage uses that tier instead of the per-mission preferredModel. Null means inherit the dispatch's preferredModel." }
+                    },
+                    required = new[] { "personaName" }
+                }
+            };
         }
     }
 }
