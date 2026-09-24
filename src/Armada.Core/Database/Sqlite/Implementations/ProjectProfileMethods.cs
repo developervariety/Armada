@@ -74,7 +74,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return FromReader(reader);
+                return ProjectProfileColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
             return null;
         }
 
@@ -155,7 +155,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))
-                    results.Add(FromReader(reader));
+                    results.Add(ProjectProfileColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             }
 
             return new EnumerationResult<ProjectProfile>
@@ -187,7 +187,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<ProjectProfile> results = new List<ProjectProfile>();
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                results.Add(FromReader(reader));
+                results.Add(ProjectProfileColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             return results;
         }
 
@@ -266,50 +266,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(profile.LastUpdateUtc));
         }
 
-        private static ProjectProfile FromReader(SqliteDataReader reader)
-        {
-            ProjectProfile profile = new ProjectProfile
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = SqliteDatabaseDriver.NullableString(reader["description"]),
-                FleetId = SqliteDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
-                IsDefault = Convert.ToInt64(reader["is_default"]) == 1,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                DefaultPipelineId = SqliteDatabaseDriver.NullableString(reader["default_pipeline_id"]),
-                WorkflowProfileId = SqliteDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["scope"].ToString(), true, out ProjectProfileScopeEnum scope))
-                profile.Scope = scope;
-
-            profile.PersonaOverrides = Deserialize<List<PersonaOverride>>(SqliteDatabaseDriver.NullableString(reader["persona_overrides_json"])) ?? new List<PersonaOverride>();
-            profile.Skills = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["skills_json"])) ?? new List<string>();
-            profile.AuthorizationPolicy = SqliteDatabaseDriver.NullableString(reader["authorization_policy"]);
-            return profile;
-        }
-
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
     }
 }

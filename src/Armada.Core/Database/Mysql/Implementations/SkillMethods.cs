@@ -64,7 +64,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return SkillColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -154,7 +154,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(SkillColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -190,7 +190,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(SkillColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -252,24 +252,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@active", skill.Active ? 1 : 0);
             cmd.Parameters.AddWithValue("@created_utc", skill.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", skill.LastUpdateUtc);
-        }
-
-        private static Skill FromReader(MySqlDataReader reader)
-        {
-            return new Skill
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = MysqlDatabaseDriver.NullableString(reader["description"]),
-                Category = MysqlDatabaseDriver.NullableString(reader["category"]),
-                Content = MysqlDatabaseDriver.NullableString(reader["content"]) ?? String.Empty,
-                IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
-                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
-            };
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)

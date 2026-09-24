@@ -64,7 +64,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return SkillColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -156,7 +156,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(SkillColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -192,7 +192,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(SkillColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -254,24 +254,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@active", skill.Active);
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(skill.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(skill.LastUpdateUtc));
-        }
-
-        private static Skill FromReader(SqlDataReader reader)
-        {
-            return new Skill
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = SqlServerDatabaseDriver.NullableString(reader["description"]),
-                Category = SqlServerDatabaseDriver.NullableString(reader["category"]),
-                Content = SqlServerDatabaseDriver.NullableString(reader["content"]) ?? String.Empty,
-                IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]),
-                Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

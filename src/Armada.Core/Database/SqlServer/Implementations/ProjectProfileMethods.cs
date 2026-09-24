@@ -74,7 +74,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ProjectProfileColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -172,7 +172,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ProjectProfileColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -208,7 +208,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ProjectProfileColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -288,50 +288,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(profile.LastUpdateUtc));
         }
 
-        private static ProjectProfile FromReader(SqlDataReader reader)
-        {
-            ProjectProfile profile = new ProjectProfile
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = SqlServerDatabaseDriver.NullableString(reader["description"]),
-                FleetId = SqlServerDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
-                IsDefault = Convert.ToBoolean(reader["is_default"]),
-                Active = Convert.ToBoolean(reader["active"]),
-                DefaultPipelineId = SqlServerDatabaseDriver.NullableString(reader["default_pipeline_id"]),
-                WorkflowProfileId = SqlServerDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["scope"].ToString(), true, out ProjectProfileScopeEnum scope))
-                profile.Scope = scope;
-
-            profile.PersonaOverrides = Deserialize<List<PersonaOverride>>(SqlServerDatabaseDriver.NullableString(reader["persona_overrides_json"])) ?? new List<PersonaOverride>();
-            profile.Skills = Deserialize<List<string>>(SqlServerDatabaseDriver.NullableString(reader["skills_json"])) ?? new List<string>();
-            profile.AuthorizationPolicy = SqlServerDatabaseDriver.NullableString(reader["authorization_policy"]);
-            return profile;
-        }
-
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

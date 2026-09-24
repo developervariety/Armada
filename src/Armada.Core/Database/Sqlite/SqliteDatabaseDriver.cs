@@ -31,6 +31,16 @@ namespace Armada.Core.Database.Sqlite
 
         #endregion
 
+        #region Internal-Members
+
+        /// <summary>
+        /// How this provider's stored values convert to model values. SQLite stores booleans as
+        /// integers where 1 is true, and timestamps as ISO 8601 text.
+        /// </summary>
+        internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("SQLite", integerBooleans: true);
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[SqliteDatabaseDriver] ";

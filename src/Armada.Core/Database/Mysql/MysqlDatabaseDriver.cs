@@ -25,6 +25,16 @@ namespace Armada.Core.Database.Mysql
 
         #endregion
 
+        #region Internal-Members
+
+        /// <summary>
+        /// How this provider's stored values convert to model values. MySQL stores booleans as
+        /// TINYINT integers where 1 is true, and timestamps as DATETIME(6) or ISO 8601 text depending on the column.
+        /// </summary>
+        internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("MySQL", integerBooleans: true);
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[MysqlDatabaseDriver] ";

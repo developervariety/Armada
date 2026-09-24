@@ -64,7 +64,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return SkillColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -156,7 +156,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(SkillColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -192,7 +192,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(SkillColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -254,31 +254,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@active", skill.Active);
             cmd.Parameters.AddWithValue("@created_utc", skill.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", skill.LastUpdateUtc);
-        }
-
-        private static Skill FromReader(NpgsqlDataReader reader)
-        {
-            return new Skill
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = NullableString(reader["description"]),
-                Category = NullableString(reader["category"]),
-                Content = NullableString(reader["content"]) ?? String.Empty,
-                IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]),
-                Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

@@ -31,6 +31,16 @@ namespace Armada.Core.Database.SqlServer
 
         #endregion
 
+        #region Internal-Members
+
+        /// <summary>
+        /// How this provider's stored values convert to model values. SQL Server stores booleans as
+        /// BIT values, and timestamps as ISO 8601 text or DATETIME2 depending on the column.
+        /// </summary>
+        internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("SQL Server", integerBooleans: false);
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[SqlServerDatabaseDriver] ";

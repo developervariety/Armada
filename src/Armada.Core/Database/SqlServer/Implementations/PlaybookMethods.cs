@@ -67,7 +67,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -92,7 +92,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -117,7 +117,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -192,7 +192,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -222,7 +222,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -418,7 +418,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SnapshotFromReader(reader));
+                            results.Add(PlaybookColumns.ReadSnapshot(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -474,7 +474,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -493,37 +493,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@active", playbook.Active);
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(playbook.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(playbook.LastUpdateUtc));
-        }
-
-        private static Playbook PlaybookFromReader(SqlDataReader reader)
-        {
-            return new Playbook
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = SqlServerDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-        }
-
-        private static MissionPlaybookSnapshot SnapshotFromReader(SqlDataReader reader)
-        {
-            return new MissionPlaybookSnapshot
-            {
-                PlaybookId = SqlServerDatabaseDriver.NullableString(reader["playbook_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = SqlServerDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                DeliveryMode = ParseDeliveryMode(reader["delivery_mode"]),
-                ResolvedPath = SqlServerDatabaseDriver.NullableString(reader["resolved_path"]),
-                WorktreeRelativePath = SqlServerDatabaseDriver.NullableString(reader["worktree_relative_path"]),
-                SourceLastUpdateUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["source_last_update_utc"])
-            };
         }
 
         private static PlaybookDeliveryModeEnum ParseDeliveryMode(object value)

@@ -29,6 +29,16 @@ namespace Armada.Core.Database.Postgresql
 
         #endregion
 
+        #region Internal-Members
+
+        /// <summary>
+        /// How this provider's stored values convert to model values. PostgreSQL stores booleans as
+        /// native booleans, and timestamps as TEXT, TIMESTAMP or TIMESTAMPTZ depending on the column.
+        /// </summary>
+        internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("PostgreSQL", integerBooleans: false);
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[PostgresqlDatabaseDriver] ";

@@ -74,7 +74,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ProjectProfileColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -171,7 +171,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ProjectProfileColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -207,7 +207,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ProjectProfileColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -287,50 +287,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", profile.LastUpdateUtc);
         }
 
-        private static ProjectProfile FromReader(MySqlDataReader reader)
-        {
-            ProjectProfile profile = new ProjectProfile
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = MysqlDatabaseDriver.NullableString(reader["description"]),
-                FleetId = MysqlDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
-                IsDefault = Convert.ToInt64(reader["is_default"]) == 1,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                DefaultPipelineId = MysqlDatabaseDriver.NullableString(reader["default_pipeline_id"]),
-                WorkflowProfileId = MysqlDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
-                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
-            };
-
-            if (Enum.TryParse(reader["scope"].ToString(), true, out ProjectProfileScopeEnum scope))
-                profile.Scope = scope;
-
-            profile.PersonaOverrides = Deserialize<List<PersonaOverride>>(MysqlDatabaseDriver.NullableString(reader["persona_overrides_json"])) ?? new List<PersonaOverride>();
-            profile.Skills = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["skills_json"])) ?? new List<string>();
-            profile.AuthorizationPolicy = MysqlDatabaseDriver.NullableString(reader["authorization_policy"]);
-            return profile;
-        }
-
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)

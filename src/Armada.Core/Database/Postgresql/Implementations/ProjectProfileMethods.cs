@@ -74,7 +74,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ProjectProfileColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -173,7 +173,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ProjectProfileColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -209,7 +209,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ProjectProfileColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
 
                     return results;
@@ -289,57 +289,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", profile.LastUpdateUtc);
         }
 
-        private static ProjectProfile FromReader(NpgsqlDataReader reader)
-        {
-            ProjectProfile profile = new ProjectProfile
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = NullableString(reader["description"]),
-                FleetId = NullableString(reader["fleet_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                IsDefault = Convert.ToBoolean(reader["is_default"]),
-                Active = Convert.ToBoolean(reader["active"]),
-                DefaultPipelineId = NullableString(reader["default_pipeline_id"]),
-                WorkflowProfileId = NullableString(reader["workflow_profile_id"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            if (Enum.TryParse(reader["scope"].ToString(), true, out ProjectProfileScopeEnum scope))
-                profile.Scope = scope;
-
-            profile.PersonaOverrides = Deserialize<List<PersonaOverride>>(NullableString(reader["persona_overrides_json"])) ?? new List<PersonaOverride>();
-            profile.Skills = Deserialize<List<string>>(NullableString(reader["skills_json"])) ?? new List<string>();
-            profile.AuthorizationPolicy = NullableString(reader["authorization_policy"]);
-            return profile;
-        }
-
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

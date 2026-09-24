@@ -64,7 +64,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return FromReader(reader);
+                return SkillColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
             return null;
         }
 
@@ -139,7 +139,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))
-                    results.Add(FromReader(reader));
+                    results.Add(SkillColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             }
 
             return new EnumerationResult<Skill>
@@ -171,7 +171,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<Skill> results = new List<Skill>();
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                results.Add(FromReader(reader));
+                results.Add(SkillColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             return results;
         }
 
@@ -231,22 +231,5 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(skill.LastUpdateUtc));
         }
 
-        private static Skill FromReader(SqliteDataReader reader)
-        {
-            return new Skill
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = SqliteDatabaseDriver.NullableString(reader["description"]),
-                Category = SqliteDatabaseDriver.NullableString(reader["category"]),
-                Content = SqliteDatabaseDriver.NullableString(reader["content"]) ?? String.Empty,
-                IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-        }
     }
 }

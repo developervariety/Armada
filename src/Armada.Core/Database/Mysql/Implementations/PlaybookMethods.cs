@@ -61,7 +61,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -86,7 +86,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -111,7 +111,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -186,7 +186,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -216,7 +216,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -410,7 +410,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SnapshotFromReader(reader));
+                            results.Add(PlaybookColumns.ReadSnapshot(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -466,7 +466,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -485,37 +485,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@active", playbook.Active);
             cmd.Parameters.AddWithValue("@created_utc", playbook.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", playbook.LastUpdateUtc);
-        }
-
-        private static Playbook PlaybookFromReader(MySqlDataReader reader)
-        {
-            return new Playbook
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = MysqlDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-        }
-
-        private static MissionPlaybookSnapshot SnapshotFromReader(MySqlDataReader reader)
-        {
-            return new MissionPlaybookSnapshot
-            {
-                PlaybookId = MysqlDatabaseDriver.NullableString(reader["playbook_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = MysqlDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                DeliveryMode = ParseDeliveryMode(reader["delivery_mode"]),
-                ResolvedPath = MysqlDatabaseDriver.NullableString(reader["resolved_path"]),
-                WorktreeRelativePath = MysqlDatabaseDriver.NullableString(reader["worktree_relative_path"]),
-                SourceLastUpdateUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["source_last_update_utc"])
-            };
         }
 
         private static PlaybookDeliveryModeEnum ParseDeliveryMode(object value)

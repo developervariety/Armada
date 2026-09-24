@@ -67,7 +67,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -92,7 +92,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -117,7 +117,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -192,7 +192,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -222,7 +222,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -416,7 +416,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SnapshotFromReader(reader));
+                            results.Add(PlaybookColumns.ReadSnapshot(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -472,7 +472,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -491,37 +491,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@active", playbook.Active);
             cmd.Parameters.AddWithValue("@created_utc", playbook.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", playbook.LastUpdateUtc);
-        }
-
-        private static Playbook PlaybookFromReader(NpgsqlDataReader reader)
-        {
-            return new Playbook
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = PostgresqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = PostgresqlDatabaseDriver.NullableString(reader["user_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = PostgresqlDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-        }
-
-        private static MissionPlaybookSnapshot SnapshotFromReader(NpgsqlDataReader reader)
-        {
-            return new MissionPlaybookSnapshot
-            {
-                PlaybookId = PostgresqlDatabaseDriver.NullableString(reader["playbook_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = PostgresqlDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                DeliveryMode = ParseDeliveryMode(reader["delivery_mode"]),
-                ResolvedPath = PostgresqlDatabaseDriver.NullableString(reader["resolved_path"]),
-                WorktreeRelativePath = PostgresqlDatabaseDriver.NullableString(reader["worktree_relative_path"]),
-                SourceLastUpdateUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["source_last_update_utc"])
-            };
         }
 
         private static PlaybookDeliveryModeEnum ParseDeliveryMode(object value)

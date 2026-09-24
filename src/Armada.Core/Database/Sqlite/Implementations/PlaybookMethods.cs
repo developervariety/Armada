@@ -67,7 +67,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -92,7 +92,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -117,7 +117,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PlaybookFromReader(reader);
+                            return PlaybookColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -192,7 +192,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -222,7 +222,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -418,7 +418,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SnapshotFromReader(reader));
+                            results.Add(PlaybookColumns.ReadSnapshot(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -474,7 +474,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PlaybookFromReader(reader));
+                            results.Add(PlaybookColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -493,37 +493,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@active", playbook.Active ? 1 : 0);
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(playbook.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(playbook.LastUpdateUtc));
-        }
-
-        private static Playbook PlaybookFromReader(SqliteDataReader reader)
-        {
-            return new Playbook
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = SqliteDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-        }
-
-        private static MissionPlaybookSnapshot SnapshotFromReader(SqliteDataReader reader)
-        {
-            return new MissionPlaybookSnapshot
-            {
-                PlaybookId = SqliteDatabaseDriver.NullableString(reader["playbook_id"]),
-                FileName = reader["file_name"].ToString() ?? String.Empty,
-                Description = SqliteDatabaseDriver.NullableString(reader["description"]),
-                Content = reader["content"].ToString() ?? String.Empty,
-                DeliveryMode = ParseDeliveryMode(reader["delivery_mode"]),
-                ResolvedPath = SqliteDatabaseDriver.NullableString(reader["resolved_path"]),
-                WorktreeRelativePath = SqliteDatabaseDriver.NullableString(reader["worktree_relative_path"]),
-                SourceLastUpdateUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["source_last_update_utc"])
-            };
         }
 
         private static PlaybookDeliveryModeEnum ParseDeliveryMode(object value)
