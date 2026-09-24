@@ -3385,7 +3385,7 @@ curl http://localhost:7890/api/v1/prompt-templates/default
 
 #### PUT /api/v1/prompt-templates/{name}
 
-Update a prompt template's content. Built-in templates can be customized by updating their content.
+Update an existing prompt template. Only supplied fields change. Built-in templates can be customized by updating their content. An update never creates a template; create one with `POST /api/v1/prompt-templates` (`Name`, `Category` and `Content` required; `Name` and `Category` are trimmed; a name already used returns `409`).
 
 **Path Parameters:**
 | Parameter | Description |
@@ -3396,11 +3396,13 @@ Update a prompt template's content. Built-in templates can be customized by upda
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `Content` | string | yes | Template content text |
-| `Description` | string | no | Template description |
+| `Content` | string | no | Template content text; must not be blank |
+| `Description` | string | no | Template description; `""` clears it |
+| `Category` | string | no | Template category |
+| `Active` | bool | no | Whether the template is active |
 
 **Response:** `200 OK` - PromptTemplate
-**Error:** `404` - Template not found
+**Error:** `400` - a blank field; `403` - a template the caller may read but not change; `404` - Template not found
 
 ```bash
 curl -X PUT http://localhost:7890/api/v1/prompt-templates/default \

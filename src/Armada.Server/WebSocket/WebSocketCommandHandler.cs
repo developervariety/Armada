@@ -1295,22 +1295,16 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>update_prompt_template</c> command.
+        /// Run the <c>update_prompt_template</c> command through the shared prompt-template rule: the template is
+        /// found through the caller scope, changed only with edit rights, and never created by an update.
         /// </summary>
         private async Task<object> UpdatePromptTemplateCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            string updTemplateName = command.Id ?? "";
-            PromptTemplate? existTemplate = await _Database.PromptTemplates.ReadByNameAsync(updTemplateName).ConfigureAwait(false);
-            if (existTemplate == null)
-                return new { type = "command.error", action = "update_prompt_template", error = "Prompt template not found" };
-            else
-            {
-                PromptTemplate patchTemplate = JsonSerializer.Deserialize<WebSocketDataCommand<PromptTemplate>>(rawBody, _JsonOptions)?.Data!;
-                if (patchTemplate.Content != null) existTemplate.Content = patchTemplate.Content;
-                if (patchTemplate.Description != null) existTemplate.Description = patchTemplate.Description;
-                existTemplate = await _Database.PromptTemplates.UpdateAsync(existTemplate).ConfigureAwait(false);
-                return new { type = "command.result", action = "update_prompt_template", data = (object)existTemplate };
-            }
+            PromptTemplateWriteRequest? request = ReadWriteRequest<PromptTemplateWriteRequest>(rawBody, "update_prompt_template", out object? refusal);
+            if (request == null) return refusal!;
+            request.OwnershipScope = null;
+            RecordWriteResult<PromptTemplate> result = await new PromptTemplateWriteService(_Database).UpdateAsync(caller, command.Id, request).ConfigureAwait(false);
+            return WriteResult("update_prompt_template", result, result.Record);
         }
 
         /// <summary>

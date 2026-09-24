@@ -434,8 +434,8 @@ Records it creates carry that caller's tenant and user, as the matching REST
 create does. That covers `armada_create_fleet`, `armada_add_vessel`,
 `armada_create_captain`, `armada_create_mission`, `armada_send_signal`,
 `armada_nudge_voyage`, `armada_enqueue_merge`, `create_persona`,
-`create_pipeline`, `create_playbook`, `create_prompt_template`, a new name
-written by `update_prompt_template`, `create_workflow_profile` and the
+`create_pipeline`, `create_playbook`, `create_prompt_template`,
+`create_workflow_profile` and the
 service-backed creates (objectives, backlog items, incidents, releases,
 deployments, environments, runbooks and memories). `create_playbook` checks
 file-name uniqueness inside the caller's tenant. `create_workflow_profile`
@@ -1030,6 +1030,17 @@ create does, so its answer matches the create.
 fields, and `description` declares `emptyStringClears`. A file name that does
 not end in `.md` or missing content returns code `invalid` instead of a protocol
 error; a duplicate file name returns `conflict`.
+
+### Prompt Templates
+
+`create_prompt_template` requires `name`, `category` and `content`, trims the
+name and category, and accepts `description`, `active` and `ownershipScope`.
+`update_prompt_template` changes only the supplied fields of an existing
+template (`content`, `description`, `category`, `active`); `description`
+declares `emptyStringClears`. It never creates a template: a missing name
+returns code `not_found`. REST `PUT /api/v1/prompt-templates/{name}` and the
+WebSocket `update_prompt_template` command use the same service, find the
+template through the caller scope, and require edit rights.
 
 ### Objectives And Backlog Items
 

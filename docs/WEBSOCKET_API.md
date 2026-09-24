@@ -898,7 +898,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `update_pipeline` | Update pipeline and stages; a stage field left out keeps the existing stage's value | `id` (pipeline name), `data` (description, stages, active) |
 | | `delete_pipeline` | Delete a custom pipeline (blocked for built-in) | `id` (pipeline name) |
 | **Prompt Template** | `get_prompt_template` | Get a prompt template by name | `id` (template name) |
-| | `update_prompt_template` | Update template content | `id` (template name), `data` (partial PromptTemplate) |
+| | `update_prompt_template` | Update an existing template through the service REST and MCP use; never creates one | `id` (template name), `data` (content, description, category, active) |
 
 ### Command Authorization
 
@@ -1026,7 +1026,7 @@ scope and global administrators. No other command broadcasts.
 | `update_persona` | Update | `PUT /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_persona` (global or tenant admin; tenant lookup + CanEdit) | TenantAdminScoped | G1 |
 | `delete_persona` | Delete | `DELETE /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `delete_persona` (global or tenant admin; tenant lookup + CanEdit) | TenantAdminScoped | G1 |
 | `get_prompt_template` | Read | `GET /api/v1/prompt-templates/{name}` | Authenticated | shared caller scope (CanView) | `get_prompt_template` (any caller; shared caller scope) | ReadScoped | G1 |
-| `update_prompt_template` | Update | `PUT /api/v1/prompt-templates/{name}` | AdminOnly | by name, all tenants | `update_prompt_template` (global admin) | GlobalAdmin | G0 |
+| `update_prompt_template` | Update | `PUT /api/v1/prompt-templates/{name}` | AdminOnly | shared caller scope + CanEdit | `update_prompt_template` (global admin; shared caller scope + CanEdit) | GlobalAdmin | G0 |
 | `get_pipeline` | Read | `GET /api/v1/pipelines/{name}` | Authenticated | shared caller scope (CanView) | `get_pipeline` (any caller; shared caller scope) | ReadScoped | G1 |
 | `create_pipeline` | Create | `POST /api/v1/pipelines` | TenantAdmin | owner = caller | `create_pipeline` (global or tenant admin) | TenantAdminScoped | G3 |
 | `update_pipeline` | Update | `PUT /api/v1/pipelines/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_pipeline` (global or tenant admin; tenant lookup + CanEdit) | TenantAdminScoped | G1 |

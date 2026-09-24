@@ -153,16 +153,21 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("UpdatePromptTemplate_CreatingANewNameIsOwnedByTheCaller", async () =>
+            await RunTest("CreatePromptTemplate_IsOwnedByTheCaller_AndUpdateNeverCreates", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     AuthContext caller = await SeedCallerAsync(testDb).ConfigureAwait(false);
                     PromptTemplateService templates = new PromptTemplateService(testDb.Driver, CreateLogging());
-                    Func<JsonElement?, Task<object>> upsert = Capture(r => McpPromptTemplateTools.Register(r, testDb.Driver, templates), "update_prompt_template");
+                    Func<JsonElement?, Task<object>> create = Capture(r => McpPromptTemplateTools.Register(r, testDb.Driver, templates), "create_prompt_template");
+                    Func<JsonElement?, Task<object>> update = Capture(r => McpPromptTemplateTools.Register(r, testDb.Driver, templates), "update_prompt_template");
 
-                    PromptTemplate created = (PromptTemplate)await CallAsAsync(upsert, caller, new { name = "owned.template", content = "body" }).ConfigureAwait(false);
+                    // An update of a name that does not exist is refused; it no longer creates the template.
+                    string refused = JsonSerializer.Serialize(await CallAsAsync(update, caller, new { name = "missing.template", content = "body" }).ConfigureAwait(false));
+                    AssertContains("not_found", refused, "an update of a missing template is refused: " + refused);
+                    AssertNull(await testDb.Driver.PromptTemplates.ReadByNameAsync("missing.template").ConfigureAwait(false), "the refused update creates nothing");
 
+                    PromptTemplate created = (PromptTemplate)await CallAsAsync(create, caller, new { name = "owned.template", category = "mission", content = "body" }).ConfigureAwait(false);
                     PromptTemplate? stored = await testDb.Driver.PromptTemplates.ReadAsync(created.Id).ConfigureAwait(false);
                     AssertEqual(caller.TenantId, stored!.TenantId, "the template belongs to the caller's tenant");
                     AssertEqual(caller.UserId, stored.UserId, "the template belongs to the calling user");

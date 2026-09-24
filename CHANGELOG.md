@@ -500,6 +500,14 @@ upstream integrations and excludes changes already present at that baseline.
   allow-listed fields, so a body id or timestamp is ignored. A non-`.md` file
   name or missing content returns `400` (MCP: code `invalid`) instead of a server
   error, and a duplicate file name returns `409` (MCP: code `conflict`).
+- **Prompt template writes:** REST, MCP and WebSocket create and update a prompt
+  template through one service. MCP `update_prompt_template` no longer creates a
+  missing template (it skipped the create checks); it returns code `not_found`,
+  as REST returns `404`. MCP create trims the name and category as REST does and
+  refuses blank content. REST create requires `Category` instead of defaulting it.
+  Updates on every surface find the template through the caller scope and apply
+  the edit rule, and accept `Category` and `Active`; an empty `Description`
+  clears it.
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.

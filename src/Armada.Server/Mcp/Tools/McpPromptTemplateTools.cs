@@ -6,6 +6,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -65,30 +66,15 @@ namespace Armada.Server.Mcp.Tools
                         category = new { type = "string", description = "Template category such as 'persona' or 'mission'" },
                         content = new { type = "string", description = "Template content with {Placeholder} parameters" },
                         description = new { type = "string", description = "Human-readable description of the template" },
-                        active = new { type = "boolean", description = "Whether the template should be active" }
+                        active = new { type = "boolean", description = "Whether the template should be active" },
+                        ownershipScope = new { type = "string", @enum = new[] { "TenantWide", "UserSpecific" }, description = "Who may see the record inside its tenant. An administrator's choice is kept (TenantWide when omitted); any other caller's record is UserSpecific." }
                     },
                     required = new[] { "name", "category", "content" }
                 },
                 async (args) =>
                 {
-                    PromptTemplateArgs request = JsonSerializer.Deserialize<PromptTemplateArgs>(args!.Value, _JsonOptions)!;
-                    if (String.IsNullOrEmpty(request.Name)) return (object)new { Error = "name is required" };
-                    if (String.IsNullOrEmpty(request.Category)) return (object)new { Error = "category is required" };
-                    if (String.IsNullOrEmpty(request.Content)) return (object)new { Error = "content is required" };
-
-                    PromptTemplate? existing = await database.PromptTemplates.ReadByNameAsync(request.Name).ConfigureAwait(false);
-                    if (existing != null) return (object)new { Error = "Template already exists: " + request.Name };
-
-                    AuthContext caller = McpCallerContext.Require();
-                    PromptTemplate template = new PromptTemplate(request.Name, request.Content);
-                    template.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
-                    template.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
-                    template.Category = request.Category;
-                    template.Description = request.Description;
-                    if (request.Active.HasValue) template.Active = request.Active.Value;
-
-                    PromptTemplate created = await database.PromptTemplates.CreateAsync(template).ConfigureAwait(false);
-                    return (object)created;
+                    PromptTemplateWriteRequest request = JsonSerializer.Deserialize<PromptTemplateWriteRequest>(args!.Value, _JsonOptions) ?? new PromptTemplateWriteRequest();
+                    return McpRecordWriteResult.From(await new PromptTemplateWriteService(database).CreateAsync(McpCallerContext.Require(), request).ConfigureAwait(false));
                 });
 
             register(
@@ -124,7 +110,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "update_prompt_template",
-                "Update a prompt template's content and description. Creates the template if it does not exist.",
+                "Update an existing prompt template. Only supplied fields change. A template that does not exist is refused with code not_found; create it with create_prompt_template.",
                 new
                 {
                     type = "object",
@@ -132,39 +118,17 @@ namespace Armada.Server.Mcp.Tools
                     {
                         name = new { type = "string", description = "Template name (e.g. 'mission.rules', 'persona.worker')" },
                         content = new { type = "string", description = "Template content with {Placeholder} parameters" },
-                        description = new { type = "string", description = "Human-readable description of the template" }
+                        description = new { type = "string", description = "Human-readable description of the template. An empty string clears it.", emptyStringClears = true },
+                        category = new { type = "string", description = "Template category such as 'persona' or 'mission'" },
+                        active = new { type = "boolean", description = "Whether the template is active" }
                     },
-                    required = new[] { "name", "content" }
+                    required = new[] { "name" }
                 },
                 async (args) =>
                 {
-                    PromptTemplateArgs request = JsonSerializer.Deserialize<PromptTemplateArgs>(args!.Value, _JsonOptions)!;
-                    string name = request.Name;
-                    if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-                    if (String.IsNullOrEmpty(request.Content)) return (object)new { Error = "content is required" };
-
-                    PromptTemplate? existing = await database.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false);
-                    if (existing != null)
-                    {
-                        existing.Content = request.Content;
-                        if (request.Description != null)
-                            existing.Description = request.Description;
-                        existing.LastUpdateUtc = DateTime.UtcNow;
-                        PromptTemplate updated = await database.PromptTemplates.UpdateAsync(existing).ConfigureAwait(false);
-                        return (object)updated;
-                    }
-                    else
-                    {
-                        // A template this upsert creates is owned by the authenticated caller, as create_prompt_template is.
-                        AuthContext upsertCaller = McpCallerContext.Require();
-                        PromptTemplate template = new PromptTemplate(name, request.Content);
-                        template.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(upsertCaller);
-                        template.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(upsertCaller);
-                        if (request.Description != null)
-                            template.Description = request.Description;
-                        PromptTemplate created = await database.PromptTemplates.CreateAsync(template).ConfigureAwait(false);
-                        return (object)created;
-                    }
+                    PromptTemplateWriteRequest request = JsonSerializer.Deserialize<PromptTemplateWriteRequest>(args!.Value, _JsonOptions) ?? new PromptTemplateWriteRequest();
+                    request.OwnershipScope = null;
+                    return McpRecordWriteResult.From(await new PromptTemplateWriteService(database).UpdateAsync(McpCallerContext.Require(), request.Name, request).ConfigureAwait(false));
                 });
 
             register(
