@@ -80,7 +80,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return FromReader(reader);
+                return DeploymentColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
             return null;
         }
 
@@ -183,7 +183,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))
-                    results.Add(FromReader(reader));
+                    results.Add(DeploymentColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             }
 
             return new EnumerationResult<Deployment>
@@ -215,7 +215,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<Deployment> results = new List<Deployment>();
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                results.Add(FromReader(reader));
+                results.Add(DeploymentColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             return results;
         }
 
@@ -347,70 +347,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@latest_monitoring_summary", (object?)deployment.LatestMonitoringSummary ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@monitoring_failure_count", deployment.MonitoringFailureCount);
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(deployment.LastUpdateUtc));
-        }
-
-        private static Deployment FromReader(SqliteDataReader reader)
-        {
-            Deployment deployment = new Deployment
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
-                WorkflowProfileId = SqliteDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                EnvironmentId = SqliteDatabaseDriver.NullableString(reader["environment_id"]),
-                EnvironmentName = SqliteDatabaseDriver.NullableString(reader["environment_name"]),
-                ReleaseId = SqliteDatabaseDriver.NullableString(reader["release_id"]),
-                MissionId = SqliteDatabaseDriver.NullableString(reader["mission_id"]),
-                VoyageId = SqliteDatabaseDriver.NullableString(reader["voyage_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                SourceRef = SqliteDatabaseDriver.NullableString(reader["source_ref"]),
-                Summary = SqliteDatabaseDriver.NullableString(reader["summary"]),
-                Notes = SqliteDatabaseDriver.NullableString(reader["notes"]),
-                ApprovalRequired = Convert.ToInt64(reader["approval_required"]) == 1,
-                ApprovedByUserId = SqliteDatabaseDriver.NullableString(reader["approved_by_user_id"]),
-                ApprovedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["approved_utc"]),
-                ApprovalComment = SqliteDatabaseDriver.NullableString(reader["approval_comment"]),
-                DeployCheckRunId = SqliteDatabaseDriver.NullableString(reader["deploy_check_run_id"]),
-                SmokeTestCheckRunId = SqliteDatabaseDriver.NullableString(reader["smoke_test_check_run_id"]),
-                HealthCheckRunId = SqliteDatabaseDriver.NullableString(reader["health_check_run_id"]),
-                DeploymentVerificationCheckRunId = SqliteDatabaseDriver.NullableString(reader["deployment_verification_check_run_id"]),
-                RollbackCheckRunId = SqliteDatabaseDriver.NullableString(reader["rollback_check_run_id"]),
-                RollbackVerificationCheckRunId = SqliteDatabaseDriver.NullableString(reader["rollback_verification_check_run_id"]),
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                StartedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
-                CompletedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                VerifiedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["verified_utc"]),
-                RolledBackUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["rolled_back_utc"]),
-                MonitoringWindowEndsUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["monitoring_window_ends_utc"]),
-                LastMonitoredUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["last_monitored_utc"]),
-                LastRegressionAlertUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["last_regression_alert_utc"]),
-                LatestMonitoringSummary = SqliteDatabaseDriver.NullableString(reader["latest_monitoring_summary"]),
-                MonitoringFailureCount = Convert.ToInt32(reader["monitoring_failure_count"]),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["status"].ToString(), true, out DeploymentStatusEnum status))
-                deployment.Status = status;
-            if (Enum.TryParse(reader["verification_status"].ToString(), true, out DeploymentVerificationStatusEnum verificationStatus))
-                deployment.VerificationStatus = verificationStatus;
-
-            deployment.CheckRunIds = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["check_run_ids_json"])) ?? new List<string>();
-            deployment.RequestHistorySummary = Deserialize<RequestHistorySummaryResult>(SqliteDatabaseDriver.NullableString(reader["request_history_summary_json"]));
-            return deployment;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
     }
 }

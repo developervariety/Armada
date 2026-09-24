@@ -72,7 +72,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ReleaseColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -171,7 +171,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ReleaseColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -208,7 +208,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ReleaseColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -297,48 +297,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(release.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(release.LastUpdateUtc));
             cmd.Parameters.AddWithValue("@published_utc", release.PublishedUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(release.PublishedUtc.Value) : DBNull.Value);
-        }
-
-        private static Release FromReader(SqlDataReader reader)
-        {
-            Release release = new Release
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
-                WorkflowProfileId = SqlServerDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                Version = SqlServerDatabaseDriver.NullableString(reader["version"]),
-                TagName = SqlServerDatabaseDriver.NullableString(reader["tag_name"]),
-                Summary = SqlServerDatabaseDriver.NullableString(reader["summary"]),
-                Notes = SqlServerDatabaseDriver.NullableString(reader["notes"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!),
-                PublishedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["published_utc"])
-            };
-
-            if (Enum.TryParse(reader["status"].ToString(), true, out ReleaseStatusEnum status))
-                release.Status = status;
-
-            release.VoyageIds = Deserialize<List<string>>(SqlServerDatabaseDriver.NullableString(reader["voyage_ids_json"])) ?? new List<string>();
-            release.MissionIds = Deserialize<List<string>>(SqlServerDatabaseDriver.NullableString(reader["mission_ids_json"])) ?? new List<string>();
-            release.CheckRunIds = Deserialize<List<string>>(SqlServerDatabaseDriver.NullableString(reader["check_run_ids_json"])) ?? new List<string>();
-            release.Artifacts = Deserialize<List<ReleaseArtifact>>(SqlServerDatabaseDriver.NullableString(reader["artifacts_json"])) ?? new List<ReleaseArtifact>();
-            return release;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

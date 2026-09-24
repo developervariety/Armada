@@ -80,7 +80,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return DeploymentColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -198,7 +198,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(DeploymentColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -235,7 +235,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(DeploymentColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -367,70 +367,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@latest_monitoring_summary", (object?)deployment.LatestMonitoringSummary ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@monitoring_failure_count", deployment.MonitoringFailureCount);
             cmd.Parameters.AddWithValue("@last_update_utc", deployment.LastUpdateUtc);
-        }
-
-        private static Deployment FromReader(MySqlDataReader reader)
-        {
-            Deployment deployment = new Deployment
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
-                WorkflowProfileId = MysqlDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                EnvironmentId = MysqlDatabaseDriver.NullableString(reader["environment_id"]),
-                EnvironmentName = MysqlDatabaseDriver.NullableString(reader["environment_name"]),
-                ReleaseId = MysqlDatabaseDriver.NullableString(reader["release_id"]),
-                MissionId = MysqlDatabaseDriver.NullableString(reader["mission_id"]),
-                VoyageId = MysqlDatabaseDriver.NullableString(reader["voyage_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                SourceRef = MysqlDatabaseDriver.NullableString(reader["source_ref"]),
-                Summary = MysqlDatabaseDriver.NullableString(reader["summary"]),
-                Notes = MysqlDatabaseDriver.NullableString(reader["notes"]),
-                ApprovalRequired = Convert.ToBoolean(reader["approval_required"]),
-                ApprovedByUserId = MysqlDatabaseDriver.NullableString(reader["approved_by_user_id"]),
-                ApprovedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["approved_utc"]),
-                ApprovalComment = MysqlDatabaseDriver.NullableString(reader["approval_comment"]),
-                DeployCheckRunId = MysqlDatabaseDriver.NullableString(reader["deploy_check_run_id"]),
-                SmokeTestCheckRunId = MysqlDatabaseDriver.NullableString(reader["smoke_test_check_run_id"]),
-                HealthCheckRunId = MysqlDatabaseDriver.NullableString(reader["health_check_run_id"]),
-                DeploymentVerificationCheckRunId = MysqlDatabaseDriver.NullableString(reader["deployment_verification_check_run_id"]),
-                RollbackCheckRunId = MysqlDatabaseDriver.NullableString(reader["rollback_check_run_id"]),
-                RollbackVerificationCheckRunId = MysqlDatabaseDriver.NullableString(reader["rollback_verification_check_run_id"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                StartedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
-                CompletedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
-                VerifiedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["verified_utc"]),
-                RolledBackUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["rolled_back_utc"]),
-                MonitoringWindowEndsUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["monitoring_window_ends_utc"]),
-                LastMonitoredUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["last_monitored_utc"]),
-                LastRegressionAlertUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["last_regression_alert_utc"]),
-                LatestMonitoringSummary = MysqlDatabaseDriver.NullableString(reader["latest_monitoring_summary"]),
-                MonitoringFailureCount = reader["monitoring_failure_count"] == DBNull.Value ? 0 : Convert.ToInt32(reader["monitoring_failure_count"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            if (Enum.TryParse(reader["status"].ToString(), true, out DeploymentStatusEnum status))
-                deployment.Status = status;
-            if (Enum.TryParse(reader["verification_status"].ToString(), true, out DeploymentVerificationStatusEnum verificationStatus))
-                deployment.VerificationStatus = verificationStatus;
-
-            deployment.CheckRunIds = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["check_run_ids_json"])) ?? new List<string>();
-            deployment.RequestHistorySummary = Deserialize<RequestHistorySummaryResult>(MysqlDatabaseDriver.NullableString(reader["request_history_summary_json"]));
-            return deployment;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)

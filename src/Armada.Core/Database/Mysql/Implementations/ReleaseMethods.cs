@@ -72,7 +72,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ReleaseColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -170,7 +170,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ReleaseColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -207,7 +207,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ReleaseColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -296,48 +296,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@created_utc", release.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", release.LastUpdateUtc);
             cmd.Parameters.AddWithValue("@published_utc", (object?)release.PublishedUtc ?? DBNull.Value);
-        }
-
-        private static Release FromReader(MySqlDataReader reader)
-        {
-            Release release = new Release
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
-                WorkflowProfileId = MysqlDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                Version = MysqlDatabaseDriver.NullableString(reader["version"]),
-                TagName = MysqlDatabaseDriver.NullableString(reader["tag_name"]),
-                Summary = MysqlDatabaseDriver.NullableString(reader["summary"]),
-                Notes = MysqlDatabaseDriver.NullableString(reader["notes"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]),
-                PublishedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["published_utc"])
-            };
-
-            if (Enum.TryParse(reader["status"].ToString(), true, out ReleaseStatusEnum status))
-                release.Status = status;
-
-            release.VoyageIds = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["voyage_ids_json"])) ?? new List<string>();
-            release.MissionIds = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["mission_ids_json"])) ?? new List<string>();
-            release.CheckRunIds = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["check_run_ids_json"])) ?? new List<string>();
-            release.Artifacts = Deserialize<List<ReleaseArtifact>>(MysqlDatabaseDriver.NullableString(reader["artifacts_json"])) ?? new List<ReleaseArtifact>();
-            return release;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)

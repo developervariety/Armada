@@ -135,7 +135,7 @@ upstream integrations and excludes changes already present at that baseline.
   like the other runners, so no test indexes a vessel into the live Armada home.
 - **Stored rows read through shared column readers:** tenants, users,
   credentials, fleets, signals, events, captains, workflow profiles, Checks,
-  skills, project profiles, playbooks, mission playbook snapshots, landing jobs
+  deployment environments, releases, deployments, skills, project profiles, playbooks, mission playbook snapshots, landing jobs
   and Judge follow-ups are read by one column reader per entity that every
   provider calls. Each provider
   configures only how it stores booleans; a timestamp converts by the value the

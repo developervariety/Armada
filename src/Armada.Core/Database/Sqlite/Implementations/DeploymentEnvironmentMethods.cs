@@ -72,7 +72,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return FromReader(reader);
+                return DeploymentEnvironmentColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
             return null;
         }
 
@@ -157,7 +157,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))
-                    results.Add(FromReader(reader));
+                    results.Add(DeploymentEnvironmentColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             }
 
             return new EnumerationResult<DeploymentEnvironment>
@@ -189,7 +189,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<DeploymentEnvironment> results = new List<DeploymentEnvironment>();
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                results.Add(FromReader(reader));
+                results.Add(DeploymentEnvironmentColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             return results;
         }
 
@@ -260,51 +260,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@active", environment.Active ? 1 : 0);
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(environment.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(environment.LastUpdateUtc));
-        }
-
-        private static DeploymentEnvironment FromReader(SqliteDataReader reader)
-        {
-            DeploymentEnvironment environment = new DeploymentEnvironment
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = SqliteDatabaseDriver.NullableString(reader["description"]),
-                ConfigurationSource = SqliteDatabaseDriver.NullableString(reader["configuration_source"]),
-                BaseUrl = SqliteDatabaseDriver.NullableString(reader["base_url"]),
-                HealthEndpoint = SqliteDatabaseDriver.NullableString(reader["health_endpoint"]),
-                AccessNotes = SqliteDatabaseDriver.NullableString(reader["access_notes"]),
-                DeploymentRules = SqliteDatabaseDriver.NullableString(reader["deployment_rules"]),
-                RolloutMonitoringWindowMinutes = SqliteDatabaseDriver.NullableInt(reader["rollout_monitoring_window_minutes"]) ?? 0,
-                RolloutMonitoringIntervalSeconds = SqliteDatabaseDriver.NullableInt(reader["rollout_monitoring_interval_seconds"]) ?? 300,
-                AlertOnRegression = Convert.ToInt64(reader["alert_on_regression"]) == 1,
-                RequiresApproval = Convert.ToInt64(reader["requires_approval"]) == 1,
-                IsDefault = Convert.ToInt64(reader["is_default"]) == 1,
-                Active = Convert.ToInt64(reader["active"]) == 1,
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            if (Enum.TryParse(reader["kind"].ToString(), true, out EnvironmentKindEnum kind))
-                environment.Kind = kind;
-            environment.VerificationDefinitions = Deserialize<List<DeploymentVerificationDefinition>>(SqliteDatabaseDriver.NullableString(reader["verification_definitions_json"])) ?? new List<DeploymentVerificationDefinition>();
-
-            return environment;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
     }
 }

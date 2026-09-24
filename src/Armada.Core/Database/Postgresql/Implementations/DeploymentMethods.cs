@@ -80,7 +80,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return DeploymentColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -201,7 +201,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(DeploymentColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -238,7 +238,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(DeploymentColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -370,77 +370,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@latest_monitoring_summary", (object?)deployment.LatestMonitoringSummary ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@monitoring_failure_count", deployment.MonitoringFailureCount);
             cmd.Parameters.AddWithValue("@last_update_utc", deployment.LastUpdateUtc.ToUniversalTime());
-        }
-
-        private static Deployment FromReader(NpgsqlDataReader reader)
-        {
-            Deployment deployment = new Deployment
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                WorkflowProfileId = NullableString(reader["workflow_profile_id"]),
-                EnvironmentId = NullableString(reader["environment_id"]),
-                EnvironmentName = NullableString(reader["environment_name"]),
-                ReleaseId = NullableString(reader["release_id"]),
-                MissionId = NullableString(reader["mission_id"]),
-                VoyageId = NullableString(reader["voyage_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                SourceRef = NullableString(reader["source_ref"]),
-                Summary = NullableString(reader["summary"]),
-                Notes = NullableString(reader["notes"]),
-                ApprovalRequired = Convert.ToBoolean(reader["approval_required"]),
-                ApprovedByUserId = NullableString(reader["approved_by_user_id"]),
-                ApprovedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["approved_utc"]),
-                ApprovalComment = NullableString(reader["approval_comment"]),
-                DeployCheckRunId = NullableString(reader["deploy_check_run_id"]),
-                SmokeTestCheckRunId = NullableString(reader["smoke_test_check_run_id"]),
-                HealthCheckRunId = NullableString(reader["health_check_run_id"]),
-                DeploymentVerificationCheckRunId = NullableString(reader["deployment_verification_check_run_id"]),
-                RollbackCheckRunId = NullableString(reader["rollback_check_run_id"]),
-                RollbackVerificationCheckRunId = NullableString(reader["rollback_verification_check_run_id"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                StartedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
-                CompletedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
-                VerifiedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["verified_utc"]),
-                RolledBackUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["rolled_back_utc"]),
-                MonitoringWindowEndsUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["monitoring_window_ends_utc"]),
-                LastMonitoredUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["last_monitored_utc"]),
-                LastRegressionAlertUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["last_regression_alert_utc"]),
-                LatestMonitoringSummary = NullableString(reader["latest_monitoring_summary"]),
-                MonitoringFailureCount = reader["monitoring_failure_count"] == DBNull.Value ? 0 : Convert.ToInt32(reader["monitoring_failure_count"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            if (Enum.TryParse(reader["status"].ToString(), true, out DeploymentStatusEnum status))
-                deployment.Status = status;
-            if (Enum.TryParse(reader["verification_status"].ToString(), true, out DeploymentVerificationStatusEnum verificationStatus))
-                deployment.VerificationStatus = verificationStatus;
-
-            deployment.CheckRunIds = Deserialize<List<string>>(NullableString(reader["check_run_ids_json"])) ?? new List<string>();
-            deployment.RequestHistorySummary = Deserialize<RequestHistorySummaryResult>(NullableString(reader["request_history_summary_json"]));
-            return deployment;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string stringValue = value.ToString()!;
-            return String.IsNullOrEmpty(stringValue) ? null : stringValue;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

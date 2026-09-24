@@ -72,7 +72,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ReleaseColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -172,7 +172,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ReleaseColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -209,7 +209,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ReleaseColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -298,55 +298,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@created_utc", release.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", release.LastUpdateUtc);
             cmd.Parameters.AddWithValue("@published_utc", (object?)release.PublishedUtc ?? DBNull.Value);
-        }
-
-        private static Release FromReader(NpgsqlDataReader reader)
-        {
-            Release release = new Release
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                WorkflowProfileId = NullableString(reader["workflow_profile_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                Version = NullableString(reader["version"]),
-                TagName = NullableString(reader["tag_name"]),
-                Summary = NullableString(reader["summary"]),
-                Notes = NullableString(reader["notes"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]),
-                PublishedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["published_utc"])
-            };
-
-            if (Enum.TryParse(reader["status"].ToString(), true, out ReleaseStatusEnum status))
-                release.Status = status;
-
-            release.VoyageIds = Deserialize<List<string>>(NullableString(reader["voyage_ids_json"])) ?? new List<string>();
-            release.MissionIds = Deserialize<List<string>>(NullableString(reader["mission_ids_json"])) ?? new List<string>();
-            release.CheckRunIds = Deserialize<List<string>>(NullableString(reader["check_run_ids_json"])) ?? new List<string>();
-            release.Artifacts = Deserialize<List<ReleaseArtifact>>(NullableString(reader["artifacts_json"])) ?? new List<ReleaseArtifact>();
-            return release;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string stringValue = value.ToString()!;
-            return String.IsNullOrEmpty(stringValue) ? null : stringValue;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

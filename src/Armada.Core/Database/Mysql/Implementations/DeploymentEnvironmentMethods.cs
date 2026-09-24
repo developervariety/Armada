@@ -74,7 +74,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return DeploymentEnvironmentColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -175,7 +175,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(DeploymentEnvironmentColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -212,7 +212,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(DeploymentEnvironmentColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -286,54 +286,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", environment.LastUpdateUtc);
         }
 
-        private static DeploymentEnvironment FromReader(MySqlDataReader reader)
-        {
-            DeploymentEnvironment environment = new DeploymentEnvironment
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
-                Name = reader["name"].ToString() ?? String.Empty,
-                Description = MysqlDatabaseDriver.NullableString(reader["description"]),
-                ConfigurationSource = MysqlDatabaseDriver.NullableString(reader["configuration_source"]),
-                BaseUrl = MysqlDatabaseDriver.NullableString(reader["base_url"]),
-                HealthEndpoint = MysqlDatabaseDriver.NullableString(reader["health_endpoint"]),
-                AccessNotes = MysqlDatabaseDriver.NullableString(reader["access_notes"]),
-                DeploymentRules = MysqlDatabaseDriver.NullableString(reader["deployment_rules"]),
-                RolloutMonitoringWindowMinutes = reader["rollout_monitoring_window_minutes"] == DBNull.Value ? 0 : Convert.ToInt32(reader["rollout_monitoring_window_minutes"]),
-                RolloutMonitoringIntervalSeconds = reader["rollout_monitoring_interval_seconds"] == DBNull.Value ? 300 : Convert.ToInt32(reader["rollout_monitoring_interval_seconds"]),
-                AlertOnRegression = reader["alert_on_regression"] == DBNull.Value || Convert.ToBoolean(reader["alert_on_regression"]),
-                RequiresApproval = Convert.ToBoolean(reader["requires_approval"]),
-                IsDefault = Convert.ToBoolean(reader["is_default"]),
-                Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            if (Enum.TryParse(reader["kind"].ToString(), true, out EnvironmentKindEnum kind))
-                environment.Kind = kind;
-            environment.VerificationDefinitions = Deserialize<List<DeploymentVerificationDefinition>>(MysqlDatabaseDriver.NullableString(reader["verification_definitions_json"])) ?? new List<DeploymentVerificationDefinition>();
-
-            return environment;
-        }
-
         private static MySqlParameter CloneParameter(MySqlParameter parameter)
         {
             return new MySqlParameter(parameter.ParameterName, parameter.Value ?? DBNull.Value);
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
     }
 }

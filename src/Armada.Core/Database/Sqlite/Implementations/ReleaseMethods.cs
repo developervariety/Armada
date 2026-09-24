@@ -72,7 +72,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return FromReader(reader);
+                return ReleaseColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
             return null;
         }
 
@@ -154,7 +154,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
                 while (await reader.ReadAsync(token).ConfigureAwait(false))
-                    results.Add(FromReader(reader));
+                    results.Add(ReleaseColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             }
 
             return new EnumerationResult<Release>
@@ -186,7 +186,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<Release> results = new List<Release>();
             using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                results.Add(FromReader(reader));
+                results.Add(ReleaseColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
             return results;
         }
 
@@ -275,48 +275,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(release.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(release.LastUpdateUtc));
             cmd.Parameters.AddWithValue("@published_utc", release.PublishedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(release.PublishedUtc.Value) : DBNull.Value);
-        }
-
-        private static Release FromReader(SqliteDataReader reader)
-        {
-            Release release = new Release
-            {
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
-                WorkflowProfileId = SqliteDatabaseDriver.NullableString(reader["workflow_profile_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                Version = SqliteDatabaseDriver.NullableString(reader["version"]),
-                TagName = SqliteDatabaseDriver.NullableString(reader["tag_name"]),
-                Summary = SqliteDatabaseDriver.NullableString(reader["summary"]),
-                Notes = SqliteDatabaseDriver.NullableString(reader["notes"]),
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!),
-                PublishedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["published_utc"])
-            };
-
-            if (Enum.TryParse(reader["status"].ToString(), true, out ReleaseStatusEnum status))
-                release.Status = status;
-
-            release.VoyageIds = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["voyage_ids_json"])) ?? new List<string>();
-            release.MissionIds = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["mission_ids_json"])) ?? new List<string>();
-            release.CheckRunIds = Deserialize<List<string>>(SqliteDatabaseDriver.NullableString(reader["check_run_ids_json"])) ?? new List<string>();
-            release.Artifacts = Deserialize<List<ReleaseArtifact>>(SqliteDatabaseDriver.NullableString(reader["artifacts_json"])) ?? new List<ReleaseArtifact>();
-            return release;
-        }
-
-        private static T? Deserialize<T>(string? json)
-        {
-            if (String.IsNullOrWhiteSpace(json)) return default;
-            try
-            {
-                return JsonSerializer.Deserialize<T>(json, _Json);
-            }
-            catch
-            {
-                return default;
-            }
         }
     }
 }
