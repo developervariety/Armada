@@ -3259,9 +3259,14 @@ Paginated enumeration of playbooks with optional filtering and sorting.
 
 #### POST /api/v1/playbooks
 
-Create a playbook.
+Create a playbook in the caller's tenant.
 
-**Request Body:** [Playbook](#playbook)
+**Request Body:** `FileName` (required, ends in `.md`, unique in the tenant),
+`Content` (required), `Description`, `Active`. Only these fields are read; the
+id, owner and timestamps come from the server.
+
+**Response:** `201 Created` - [Playbook](#playbook)
+**Error:** `400` - a missing or non-`.md` file name, or missing content; `409` - the file name is already used in the tenant
 
 #### GET /api/v1/playbooks/{id}
 
@@ -3271,9 +3276,12 @@ Return a single playbook by ID.
 
 #### PUT /api/v1/playbooks/{id}
 
-Update a playbook's file name, description, content, or active state.
+Update a playbook's file name, description, content, or active state. Only the
+supplied fields change; `Description` null or empty clears it. REST and MCP
+`update_playbook` share one playbook service.
 
-**Request Body:** [Playbook](#playbook)
+**Request Body:** any of `FileName`, `Content`, `Description`, `Active`
+**Error:** `400` - an invalid field; `404` - not found in the caller's scope; `409` - the file name is already used in the tenant
 
 #### DELETE /api/v1/playbooks/{id}
 

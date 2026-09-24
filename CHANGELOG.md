@@ -493,6 +493,13 @@ upstream integrations and excludes changes already present at that baseline.
   caller's scope, so another tenant's fleet or vessel reads exactly as one that
   does not exist. Project-profile validate needs a tenant administrator, as its
   create does.
+- **Playbook writes:** REST and MCP create, update and delete a playbook through
+  one service. `PUT /api/v1/playbooks/{id}` changes only the fields the body
+  names, as `update_playbook` does; it had replaced the whole record with model
+  defaults, so a body naming only `FileName` failed. REST create reads only the
+  allow-listed fields, so a body id or timestamp is ignored. A non-`.md` file
+  name or missing content returns `400` (MCP: code `invalid`) instead of a server
+  error, and a duplicate file name returns `409` (MCP: code `conflict`).
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.

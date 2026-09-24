@@ -89,7 +89,7 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Post<Playbook>("/api/v1/playbooks", async (ApiRequest req) =>
+            app.Post<PlaybookWriteRequest>("/api/v1/playbooks", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -97,31 +97,18 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
-                Playbook playbook = JsonSerializer.Deserialize<Playbook>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as Playbook.");
-                playbook.TenantId = ctx.TenantId;
-                playbook.UserId = ctx.UserId;
-
-                PlaybookService playbookService = new PlaybookService(_database, _logging);
-                playbookService.Validate(playbook);
-
-                bool fileNameExists = await _database.Playbooks.ExistsByFileNameAsync(ctx.TenantId!, playbook.FileName).ConfigureAwait(false);
-                if (fileNameExists)
-                {
-                    req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "A playbook with that file name already exists." };
-                }
-
-                playbook = await _database.Playbooks.CreateAsync(playbook).ConfigureAwait(false);
-                req.Http.Response.StatusCode = 201;
-                return playbook;
+                if (!RecordWriteResponse.TryReadBody(req, _jsonOptions, out PlaybookWriteRequest? body, out object? refusal)) return refusal;
+                RecordWriteResult<Playbook> result = await new PlaybookService(_database, _logging).CreateAsync(ctx, body).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 201);
             },
             api => api
                 .WithTag("Playbooks")
                 .WithSummary("Create a playbook")
-                .WithDescription("Creates a tenant-scoped markdown playbook.")
-                .WithRequestBody(OpenApiJson.BodyFor<Playbook>("Playbook data", true))
+                .WithDescription("Creates a tenant-scoped markdown playbook. FileName (ending in .md, unique in the tenant) and Content are required. The id, owner and timestamps come from the server, never the body.")
+                .WithRequestBody(OpenApiJson.BodyFor<PlaybookWriteRequest>("Playbook data (FileName, Content, Description, Active)", true))
                 .WithResponse(201, OpenApiJson.For<Playbook>("Created playbook"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("A playbook with that file name already exists"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/playbooks/{id}", async (ApiRequest req) =>
@@ -153,7 +140,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Put<Playbook>("/api/v1/playbooks/{id}", async (ApiRequest req) =>
+            app.Put<PlaybookWriteRequest>("/api/v1/playbooks/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -161,44 +148,18 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
-                string id = req.Parameters["id"];
-                Playbook? existing = ctx.IsAdmin
-                    ? await _database.Playbooks.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Playbooks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                if (existing == null)
-                {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Playbook not found" };
-                }
-
-                Playbook incoming = JsonSerializer.Deserialize<Playbook>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as Playbook.");
-
-                existing.FileName = incoming.FileName;
-                existing.Description = incoming.Description;
-                existing.Content = incoming.Content;
-                existing.Active = incoming.Active;
-                existing.LastUpdateUtc = DateTime.UtcNow;
-
-                PlaybookService playbookService = new PlaybookService(_database, _logging);
-                playbookService.Validate(existing);
-
-                Playbook? duplicate = await _database.Playbooks.ReadByFileNameAsync(existing.TenantId!, existing.FileName).ConfigureAwait(false);
-                if (duplicate != null && !String.Equals(duplicate.Id, existing.Id, StringComparison.Ordinal))
-                {
-                    req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "A playbook with that file name already exists." };
-                }
-
-                existing = await _database.Playbooks.UpdateAsync(existing).ConfigureAwait(false);
-                return existing;
+                if (!RecordWriteResponse.TryReadBody(req, _jsonOptions, out PlaybookWriteRequest? body, out object? refusal)) return refusal;
+                RecordWriteResult<Playbook> result = await new PlaybookService(_database, _logging).UpdateAsync(ctx, req.Parameters["id"], body).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 200);
             },
             api => api
                 .WithTag("Playbooks")
                 .WithSummary("Update a playbook")
-                .WithDescription("Updates a tenant-scoped markdown playbook.")
+                .WithDescription("Updates a tenant-scoped markdown playbook. Only supplied fields change; Description null or empty clears it.")
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("A playbook with that file name already exists"))
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Playbook ID (pbk_ prefix)"))
-                .WithRequestBody(OpenApiJson.BodyFor<Playbook>("Updated playbook data", true))
+                .WithRequestBody(OpenApiJson.BodyFor<PlaybookWriteRequest>("Updated playbook fields", true))
                 .WithResponse(200, OpenApiJson.For<Playbook>("Updated playbook"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
@@ -211,18 +172,9 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
-                string id = req.Parameters["id"];
-                Playbook? existing = ctx.IsAdmin
-                    ? await _database.Playbooks.ReadAsync(id).ConfigureAwait(false)
-                    : await _database.Playbooks.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                if (existing == null)
-                {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Playbook not found" };
-                }
-
-                await _database.Playbooks.DeleteAsync(id).ConfigureAwait(false);
-                return new { Status = "deleted", PlaybookId = id };
+                RecordWriteResult<Playbook> result = await new PlaybookService(_database, _logging).DeleteAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (!result.Succeeded) return RecordWriteResponse.From(req, result, 200);
+                return new { Status = "deleted", PlaybookId = result.Record!.Id };
             },
             api => api
                 .WithTag("Playbooks")

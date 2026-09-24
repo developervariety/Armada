@@ -45,8 +45,7 @@ namespace Armada.Server.Mcp.Tools
                     PlaybookArgs request = JsonSerializer.Deserialize<PlaybookArgs>(args!.Value, _JsonOptions)!;
                     string id = request.Id?.Trim() ?? String.Empty;
                     if (String.IsNullOrWhiteSpace(id)) return (object)new { Error = "id is required" };
-
-                    Playbook? playbook = await database.Playbooks.ReadAsync(id).ConfigureAwait(false);
+                    Playbook? playbook = await new PlaybookService(database, logging).ReadForCallerAsync(McpCallerContext.Require(), id).ConfigureAwait(false);
                     if (playbook == null) return (object)new { Error = "Playbook not found: " + id };
                     return (object)playbook;
                 });
@@ -68,36 +67,13 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    PlaybookArgs request = JsonSerializer.Deserialize<PlaybookArgs>(args!.Value, _JsonOptions)!;
-                    if (String.IsNullOrWhiteSpace(request.FileName)) return (object)new { Error = "fileName is required" };
-                    if (String.IsNullOrWhiteSpace(request.Content)) return (object)new { Error = "content is required" };
-
-                    Playbook playbook = new Playbook(request.FileName!, request.Content!)
-                    {
-                        Description = request.Description,
-                        Active = request.Active ?? true
-                    };
-                    // The playbook is owned by the authenticated caller and its file name is unique within the
-                    // caller's tenant, exactly as a REST create is.
-                    AuthContext createCaller = McpCallerContext.Require();
-                    playbook.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller);
-                    playbook.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller);
-
-                    PlaybookService service = new PlaybookService(database, logging);
-                    service.Validate(playbook);
-
-                    if (await database.Playbooks.ExistsByFileNameAsync(playbook.TenantId, playbook.FileName).ConfigureAwait(false))
-                    {
-                        return (object)new { Error = "A playbook with that file name already exists." };
-                    }
-
-                    Playbook created = await database.Playbooks.CreateAsync(playbook).ConfigureAwait(false);
-                    return (object)created;
+                    PlaybookWriteRequest request = JsonSerializer.Deserialize<PlaybookWriteRequest>(args!.Value, _JsonOptions) ?? new PlaybookWriteRequest();
+                    return McpRecordWriteResult.From(await new PlaybookService(database, logging).CreateAsync(McpCallerContext.Require(), request).ConfigureAwait(false));
                 });
 
             register(
                 "update_playbook",
-                "Update an existing playbook.",
+                "Update an existing playbook. Only supplied fields change.",
                 new
                 {
                     type = "object",
@@ -105,7 +81,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         id = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
                         fileName = new { type = "string", description = "Markdown filename (must end with .md)" },
-                        description = new { type = "string", description = "Optional human-readable description" },
+                        description = new { type = "string", description = "Human-readable description. An empty string clears it.", emptyStringClears = true },
                         content = new { type = "string", description = "Markdown content" },
                         active = new { type = "boolean", description = "Whether the playbook is active" }
                     },
@@ -113,31 +89,9 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    PlaybookArgs request = JsonSerializer.Deserialize<PlaybookArgs>(args!.Value, _JsonOptions)!;
-                    string id = request.Id?.Trim() ?? String.Empty;
-                    if (String.IsNullOrWhiteSpace(id)) return (object)new { Error = "id is required" };
-
-                    Playbook? playbook = await database.Playbooks.ReadAsync(id).ConfigureAwait(false);
-                    if (playbook == null) return (object)new { Error = "Playbook not found: " + id };
-                    playbook.TenantId ??= Constants.DefaultTenantId;
-                    playbook.UserId ??= Constants.DefaultUserId;
-
-                    if (request.FileName != null) playbook.FileName = request.FileName;
-                    if (request.Description != null) playbook.Description = request.Description;
-                    if (request.Content != null) playbook.Content = request.Content;
-                    if (request.Active.HasValue) playbook.Active = request.Active.Value;
-
-                    PlaybookService service = new PlaybookService(database, logging);
-                    service.Validate(playbook);
-
-                    Playbook? duplicate = await database.Playbooks.ReadByFileNameAsync(playbook.TenantId ?? Constants.DefaultTenantId, playbook.FileName).ConfigureAwait(false);
-                    if (duplicate != null && !String.Equals(duplicate.Id, playbook.Id, StringComparison.Ordinal))
-                    {
-                        return (object)new { Error = "A playbook with that file name already exists." };
-                    }
-
-                    Playbook updated = await database.Playbooks.UpdateAsync(playbook).ConfigureAwait(false);
-                    return (object)updated;
+                    PlaybookArgs target = JsonSerializer.Deserialize<PlaybookArgs>(args!.Value, _JsonOptions)!;
+                    PlaybookWriteRequest request = JsonSerializer.Deserialize<PlaybookWriteRequest>(args!.Value, _JsonOptions) ?? new PlaybookWriteRequest();
+                    return McpRecordWriteResult.From(await new PlaybookService(database, logging).UpdateAsync(McpCallerContext.Require(), target.Id, request).ConfigureAwait(false));
                 });
 
             register(
@@ -155,14 +109,9 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     PlaybookArgs request = JsonSerializer.Deserialize<PlaybookArgs>(args!.Value, _JsonOptions)!;
-                    string id = request.Id?.Trim() ?? String.Empty;
-                    if (String.IsNullOrWhiteSpace(id)) return (object)new { Error = "id is required" };
-
-                    Playbook? playbook = await database.Playbooks.ReadAsync(id).ConfigureAwait(false);
-                    if (playbook == null) return (object)new { Error = "Playbook not found: " + id };
-
-                    await database.Playbooks.DeleteAsync(id).ConfigureAwait(false);
-                    return (object)new { Status = "deleted", PlaybookId = id };
+                    RecordWriteResult<Playbook> result = await new PlaybookService(database, logging).DeleteAsync(McpCallerContext.Require(), request.Id).ConfigureAwait(false);
+                    if (!result.Succeeded) return McpRecordWriteResult.From(result);
+                    return (object)new { Status = "deleted", PlaybookId = result.Record!.Id };
                 });
         }
     }

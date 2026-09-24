@@ -1023,6 +1023,14 @@ cannot be read (for example a blank `name`) returns code `invalid` instead of a
 protocol error. `validate_workflow_profile` resolves the tenant exactly as
 create does, so its answer matches the create.
 
+### Playbooks
+
+`create_playbook` and `update_playbook` call the same service methods as
+`POST` and `PUT /api/v1/playbooks`. `update_playbook` changes only the supplied
+fields, and `description` declares `emptyStringClears`. A file name that does
+not end in `.md` or missing content returns code `invalid` instead of a protocol
+error; a duplicate file name returns `conflict`.
+
 ### Objectives And Backlog Items
 
 `create_objective`, `create_backlog_item`, `update_objective` and
