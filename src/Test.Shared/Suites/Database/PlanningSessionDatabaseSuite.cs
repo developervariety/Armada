@@ -210,19 +210,12 @@ namespace Test.Shared.Suites.Database
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
         {
-            // SQLite and PostgreSQL store planning sessions; the MySQL and SQL Server drivers refuse them
-            // with NotSupportedException. Skip the whole suite (rather than fail) on those two providers.
-            bool skip = TestDatabaseConfig.Type == DatabaseTypeEnum.Mysql || TestDatabaseConfig.Type == DatabaseTypeEnum.SqlServer;
-            string? skipReason = skip ? "The " + TestDatabaseConfig.Type + " provider does not store planning sessions." : null;
-
             return new TestCaseDescriptor(
                 suiteId: SuiteId,
                 caseId: caseId,
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
-                tags: new List<string> { tag },
-                skip: skip,
-                skipReason: skipReason);
+                tags: new List<string> { tag });
         }
 
         #endregion

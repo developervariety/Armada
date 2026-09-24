@@ -96,16 +96,18 @@ using System.IO;
         private string? _CredentialBId;
         private string? _BearerTokenB;
         private HttpClient? _ClientB;
+        private readonly DatabaseTypeEnum _DatabaseType;
 
         #endregion
 
         #region Constructors-and-Factories
 
         /// <summary>
-        /// Create a new CrossTenantApiTests suite with shared HTTP clients, base URL, and API key.
+        /// Create a new CrossTenantApiTests suite with shared HTTP clients, base URL, API key and the server's database provider.
         /// </summary>
-        public CrossTenantApiTests(HttpClient authClient, HttpClient unauthClient, string baseUrl, string apiKey)
+        public CrossTenantApiTests(HttpClient authClient, HttpClient unauthClient, string baseUrl, string apiKey, DatabaseTypeEnum databaseType)
         {
+            _DatabaseType = databaseType;
             _AdminClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
             _BaseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
@@ -2354,9 +2356,20 @@ using System.IO;
                 AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "The shared coordination board requires a global administrator");
             }).ConfigureAwait(false);
 
-            await RunTest("CoordinationMessages_FromGlobalAdmin_Returns200", async () =>
+            // MySQL and SQL Server do not store the coordination board, so there the authorized read is a named 501.
+            await RunTest("CoordinationMessages_FromGlobalAdmin_ReadsBoardOrNamedRefusal", async () =>
             {
                 HttpResponseMessage response = await _AdminClient.GetAsync("/api/v1/coordination/rooms/fleet/messages").ConfigureAwait(false);
+                if (_DatabaseType == DatabaseTypeEnum.Mysql || _DatabaseType == DatabaseTypeEnum.SqlServer)
+                {
+                    string provider = _DatabaseType == DatabaseTypeEnum.Mysql ? "MySQL" : "SQL Server";
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.NotImplemented, response.StatusCode, "The " + provider + " provider refuses the coordination board: " + body);
+                    AssertTrue(body.Contains("The " + provider + " database provider does not store the coordination board", StringComparison.Ordinal),
+                        "The refusal names the provider: " + body);
+                    return;
+                }
+
                 AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still reads the coordination board");
             }).ConfigureAwait(false);
 

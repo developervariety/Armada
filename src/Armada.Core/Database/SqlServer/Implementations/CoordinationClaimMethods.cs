@@ -38,7 +38,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
 
         private static NotSupportedException NotSupported()
         {
-            return new NotSupportedException("Coordination claims are currently implemented for SQLite- and PostgreSQL-backed Armada deployments.");
+            return new NotSupportedException("The SQL Server database provider does not store the coordination board; use SQLite or PostgreSQL.");
         }
     }
 }

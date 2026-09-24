@@ -169,6 +169,7 @@ namespace Armada.Test.Database
             await RunTest("Signal_Every_Property_Create_MarkRead_Reopen", "Operational", () => roundTrips.VerifySignalsAsync(token), token);
             await RunTest("Event_Every_Property_Create_Reopen", "Operational", () => roundTrips.VerifyEventsAsync(token), token);
             await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
+            await RunTest("Pipeline_Same_Order_Stages_Keep_Submitted_Order", "Operational", () => TestPipelineSiblingOrderAsync(token), token);
             await RunTest("RequestHistory_Timestamp_RoundTrip_And_Same_Day_Range", "Operational", () => TestRequestHistorySameDayRangeAsync(token), token);
             await RunTest("CheckRun_Create_Read_Update_Enumerate", "Operational", () => TestCheckRunCrudAsync(token), token);
             await RunTest("Environment_Create_Read_Update_Enumerate", "Operational", () => TestEnvironmentCrudAsync(token), token);
@@ -1927,6 +1928,14 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(captain.Id, read.CaptainId, "Dock.CaptainId");
                 DatabaseAssert.Equal(graph.User.Id, read.UserId, "Dock.UserId survives create/read");
 
+                // The tenant and user lists read newest first; a tenant delete walks the tenant list.
+                Dock newer = await fixture.CreateDockAsync(graph.Tenant.Id, graph.User.Id, vessel.Id, captain.Id, token,
+                    item => item.CreatedUtc = dock.CreatedUtc.AddSeconds(5)).ConfigureAwait(false);
+                List<Dock> tenantDocks = await _Driver.Docks.EnumerateAsync(graph.Tenant.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(newer.Id + "," + dock.Id, String.Join(",", tenantDocks.ConvertAll(item => item.Id)), "Tenant docks, newest first");
+                List<Dock> userDocks = await _Driver.Docks.EnumerateAsync(graph.Tenant.Id, graph.User.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(newer.Id + "," + dock.Id, String.Join(",", userDocks.ConvertAll(item => item.Id)), "User docks, newest first");
+
                 read.Active = false;
                 UserMaster other = await fixture.CreateUserAsync(graph.Tenant.Id, "dock-owner-update", token: token).ConfigureAwait(false);
                 read.UserId = other.Id;
@@ -2319,6 +2328,59 @@ namespace Armada.Test.Database
                     catch (Exception ex) { Console.WriteLine("  pipeline cleanup failed: " + ex.Message); }
                 }
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestPipelineSiblingOrderAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            Pipeline pipeline = new Pipeline("sibling-pipeline-" + suffix);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("pipeline-sibling-tenant", token: token).ConfigureAwait(false);
+                pipeline.TenantId = tenant.Id;
+
+                // The stage ids sort opposite to the submitted order, so a read that orders ties by key or by
+                // insertion luck cannot pass: only the stored submitted position gives this order back.
+                pipeline.Stages = new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Worker") { Id = "pps_" + suffix + "_e" },
+                    new PipelineStage(2, "TestEngineer") { Id = "pps_" + suffix + "_d" },
+                    new PipelineStage(2, "Linter") { Id = "pps_" + suffix + "_c" },
+                    new PipelineStage(2, "Reviewer") { Id = "pps_" + suffix + "_b" },
+                    new PipelineStage(3, "Judge") { Id = "pps_" + suffix + "_a" }
+                };
+                await _Driver.Pipelines.CreateAsync(pipeline, token).ConfigureAwait(false);
+                await AssertStageOrderAsync(pipeline.Id, "Worker#1|TestEngineer#2|Linter#2|Reviewer#2|Judge#3", "after create", token).ConfigureAwait(false);
+
+                Pipeline changed = DatabaseAssert.NotNull(await _Driver.Pipelines.ReadAsync(pipeline.Id, token).ConfigureAwait(false), "Pipeline read after create");
+                changed.Stages = new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Reviewer") { Id = "pps_" + suffix + "_z" },
+                    new PipelineStage(1, "Worker") { Id = "pps_" + suffix + "_y" },
+                    new PipelineStage(2, "Judge") { Id = "pps_" + suffix + "_x" }
+                };
+                await _Driver.Pipelines.UpdateAsync(changed, token).ConfigureAwait(false);
+                await AssertStageOrderAsync(pipeline.Id, "Reviewer#1|Worker#1|Judge#2", "after update", token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    try { await _Driver.Pipelines.DeleteAsync(pipeline.Id, token).ConfigureAwait(false); }
+                    catch (Exception ex) { Console.WriteLine("  pipeline cleanup failed: " + ex.Message); }
+                }
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task AssertStageOrderAsync(string pipelineId, string expected, string stage, CancellationToken token)
+        {
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                Pipeline stored = DatabaseAssert.NotNull(await reopened.Pipelines.ReadAsync(pipelineId, token).ConfigureAwait(false), "Pipeline retained " + stage);
+                DatabaseAssert.Equal(expected, String.Join("|", stored.Stages.ConvertAll(item => item.PersonaName + "#" + item.Order)), "Stored stage order " + stage);
             }
         }
 
@@ -3079,15 +3141,6 @@ namespace Armada.Test.Database
 
         private async Task TestPlanningSessionCrudAsync(CancellationToken token)
         {
-            if (_Settings.Type == DatabaseTypeEnum.Mysql || _Settings.Type == DatabaseTypeEnum.SqlServer)
-            {
-                // These providers do not store planning sessions; the refusal must say so and name the provider.
-                string provider = _Settings.Type == DatabaseTypeEnum.Mysql ? "MySQL" : "SQL Server";
-                await AssertPlanningRefusedAsync(() => _Driver.PlanningSessions.EnumerateAsync(token), provider).ConfigureAwait(false);
-                await AssertPlanningRefusedAsync(() => _Driver.PlanningSessionMessages.EnumerateBySessionAsync("pls_absent", token), provider).ConfigureAwait(false);
-                return;
-            }
-
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             List<string> sessionIds = new List<string>();
             try
@@ -3271,20 +3324,6 @@ namespace Armada.Test.Database
                 }
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
-        }
-
-        private static async Task AssertPlanningRefusedAsync(Func<Task> action, string provider)
-        {
-            try
-            {
-                await action().ConfigureAwait(false);
-            }
-            catch (NotSupportedException ex)
-            {
-                DatabaseAssert.True(ex.Message.Contains(provider, StringComparison.Ordinal), "The planning refusal names the " + provider + " provider: " + ex.Message);
-                return;
-            }
-            throw new InvalidOperationException("The " + provider + " provider stored planning data instead of refusing it");
         }
 
         private static void AssertSameUtcInstant(DateTime? expected, DateTime? actual, string fieldName)

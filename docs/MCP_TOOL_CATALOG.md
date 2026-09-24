@@ -291,6 +291,9 @@ The coordination board is a shared room where concurrent operator sessions and
 the dashboard post short notes about what they are doing, so no session is
 surprised by a voyage another session dispatched. Notes are visible through board reads. General notes stay advisory;
 voyage-tagged notes can enter the next stage brief on supported providers.
+SQLite and PostgreSQL store the board. On MySQL and SQL Server each coordination
+tool returns an `Error` naming the provider (`The MySQL database provider does not
+store the coordination board; use SQLite or PostgreSQL.`).
 
 - `armada_coordination_post` — post a note. Claim work before you start it;
   report outcomes when you finish.

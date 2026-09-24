@@ -105,6 +105,25 @@ upstream integrations and excludes changes already present at that baseline.
   `mission.requested_captain` event with the reason, as the dispatch preview
   reports it. An admiral without captain-assignment support refuses them instead
   of dropping them.
+- **Planning sessions on every provider:** MySQL and SQL Server store planning
+  sessions and their transcript messages with the same columns, indexes,
+  per-session sequence uniqueness and session-to-message cascade as SQLite and
+  PostgreSQL (MySQL migration 103, SQL Server migration 106), so the planning
+  routes, tools and captain chat work on all four providers. On SQL Server the
+  user reference carries no foreign key, because SQL Server refuses a second
+  cascade path from tenants.
+- **Named coordination refusal:** on MySQL and SQL Server every coordination
+  board operation refuses with `The <provider> database provider does not store
+  the coordination board; use SQLite or PostgreSQL.`, which the REST routes return
+  as `501`. The automated suite asserts that refusal on those two providers.
+- **Parallel pipeline stages keep their submitted order:** each stage stores its
+  submitted position (SQLite migration 110, PostgreSQL 113, SQL Server 105,
+  MySQL 102), and stages that share an order read back in that position on every
+  provider. MySQL and SQL Server returned same-order siblings by stage id.
+- **SQL Server tenant and user delete:** the tenant- and user-scoped dock lists
+  order by creation time, newest first, like the other providers. They ordered by
+  a column docks do not have, so deleting a tenant or a user failed with `500`.
+
 - **Code-index status reads are side-effect free:** the code-index status route
   and tool never clone a missing repository or update the vessel record. The
   status names the case with `RepositoryState` (`Available` or `Missing`), and the

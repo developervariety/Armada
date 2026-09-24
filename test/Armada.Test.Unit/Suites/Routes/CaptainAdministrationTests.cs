@@ -133,7 +133,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     StopAllScenario scenario = await StopAllScenario.CreateAsync(testDb.Driver).ConfigureAwait(false);
                     PropertyInfo planningSessions = typeof(DatabaseDriver).GetProperty(nameof(DatabaseDriver.PlanningSessions))!;
                     object? original = planningSessions.GetValue(testDb.Driver);
-                    planningSessions.SetValue(testDb.Driver, new Armada.Core.Database.Mysql.Implementations.PlanningSessionMethods(String.Empty));
+                    planningSessions.SetValue(testDb.Driver, new global::Test.Shared.Infrastructure.RefusingPlanningSessionMethods());
                     try
                     {
                         List<string> refinementStopped = new List<string>();

@@ -460,10 +460,10 @@ namespace Test.Shared.Suites.Services
                     lock (gate) messages.Add(entry.Message ?? String.Empty);
                 };
 
-                // MySQL and SQL Server store no planning sessions; their method set refuses every read.
+                // A provider that stores no planning sessions refuses every read.
                 PropertyInfo planningSessions = typeof(Armada.Core.Database.DatabaseDriver).GetProperty(nameof(Armada.Core.Database.DatabaseDriver.PlanningSessions))!;
                 object? original = planningSessions.GetValue(testDb.Driver);
-                planningSessions.SetValue(testDb.Driver, new Armada.Core.Database.Mysql.Implementations.PlanningSessionMethods(String.Empty));
+                planningSessions.SetValue(testDb.Driver, new Test.Shared.Infrastructure.RefusingPlanningSessionMethods());
                 EnumerationResult<HistoricalTimelineEntry> result;
                 try
                 {

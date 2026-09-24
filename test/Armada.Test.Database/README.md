@@ -138,8 +138,11 @@ preferences and voyage planning provenance. These storage cases do not prove dis
 
 The planning-session case covers session and transcript create, read, update,
 enumeration order, tenant and user scoping, the per-session sequence uniqueness
-and the message cascade on SQLite and PostgreSQL. On MySQL and SQL Server, which
-do not store planning sessions, it checks that the refusal names the provider.
+and the message cascade on all four providers.
+
+The pipeline sibling-order case stores stages that share an order under ids that
+sort opposite to the submitted order, then reads them back through a reopened
+driver after create and after update: every provider returns the submitted order.
 
 `anchor-migration` checks the populated dock snapshot upgrade, incompatible and
 equivalent columns, partial-failure restart and unchanged applied history on all

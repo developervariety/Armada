@@ -665,7 +665,9 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(98, "Drop the unused jobs table", JobsTableDropSchema.MysqlStatements),
                 new SchemaMigration(99, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.MysqlStatements),
                 new SchemaMigration(100, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.MysqlStatements),
-                new SchemaMigration(101, "Persist token usage input buckets and the counting rule, and widen token counts to 64-bit", TokenUsageInputBucketsPersistence.MysqlStatements)
+                new SchemaMigration(101, "Persist token usage input buckets and the counting rule, and widen token counts to 64-bit", TokenUsageInputBucketsPersistence.MysqlStatements),
+                new SchemaMigration(102, "Keep same-order pipeline stages in their submitted order", PipelineStagePositionPersistence.MysqlStatements),
+                new SchemaMigration(103, "Persist planning sessions and their transcript messages", PlanningSessionSchema.MysqlStatements)
             };
         }
 

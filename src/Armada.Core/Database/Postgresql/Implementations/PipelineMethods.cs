@@ -79,10 +79,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
-                    foreach (PipelineStage stage in pipeline.Stages)
+                    for (int position = 0; position < pipeline.Stages.Count; position++)
                     {
+                        PipelineStage stage = pipeline.Stages[position];
                         stage.PipelineId = pipeline.Id;
-                        await InsertStageAsync(conn, tx, stage, token).ConfigureAwait(false);
+                        await InsertStageAsync(conn, tx, stage, position, token).ConfigureAwait(false);
                     }
 
                     await tx.CommitAsync(token).ConfigureAwait(false);
@@ -230,10 +231,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
-                    foreach (PipelineStage stage in pipeline.Stages)
+                    for (int position = 0; position < pipeline.Stages.Count; position++)
                     {
+                        PipelineStage stage = pipeline.Stages[position];
                         stage.PipelineId = pipeline.Id;
-                        await InsertStageAsync(conn, tx, stage, token).ConfigureAwait(false);
+                        await InsertStageAsync(conn, tx, stage, position, token).ConfigureAwait(false);
                     }
 
                     await tx.CommitAsync(token).ConfigureAwait(false);
@@ -419,18 +421,20 @@ namespace Armada.Core.Database.Postgresql.Implementations
         /// <param name="conn">Open PostgreSQL connection.</param>
         /// <param name="tx">Transaction the write belongs to.</param>
         /// <param name="stage">Pipeline stage to insert.</param>
+        /// <param name="position">Index of the stage in the submitted list; it keeps same-order siblings in that order.</param>
         /// <param name="token">Cancellation token.</param>
-        private static async Task InsertStageAsync(NpgsqlConnection conn, NpgsqlTransaction tx, PipelineStage stage, CancellationToken token)
+        private static async Task InsertStageAsync(NpgsqlConnection conn, NpgsqlTransaction tx, PipelineStage stage, int position, CancellationToken token)
         {
             using (NpgsqlCommand cmd = new NpgsqlCommand())
             {
                 cmd.Connection = conn;
                 cmd.Transaction = tx;
-                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional, description, preferred_model, requires_review, review_deny_action)
-                    VALUES (@id, @pipeline_id, @stage_order, @persona_name, @is_optional, @description, @preferred_model, @requires_review, @review_deny_action);";
+                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, stage_position, persona_name, is_optional, description, preferred_model, requires_review, review_deny_action)
+                    VALUES (@id, @pipeline_id, @stage_order, @stage_position, @persona_name, @is_optional, @description, @preferred_model, @requires_review, @review_deny_action);";
                 cmd.Parameters.AddWithValue("@id", stage.Id);
                 cmd.Parameters.AddWithValue("@pipeline_id", (object?)stage.PipelineId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@stage_order", stage.Order);
+                cmd.Parameters.AddWithValue("@stage_position", position);
                 cmd.Parameters.AddWithValue("@persona_name", stage.PersonaName);
                 cmd.Parameters.AddWithValue("@is_optional", stage.IsOptional);
                 cmd.Parameters.AddWithValue("@description", (object?)stage.Description ?? DBNull.Value);
@@ -442,12 +446,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <summary>
-        /// Load all stages for a pipeline, ordered by stage_order.
+        /// Load all stages for a pipeline, ordered by stage_order and, within one order, by submitted position.
         /// </summary>
         /// <param name="conn">Open PostgreSQL connection.</param>
         /// <param name="pipelineId">Pipeline identifier.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>List of pipeline stages ordered by stage_order.</returns>
+        /// <returns>List of pipeline stages in stored order.</returns>
         private static async Task<List<PipelineStage>> LoadStagesAsync(NpgsqlConnection conn, string pipelineId, CancellationToken token)
         {
             List<PipelineStage> stages = new List<PipelineStage>();
@@ -455,7 +459,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlCommand cmd = new NpgsqlCommand())
             {
                 cmd.Connection = conn;
-                cmd.CommandText = "SELECT * FROM pipeline_stages WHERE pipeline_id = @pipeline_id ORDER BY stage_order;";
+                cmd.CommandText = "SELECT * FROM pipeline_stages WHERE pipeline_id = @pipeline_id ORDER BY stage_order, stage_position, id;";
                 cmd.Parameters.AddWithValue("@pipeline_id", pipelineId);
                 using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                 {

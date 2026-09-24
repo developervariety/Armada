@@ -145,7 +145,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/runtimes/mux/...` | GET | AdminOnly | Global admin only. The routes read the server's own Mux endpoint configuration and pass a caller-chosen config directory to the Mux CLI |
 | `/api/v1/doctor` | GET | Authenticated | The settings path, database location and runtime binary paths appear only for a global admin; every other caller receives the same checks without them. Counts are scoped to the caller's tenant |
 | any `.../enumerate` | POST | Level of the matching `GET` list | An enumerate route reads through a POST body, so it takes the level of the list it mirrors and applies the same caller scope |
-| `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
+| `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant. SQLite and PostgreSQL store the board; on MySQL and SQL Server the room, message and claim routes return `501 Not Implemented` with the message `The <provider> database provider does not store the coordination board; use SQLite or PostgreSQL.` |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
 | `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline by name as the caller sees it (the caller's own tenant first, then a built-in record) and require edit rights under the ownership rule. Every tenant uses a built-in pipeline, so only a global admin may update one; anyone else receives `403`. REST, MCP and WebSocket share one pipeline service, so a payload is validated and stored the same way on each |
 
@@ -2354,8 +2354,8 @@ other caller receives `403`.
 
 **Response:** `200 OK` - `CaptainStopAllResult`. `Status` is `all_stopped` when
 every stop succeeded and `stopped_with_failures` otherwise. `UnavailableSources`
-names a session kind the database provider does not store (`PlanningSessions` on
-MySQL and SQL Server); no session of that kind can be running, so it
+names a session kind the database provider does not store; no session of that
+kind can be running, so it
 is not a failure and the stop continues with the other kinds. A session kind whose
 active sessions cannot be read for any other reason is counted as a failed stop
 with `Id` `*`.
@@ -3956,7 +3956,7 @@ curl -X POST http://localhost:7890/api/v1/workspace/vessels/vsl_abc123/exec \
 
 ### Planning Sessions
 
-Planning sessions back the dashboard captain-chat flow and transcript-to-dispatch handoff. SQLite and PostgreSQL store planning sessions; on MySQL and SQL Server these routes return `501 Not Implemented` with a message that names the provider.
+Planning sessions back the dashboard captain-chat flow and transcript-to-dispatch handoff. Every database provider (SQLite, PostgreSQL, MySQL and SQL Server) stores planning sessions and their transcripts.
 
 #### GET /api/v1/planning-sessions
 
