@@ -393,7 +393,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_restart_mission",
-                "Restart a failed or cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting.",
+                "Restart a Failed or Cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting. A LandingFailed mission keeps its produced work and is refused: use armada_retry_landing.",
                 new
                 {
                     type = "object",
@@ -412,16 +412,12 @@ namespace Armada.Server.Mcp.Tools
                     Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
 
-                    if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
-                        return (object)new { Error = "Only Failed or Cancelled missions can be restarted (current: " + mission.Status + ")" };
-
-                    if (!String.IsNullOrEmpty(request.Title)) mission.Title = request.Title;
-                    if (!String.IsNullOrEmpty(request.Description)) mission.Description = request.Description;
-
+                    // REST, WebSocket and MCP share one restart: the eligibility rule (LandingFailed is refused with a
+                    // pointer to retry-landing), the capacity gate, the owned signal, the event and the broadcast.
+                    MissionRestartResult restart;
                     try
                     {
-                        MissionRestartService restarts = new MissionRestartService(database, settings ?? new ArmadaSettings());
-                        mission = await restarts.RestartAsync(mission, mission.Title, mission.Description).ConfigureAwait(false);
+                        restart = await missionOperations.RestartMissionAsync(mission, request.Title, request.Description).ConfigureAwait(false);
                     }
                     catch (FleetCapacityAdmissionException capacity)
                     {
@@ -436,13 +432,9 @@ namespace Armada.Server.Mcp.Tools
                         };
                     }
 
-                    // The restart signal belongs to the mission it reports, so the mission's owner sees it.
-                    Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + missionId + " restarted");
-                    signal.TenantId = mission.TenantId;
-                    signal.UserId = mission.UserId;
-                    await database.Signals.CreateAsync(signal).ConfigureAwait(false);
-
-                    return (object)SanitizeMissionForStatus(mission);
+                    if (!restart.Succeeded)
+                        return (object)new { Error = restart.Message, Code = restart.Code };
+                    return (object)SanitizeMissionForStatus(restart.Mission);
                 });
 
             register(

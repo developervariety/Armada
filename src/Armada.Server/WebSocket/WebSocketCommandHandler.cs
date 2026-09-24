@@ -871,59 +871,49 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>restart_mission</c> command.
+        /// Run the <c>restart_mission</c> command through the shared restart REST and MCP use: only a Failed or Cancelled
+        /// mission is restarted, and a LandingFailed mission is refused with a pointer to retry-landing.
         /// </summary>
         private async Task<object> RestartMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             string rmId = command.Id ?? "";
             Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
             if (rmMission == null)
-                return new { type = "command.error", action = "restart_mission", error = "Mission not found" };
-            else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
-                return new { type = "command.error", action = "restart_mission", error = "Only Failed, LandingFailed, or Cancelled missions can be restarted" };
-            else
+                return NotFound("restart_mission", "Mission not found");
+
+            MissionRestartData? rmData;
+            try
             {
-                WebSocketDataCommand<MissionRestartData>? rmData = null;
-                try { rmData = JsonSerializer.Deserialize<WebSocketDataCommand<MissionRestartData>>(rawBody, _JsonOptions); } catch { }
-                if (rmData?.Data != null)
-                {
-                    if (!String.IsNullOrEmpty(rmData.Data.Title)) rmMission.Title = rmData.Data.Title;
-                    if (!String.IsNullOrEmpty(rmData.Data.Description)) rmMission.Description = rmData.Data.Description;
-                }
-
-                try
-                {
-                    MissionRestartService restarts = new MissionRestartService(_Database, _Settings ?? new ArmadaSettings());
-                    rmMission = await restarts.RestartAsync(
-                        rmMission,
-                        rmMission.Title,
-                        rmMission.Description,
-                        allowLandingFailed: true).ConfigureAwait(false);
-                }
-                catch (FleetCapacityAdmissionException capacity)
-                {
-                    return new
-                    {
-                        type = "command.error",
-                        action = "restart_mission",
-                        error = capacity.Message,
-                        code = capacity.Code,
-                        activeCount = capacity.ActiveCount,
-                        limit = capacity.Limit,
-                        candidateVesselId = capacity.CandidateVesselId,
-                        laneMembers = capacity.LaneMembers
-                    };
-                }
-
-                // The restart signal belongs to the mission it reports, so the mission's owner sees it.
-                Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
-                rmSignal.TenantId = rmMission.TenantId;
-                rmSignal.UserId = rmMission.UserId;
-                await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
-
-                _BroadcastMissionChange(rmMission);
-                return new { type = "command.result", action = "restart_mission", data = (object)rmMission };
+                rmData = JsonSerializer.Deserialize<WebSocketDataCommand<MissionRestartData>>(rawBody, _JsonOptions)?.Data;
             }
+            catch (JsonException)
+            {
+                return new { type = "command.error", action = "restart_mission", error = "The command data could not be read as a restart request." };
+            }
+
+            MissionRestartResult restart;
+            try
+            {
+                restart = await Operations.RestartMissionAsync(rmMission, rmData?.Title, rmData?.Description).ConfigureAwait(false);
+            }
+            catch (FleetCapacityAdmissionException capacity)
+            {
+                return new
+                {
+                    type = "command.error",
+                    action = "restart_mission",
+                    error = capacity.Message,
+                    code = capacity.Code,
+                    activeCount = capacity.ActiveCount,
+                    limit = capacity.Limit,
+                    candidateVesselId = capacity.CandidateVesselId,
+                    laneMembers = capacity.LaneMembers
+                };
+            }
+
+            if (!restart.Succeeded)
+                return new { type = "command.error", action = "restart_mission", error = restart.Message, code = restart.Code };
+            return new { type = "command.result", action = "restart_mission", data = (object)restart.Mission };
         }
 
         /// <summary>

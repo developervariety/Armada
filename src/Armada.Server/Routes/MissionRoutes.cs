@@ -999,22 +999,29 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only Failed or Cancelled missions can be restarted" };
-
-                try
+                string? title = null;
+                string? description = null;
+                if (!String.IsNullOrWhiteSpace(req.Http.Request.DataAsString))
                 {
-                    MissionRestartRequest body = JsonSerializer.Deserialize<MissionRestartRequest>(req.Http.Request.DataAsString, _jsonOptions)
-                        ?? throw new InvalidOperationException("Request body could not be deserialized as MissionRestartRequest.");
-                    if (!String.IsNullOrEmpty(body.Title)) mission.Title = body.Title;
-                    if (!String.IsNullOrEmpty(body.Description)) mission.Description = body.Description;
+                    try
+                    {
+                        MissionRestartRequest? body = JsonSerializer.Deserialize<MissionRestartRequest>(req.Http.Request.DataAsString, _jsonOptions);
+                        title = body?.Title;
+                        description = body?.Description;
+                    }
+                    catch (JsonException)
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Request body could not be read as a restart request." };
+                    }
                 }
-                catch { }
 
+                // REST, WebSocket and MCP share one restart: the eligibility rule (LandingFailed is refused with a
+                // pointer to retry-landing), the capacity gate, the owned signal, the event and the broadcast.
+                MissionRestartResult restart;
                 try
                 {
-                    MissionRestartService restarts = new MissionRestartService(_database, _settings, _logging);
-                    mission = await restarts.RestartAsync(mission, mission.Title, mission.Description).ConfigureAwait(false);
+                    restart = await _operations.RestartMissionAsync(mission, title, description).ConfigureAwait(false);
                 }
                 catch (FleetCapacityAdmissionException capacity)
                 {
@@ -1030,33 +1037,24 @@ namespace Armada.Server.Routes
                     };
                 }
 
-                // The restart signal belongs to the mission it reports, so the mission's owner sees it.
-                Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " restarted");
-                signal.TenantId = mission.TenantId;
-                signal.UserId = mission.UserId;
-                await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
-
-                await _emitEvent("mission.restarted", "Mission " + id + " restarted",
-                    "mission", id, null, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
-
-                // Broadcast specific mission change for dashboard toast notifications
-                if (_webSocketHub != null)
+                if (!restart.Succeeded)
                 {
-                    _webSocketHub.BroadcastMissionChange(id, MissionStatusEnum.Pending.ToString(), mission.Title, mission.VoyageId,
-                        WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = restart.Message };
                 }
 
-                return (object)mission;
+                return (object)restart.Mission;
             },
             api => api
                 .WithTag("Missions")
                 .WithSummary("Restart a failed or cancelled mission")
-                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.")
+                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields. Any other status is refused with 409; a LandingFailed mission keeps its produced work, and the refusal names retry-landing.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<MissionRestartRequest>("Optional updated instructions", false))
                 .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The mission is not Failed or Cancelled, or the fleet has no capacity"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/missions/{id}/retry-landing", async (ApiRequest req) =>

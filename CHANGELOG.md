@@ -182,6 +182,14 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One mission restart, and LandingFailed is not restarted:** REST, WebSocket and
+  MCP restart run one shared operation whose eligibility lives in
+  `MissionRestartService`. A LandingFailed mission is refused on every surface
+  and the refusal names retry-landing (WebSocket restarted it and discarded its
+  branch and commit). Every surface records a restart signal owned by the
+  mission's owner, writes `mission.restarted`, and broadcasts the change. REST
+  refuses with `409` instead of a `400` body under an HTTP 200, and rejects an
+  unreadable restart body instead of ignoring it.
 - **One mission and voyage purge:** mission purge, batch mission delete, voyage
   purge and batch voyage delete run one shared rule on REST, WebSocket and MCP.
   A mission a captain is working is refused (mission purge had no guard, and MCP

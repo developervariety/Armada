@@ -250,6 +250,47 @@ namespace Armada.Server
             return result;
         }
 
+        /// <summary>
+        /// Restart one mission: return a Failed or Cancelled mission to Pending through
+        /// <see cref="MissionRestartService"/>, which owns the eligibility rule and the capacity gate, then record a
+        /// restart signal owned by the mission's owner, write a <c>mission.restarted</c> event, and broadcast the
+        /// change. A LandingFailed mission is refused with a pointer to retry-landing.
+        /// </summary>
+        /// <param name="mission">Mission, already read under the caller's scope.</param>
+        /// <param name="title">Optional new title; blank keeps the current one.</param>
+        /// <param name="description">Optional new description; blank keeps the current one.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The restarted mission, or the refusal.</returns>
+        /// <exception cref="FleetCapacityAdmissionException">The fleet or vessel has no capacity for the restarted work.</exception>
+        public async Task<MissionRestartResult> RestartMissionAsync(Mission mission, string? title, string? description, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            string? ineligible = MissionRestartService.FindIneligibility(mission, out string? code);
+            if (ineligible != null) return MissionRestartResult.Refused(mission, code ?? MissionRestartService.NotRestartableCode, ineligible);
+
+            Mission restarted;
+            try
+            {
+                restarted = await new MissionRestartService(_Database, _Settings, _Logging)
+                    .RestartAsync(mission, title, description, token).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (ex is not FleetCapacityAdmissionException)
+            {
+                return MissionRestartResult.Refused(mission, MissionRestartService.NotRestartableCode, ex.Message);
+            }
+
+            // The restart signal belongs to the mission it reports, so the mission's owner sees it.
+            Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + restarted.Id + " restarted");
+            signal.TenantId = restarted.TenantId;
+            signal.UserId = restarted.UserId;
+            await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+
+            await Notifier.EmitAsync("mission.restarted", "Mission " + restarted.Id + " restarted",
+                "mission", restarted.Id, null, restarted.Id, restarted.VesselId, restarted.VoyageId).ConfigureAwait(false);
+            Notifier.MissionChanged(restarted);
+            return MissionRestartResult.Restarted(restarted);
+        }
+
         #endregion
 
         #region Private-Methods

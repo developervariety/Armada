@@ -23,19 +23,48 @@ namespace Armada.Core.Services
             _Capacity = new FleetCapacityAdmission(database, settings ?? throw new ArgumentNullException(nameof(settings)), logging);
         }
 
-        /// <summary>Reset a failed mission to Pending after reserving its work unit.</summary>
+        /// <summary>
+        /// Refusal code for a LandingFailed mission, whose produced work is landed with retry-landing instead.
+        /// </summary>
+        public const string UseRetryLandingCode = "use_retry_landing";
+
+        /// <summary>
+        /// Refusal code for a mission in any other status that cannot be restarted.
+        /// </summary>
+        public const string NotRestartableCode = "mission_not_restartable";
+
+        /// <summary>
+        /// The one restart eligibility rule: only a Failed or Cancelled mission is restarted. A LandingFailed mission
+        /// holds produced work that a restart would discard, so it is refused with a pointer to retry-landing.
+        /// </summary>
+        /// <param name="mission">Mission to restart.</param>
+        /// <param name="code">Refusal code, or null when the mission may be restarted.</param>
+        /// <returns>The refusal reason, or null when the mission may be restarted.</returns>
+        public static string? FindIneligibility(Mission mission, out string? code)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            code = null;
+            if (mission.Status == MissionStatusEnum.Failed || mission.Status == MissionStatusEnum.Cancelled) return null;
+            if (mission.Status == MissionStatusEnum.LandingFailed)
+            {
+                code = UseRetryLandingCode;
+                return "Mission " + mission.Id + " is LandingFailed and keeps its produced work; land it with retry-landing "
+                    + "(POST /api/v1/missions/" + mission.Id + "/retry-landing, or armada_retry_landing) instead of restarting it.";
+            }
+            code = NotRestartableCode;
+            return "Only Failed or Cancelled missions can be restarted (current: " + mission.Status + ").";
+        }
+
+        /// <summary>Reset a Failed or Cancelled mission to Pending after reserving its work unit.</summary>
         public async Task<Mission> RestartAsync(
             Mission mission,
             string? title = null,
             string? description = null,
-            bool allowLandingFailed = false,
             CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            if (mission.Status != MissionStatusEnum.Failed
-                && mission.Status != MissionStatusEnum.Cancelled
-                && (!allowLandingFailed || mission.Status != MissionStatusEnum.LandingFailed))
-                throw new InvalidOperationException("Only Failed, LandingFailed, or Cancelled missions can be restarted.");
+            string? ineligible = FindIneligibility(mission, out _);
+            if (ineligible != null) throw new InvalidOperationException(ineligible);
             if (String.IsNullOrWhiteSpace(mission.VesselId))
                 throw new InvalidOperationException("Mission does not have an associated vessel.");
 

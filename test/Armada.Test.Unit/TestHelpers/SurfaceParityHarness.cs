@@ -126,6 +126,9 @@ namespace Armada.Test.Unit.TestHelpers
             Settings.LogDirectory = Path.Combine(_Root, "logs");
             Settings.DocksDirectory = Path.Combine(_Root, "docks");
             Settings.ReposDirectory = Path.Combine(_Root, "repos");
+            // Each parity case restarts or dispatches one mission per surface; the fleet capacity gate is not under test.
+            Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 100;
+            Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 100;
             Directory.CreateDirectory(Path.Combine(Settings.LogDirectory, "missions"));
             Directory.CreateDirectory(Path.Combine(Settings.LogDirectory, "captains"));
             Directory.CreateDirectory(Path.Combine(Settings.LogDirectory, "diffs"));

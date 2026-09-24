@@ -1941,6 +1941,11 @@ Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empt
 
 Restart a failed or cancelled mission by resetting it to `Pending` for re-dispatch. Clears captain assignment, branch, PR URL, and timing fields. Optionally update the title and description (instructions) before restarting.
 
+REST, WebSocket `restart_mission` and MCP `armada_restart_mission` share one restart. Only a `Failed` or `Cancelled`
+mission is restarted. A `LandingFailed` mission keeps its produced work: the restart is refused and the reason names
+`POST /api/v1/missions/{id}/retry-landing` (MCP `armada_retry_landing`), which re-lands that work instead. A restart
+records a restart signal owned by the mission's owner, writes a `mission.restarted` event, and broadcasts the change.
+
 **Path Parameters:**
 | Parameter | Description |
 |---|---|
@@ -1962,8 +1967,9 @@ Restart a failed or cancelled mission by resetting it to `Pending` for re-dispat
 **Response:** `200 OK` - [Mission](#mission) (with `Status: "Pending"`)
 
 **Errors:**
-- `400` - Mission is not in `Failed` or `Cancelled` status
+- `400` - The request body is not a restart request
 - `404` - Mission not found
+- `409` - Mission is not in `Failed` or `Cancelled` status (a `LandingFailed` refusal names retry-landing), or the fleet has no capacity for the restarted work
 
 ---
 
