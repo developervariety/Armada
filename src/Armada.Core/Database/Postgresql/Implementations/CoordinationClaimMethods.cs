@@ -170,8 +170,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@participant_key", participantKey);
                     cmd.Parameters.AddWithValue("@new_expires_utc", ToIso8601(newExpiresUtc));
                     cmd.Parameters.AddWithValue("@now", ToIso8601(DateTime.UtcNow));
-                    object result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
-                    return result == null || result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
         }

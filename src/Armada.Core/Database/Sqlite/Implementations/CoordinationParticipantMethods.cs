@@ -44,29 +44,25 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"UPDATE coordination_participants SET
-                        display_name = @display_name,
-                        last_seen_utc = @last_seen_utc,
-                        last_update_utc = @last_update_utc
-                        WHERE coordination_room_id = @coordination_room_id AND participant_key = @participant_key;";
+                    // One statement, so two first heartbeats for the same key cannot both miss the row and
+                    // then both insert it.
+                    cmd.CommandText = @"INSERT INTO coordination_participants
+                        (id, coordination_room_id, tenant_id, participant_key, display_name, last_seen_utc, created_utc, last_update_utc)
+                        VALUES
+                        (@id, @coordination_room_id, @tenant_id, @participant_key, @display_name, @last_seen_utc, @created_utc, @last_update_utc)
+                        ON CONFLICT (coordination_room_id, participant_key) DO UPDATE SET
+                            display_name = excluded.display_name,
+                            last_seen_utc = excluded.last_seen_utc,
+                            last_update_utc = excluded.last_update_utc;";
+                    cmd.Parameters.AddWithValue("@id", participant.Id);
                     cmd.Parameters.AddWithValue("@coordination_room_id", participant.CoordinationRoomId);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)participant.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@participant_key", participant.ParticipantKey);
                     cmd.Parameters.AddWithValue("@display_name", participant.DisplayName);
                     cmd.Parameters.AddWithValue("@last_seen_utc", SqliteDatabaseDriver.ToIso8601(participant.LastSeenUtc));
+                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(participant.CreatedUtc));
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(participant.LastUpdateUtc));
-                    int updated = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-
-                    if (updated < 1)
-                    {
-                        cmd.CommandText = @"INSERT INTO coordination_participants
-                            (id, coordination_room_id, tenant_id, participant_key, display_name, last_seen_utc, created_utc, last_update_utc)
-                            VALUES
-                            (@id, @coordination_room_id, @tenant_id, @participant_key, @display_name, @last_seen_utc, @created_utc, @last_update_utc);";
-                        cmd.Parameters.AddWithValue("@id", participant.Id);
-                        cmd.Parameters.AddWithValue("@tenant_id", (object?)participant.TenantId ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(participant.CreatedUtc));
-                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    }
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
 

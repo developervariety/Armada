@@ -85,6 +85,13 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **Coordination board storage:** the SQLite participant heartbeat is one
+  insert-or-update statement, so two first heartbeats for the same key no
+  longer race to a unique-constraint failure. Extending a participant's active
+  claims returns the number of claims extended on SQLite and PostgreSQL; it
+  returned 0 every time. The database runner has round-trip cases for
+  coordination rooms, participants, messages and claims; MySQL and SQL Server,
+  which do not store the board, report each case as a named skip.
 - **SQL Server captain delete:** SQL Server clears the signal references to a
   captain and deletes it in one transaction, and clears only the references to
   captains the delete's tenant or user scope matches. A scoped delete that

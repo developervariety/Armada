@@ -89,6 +89,11 @@ namespace Armada.Test.Database
                 await RunTest("MySQL_Unicode_Full_Uniqueness_Concurrency_Rollback", "Schema", () => new MysqlUnicodeUniquenessTests(_Settings).VerifyAsync(token), token);
 
             await RunTest("CoordinationLease_Reopen_Ownership_Expiry", "Operational", () => TestCoordinationLeaseAsync(token), token);
+            CoordinationDatabaseTests coordination = new CoordinationDatabaseTests(_Driver, _Settings, _NoCleanup);
+            await RunTest("CoordinationRoom_Create_Read_Update_Reopen_Delete", "Operational", () => coordination.VerifyRoomsAsync(token), token);
+            await RunTest("CoordinationParticipant_Upsert_Heartbeat_Race_Prune", "Operational", () => coordination.VerifyParticipantsAsync(token), token);
+            await RunTest("CoordinationMessage_Create_Read_Update_Visibility_Delete", "Operational", () => coordination.VerifyMessagesAsync(token), token);
+            await RunTest("CoordinationClaim_Create_Extend_Release_Reopen", "Operational", () => coordination.VerifyClaimsAsync(token), token);
             await RunTest("Backup_Native_Verified_Archive_Provider_Manifest_And_Restore_Contract", "Operational", () => TestNativeBackupAsync(token), token);
             await RunTest("HarborRunnerEnrollment_Reopen_And_CAS_Race", "Operational", () => new HarborRunnerEnrollmentDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
             await RunTest("HarborJob_RevisionGuard_RestartReconciliation_And_Reopen", "Operational", () => new HarborJobDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
