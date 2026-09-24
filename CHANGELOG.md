@@ -182,6 +182,11 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **A retried landing decides its voyage:** REST `retry-landing` and MCP
+  `armada_retry_landing` apply the voyage completion rule after the landing, so
+  a Failed voyage whose failed work a retry later lands becomes Complete and
+  raises the completion hook however old the failure is (the periodic sweeps
+  revisit a Failed voyage only for 24 hours, so an older one stayed Failed).
 - **One merge cancel that never rewrites a finished entry:** REST
   `POST /api/v1/merge-queue/{id}/cancel` (new), the cancel branch of
   `DELETE /api/v1/merge-queue/{id}`, WebSocket `cancel_merge` and MCP

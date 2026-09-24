@@ -146,9 +146,11 @@ in order:
    no Checks becomes `Complete`. A voyage whose missions are all Audit or
    Research skips this step.
 
-The mission path applies the rule to its own voyage at any age. The health
-loop and the landing drain visit `Open` and `InProgress` voyages, and `Failed`
-voyages that ended in the last 24 hours. The landing drain only applies the
+The mission path applies the rule to its own voyage at any age, and so does a
+retried landing (`armada_retry_landing`, REST `retry-landing`): a `Failed`
+voyage whose failed work a retry later lands becomes `Complete` however long
+ago it failed. The health loop and the landing drain visit `Open` and
+`InProgress` voyages, and `Failed` voyages that ended in the last 24 hours. The landing drain only applies the
 completion rule to a `Failed` voyage. It does not enqueue or rescue that
 voyage's work.
 

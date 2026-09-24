@@ -22,6 +22,12 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<Mission, Dock, Task>? OnPerformLanding { get; set; }
 
+        /// <summary>
+        /// Voyage completion hook, raised by <see cref="VoyageCompletionRule.ApplyAsync"/> when a retried landing
+        /// ends its voyage. Wired by ArmadaServer to the same hook every other completion writer raises.
+        /// </summary>
+        public Func<Voyage, Task>? OnVoyageComplete { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -369,6 +375,11 @@ namespace Armada.Core.Services
                     mission = !String.IsNullOrEmpty(tenantId)
                         ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
                         : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+
+                    // The landing changed the mission's outcome, so its voyage is decided again by the one completion
+                    // rule. The periodic sweeps revisit a Failed voyage only for a bounded window; a retried landing
+                    // can come later, and a Failed voyage whose failed work has now landed must read Complete.
+                    await ApplyVoyageCompletionAsync(mission?.VoyageId, missionId, token).ConfigureAwait(false);
                     return mission != null && mission.Status == MissionStatusEnum.Complete;
                 }
                 else
@@ -425,6 +436,26 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private async Task ApplyVoyageCompletionAsync(string? voyageId, string missionId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(voyageId)) return;
+            try
+            {
+                VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyageId, OnVoyageComplete, token).ConfigureAwait(false);
+                if (result.HookException != null)
+                    _Logging.Warn(_Header + "voyage completion hook failed for voyage " + voyageId + " after the landing retry of mission " + missionId + ": " + result.HookException.Message);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not apply voyage completion to voyage " + voyageId + " after the landing retry of mission " + missionId
+                    + "; the periodic sweep decides it instead: " + ex.Message);
+            }
+        }
 
         /// <summary>
         /// Reports whether the configured checkout holds commits the landing repository does not,

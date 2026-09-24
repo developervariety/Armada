@@ -591,6 +591,7 @@ namespace Armada.Server
                 return prCount + landingCount;
             };
             _LandingService.OnPerformLanding = _MissionLanding.HandleMissionCompleteAsync;
+            _LandingService.OnVoyageComplete = voyage => _Admiral.OnVoyageComplete?.Invoke(voyage) ?? Task.CompletedTask;
 
             // Initialize REST API (Watson7)
             WebserverSettings wsSettings = new WebserverSettings();

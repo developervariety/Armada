@@ -61,6 +61,9 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>Merge queue service over the test database.</summary>
         public IMergeQueueService MergeQueue { get; }
 
+        /// <summary>Landing service the REST and MCP retry-landing surfaces call.</summary>
+        public LandingService Landing { get; }
+
         /// <summary>Admiral double that records captain recalls.</summary>
         public ParityAdmiral Admiral { get; }
 
@@ -154,6 +157,12 @@ namespace Armada.Test.Unit.TestHelpers
                 (_, _) => Task.CompletedTask,
                 emitEvent, logging);
             LandingService landing = new LandingService(logging, Driver, Settings, Git);
+            Landing = landing;
+            landing.OnVoyageComplete = voyage =>
+            {
+                Broadcasts.Enqueue("voyage:" + voyage.Id + ":" + voyage.Status);
+                return Task.CompletedTask;
+            };
 
             WebSocket = new WebSocketCommandHandler(
                 Admiral.Service, Driver, MergeQueue, Settings, Git, null, _WebSocketJsonOptions,

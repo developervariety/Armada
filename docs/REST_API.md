@@ -1973,6 +1973,20 @@ records a restart signal owned by the mission's owner, writes a `mission.restart
 
 ---
 
+#### POST /api/v1/missions/{id}/retry-landing
+
+Rebase a `WorkProduced` or `LandingFailed` mission's branch onto the current target and re-attempt landing. The produced
+work is kept. After the attempt, the mission's voyage is decided again by the voyage completion rule, at any age: a
+`Failed` voyage whose failed work has now landed becomes `Complete` and raises the voyage completion hook. MCP
+`armada_retry_landing` runs the same retry.
+
+**Response:** `200 OK` - `{ "Status": "landed", "MissionId": "msn_abc123", "MissionStatus": "Complete" }`
+
+**Errors:** `400` - the mission is not `WorkProduced` or `LandingFailed`; `404` - Mission not found; `409` - the landing
+failed (the reason names a missing branch, a missing vessel, or a conflict)
+
+---
+
 #### GET /api/v1/missions/{id}/diff
 
 Returns the git diff of changes made by a captain in the mission's worktree. Checks for a saved diff file first (captured at completion), then falls back to a live worktree diff.
