@@ -231,6 +231,25 @@ namespace Armada.Test.Database
                 DatabaseAssert.True(snapshots[0].WorktreeRelativePath == null, "Empty snapshot worktree path reads as null");
                 DatabaseAssert.Equal(created.Id, snapshots[0].PlaybookId, "Snapshot playbook id");
                 DatabaseAssert.UtcInstant(snapshot.SourceLastUpdateUtc, snapshots[0].SourceLastUpdateUtc, "Snapshot SourceLastUpdateUtc");
+
+                MissionPlaybookSnapshot full = new MissionPlaybookSnapshot
+                {
+                    PlaybookId = created.Id,
+                    FileName = created.FileName,
+                    Description = "Snapshot description ユニコード",
+                    Content = "Snapshot content 内容",
+                    DeliveryMode = PlaybookDeliveryModeEnum.AttachIntoWorktree,
+                    ResolvedPath = "playbooks/" + created.FileName,
+                    WorktreeRelativePath = ".armada/playbooks/" + created.FileName,
+                    SourceLastUpdateUtc = DateTime.UtcNow.AddMinutes(-2)
+                };
+                await _Driver.Playbooks.SetMissionSnapshotsAsync(mission.Id, new List<MissionPlaybookSnapshot> { full }, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    List<MissionPlaybookSnapshot> reread = await reopened.Playbooks.GetMissionSnapshotsAsync(mission.Id, token).ConfigureAwait(false);
+                    DatabaseAssert.Equal(1, reread.Count, "Reopened mission playbook snapshot count");
+                    DatabaseAssert.AllProperties(full, reread[0], "Reopened MissionPlaybookSnapshot");
+                }
                 await _Driver.Playbooks.SetMissionSnapshotsAsync(mission.Id, new List<MissionPlaybookSnapshot>(), token).ConfigureAwait(false);
             }
             finally
@@ -384,6 +403,243 @@ namespace Armada.Test.Database
                         }
                     }
                 }
+            }
+        }
+
+        internal async Task VerifyTenantsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? tenantId = null;
+            try
+            {
+                TenantMetadata tenant = new TenantMetadata("round-trip-tenant-" + Guid.NewGuid().ToString("N").Substring(0, 12) + " ユニコード")
+                {
+                    Active = false,
+                    IsProtected = true,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-4)
+                };
+                TenantMetadata created = await _Driver.Tenants.CreateAsync(tenant, token).ConfigureAwait(false);
+                tenantId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Tenants.ReadAsync(created.Id, token).ConfigureAwait(false), "Tenant");
+                DatabaseAssert.AllProperties(created, await _Driver.Tenants.ReadByNameAsync(created.Name, token).ConfigureAwait(false), "Tenant by name");
+
+                created.Name = created.Name + " updated";
+                created.Active = true;
+                created.IsProtected = false;
+                TenantMetadata updated = await _Driver.Tenants.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Tenants.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Tenant");
+                }
+            }
+            finally
+            {
+                if (tenantId != null && !_NoCleanup) await _Driver.Tenants.DeleteAsync(tenantId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyUsersAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? userId = null;
+            string? tenantId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("user-round-trip", token: token).ConfigureAwait(false);
+                tenantId = tenant.Id;
+                UserMaster user = new UserMaster(tenant.Id, "round-trip-" + Guid.NewGuid().ToString("N").Substring(0, 12) + "@example.com", "secret ユニコード")
+                {
+                    FirstName = "Given ユニコード",
+                    LastName = "Family",
+                    IsAdmin = true,
+                    IsTenantAdmin = true,
+                    IsProtected = true,
+                    Active = false,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-4)
+                };
+                UserMaster created = await _Driver.Users.CreateAsync(user, token).ConfigureAwait(false);
+                userId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Users.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "User");
+                DatabaseAssert.AllProperties(created, await _Driver.Users.ReadByEmailAsync(tenant.Id, created.Email, token).ConfigureAwait(false), "User by email");
+
+                created.FirstName = null;
+                created.LastName = null;
+                created.IsAdmin = false;
+                created.IsTenantAdmin = false;
+                created.IsProtected = false;
+                created.Active = true;
+                UserMaster updated = await _Driver.Users.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Users.ReadByIdAsync(created.Id, token).ConfigureAwait(false), "Reopened User");
+                }
+            }
+            finally
+            {
+                if (userId != null && tenantId != null && !_NoCleanup) await _Driver.Users.DeleteAsync(tenantId, userId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyCredentialsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? credentialId = null;
+            string? tenantId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("credential-round-trip", token: token).ConfigureAwait(false);
+                tenantId = tenant.Id;
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "credential-round-trip", token: token).ConfigureAwait(false);
+                Credential credential = new Credential(tenant.Id, user.Id)
+                {
+                    Name = "Round-trip credential ユニコード",
+                    Active = false,
+                    IsProtected = true,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-4)
+                };
+                Credential created = await _Driver.Credentials.CreateAsync(credential, token).ConfigureAwait(false);
+                credentialId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Credentials.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Credential");
+                DatabaseAssert.AllProperties(created, await _Driver.Credentials.ReadByBearerTokenAsync(created.BearerToken, token).ConfigureAwait(false), "Credential by bearer token");
+
+                created.Name = null;
+                created.Active = true;
+                created.IsProtected = false;
+                Credential updated = await _Driver.Credentials.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Credentials.ReadByIdAsync(created.Id, token).ConfigureAwait(false), "Reopened Credential");
+                }
+            }
+            finally
+            {
+                if (credentialId != null && tenantId != null && !_NoCleanup) await _Driver.Credentials.DeleteAsync(tenantId, credentialId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyFleetsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? fleetId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("fleet-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "fleet-round-trip", token: token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                Fleet fleet = new Fleet("round-trip-fleet-" + suffix)
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Description = "Fleet description ユニコード",
+                    DefaultPipelineId = "ppl_" + suffix,
+                    DefaultPlaybooks = "[{\"playbookId\":\"pbk_" + suffix + "\",\"deliveryMode\":\"InstructionWithReference\"}]",
+                    Active = false,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-4)
+                };
+                Fleet created = await _Driver.Fleets.CreateAsync(fleet, token).ConfigureAwait(false);
+                fleetId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Fleets.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Fleet");
+                DatabaseAssert.AllProperties(created, await _Driver.Fleets.ReadByNameAsync(created.Name, token).ConfigureAwait(false), "Fleet by name");
+
+                created.Description = null;
+                created.DefaultPipelineId = null;
+                created.DefaultPlaybooks = null;
+                created.Active = true;
+                Fleet updated = await _Driver.Fleets.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Fleets.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Fleet");
+                }
+            }
+            finally
+            {
+                if (fleetId != null && !_NoCleanup) await _Driver.Fleets.DeleteAsync(fleetId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifySignalsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? signalId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("signal-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "signal-round-trip", token: token).ConfigureAwait(false);
+                Captain from = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "signal-from", token).ConfigureAwait(false);
+                Captain to = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "signal-to", token).ConfigureAwait(false);
+                Signal signal = new Signal(SignalTypeEnum.Completion, "{\"text\":\"Signal payload ユニコード\"}")
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    FromCaptainId = from.Id,
+                    ToCaptainId = to.Id,
+                    Read = false,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                Signal created = await _Driver.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+                signalId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Signals.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Signal");
+
+                await _Driver.Signals.MarkReadAsync(created.Id, token).ConfigureAwait(false);
+                created.Read = true;
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(created, await reopened.Signals.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Signal");
+                }
+            }
+            finally
+            {
+                if (signalId != null && !_NoCleanup) await _Driver.Signals.DeleteAsync(signalId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyEventsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? eventId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("event-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "event-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "event-fleet", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "event-vessel", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "event-captain", token).ConfigureAwait(false);
+                Voyage voyage = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "event-voyage", token).ConfigureAwait(false);
+                Mission mission = await fixture.CreateMissionAsync(tenant.Id, user.Id, voyage.Id, vessel.Id, captain.Id, "event-mission", token).ConfigureAwait(false);
+                ArmadaEvent evt = new ArmadaEvent("mission.round_trip", "Event message ユニコード")
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    EntityType = "mission",
+                    EntityId = mission.Id,
+                    CaptainId = captain.Id,
+                    MissionId = mission.Id,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    Payload = "{\"kind\":\"round-trip\"}",
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+                ArmadaEvent created = await _Driver.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                eventId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Events.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Event");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(created, await reopened.Events.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Event");
+                }
+            }
+            finally
+            {
+                if (eventId != null && !_NoCleanup) await _Driver.Events.DeleteAsync(eventId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
         }
     }

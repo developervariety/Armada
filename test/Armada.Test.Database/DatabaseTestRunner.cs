@@ -158,9 +158,15 @@ namespace Armada.Test.Database
             OperationalRoundTripDatabaseTests roundTrips = new OperationalRoundTripDatabaseTests(_Driver, _Settings, _NoCleanup);
             await RunTest("Skill_Create_Read_Update_Reopen_Window_Delete", "Operational", () => roundTrips.VerifySkillsAsync(token), token);
             await RunTest("ProjectProfile_Create_Read_Update_Reopen_Window_Delete", "Operational", () => roundTrips.VerifyProjectProfilesAsync(token), token);
-            await RunTest("Playbook_Create_Read_And_Empty_Text_Reads_As_Null", "Operational", () => roundTrips.VerifyPlaybookEmptyTextAsync(token), token);
+            await RunTest("Playbook_Create_Read_Empty_Text_Reads_As_Null_And_Snapshot_Reopen", "Operational", () => roundTrips.VerifyPlaybookEmptyTextAsync(token), token);
             await RunTest("LandingJob_Create_Read_Update_Reopen_State_Delete", "Operational", () => roundTrips.VerifyLandingJobsAsync(token), token);
             await RunTest("JudgeFollowUp_Upsert_Associate_Audit_Update_Reopen", "Operational", () => roundTrips.VerifyJudgeFollowUpsAsync(token), token);
+            await RunTest("Tenant_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyTenantsAsync(token), token);
+            await RunTest("User_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyUsersAsync(token), token);
+            await RunTest("Credential_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyCredentialsAsync(token), token);
+            await RunTest("Fleet_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyFleetsAsync(token), token);
+            await RunTest("Signal_Every_Property_Create_MarkRead_Reopen", "Operational", () => roundTrips.VerifySignalsAsync(token), token);
+            await RunTest("Event_Every_Property_Create_Reopen", "Operational", () => roundTrips.VerifyEventsAsync(token), token);
             await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
             await RunTest("RequestHistory_Timestamp_RoundTrip_And_Same_Day_Range", "Operational", () => TestRequestHistorySameDayRangeAsync(token), token);
             await RunTest("CheckRun_Create_Read_Update_Enumerate", "Operational", () => TestCheckRunCrudAsync(token), token);
