@@ -1792,6 +1792,11 @@ request; `404` when the mission is outside the caller's scope or does not exist.
 
 Update mission fields (title, description, priority, etc.). Does not change status -- use the status transition endpoint for that.
 
+Only the fields the body names change: `Title`, `Description`, `Priority`, `BranchName`, `PrUrl`, `ParentMissionId`,
+`DependsOnMissionId` and `Persona`. A field left out keeps its stored value, and an empty `DependsOnMissionId` or
+`ParentMissionId` clears the link. A changed link must name a mission visible to the caller, otherwise `404`. WebSocket
+`update_mission` and MCP `armada_update_mission` run the same update, and each change is broadcast.
+
 Mission metadata updates preserve omitted `vesselId` and `voyageId`. Explicit changes, including clearing an existing binding with null, return 409.
 
 **Path Parameters:**

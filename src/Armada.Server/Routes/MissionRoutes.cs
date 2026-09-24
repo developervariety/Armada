@@ -697,30 +697,21 @@ namespace Armada.Server.Routes
                 Mission incoming = JsonSerializer.Deserialize<Mission>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Mission.");
 
-                MissionBindingUpdateRequest bindings = JsonSerializer.Deserialize<MissionBindingUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as mission bindings.");
-
-                string? unreachableLink = await MissionReferenceScope.FindUnreachableOnUpdateAsync(_database, ctx, existing, incoming).ConfigureAwait(false);
-                if (unreachableLink != null)
+                // REST, WebSocket and MCP share one metadata update: only the fields the body names change, the
+                // vessel and voyage cannot change, and a changed link must name a mission visible to the caller.
+                MissionMetadataPatch patch = MissionMetadataPatch.FromBody(incoming, MissionMetadataPatch.ReadFieldNames(req.Http.Request.DataAsString));
+                MissionUpdateResult update = await _operations.UpdateMissionMetadataAsync(existing, patch, ctx).ConfigureAwait(false);
+                if (!update.Succeeded)
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = unreachableLink };
+                    req.Http.Response.StatusCode = update.LinkNotFound ? 404 : 409;
+                    return new ApiErrorResponse { Error = update.LinkNotFound ? ApiResultEnum.NotFound : ApiResultEnum.Conflict, Message = update.Message };
                 }
-
-                string? bindingError = MissionMetadataUpdate.Apply(existing, incoming, bindings);
-                if (bindingError != null)
-                {
-                    req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = bindingError };
-                }
-
-                existing = await _database.Missions.UpdateAsync(existing).ConfigureAwait(false);
-                return (object)existing;
+                return (object)update.Mission;
             },
             api => api
                 .WithTag("Missions")
                 .WithSummary("Update a mission")
-                .WithDescription("Updates an existing mission by ID. A changed dependsOnMissionId or parentMissionId must name a mission visible to the caller; otherwise 404 and nothing changes.")
+                .WithDescription("Updates the metadata fields the body names (Title, Description, Priority, BranchName, PrUrl, ParentMissionId, DependsOnMissionId, Persona); a field left out keeps its value, and an empty DependsOnMissionId or ParentMissionId clears the link. A changed link must name a mission visible to the caller; otherwise 404 and nothing changes. A different VesselId or VoyageId returns 409.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Mission>("Updated mission data", true))
                 .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))

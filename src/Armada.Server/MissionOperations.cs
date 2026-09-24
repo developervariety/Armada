@@ -291,9 +291,51 @@ namespace Armada.Server
             return MissionRestartResult.Restarted(restarted);
         }
 
+        /// <summary>
+        /// Update the metadata fields a request named, then broadcast the change. A changed dependency or parent must
+        /// name a mission visible to the caller, and the vessel and voyage bindings cannot change; either refusal
+        /// leaves the mission unchanged.
+        /// </summary>
+        /// <param name="existing">Mission, already read under the caller's scope.</param>
+        /// <param name="patch">The fields the request named.</param>
+        /// <param name="caller">Authenticated caller, whose scope the linked missions are read in.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stored mission, or the refusal.</returns>
+        public async Task<MissionUpdateResult> UpdateMissionMetadataAsync(
+            Mission existing,
+            MissionMetadataPatch patch,
+            AuthContext caller,
+            CancellationToken token = default)
+        {
+            if (existing == null) throw new ArgumentNullException(nameof(existing));
+            if (patch == null) throw new ArgumentNullException(nameof(patch));
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+
+            string? bindingError = MissionMetadataUpdate.CheckBindings(existing, patch.HasVesselId, patch.VesselId, patch.HasVoyageId, patch.VoyageId);
+            if (bindingError != null) return MissionUpdateResult.Refused(existing, MissionUpdateResult.BindingImmutableCode, bindingError);
+
+            Mission links = new Mission
+            {
+                DependsOnMissionId = patch.Has("dependsOnMissionId") ? EmptyAsNull(patch.DependsOnMissionId) : existing.DependsOnMissionId,
+                ParentMissionId = patch.Has("parentMissionId") ? EmptyAsNull(patch.ParentMissionId) : existing.ParentMissionId
+            };
+            string? unreachable = await MissionReferenceScope.FindUnreachableOnUpdateAsync(_Database, caller, existing, links, token).ConfigureAwait(false);
+            if (unreachable != null) return MissionUpdateResult.Refused(existing, MissionUpdateResult.LinkNotFoundCode, unreachable);
+
+            MissionMetadataUpdate.Apply(existing, patch);
+            Mission stored = await _Database.Missions.UpdateAsync(existing, token).ConfigureAwait(false);
+            Notifier.MissionChanged(stored);
+            return MissionUpdateResult.Updated(stored);
+        }
+
         #endregion
 
         #region Private-Methods
+
+        private static string? EmptyAsNull(string? value)
+        {
+            return String.IsNullOrEmpty(value) ? null : value;
+        }
 
         private async Task<WorkPurgeResult?> FindMissionPurgeRefusalAsync(Mission mission, CancellationToken token)
         {

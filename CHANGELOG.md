@@ -182,6 +182,13 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One mission metadata update:** REST `PUT /api/v1/missions/{id}`, WebSocket
+  `update_mission` and MCP `armada_update_mission` change only the fields the
+  request names. REST and WebSocket cleared an omitted title or description and
+  ignored `Persona`; WebSocket stored a dependency on a mission that did not
+  exist; MCP read the dependency outside the caller's scope. Every surface now
+  checks a changed dependency or parent in the caller's scope and broadcasts the
+  change.
 - **One mission diff reader:** REST, WebSocket and MCP read a mission diff through
   one reader: the saved diff file, then the stored diff snapshot, then the live
   worktree. MCP read the mission's summary row, which carries no snapshot, so it

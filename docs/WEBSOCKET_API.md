@@ -1883,7 +1883,9 @@ Create a new mission and dispatch it for assignment.
 
 #### update_mission
 
-Update an existing mission.
+Update an existing mission through the same shared metadata update as `PUT /api/v1/missions/{id}`: only the fields `data`
+names change, `Persona` is a metadata field, an empty dependency clears it, and a dependency or parent that names no
+visible mission returns `code: "not_found"`.
 
 **Request:**
 

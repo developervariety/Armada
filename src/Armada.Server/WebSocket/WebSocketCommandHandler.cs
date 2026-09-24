@@ -790,13 +790,14 @@ namespace Armada.Server.WebSocket
             if (existMission == null)
                 return NotFound("update_mission", "Mission not found");
             Mission incoming = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data ?? new Mission();
-            MissionBindingUpdateRequest bindings = JsonSerializer.Deserialize<WebSocketDataCommand<MissionBindingUpdateRequest>>(rawBody, _JsonOptions)?.Data
-                ?? new MissionBindingUpdateRequest();
-            string? bindingError = MissionMetadataUpdate.Apply(existMission, incoming, bindings);
-            if (bindingError != null)
-                return new { type = "command.error", action = "update_mission", error = bindingError, code = "mission_binding_immutable" };
-            existMission = await _Database.Missions.UpdateAsync(existMission).ConfigureAwait(false);
-            return new { type = "command.result", action = "update_mission", data = (object)existMission };
+            // The shared metadata update REST and MCP use: only named fields change, and a changed link must be visible.
+            MissionMetadataPatch patch = MissionMetadataPatch.FromBody(incoming, ReadDataFieldNames(rawBody));
+            MissionUpdateResult update = await Operations.UpdateMissionMetadataAsync(existMission, patch, caller).ConfigureAwait(false);
+            if (update.LinkNotFound)
+                return NotFound("update_mission", update.Message ?? "Mission not found");
+            if (!update.Succeeded)
+                return new { type = "command.error", action = "update_mission", error = update.Message, code = update.Code };
+            return new { type = "command.result", action = "update_mission", data = (object)update.Mission };
         }
 
         /// <summary>

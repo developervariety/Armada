@@ -276,43 +276,34 @@ namespace Armada.Server.Mcp.Tools
                     AuthContext updateCaller = McpCallerContext.Require();
                     Mission? mission = await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(database, updateCaller, missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
-                    string? bindingError = MissionMetadataUpdate.CheckBindings(mission, request.VesselId != null, request.VesselId, request.VoyageId != null, request.VoyageId);
-                    if (bindingError != null) return (object)new { Error = bindingError };
-                    if (!String.IsNullOrEmpty(request.ParentMissionId)
-                        && !String.Equals(request.ParentMissionId, mission.ParentMissionId, StringComparison.Ordinal)
-                        && await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(database, updateCaller, request.ParentMissionId).ConfigureAwait(false) == null)
-                        return (object)new { Error = "parentMissionId not found: " + request.ParentMissionId };
-                    if (request.Title != null)
-                        mission.Title = request.Title;
-                    if (request.Description != null)
-                        mission.Description = request.Description;
-                    if (request.Priority.HasValue)
-                        mission.Priority = request.Priority.Value;
-                    if (request.BranchName != null)
-                        mission.BranchName = request.BranchName;
-                    if (request.PrUrl != null)
-                        mission.PrUrl = request.PrUrl;
-                    if (request.ParentMissionId != null)
-                        mission.ParentMissionId = request.ParentMissionId;
-                    if (request.Persona != null)
-                        mission.Persona = request.Persona;
-                    if (request.DependsOnMissionId != null)
+                    // The shared metadata update REST and WebSocket use: only named fields change, the vessel and voyage
+                    // cannot change, and a changed link must name a mission visible to the caller.
+                    MissionMetadataPatch patch = new MissionMetadataPatch
                     {
-                        if (request.DependsOnMissionId.Length == 0)
-                        {
-                            mission.DependsOnMissionId = null;
-                        }
-                        else
-                        {
-                            Mission? referenced = await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(database, updateCaller, request.DependsOnMissionId).ConfigureAwait(false);
-                            if (referenced == null)
-                                return (object)new { Error = "dependsOnMissionId not found: " + request.DependsOnMissionId };
-                            mission.DependsOnMissionId = request.DependsOnMissionId;
-                        }
-                    }
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    return (object)SanitizeMissionForStatus(mission);
+                        Title = request.Title,
+                        Description = request.Description,
+                        Priority = request.Priority,
+                        BranchName = request.BranchName,
+                        PrUrl = request.PrUrl,
+                        ParentMissionId = request.ParentMissionId,
+                        DependsOnMissionId = request.DependsOnMissionId,
+                        Persona = request.Persona,
+                        HasVesselId = request.VesselId != null,
+                        VesselId = request.VesselId,
+                        HasVoyageId = request.VoyageId != null,
+                        VoyageId = request.VoyageId
+                    };
+                    if (request.Title != null) patch.Named.Add("title");
+                    if (request.Description != null) patch.Named.Add("description");
+                    if (request.Priority.HasValue) patch.Named.Add("priority");
+                    if (request.BranchName != null) patch.Named.Add("branchName");
+                    if (request.PrUrl != null) patch.Named.Add("prUrl");
+                    if (request.ParentMissionId != null) patch.Named.Add("parentMissionId");
+                    if (request.DependsOnMissionId != null) patch.Named.Add("dependsOnMissionId");
+                    if (request.Persona != null) patch.Named.Add("persona");
+                    MissionUpdateResult update = await missionOperations.UpdateMissionMetadataAsync(mission, patch, McpCallerContext.Require()).ConfigureAwait(false);
+                    if (!update.Succeeded) return (object)new { Error = update.Message, Code = update.Code };
+                    return (object)SanitizeMissionForStatus(update.Mission);
                 });
 
             register(
