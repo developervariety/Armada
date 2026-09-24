@@ -1013,6 +1013,16 @@ and `defaultCaptainId` declare `emptyStringClears`, and an empty
 same fields, so `defaultPlaybooks` set through any surface is stored the same
 way.
 
+### Workflow Profiles
+
+`create_workflow_profile`, `update_workflow_profile`, `delete_workflow_profile`
+and `validate_workflow_profile` call the same service methods as the REST
+routes. Update is a complete replacement, including `environmentVariables`. A
+validation refusal carries the validation result as `Details`. A profile that
+cannot be read (for example a blank `name`) returns code `invalid` instead of a
+protocol error. `validate_workflow_profile` resolves the tenant exactly as
+create does, so its answer matches the create.
+
 ### Objectives And Backlog Items
 
 `create_objective`, `create_backlog_item`, `update_objective` and

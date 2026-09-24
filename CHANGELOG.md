@@ -480,6 +480,19 @@ upstream integrations and excludes changes already present at that baseline.
   administrator's update or delete by name reaches its own tenant's record
   before another tenant's. Deleting a built-in pipeline or persona returns `400`
   on every surface; a tenant administrator of another tenant got `404` on REST.
+- **Workflow profile writes:** REST and MCP create, replace, delete and validate
+  a workflow profile through one service. A REST replace keeps
+  `EnvironmentVariables` instead of dropping them, and both surfaces trim ids and
+  commands on create and replace. Validation answers exactly what a create would
+  do for the same caller: a global administrator's profile belongs to the tenant
+  it names, else the tenant of its fleet or vessel, so REST validate, MCP
+  validate and create agree. A blank name returns `400` (MCP: code `invalid`)
+  instead of a server error.
+- **Validate routes do not reveal other tenants' records:** workflow-profile and
+  project-profile validation (and create) read fleets and vessels within the
+  caller's scope, so another tenant's fleet or vessel reads exactly as one that
+  does not exist. Project-profile validate needs a tenant administrator, as its
+  create does.
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.

@@ -173,7 +173,10 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    AuthContext caller = await SeedCallerAsync(testDb).ConfigureAwait(false);
+                    // Every surface requires a tenant administrator to manage workflow profiles, so the caller is
+                    // one; it is still not a global administrator, so the record's tenant field is ignored.
+                    AuthContext seeded = await SeedCallerAsync(testDb).ConfigureAwait(false);
+                    AuthContext caller = AuthContext.Authenticated(seeded.TenantId!, seeded.UserId!, false, true, "Test");
                     WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, CreateLogging());
                     Func<JsonElement?, Task<object>> create = Capture(r => McpWorkflowProfileTools.Register(r, testDb.Driver, profiles), "create_workflow_profile");
 

@@ -47,8 +47,9 @@ namespace Armada.Server.Routes
         }
 
         /// <summary>
-        /// Read a request body into a write request. A body that is not valid JSON for the request type (a
-        /// malformed document or an unknown enum value) is refused with 400 instead of failing the route.
+        /// Read a request body into a write request. A body that is not valid for the request type (a malformed
+        /// document, an unknown enum value, or a value a model setter refuses) is refused with 400 instead of
+        /// failing the route.
         /// </summary>
         /// <typeparam name="T">Write request type.</typeparam>
         /// <param name="req">API request.</param>
@@ -67,8 +68,10 @@ namespace Armada.Server.Routes
                 body = String.IsNullOrWhiteSpace(raw) ? new T() : (JsonSerializer.Deserialize<T>(raw, options) ?? new T());
                 return true;
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException || ex is ArgumentException)
             {
+                // A model setter that refuses a value (such as a blank required name) throws while the body is
+                // read; that is an invalid request, not a server fault.
                 req.Http.Response.StatusCode = 400;
                 refusal = new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Request body is not valid: " + ex.Message };
                 return false;

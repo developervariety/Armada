@@ -51,19 +51,19 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     string id = RequiredString(args, "workflowProfileId");
-                    WorkflowProfile? profile = await database.WorkflowProfiles.ReadAsync(id).ConfigureAwait(false);
-                    return profile ?? (object)new { Error = "Workflow profile not found" };
+                    WorkflowProfile? profile = await workflowProfiles.ReadForCallerAsync(McpCallerContext.Require(), id).ConfigureAwait(false);
+                    return profile ?? (object)new { Error = "Workflow profile not found", Code = "not_found" };
                 });
 
             register(
                 "validate_workflow_profile",
-                "Validate a complete workflow profile without saving it.",
+                "Validate a complete workflow profile without saving it, exactly as create_workflow_profile would store it for the caller.",
                 ProfileSchema(requireId: false),
                 async args =>
                 {
-                    WorkflowProfile profile = ReadProfile(args);
-                    profile.TenantId ??= Constants.DefaultTenantId;
-                    return (object)await workflowProfiles.ValidateAsync(profile).ConfigureAwait(false);
+                    WorkflowProfile? profile = TryReadProfile(args, out object? refusal);
+                    if (profile == null) return refusal!;
+                    return (object)await workflowProfiles.ValidateForCallerAsync(McpCallerContext.Require(), profile).ConfigureAwait(false);
                 });
 
             register(
@@ -96,42 +96,21 @@ namespace Armada.Server.Mcp.Tools
                 ProfileSchema(requireId: false),
                 async args =>
                 {
-                    WorkflowProfile profile = ReadProfile(args);
-                    // Ownership follows the REST create: a global administrator may name the tenant, every other
-                    // caller creates in its own tenant, and the calling user owns the profile.
-                    AuthContext createCaller = McpCallerContext.Require();
-                    string callerTenant = Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller);
-                    profile.TenantId = createCaller.IsAdmin && !String.IsNullOrWhiteSpace(profile.TenantId)
-                        ? profile.TenantId
-                        : callerTenant;
-                    profile.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller);
-                    WorkflowProfileValidationResult validation = await workflowProfiles.ValidateAsync(profile).ConfigureAwait(false);
-                    if (!validation.IsValid) return (object)new { Error = String.Join(" ", validation.Errors), Validation = validation };
-                    await ClearOtherDefaultsAsync(database, profile).ConfigureAwait(false);
-                    return (object)await database.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+                    WorkflowProfile? profile = TryReadProfile(args, out object? refusal);
+                    if (profile == null) return refusal!;
+                    return McpRecordWriteResult.From(await workflowProfiles.CreateAsync(McpCallerContext.Require(), profile).ConfigureAwait(false));
                 });
 
             register(
                 "update_workflow_profile",
-                "Replace a workflow profile with a validated complete record.",
+                "Replace a workflow profile with a validated complete record, including environmentVariables. Identity, owner, tenant and creation time are kept.",
                 ProfileSchema(requireId: true),
                 async args =>
                 {
                     string id = RequiredString(args, "workflowProfileId");
-                    WorkflowProfile? existing = await database.WorkflowProfiles.ReadAsync(id).ConfigureAwait(false);
-                    if (existing == null) return (object)new { Error = "Workflow profile not found" };
-
-                    WorkflowProfile incoming = ReadProfile(args);
-                    incoming.Id = existing.Id;
-                    incoming.TenantId = existing.TenantId ?? Constants.DefaultTenantId;
-                    incoming.UserId = existing.UserId ?? Constants.DefaultUserId;
-                    incoming.CreatedUtc = existing.CreatedUtc;
-                    incoming.LastUpdateUtc = DateTime.UtcNow;
-
-                    WorkflowProfileValidationResult validation = await workflowProfiles.ValidateAsync(incoming).ConfigureAwait(false);
-                    if (!validation.IsValid) return (object)new { Error = String.Join(" ", validation.Errors), Validation = validation };
-                    await ClearOtherDefaultsAsync(database, incoming).ConfigureAwait(false);
-                    return (object)await database.WorkflowProfiles.UpdateAsync(incoming).ConfigureAwait(false);
+                    WorkflowProfile? profile = TryReadProfile(args, out object? refusal);
+                    if (profile == null) return refusal!;
+                    return McpRecordWriteResult.From(await workflowProfiles.ReplaceAsync(McpCallerContext.Require(), id, profile).ConfigureAwait(false));
                 });
 
             register(
@@ -141,10 +120,9 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     string id = RequiredString(args, "workflowProfileId");
-                    WorkflowProfile? existing = await database.WorkflowProfiles.ReadAsync(id).ConfigureAwait(false);
-                    if (existing == null) return (object)new { Error = "Workflow profile not found" };
-                    await database.WorkflowProfiles.DeleteAsync(id).ConfigureAwait(false);
-                    return (object)new { Status = "deleted", WorkflowProfileId = id };
+                    RecordWriteResult<WorkflowProfile> result = await workflowProfiles.DeleteAsync(McpCallerContext.Require(), id).ConfigureAwait(false);
+                    if (!result.Succeeded) return McpRecordWriteResult.From(result);
+                    return (object)new { Status = "deleted", WorkflowProfileId = result.Record!.Id };
                 });
         }
 
@@ -201,6 +179,22 @@ namespace Armada.Server.Mcp.Tools
             };
         }
 
+        private static WorkflowProfile? TryReadProfile(JsonElement? args, out object? refusal)
+        {
+            refusal = null;
+            try
+            {
+                return ReadProfile(args);
+            }
+            catch (Exception ex) when (ex is JsonException || ex is ArgumentException || ex is InvalidOperationException)
+            {
+                // A model setter that refuses a value (such as a blank required name) throws while the profile is
+                // read; the caller gets the same invalid-request refusal REST returns.
+                refusal = new { Error = "profile is not valid: " + ex.Message, Code = "invalid" };
+                return null;
+            }
+        }
+
         private static WorkflowProfile ReadProfile(JsonElement? args)
         {
             if (!args.HasValue || !args.Value.TryGetProperty("profile", out JsonElement profileElement))
@@ -227,29 +221,6 @@ namespace Armada.Server.Mcp.Tools
                 return null;
             string? result = value.GetString();
             return String.IsNullOrWhiteSpace(result) ? null : result.Trim();
-        }
-
-        private static async Task ClearOtherDefaultsAsync(DatabaseDriver database, WorkflowProfile profile)
-        {
-            if (!profile.IsDefault)
-                return;
-
-            WorkflowProfileQuery query = new WorkflowProfileQuery
-            {
-                TenantId = profile.TenantId,
-                Scope = profile.Scope,
-                FleetId = profile.Scope == WorkflowProfileScopeEnum.Fleet ? profile.FleetId : null,
-                VesselId = profile.Scope == WorkflowProfileScopeEnum.Vessel ? profile.VesselId : null,
-                PageNumber = 1,
-                PageSize = 1000
-            };
-            List<WorkflowProfile> peers = await database.WorkflowProfiles.EnumerateAllAsync(query).ConfigureAwait(false);
-            foreach (WorkflowProfile peer in peers.Where(candidate => candidate.IsDefault && candidate.Id != profile.Id))
-            {
-                peer.IsDefault = false;
-                peer.LastUpdateUtc = DateTime.UtcNow;
-                await database.WorkflowProfiles.UpdateAsync(peer).ConfigureAwait(false);
-            }
         }
     }
 }

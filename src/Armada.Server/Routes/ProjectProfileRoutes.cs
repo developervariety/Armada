@@ -110,18 +110,21 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
 
-                ProjectProfile profile = JsonSerializer.Deserialize<ProjectProfile>(req.Http.Request.DataAsString, _bodyJsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as ProjectProfile.");
+                // Validation answers the question a create would; only a caller that may create may ask it.
+                if (!CanManage(ctx))
+                {
+                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can manage project profiles");
+                }
 
-                if (!ctx.IsAdmin)
-                    profile.TenantId = ctx.TenantId;
-
-                return await _projectProfiles.ValidateAsync(profile).ConfigureAwait(false);
+                if (!RecordWriteResponse.TryReadBody(req, _bodyJsonOptions, out ProjectProfile? profile, out object? refusal)) return refusal;
+                profile!.TenantId = ctx.IsAdmin ? (NormalizeEmpty(profile.TenantId) ?? ctx.TenantId) : ctx.TenantId;
+                return await _projectProfiles.ValidateForCallerAsync(ctx, profile).ConfigureAwait(false);
             },
             api => api
                 .WithTag("ProjectProfiles")
                 .WithSummary("Validate a project profile")
-                .WithDescription("Validates a project-profile definition (scope consistency, referenced entities, persona overrides).")
+                .WithDescription("Validates a project-profile definition (scope consistency, referenced entities, persona overrides) for the tenant a create would use. Requires a tenant administrator; a fleet or vessel outside the caller's scope reads as not found.")
+                .WithResponse(403, OpenApiResponseMetadata.Forbidden())
                 .WithRequestBody(OpenApiJson.BodyFor<ProjectProfile>("Project profile", true))
                 .WithResponse(200, OpenApiJson.For<ProjectProfileValidationResult>("Validation result"))
                 .WithSecurity("ApiKey"));
@@ -202,7 +205,7 @@ namespace Armada.Server.Routes
                 profile.TenantId = ctx.IsAdmin ? (NormalizeEmpty(profile.TenantId) ?? ctx.TenantId) : ctx.TenantId;
                 profile.UserId = ctx.UserId;
 
-                ProjectProfileValidationResult validation = await _projectProfiles.ValidateAsync(profile).ConfigureAwait(false);
+                ProjectProfileValidationResult validation = await _projectProfiles.ValidateForCallerAsync(ctx, profile).ConfigureAwait(false);
                 if (!validation.IsValid)
                 {
                     req.Http.Response.StatusCode = 400;
@@ -282,7 +285,7 @@ namespace Armada.Server.Routes
                 existing.AuthorizationPolicy = String.IsNullOrWhiteSpace(incoming.AuthorizationPolicy) ? null : incoming.AuthorizationPolicy;
                 existing.LastUpdateUtc = DateTime.UtcNow;
 
-                ProjectProfileValidationResult validation = await _projectProfiles.ValidateAsync(existing).ConfigureAwait(false);
+                ProjectProfileValidationResult validation = await _projectProfiles.ValidateForCallerAsync(ctx, existing).ConfigureAwait(false);
                 if (!validation.IsValid)
                 {
                     req.Http.Response.StatusCode = 400;

@@ -1366,7 +1366,7 @@ namespace Armada.Server.WebSocket
             {
                 return JsonSerializer.Deserialize<WebSocketDataCommand<T>>(rawBody, _JsonOptions)?.Data ?? new T();
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException || ex is ArgumentException)
             {
                 refusal = new { type = "command.error", action = action, error = "Request data is not valid: " + ex.Message, code = "invalid" };
                 return null;

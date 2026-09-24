@@ -161,7 +161,16 @@ Use these tools:
   runbooks, and environment seeding that can refer to it.
 
 The create and update tools take a complete `profile` object. Do not send a
-partial replacement.
+partial replacement. Update replaces every caller-settable field, including
+`environmentVariables`; identity, owner, tenant and creation time are kept.
+REST (`POST`, `PUT /api/v1/workflow-profiles`) and MCP share one service: ids
+and commands are trimmed, a new default clears the other defaults of its scope,
+and a global administrator's profile belongs to the tenant it names, else the
+tenant of the fleet or vessel it is scoped to. Validation answers exactly what a
+create would do for the same caller, and it reads fleets and vessels within the
+caller's scope, so another tenant's fleet or vessel reads as not found. The
+project-profile validate route follows the same rule and needs a tenant
+administrator.
 
 At minimum, a code-producing vessel needs a real Build command and a real
 UnitTest command. Use a containerless unit-test command only when the normal

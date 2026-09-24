@@ -22,6 +22,7 @@ namespace Armada.Server.Mcp
         {
             if (result == null) throw new ArgumentNullException(nameof(result));
             if (result.Succeeded) return result.Record!;
+            if (result.Details != null) return new { Error = result.Message, Code = CodeOf(result), Details = result.Details };
             return new { Error = result.Message, Code = CodeOf(result) };
         }
 

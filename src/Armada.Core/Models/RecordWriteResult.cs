@@ -33,6 +33,11 @@ namespace Armada.Core.Models
         public string? ErrorCode { get; set; } = null;
 
         /// <summary>
+        /// Structured detail for a refusal, such as the validation result that refused it. Null otherwise.
+        /// </summary>
+        public object? Details { get; set; } = null;
+
+        /// <summary>
         /// True when the write was applied.
         /// </summary>
         public bool Succeeded => Outcome == RecordWriteOutcomeEnum.Succeeded;

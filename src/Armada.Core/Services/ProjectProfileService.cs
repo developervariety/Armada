@@ -43,15 +43,44 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Validate a project profile: scope/fleet/vessel consistency, referenced entity existence,
-        /// and persona-override well-formedness.
+        /// and persona-override well-formedness. Fleets and vessels are read without a caller, so this is for
+        /// server paths only; a request validates through <see cref="ValidateForCallerAsync"/>.
         /// </summary>
         /// <param name="profile">The profile to validate.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The validation result.</returns>
-        public async Task<ProjectProfileValidationResult> ValidateAsync(ProjectProfile profile, CancellationToken token = default)
+        public Task<ProjectProfileValidationResult> ValidateAsync(ProjectProfile profile, CancellationToken token = default)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
+            return ValidateCoreAsync(
+                profile,
+                fleetId => _Database.Fleets.ReadAsync(fleetId, token),
+                vesselId => _Database.Vessels.ReadAsync(vesselId, token));
+        }
 
+        /// <summary>
+        /// Validate a project profile for a request. Fleets and vessels are read within the caller's scope, so a
+        /// record outside that scope reads as missing and validation never reveals that it exists.
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <param name="profile">The profile to validate.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The validation result.</returns>
+        public Task<ProjectProfileValidationResult> ValidateForCallerAsync(AuthContext caller, ProjectProfile profile, CancellationToken token = default)
+        {
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            if (profile == null) throw new ArgumentNullException(nameof(profile));
+            return ValidateCoreAsync(
+                profile,
+                fleetId => Armada.Core.Authorization.CallerScopedRead.ReadFleetAsync(_Database, caller, fleetId, token),
+                vesselId => Armada.Core.Authorization.CallerScopedRead.ReadVesselAsync(_Database, caller, vesselId, token));
+        }
+
+        private async Task<ProjectProfileValidationResult> ValidateCoreAsync(
+            ProjectProfile profile,
+            Func<string, Task<Fleet?>> readFleet,
+            Func<string, Task<Vessel?>> readVessel)
+        {
             ProjectProfileValidationResult result = new ProjectProfileValidationResult();
 
             if (String.IsNullOrWhiteSpace(profile.Name))
@@ -68,7 +97,7 @@ namespace Armada.Core.Services
                     }
                     else
                     {
-                        Fleet? fleet = await _Database.Fleets.ReadAsync(profile.FleetId, token).ConfigureAwait(false);
+                        Fleet? fleet = await readFleet(profile.FleetId).ConfigureAwait(false);
                         if (fleet == null)
                             result.Errors.Add("Fleet not found for fleet-scoped profile.");
                         else if (!String.IsNullOrWhiteSpace(profile.TenantId)
@@ -83,7 +112,7 @@ namespace Armada.Core.Services
                     }
                     else
                     {
-                        Vessel? vessel = await _Database.Vessels.ReadAsync(profile.VesselId, token).ConfigureAwait(false);
+                        Vessel? vessel = await readVessel(profile.VesselId).ConfigureAwait(false);
                         if (vessel == null)
                             result.Errors.Add("Vessel not found for vessel-scoped profile.");
                         else if (!String.IsNullOrWhiteSpace(profile.TenantId)
