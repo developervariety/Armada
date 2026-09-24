@@ -526,6 +526,12 @@ upstream integrations and excludes changes already present at that baseline.
   case requires 409 and one stored row, and the mission metadata binding cases run
   in the mission update section. Repeated CORS, valid-key and status auth cases
   are removed.
+- **Commit secret gates:** the server landing gate and the dock pre-commit and
+  pre-push hooks judge a line alike. Every PEM private-key header (bare, RSA, EC,
+  DSA, OPENSSH, ENCRYPTED) is blocked. A pattern the server matches without case
+  carries an `(?i)` prefix in `.armada/boundary.patterns`, and the hook matches it
+  with `grep -i`, so `Bearer` and `Password` are caught at commit time. The hook
+  entropy gate strips `=` padding before measuring, as the server does.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

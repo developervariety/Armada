@@ -62,7 +62,8 @@ namespace Armada.Core.Services
         {
             ("CORE_RULE_2_mocking_lib", new Regex(@"using\s+(Moq|NSubstitute|FakeItEasy|Rhino\.Mocks|JustMock|Moq\.Protected|NSubstitute\.Extensions)\b", RegexOptions.Compiled)),
             ("CORE_RULE_4_log_interpolation", new Regex(@"\.(LogInformation|LogDebug|LogWarning|LogError|LogTrace|LogCritical)\s*\(\s*\$""", RegexOptions.Compiled)),
-            ("CORE_RULE_5_private_key", new Regex(@"-----BEGIN (RSA |EC )?PRIVATE KEY-----", RegexOptions.Compiled)),
+            // Every PEM private-key header: bare, RSA, EC, DSA, OPENSSH, ENCRYPTED.
+            ("CORE_RULE_5_private_key", new Regex(@"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----", RegexOptions.Compiled)),
             ("CORE_RULE_5_base64_chunk", new Regex(Base64ChunkPatternString, RegexOptions.Compiled)),
             ("CORE_RULE_5_password_literal", new Regex(@"password\s*[:=]\s*""\w{8,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
             ("CORE_RULE_5_apikey_literal", new Regex(@"api_?key\s*[:=]\s*""\w{16,}""", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
@@ -72,9 +73,17 @@ namespace Armada.Core.Services
         };
 
         /// <summary>
+        /// The prefix an exported pattern string carries when its rule ignores case. .NET reads it as the inline
+        /// option; the dock hook strips it and matches that pattern with <c>grep -i</c>, because a POSIX
+        /// extended regex has no inline option.
+        /// </summary>
+        public const string CaseInsensitivePrefix = "(?i)";
+
+        /// <summary>
         /// CORE_RULE_5 regex pattern strings for inclusion in the dock boundary hook
         /// configuration file. These are the same patterns used by
-        /// <see cref="CheckSecretLine"/> so the hook and the server-side gate are consistent.
+        /// <see cref="CheckSecretLine"/>, each with its case rule (<see cref="CaseInsensitivePrefix"/>),
+        /// so the hook and the server-side gate judge a line alike.
         /// </summary>
         public static IReadOnlyList<string> BuiltInSecretPatternStrings
         {
@@ -83,8 +92,9 @@ namespace Armada.Core.Services
                 List<string> patterns = new List<string>();
                 foreach ((string rule, Regex pattern) in _Rules)
                 {
-                    if (rule.StartsWith("CORE_RULE_5", StringComparison.Ordinal))
-                        patterns.Add(pattern.ToString());
+                    if (!rule.StartsWith("CORE_RULE_5", StringComparison.Ordinal)) continue;
+                    bool ignoreCase = (pattern.Options & RegexOptions.IgnoreCase) != 0;
+                    patterns.Add(ignoreCase ? CaseInsensitivePrefix + pattern.ToString() : pattern.ToString());
                 }
                 return patterns.AsReadOnly();
             }

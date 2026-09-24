@@ -1875,12 +1875,14 @@ namespace Armada.Core.Services
         // Shared awk entropy gate for the CORE_RULE_5_base64_chunk hook pattern. grep cannot
         // express entropy, so the hook extracts every quoted base64-alphabet run from the added
         // text with sed -E, then feeds each run here. The gate mirrors
-        // ConventionChecker.LooksLikeBase64Secret: hex-alphabet runs never block; a run blocks
-        // only when its case balance and class fractions (structural branch) or its Shannon
-        // entropy (entropy branch) indicate genuine secret material. exit 0 = high entropy.
+        // ConventionChecker.LooksLikeBase64Secret: trailing '=' padding is stripped before measuring,
+        // hex-alphabet runs never block, and a run blocks only when its case balance and class
+        // fractions (structural branch) or its Shannon entropy (entropy branch) indicate genuine
+        // secret material. exit 0 = high entropy.
         private const string _HookBase64EntropyGate =
             "is_high_entropy_b64() {\n" +
             "  printf '%s' \"$1\" | awk '{\n" +
+            "    sub(/=+$/, \"\")\n" +
             "    n = length($0)\n" +
             "    if (n < 2) exit 1\n" +
             "    U = 0; L = 0; D = 0; hex = 1\n" +
@@ -1914,6 +1916,12 @@ namespace Armada.Core.Services
             "  done\n" +
             "}\n" +
             "b64chunk_pat='" + ConventionChecker.Base64ChunkPatternString + "'\n";
+
+        // A secret pattern that carries ConventionChecker.CaseInsensitivePrefix is matched without case, as
+        // the server gate matches it: POSIX grep has no inline option, so the prefix becomes grep -i.
+        private const string _HookCaseRule =
+            "_gi=''\n" +
+            "case \"$pat\" in '" + ConventionChecker.CaseInsensitivePrefix + "'*) pat=${pat#'" + ConventionChecker.CaseInsensitivePrefix + "'}; _gi=i ;; esac\n";
 
         // LF-only hook scripts so Git for Windows sh.exe can execute them without CRLF errors.
         // Protected paths are read from .armada/boundary.json via extract_section (globs need no
@@ -2009,9 +2017,10 @@ namespace Armada.Core.Services
             "  if [ -n \"$added\" ]; then\n" +
             "    while IFS= read -r pat; do\n" +
             "      [ -z \"$pat\" ] && continue\n" +
+            _HookCaseRule +
             "      if [ \"$pat\" = \"$b64chunk_pat\" ]; then\n" +
             "        block_if_high_entropy_b64 \"$added\" \"BLOCKED: staged changes contain secret material. Remove the sensitive content before committing.\"\n" +
-            "      elif printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "      elif printf '%s' \"$added\" | grep -q${_gi}E -- \"$pat\" 2>/dev/null; then\n" +
             "        echo \"BLOCKED: staged changes contain secret material. Remove the sensitive content before committing.\" >&2\n" +
             "        exit 1\n" +
             "      fi\n" +
@@ -2132,9 +2141,10 @@ namespace Armada.Core.Services
             "    if [ -n \"$added\" ]; then\n" +
             "      while IFS= read -r pat; do\n" +
             "        [ -z \"$pat\" ] && continue\n" +
+            _HookCaseRule +
             "        if [ \"$pat\" = \"$b64chunk_pat\" ]; then\n" +
             "          block_if_high_entropy_b64 \"$added\" \"BLOCKED: pushed commits contain secret material. Rewrite history to remove the sensitive content.\"\n" +
-            "        elif printf '%s' \"$added\" | grep -qE -- \"$pat\" 2>/dev/null; then\n" +
+            "        elif printf '%s' \"$added\" | grep -q${_gi}E -- \"$pat\" 2>/dev/null; then\n" +
             "          echo \"BLOCKED: pushed commits contain secret material. Rewrite history to remove the sensitive content.\" >&2\n" +
             "          exit 1\n" +
             "        fi\n" +
@@ -2159,6 +2169,27 @@ namespace Armada.Core.Services
             "  fi\n" +
             "done\n" +
             "exit 0\n";
+
+        /// <summary>The pre-commit boundary hook script exactly as it is installed.</summary>
+        internal static string PreCommitHookScript => _PreCommitHook;
+
+        /// <summary>The pre-push boundary hook script exactly as it is installed.</summary>
+        internal static string PrePushHookScript => _PrePushHook;
+
+        /// <summary>
+        /// The <c>.armada/boundary.patterns</c> file the hooks read: raw pattern strings, one per line, under a
+        /// section header each.
+        /// </summary>
+        /// <param name="secretPatterns">Secret patterns.</param>
+        /// <param name="privateIdentifiers">Private-identifier patterns.</param>
+        /// <returns>The file content.</returns>
+        internal static string BoundaryPatternsFileContent(IReadOnlyCollection<string> secretPatterns, IReadOnlyCollection<string> privateIdentifiers)
+        {
+            return "# secretPatterns\n" +
+                (secretPatterns.Count > 0 ? String.Join("\n", secretPatterns) + "\n" : "") +
+                "# privateIdentifiers\n" +
+                (privateIdentifiers.Count > 0 ? String.Join("\n", privateIdentifiers) + "\n" : "");
+        }
 
         /// <summary>
         /// Resolve the git hooks directory for a bare repository by asking git directly,
@@ -2310,11 +2341,7 @@ namespace Armada.Core.Services
                 // Write raw-pattern sibling file: hook reads this instead of JSON-parsing boundary.json,
                 // so grep receives un-escaped metacharacters (\s, \w, \b, embedded ") verbatim.
                 string patternsPath = Path.Combine(armadaDir, "boundary.patterns");
-                string patternsContent =
-                    "# secretPatterns\n" +
-                    (config.SecretPatterns.Count > 0 ? String.Join("\n", config.SecretPatterns) + "\n" : "") +
-                    "# privateIdentifiers\n" +
-                    (config.PrivateIdentifiers.Count > 0 ? String.Join("\n", config.PrivateIdentifiers) + "\n" : "");
+                string patternsContent = BoundaryPatternsFileContent(config.SecretPatterns, config.PrivateIdentifiers);
                 await File.WriteAllTextAsync(patternsPath, patternsContent, new System.Text.UTF8Encoding(false), token).ConfigureAwait(false);
                 if (!String.IsNullOrWhiteSpace(excludePath))
                     await EnsureGitExcludeEntryAsync(excludePath, ".armada/boundary.patterns", token).ConfigureAwait(false);
