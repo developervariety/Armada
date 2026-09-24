@@ -302,6 +302,9 @@ namespace Test.Shared.Suites.Services
             AssertNotContains("[ARMADA:RESULT]", templateParams["CaptainInstructions"], "judge captain instructions");
             AssertNotContains("[ARMADA:RESULT]", fallbackPrompt, "judge fallback");
             AssertNotContains("[ARMADA:RESULT]", launchPrompt, "judge launch prompt");
+
+            AssertContains("Run the test suite in the FOREGROUND", embeddedPrompt, "judge embedded template foreground instruction");
+            AssertContains("never launch tests as a background task", embeddedPrompt, "judge embedded template background prohibition");
         }
 
         private static TestCaseDescriptor Case(string caseId, string displayName, string tag, Action body)
