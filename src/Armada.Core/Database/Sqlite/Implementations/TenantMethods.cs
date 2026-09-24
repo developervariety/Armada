@@ -87,7 +87,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.TenantFromReader(reader);
+                            return TenantColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -110,7 +110,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.TenantFromReader(reader);
+                            return TenantColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -179,7 +179,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.TenantFromReader(reader));
+                            results.Add(TenantColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -236,7 +236,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.TenantFromReader(reader));
+                            results.Add(TenantColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 

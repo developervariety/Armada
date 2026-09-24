@@ -726,51 +726,6 @@ namespace Armada.Core.Database.Mysql
             return Convert.ToInt32(value);
         }
 
-        internal static TenantMetadata TenantFromReader(MySqlDataReader reader)
-        {
-            TenantMetadata tenant = new TenantMetadata();
-            tenant.Id = reader["id"].ToString()!;
-            tenant.Name = reader["name"].ToString()!;
-            tenant.Active = Convert.ToInt64(reader["active"]) == 1;
-            tenant.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            tenant.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            tenant.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return tenant;
-        }
-
-        internal static UserMaster UserFromReader(MySqlDataReader reader)
-        {
-            UserMaster user = new UserMaster();
-            user.Id = reader["id"].ToString()!;
-            user.TenantId = reader["tenant_id"].ToString()!;
-            user.Email = reader["email"].ToString()!;
-            user.PasswordSha256 = reader["password_sha256"].ToString()!;
-            user.FirstName = NullableString(reader["first_name"]);
-            user.LastName = NullableString(reader["last_name"]);
-            user.IsAdmin = Convert.ToInt64(reader["is_admin"]) == 1;
-            user.IsTenantAdmin = Convert.ToInt64(reader["is_tenant_admin"]) == 1;
-            user.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            user.Active = Convert.ToInt64(reader["active"]) == 1;
-            user.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            user.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return user;
-        }
-
-        internal static Credential CredentialFromReader(MySqlDataReader reader)
-        {
-            Credential cred = new Credential();
-            cred.Id = reader["id"].ToString()!;
-            cred.TenantId = reader["tenant_id"].ToString()!;
-            cred.UserId = reader["user_id"].ToString()!;
-            cred.Name = NullableString(reader["name"]);
-            cred.BearerToken = reader["bearer_token"].ToString()!;
-            cred.Active = Convert.ToInt64(reader["active"]) == 1;
-            cred.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            cred.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            cred.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return cred;
-        }
-
         #endregion
     }
 }

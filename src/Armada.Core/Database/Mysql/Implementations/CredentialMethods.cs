@@ -82,7 +82,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MysqlDatabaseDriver.CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -105,7 +105,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MysqlDatabaseDriver.CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -128,7 +128,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MysqlDatabaseDriver.CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -207,7 +207,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -265,7 +265,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -319,7 +319,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -381,7 +381,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -408,7 +408,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }

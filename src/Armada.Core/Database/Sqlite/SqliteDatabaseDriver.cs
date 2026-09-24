@@ -789,51 +789,6 @@ namespace Armada.Core.Database.Sqlite
             return entry;
         }
 
-        internal static TenantMetadata TenantFromReader(SqliteDataReader reader)
-        {
-            TenantMetadata tenant = new TenantMetadata();
-            tenant.Id = reader["id"].ToString()!;
-            tenant.Name = reader["name"].ToString()!;
-            tenant.Active = Convert.ToInt64(reader["active"]) == 1;
-            tenant.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            tenant.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            tenant.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return tenant;
-        }
-
-        internal static UserMaster UserFromReader(SqliteDataReader reader)
-        {
-            UserMaster user = new UserMaster();
-            user.Id = reader["id"].ToString()!;
-            user.TenantId = reader["tenant_id"].ToString()!;
-            user.Email = reader["email"].ToString()!;
-            user.PasswordSha256 = reader["password_sha256"].ToString()!;
-            user.FirstName = NullableString(reader["first_name"]);
-            user.LastName = NullableString(reader["last_name"]);
-            user.IsAdmin = Convert.ToInt64(reader["is_admin"]) == 1;
-            user.IsTenantAdmin = Convert.ToInt64(reader["is_tenant_admin"]) == 1;
-            user.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            user.Active = Convert.ToInt64(reader["active"]) == 1;
-            user.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            user.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return user;
-        }
-
-        internal static Credential CredentialFromReader(SqliteDataReader reader)
-        {
-            Credential cred = new Credential();
-            cred.Id = reader["id"].ToString()!;
-            cred.TenantId = reader["tenant_id"].ToString()!;
-            cred.UserId = reader["user_id"].ToString()!;
-            cred.Name = NullableString(reader["name"]);
-            cred.BearerToken = reader["bearer_token"].ToString()!;
-            cred.Active = Convert.ToInt64(reader["active"]) == 1;
-            cred.IsProtected = Convert.ToInt64(reader["is_protected"]) == 1;
-            cred.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            cred.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return cred;
-        }
-
         #endregion
 
         #region Private-Methods

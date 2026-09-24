@@ -85,7 +85,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MysqlDatabaseDriver.UserFromReader(reader);
+                            return UserColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -108,7 +108,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MysqlDatabaseDriver.UserFromReader(reader);
+                            return UserColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -133,7 +133,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MysqlDatabaseDriver.UserFromReader(reader);
+                            return UserColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -158,7 +158,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -243,7 +243,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -301,7 +301,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -355,7 +355,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MysqlDatabaseDriver.UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 

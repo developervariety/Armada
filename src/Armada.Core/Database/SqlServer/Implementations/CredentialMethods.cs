@@ -92,7 +92,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqlServerDatabaseDriver.CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -115,7 +115,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqlServerDatabaseDriver.CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -138,7 +138,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqlServerDatabaseDriver.CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -217,7 +217,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -275,7 +275,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -329,7 +329,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -391,7 +391,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -418,7 +418,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }

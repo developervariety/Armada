@@ -97,7 +97,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return UserFromReader(reader);
+                            return UserColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -121,7 +121,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return UserFromReader(reader);
+                            return UserColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -147,7 +147,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return UserFromReader(reader);
+                            return UserColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -173,7 +173,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -261,7 +261,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -321,7 +321,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -377,7 +377,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(UserFromReader(reader));
+                            results.Add(UserColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -409,31 +409,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
 
         #region Private-Methods
-
-        private static UserMaster UserFromReader(NpgsqlDataReader reader)
-        {
-            UserMaster user = new UserMaster();
-            user.Id = reader["id"].ToString()!;
-            user.TenantId = reader["tenant_id"].ToString()!;
-            user.Email = reader["email"].ToString()!;
-            user.PasswordSha256 = reader["password_sha256"].ToString()!;
-            user.FirstName = NullableString(reader["first_name"]);
-            user.LastName = NullableString(reader["last_name"]);
-            user.IsAdmin = (bool)reader["is_admin"];
-            user.IsTenantAdmin = (bool)reader["is_tenant_admin"];
-            user.IsProtected = (bool)reader["is_protected"];
-            user.Active = (bool)reader["active"];
-            user.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            user.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return user;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
 
         #endregion
     }

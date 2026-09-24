@@ -94,7 +94,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -118,7 +118,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -142,7 +142,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CredentialFromReader(reader);
+                            return CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -224,7 +224,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -284,7 +284,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -340,7 +340,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -404,7 +404,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -432,7 +432,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(CredentialFromReader(reader));
+                            results.Add(CredentialColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -443,28 +443,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
 
         #region Private-Methods
-
-        private static Credential CredentialFromReader(NpgsqlDataReader reader)
-        {
-            Credential cred = new Credential();
-            cred.Id = reader["id"].ToString()!;
-            cred.TenantId = reader["tenant_id"].ToString()!;
-            cred.UserId = reader["user_id"].ToString()!;
-            cred.Name = NullableString(reader["name"]);
-            cred.BearerToken = reader["bearer_token"].ToString()!;
-            cred.IsProtected = (bool)reader["is_protected"];
-            cred.Active = (bool)reader["active"];
-            cred.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            cred.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return cred;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
 
         #endregion
     }

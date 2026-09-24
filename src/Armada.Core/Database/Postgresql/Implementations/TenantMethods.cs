@@ -89,7 +89,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return TenantFromReader(reader);
+                            return TenantColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -113,7 +113,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return TenantFromReader(reader);
+                            return TenantColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -185,7 +185,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(TenantFromReader(reader));
+                            results.Add(TenantColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -244,7 +244,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(TenantFromReader(reader));
+                            results.Add(TenantColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -290,18 +290,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
 
         #region Private-Methods
-
-        private static TenantMetadata TenantFromReader(NpgsqlDataReader reader)
-        {
-            TenantMetadata tenant = new TenantMetadata();
-            tenant.Id = reader["id"].ToString()!;
-            tenant.Name = reader["name"].ToString()!;
-            tenant.Active = (bool)reader["active"];
-            tenant.IsProtected = (bool)reader["is_protected"];
-            tenant.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            tenant.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return tenant;
-        }
 
         #endregion
     }
