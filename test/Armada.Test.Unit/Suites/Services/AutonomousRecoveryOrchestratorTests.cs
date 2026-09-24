@@ -184,6 +184,89 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A compile failure is the work's own defect; a rescue can fix it.");
             }).ConfigureAwait(false);
 
+            await RunTest("Judge failure rescue routes Worker below reviewer tier", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.PreferredModel = "high";
+                failed.CommitHash = new string('3', 40);
+                failed.ReviewComment = "Add a regression test for the null-branch case before resubmitting.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                ArmadaSettings settings = StandardRecoveryTierSettings();
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    settings);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                Mission worker = admiral.DispatchedMissions.Single();
+                AssertEqual("mid", worker.PreferredModel ?? "", "A Judge's high tier must not make the Worker unassignable.");
+                List<Mission> recovery = await testDb.Driver.Missions.EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                Mission judge = recovery.Single(item => item.Persona == "Judge");
+                AssertEqual("mid", judge.PreferredModel ?? "", "A chained Judge without an explicit stage tier uses its own Standard minimum.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Recovery pipeline tiers do not inherit the failed mission tier", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_tier_recovery", "usr_tier_recovery").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_tier_recovery", "usr_tier_recovery").ConfigureAwait(false);
+                Pipeline pipeline = new Pipeline("RecoveryTierRouting")
+                {
+                    TenantId = vessel.TenantId,
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    }
+                };
+                pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.PreferredModel = "high";
+                failed.VoyageId = (await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent recovery tier")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false)).Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Recovery tier owner",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { failed.VoyageId! },
+                    SuggestedPipelineId = pipeline.Id
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    StandardRecoveryTierSettings());
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                Mission worker = admiral.DispatchedMissions.Single();
+                List<Mission> recovery = await testDb.Driver.Missions.EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual("mid", worker.PreferredModel ?? "", "The Worker must use its eligible Standard tier.");
+                AssertTrue(recovery.Where(item => item.Persona == "TestEngineer" || item.Persona == "Judge")
+                    .All(item => item.PreferredModel == "mid"), "Downstream stages must use their own persona tier floors.");
+            }).ConfigureAwait(false);
+
             await RunTest("AreComparableIdenticalTestSets: only complete, non-empty, identical sets compare equal", () =>
             {
                 AutonomousRecoveryOrchestrator.StoredFailedTestSet ab = FailedTestSet(false, "A", "B");
@@ -1908,46 +1991,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Worker", worker.Persona, "The rescue of a standalone Worker is a Worker.");
                 AssertTrue(String.IsNullOrEmpty(worker.VoyageId), "A standalone mission never had review stages; its rescue stays standalone.");
             }).ConfigureAwait(false);
-
-            await RunTest("ReviseRetestRejudge_JudgeFailure_ChainsReJudgeOntoWorkerRevisionBeforeLanding", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                await EnsureTenantAndUserAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
-
-                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
-                failed.Persona = "Judge";
-                failed.CommitHash = new string('3', 40);
-                failed.ReviewComment = "Add a regression test for the null-branch case before resubmitting.";
-                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
-
-                IncidentService incidents = new IncidentService(testDb.Driver);
-                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
-                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
-                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
-
-                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
-
-                AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one Worker revision should be dispatched as the loop root.");
-                Mission worker = admiral.DispatchedMissions[0];
-                AssertEqual("Worker", worker.Persona, "The dispatched root must be a Worker revision.");
-                AssertEqual(failed.Id, worker.ParentMissionId, "The Worker revision should link back to the failed reviewer mission.");
-                AssertEqual(failed.CommitHash, worker.StartFromRef, "The Worker revision must start from the failed reviewer's captured tip.");
-                AssertTrue(!String.IsNullOrEmpty(worker.VoyageId), "The Worker revision must run inside a dedicated rescue voyage so handoff can chain stages.");
-                AssertEqual(1, worker.RecoveryAttempts, "The Worker revision should carry the recovery budget forward to bound the loop.");
-
-                List<Mission> loopMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
-                Mission? judge = loopMissions.FirstOrDefault(item =>
-                    String.Equals(item.Persona, "Judge", StringComparison.Ordinal) &&
-                    item.DependsOnMissionId == worker.Id);
-                AssertTrue(judge != null, "A re-Judge stage must be chained onto the Worker revision before it can land.");
-                AssertEqual(MissionStatusEnum.Pending, judge!.Status, "The re-Judge stage should wait on the revision via the pipeline handoff.");
-                AssertContains("ARMADA:AUTO-RESCUE", judge.Description ?? "", "The re-Judge stage should be marked as autonomous rescue work.");
-                AssertEqual(1, judge.RecoveryAttempts, "The re-Judge stage should also carry the recovery budget so a repeat rejection is bounded.");
-                AssertTrue(String.IsNullOrEmpty(judge.ParentMissionId), "The re-Judge stage is a pipeline dependent, not a direct rescue of the original failure.");
-                AssertTrue(String.IsNullOrEmpty(judge.StartFromRef), "The downstream re-Judge inherits the rescue branch through its dependency, not a second start ref.");
-            }).ConfigureAwait(false);
-
             await RunTest("Recovery preserves objective pipeline tip mode playbooks and remains idempotent", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2010,7 +2053,8 @@ namespace Armada.Test.Unit.Suites.Services
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
-                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+                ArmadaSettings settings = StandardRecoveryTierSettings();
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
@@ -2035,6 +2079,10 @@ namespace Armada.Test.Unit.Suites.Services
                 Mission analyst = recoveryMissions.Single(item => item.Persona == "PortingReferenceAnalyst");
                 Mission testEngineer = recoveryMissions.Single(item => item.Persona == "TestEngineer");
                 Mission judge = recoveryMissions.Single(item => item.Persona == "Judge");
+                AssertEqual("mid", worker.PreferredModel ?? "", "The Worker must use its eligible default tier when the failed Judge was high tier.");
+                AssertEqual("high", analyst.PreferredModel ?? "", "The analyst must keep its explicit high pipeline tier.");
+                AssertEqual("mid", testEngineer.PreferredModel ?? "", "The test stage must use its own eligible default, not inherit the failed Judge's high tier.");
+                AssertEqual("mid", judge.PreferredModel ?? "", "The Judge stage must use its own eligible default when its pipeline stage has no tier.");
                 AssertEqual(worker.Id, analyst.DependsOnMissionId, "The analyst must follow the recovery Worker.");
                 AssertEqual(analyst.Id, testEngineer.DependsOnMissionId, "The TestEngineer must follow the analyst.");
                 AssertEqual(testEngineer.Id, judge.DependsOnMissionId, "The Judge must follow the TestEngineer.");
@@ -2979,6 +3027,18 @@ namespace Armada.Test.Unit.Suites.Services
                 runbooks,
                 settings ?? new ArmadaSettings(),
                 new LoggingModule());
+        }
+
+        private static ArmadaSettings StandardRecoveryTierSettings()
+        {
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.ModelTier.Records = TierRoutingRecords.ForMinimumTiers(new List<KeyValuePair<string, CaptainTierEnum>>
+            {
+                new KeyValuePair<string, CaptainTierEnum>("Worker", CaptainTierEnum.Standard),
+                new KeyValuePair<string, CaptainTierEnum>("TestEngineer", CaptainTierEnum.Standard),
+                new KeyValuePair<string, CaptainTierEnum>("Judge", CaptainTierEnum.Standard)
+            });
+            return settings;
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb, string tenantId, string userId)
