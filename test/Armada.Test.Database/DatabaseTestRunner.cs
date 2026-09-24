@@ -174,6 +174,7 @@ namespace Armada.Test.Database
             await RunTest("DeploymentEnvironment_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyDeploymentEnvironmentsAsync(token), token);
             await RunTest("Release_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyReleasesAsync(token), token);
             await RunTest("Deployment_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyDeploymentsAsync(token), token);
+            await RunTest("Delivery_And_Endpoint_Damaged_Json_Is_Named_Not_Read_As_Empty", "Operational", () => roundTrips.VerifyDamagedDeliveryJsonIsNamedAsync(token), token);
             await RunTest("Memory_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyMemoriesAsync(token), token);
             await RunTest("ModelEndpoint_Every_Property_Create_Health_Update_Reopen", "Operational", () => roundTrips.VerifyModelEndpointsAsync(token), token);
             await RunTest("PromptTemplate_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyPromptTemplatesAsync(token), token);

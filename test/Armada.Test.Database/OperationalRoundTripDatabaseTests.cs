@@ -1436,6 +1436,70 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? endpointId = null;
+            try
+            {
+                DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "damaged-delivery-json", token).ConfigureAwait(false);
+                DeploymentEnvironment environment = await fixture.CreateDeploymentEnvironmentAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, "damaged-delivery-json", token: token).ConfigureAwait(false);
+                Release release = await fixture.CreateReleaseAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, checkRunIds: new[] { graph.CheckRun.Id }, token: token).ConfigureAwait(false);
+                Deployment deployment = await fixture.CreateDeploymentAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, environment.Id, environment.Name, token: token).ConfigureAwait(false);
+                string damagedEndpointId = "mep_damaged_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+                endpointId = damagedEndpointId;
+                await _Driver.ModelEndpoints.CreateAsync(new ModelEndpoint
+                {
+                    Id = damagedEndpointId,
+                    TenantId = graph.Tenant.Id,
+                    Name = "Damaged history endpoint " + damagedEndpointId,
+                    BaseUrl = "http://localhost:9999/v1"
+                }, token).ConfigureAwait(false);
+
+                // A damaged document is reported with its entity and column. Reading it as empty would let the
+                // next update of the record write the empty value over the stored one. Every entity is checked
+                // before the case fails, so one run names every reader that swallows a damaged document.
+                List<string> problems = new List<string>();
+                await ExpectDamagedAsync(problems, "check_runs", "artifacts_json", "CheckRun", graph.CheckRun.Id,
+                    () => _Driver.CheckRuns.ReadAsync(graph.CheckRun.Id, null, token), token).ConfigureAwait(false);
+                await ExpectDamagedAsync(problems, "workflow_profiles", "environments_json", "WorkflowProfile", graph.Profile.Id,
+                    () => _Driver.WorkflowProfiles.ReadAsync(graph.Profile.Id, null, token), token).ConfigureAwait(false);
+                await ExpectDamagedAsync(problems, "environments", "verification_definitions_json", "DeploymentEnvironment", environment.Id,
+                    () => _Driver.Environments.ReadAsync(environment.Id, null, token), token).ConfigureAwait(false);
+                await ExpectDamagedAsync(problems, "releases", "check_run_ids_json", "Release", release.Id,
+                    () => _Driver.Releases.ReadAsync(release.Id, null, token), token).ConfigureAwait(false);
+                await ExpectDamagedAsync(problems, "deployments", "check_run_ids_json", "Deployment", deployment.Id,
+                    () => _Driver.Deployments.ReadAsync(deployment.Id, null, token), token).ConfigureAwait(false);
+                await ExpectDamagedAsync(problems, "model_endpoints", "health_history_json", "ModelEndpoint", damagedEndpointId,
+                    () => _Driver.ModelEndpoints.ReadAsync(damagedEndpointId, token), token).ConfigureAwait(false);
+                DatabaseAssert.True(problems.Count == 0, String.Join("; ", problems));
+            }
+            finally
+            {
+                if (endpointId != null && !_NoCleanup) await _Driver.ModelEndpoints.DeleteAsync(endpointId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ExpectDamagedAsync<T>(List<string> problems, string table, string column, string entity, string id, Func<Task<T>> read, CancellationToken token)
+        {
+            await ExecuteForIdAsync("UPDATE " + table + " SET " + column + " = '[\"damaged\"' WHERE id = @id;", id, token).ConfigureAwait(false);
+            string? failure = null;
+            try
+            {
+                await read().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                failure = ex.Message;
+            }
+
+            if (failure == null)
+                problems.Add("a damaged " + table + "." + column + " document read as empty instead of failing");
+            else if (!failure.Contains(entity) || !failure.Contains(column))
+                problems.Add("the " + table + "." + column + " failure does not name the entity and column: " + failure);
+        }
+
         private async Task<DeliveryGraph> CreateDeliveryGraphAsync(DatabaseFixture fixture, string prefix, CancellationToken token)
         {
             DeliveryGraph graph = new DeliveryGraph();
