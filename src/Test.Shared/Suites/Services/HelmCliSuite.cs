@@ -363,6 +363,48 @@ namespace Test.Shared.Suites.Services
                     AssertTrue(result.StandardErrorTruncated, "Stderr past the step's budget is dropped and counted, not held whole.");
                     AssertTrue(result.StandardError.EndsWith("eeee", StringComparison.Ordinal), "The end of stderr, where a build explains its failure, is kept.");
                 }),
+                CaseAsync("server_start_build_step_cancel_kills_a_background_child", "Helm server start build steps own a process group, so a cancel kills a background child that left the tree", TestTags.Negative, async () =>
+                {
+                    if (OperatingSystem.IsWindows() || Armada.Core.Services.BoundedProcessRunner.GroupLauncher == null) return;
+
+                    string pidFile = BackgroundChildProbe.NewPidFile();
+                    try
+                    {
+                        System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo("/bin/sh");
+                        startInfo.ArgumentList.Add("-c");
+                        startInfo.ArgumentList.Add(BackgroundChildProbe.Script(pidFile));
+                        using (CancellationTokenSource cancel = new CancellationTokenSource())
+                        {
+                            Task<Armada.Core.Services.BoundedProcessResult> step = ServerStartCommand.RunBuildStepAsync(startInfo, cancel.Token);
+                            int child = BackgroundChildProbe.ReadPid(pidFile);
+                            cancel.Cancel();
+
+                            Armada.Core.Services.BoundedProcessResult result = await step.ConfigureAwait(false);
+                            AssertTrue(result.Cancelled, "The build step reports the cancellation.");
+                            AssertTrue(await BackgroundChildProbe.GoneAsync(child).ConfigureAwait(false),
+                                "The cancel kills the step's process group, so a background child that left the tree dies too.");
+                        }
+                    }
+                    finally
+                    {
+                        BackgroundChildProbe.Cleanup(pidFile);
+                    }
+                }),
+                CaseAsync("server_start_build_step_missing_tool_fails_to_start", "Helm server start build steps report a missing tool as a start failure", TestTags.Negative, async () =>
+                {
+                    System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo("armada-no-such-build-tool-" + Guid.NewGuid().ToString("N"));
+                    bool startFailed = false;
+                    try
+                    {
+                        await ServerStartCommand.RunBuildStepAsync(startInfo, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (System.ComponentModel.Win32Exception)
+                    {
+                        startFailed = true;
+                    }
+
+                    AssertTrue(startFailed, "A tool that does not exist fails to start instead of reporting an exit code.");
+                }),
                 CaseAsync("server_start_launch_cannot_block_the_server_on_its_output", "Helm server start launches the Admiral so it never blocks writing its console output", TestTags.Negative, async () =>
                 {
                     if (OperatingSystem.IsWindows()) return;

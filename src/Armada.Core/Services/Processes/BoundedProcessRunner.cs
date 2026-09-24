@@ -191,8 +191,14 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(startInfo.Arguments))
                 throw new ArgumentException("A process-group launch needs ArgumentList, not an argument string.", nameof(startInfo));
 
+            // The launcher execs the target itself, so a target it cannot exec would end as an exit code instead of a
+            // start failure. The target is therefore resolved first, in the order Process.Start resolves it; one that
+            // does not resolve to a file this process may execute is started without the launcher, and its start
+            // fails exactly as it would without a group.
+            string? target = ResolveExecutable(startInfo.FileName);
+            if (target == null) return false;
+
             List<string> arguments = new List<string>(startInfo.ArgumentList);
-            string target = startInfo.FileName;
             startInfo.FileName = launcher[0];
             startInfo.ArgumentList.Clear();
             for (int i = 1; i < launcher.Count; i++) startInfo.ArgumentList.Add(launcher[i]);
@@ -360,6 +366,68 @@ namespace Armada.Core.Services
 
         [DllImport("libc", SetLastError = true)]
         private static extern int kill(int pid, int sig);
+
+        [DllImport("libc", SetLastError = true)]
+        private static extern int access(string path, int mode);
+
+        private const int AccessExecute = 1;
+
+        /// <summary>
+        /// Resolve a file name the way Process.Start does on Unix: a rooted path as given, then the directory of the
+        /// running executable, then the current directory, then each PATH entry that holds an executable file.
+        /// Returns the full path only when the chosen file exists and this process may execute it; otherwise null.
+        /// </summary>
+        private static string? ResolveExecutable(string fileName)
+        {
+            if (String.IsNullOrEmpty(fileName)) return null;
+
+            string? candidate = null;
+            if (Path.IsPathRooted(fileName))
+            {
+                candidate = fileName;
+            }
+            else
+            {
+                string? processPath = Environment.ProcessPath;
+                string? processDirectory = String.IsNullOrEmpty(processPath) ? null : Path.GetDirectoryName(processPath);
+                if (processDirectory != null && File.Exists(Path.Combine(processDirectory, fileName)))
+                    candidate = Path.Combine(processDirectory, fileName);
+                else if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), fileName)))
+                    candidate = Path.Combine(Directory.GetCurrentDirectory(), fileName);
+                else
+                    candidate = FindExecutableOnPath(fileName);
+            }
+
+            if (candidate == null || !IsExecutableFile(candidate)) return null;
+            return Path.GetFullPath(candidate);
+        }
+
+        private static string? FindExecutableOnPath(string fileName)
+        {
+            string? path = Environment.GetEnvironmentVariable("PATH");
+            if (String.IsNullOrEmpty(path)) return null;
+            foreach (string directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string candidate = Path.Combine(directory, fileName);
+                if (IsExecutableFile(candidate)) return candidate;
+            }
+
+            return null;
+        }
+
+        private static bool IsExecutableFile(string path)
+        {
+            if (!File.Exists(path)) return false;
+            try
+            {
+                return access(path, AccessExecute) == 0;
+            }
+            catch (Exception ex) when (ex is DllNotFoundException || ex is EntryPointNotFoundException)
+            {
+                // No libc access on this host: the file is not proven executable, so it starts without the launcher.
+                return false;
+            }
+        }
 
         /// <summary>
         /// Resolve the command that starts a process as the leader of a new session and process group: the

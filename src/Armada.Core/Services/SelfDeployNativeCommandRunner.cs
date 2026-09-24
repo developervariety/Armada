@@ -77,7 +77,9 @@ namespace Armada.Core.Services
                 OutputShape = BoundedOutputShapeEnum.Head,
                 TruncationMarker = "\n" + OutputTruncationMarker,
                 OutputDrainTimeout = _OutputDrainTimeout,
-                KillDrainTimeout = _KillWaitTimeout
+                KillDrainTimeout = _KillWaitTimeout,
+                // A cancellation also kills a background child the utility left behind.
+                OwnProcessGroup = true
             };
             if (!String.IsNullOrWhiteSpace(request.StandardInputFilePath))
             {

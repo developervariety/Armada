@@ -267,6 +267,67 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(threw, "start failure surfaces as Win32Exception");
             });
 
+            await RunTest("A missing or non-executable file fails to start the same way when the run owns a process group", async () =>
+            {
+                const string name = "A missing or non-executable file fails to start the same way when the run owns a process group";
+                if (SkipOnWindows(name)) return;
+                if (BoundedProcessRunner.GroupLauncher == null)
+                {
+                    SkipTest(name, "No setsid or perl on this host.");
+                    return;
+                }
+
+                string directory = Path.Combine(Path.GetTempPath(), "armada-group-start-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    string notExecutable = Path.Combine(directory, "not-executable");
+                    File.WriteAllText(notExecutable, "#!/bin/sh\nexit 0\n");
+                    File.SetUnixFileMode(notExecutable, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+                    string[] targets =
+                    {
+                        "armada-no-such-executable-" + Guid.NewGuid().ToString("N"),
+                        Path.Combine(directory, "missing"),
+                        notExecutable
+                    };
+                    foreach (string target in targets)
+                    {
+                        int? plain = await StartFailureCodeAsync(target, false);
+                        int? grouped = await StartFailureCodeAsync(target, true);
+                        AssertNotNull(plain, "without a group, " + target + " fails to start");
+                        AssertEqual(plain, grouped, "with a group, " + target + " fails to start with the same error, not an exit code");
+                    }
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
+
+            await RunTest("A process-group run of a bare name finds it on PATH and leads its own process group", async () =>
+            {
+                const string name = "A process-group run of a bare name finds it on PATH and leads its own process group";
+                if (SkipOnWindows(name)) return;
+                if (BoundedProcessRunner.GroupLauncher == null)
+                {
+                    SkipTest(name, "No setsid or perl on this host.");
+                    return;
+                }
+
+                ProcessStartInfo startInfo = new ProcessStartInfo("sh");
+                startInfo.ArgumentList.Add("-c");
+                startInfo.ArgumentList.Add("echo $$ $(ps -o pgid= -p $$)");
+                BoundedProcessResult result = await BoundedProcessRunner.RunAsync(new BoundedProcessRequest(startInfo, TimeSpan.FromSeconds(20))
+                {
+                    OwnProcessGroup = true
+                });
+                AssertEqual(0, result.ExitCode ?? -1, "exit code: " + result.StandardError);
+                string[] ids = result.StandardOutput.Split(new[] { ' ', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                AssertEqual(2, ids.Length, "the shell reports its process and group: " + result.StandardOutput);
+                AssertEqual(ids[0], ids[1], "the shell leads its own process group");
+            });
+
             await RunTest("An already-cancelled token starts nothing", async () =>
             {
                 using (CancellationTokenSource cancel = new CancellationTokenSource())
@@ -306,6 +367,23 @@ namespace Armada.Test.Unit.Suites.Services
                 if (File.Exists(Path.Combine(directory, name))) return true;
             }
             return false;
+        }
+
+        private static async Task<int?> StartFailureCodeAsync(string fileName, bool ownProcessGroup)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo(fileName);
+            try
+            {
+                await BoundedProcessRunner.RunAsync(new BoundedProcessRequest(startInfo, TimeSpan.FromSeconds(10))
+                {
+                    OwnProcessGroup = ownProcessGroup
+                });
+                return null;
+            }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                return ex.NativeErrorCode;
+            }
         }
 
         private static ProcessStartInfo Shell(string script)

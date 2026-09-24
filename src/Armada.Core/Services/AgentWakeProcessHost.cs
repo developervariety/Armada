@@ -11,8 +11,8 @@ namespace Armada.Core.Services
     /// <summary>
     /// Production implementation of <see cref="IAgentWakeProcessHost"/>.
     /// Runs the agent CLI through <see cref="BoundedProcessRunner"/>: standard input is written while both output
-    /// streams are read, each stream is kept within a byte budget, and the timeout kills the process tree. The
-    /// background monitor calls <c>onExited</c> when done.
+    /// streams are read, each stream is kept within a byte budget, and the timeout kills the process tree and the
+    /// process group the agent owns. The background monitor calls <c>onExited</c> when done.
     /// </summary>
     public sealed class AgentWakeProcessHost : IAgentWakeProcessHost
     {
@@ -69,10 +69,12 @@ namespace Armada.Core.Services
             try
             {
                 // A timeout of zero or less still kills at once, as it always has, rather than running unbounded.
+                // The agent owns its process group, so the timeout also kills a background child it left behind.
                 BoundedProcessRequest bounded = new BoundedProcessRequest(psi, TimeSpan.FromSeconds(Math.Max(0.001, request.TimeoutSeconds)))
                 {
                     StandardInput = string.IsNullOrEmpty(request.StdinPayload) ? null : request.StdinPayload,
-                    OutputLimitBytes = OutputLimitBytes
+                    OutputLimitBytes = OutputLimitBytes,
+                    OwnProcessGroup = true
                 };
                 run = BoundedProcessRunner.RunAsync(bounded);
             }

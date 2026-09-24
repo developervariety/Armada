@@ -85,9 +85,10 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Start the process as the leader of its own session and process group, so a timeout or cancellation also
-        /// kills a background child it left behind. Applies on Unix when setsid or perl exists. The executable is
-        /// then started through the launcher, so a missing executable is an exit code, not a start failure.
-        /// Requires <see cref="ProcessStartInfo.ArgumentList"/> rather than an argument string.
+        /// kills a background child it left behind. Applies on Unix when setsid or perl exists and the executable
+        /// resolves, in the order Process.Start uses, to a file this process may execute. An executable that does not
+        /// resolve starts without the group, so a missing or non-executable file is the same start failure it is
+        /// without this option. Requires <see cref="ProcessStartInfo.ArgumentList"/> rather than an argument string.
         /// </summary>
         public bool OwnProcessGroup { get; set; } = false;
 

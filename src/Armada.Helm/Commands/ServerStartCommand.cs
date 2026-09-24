@@ -502,13 +502,15 @@ namespace Armada.Helm.Commands
         /// <summary>
         /// Run one build step (the server build, tsc, vite) through the bounded runner: both output streams are read
         /// at once, so a step that writes more than a pipe buffer to either stream cannot block, each stream keeps its
-        /// beginning and its end within a budget, and a step that never finishes is killed with its tree.
+        /// beginning and its end within a budget, and a step that never finishes is killed with its tree and the
+        /// process group it owns, so a build server it started in the background does not outlive it.
         /// </summary>
         internal static Task<BoundedProcessResult> RunBuildStepAsync(ProcessStartInfo startInfo, CancellationToken token)
         {
             BoundedProcessRequest request = new BoundedProcessRequest(startInfo, _BuildStepTimeout)
             {
-                OutputLimitBytes = _BuildStepOutputLimitBytes
+                OutputLimitBytes = _BuildStepOutputLimitBytes,
+                OwnProcessGroup = true
             };
             return BoundedProcessRunner.RunAsync(request, token);
         }

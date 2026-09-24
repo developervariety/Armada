@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using Microsoft.Data.Sqlite;
+    using BackgroundChildProbe = global::Test.Shared.Infrastructure.BackgroundChildProbe;
 
     /// <summary>
     /// A native database client or runtime that is not installed is reported by name through every consumer.
@@ -125,6 +126,67 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         await provider.CleanupAsync(backup);
                     }
+                }
+            });
+
+            await RunTest("NativeRunner_FileWithoutExecutePermission_ReportsNotExecutable", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                {
+                    string tool = Path.Combine(directory.Root, "pg_dump");
+                    File.WriteAllText(tool, "#!/bin/sh\nexit 0\n");
+                    File.SetUnixFileMode(tool, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+                    SelfDeployNativeClientMissingException? refused = null;
+                    try
+                    {
+                        await new SelfDeployNativeCommandRunner().RunAsync(new SelfDeployNativeCommandRequest { FileName = tool });
+                    }
+                    catch (SelfDeployNativeClientMissingException ex)
+                    {
+                        refused = ex;
+                    }
+
+                    AssertNotNull(refused, "a file that cannot be executed fails to start");
+                    AssertEqual("native_client_not_executable_pg_dump", refused!.FailureReason, "the start failure names the file as not executable");
+                }
+            });
+
+            await RunTest("NativeRunner_Cancellation_KillsABackgroundChildThatLeftTheTree", async () =>
+            {
+                if (OperatingSystem.IsWindows() || BoundedProcessRunner.GroupLauncher == null) return;
+                string pidFile = BackgroundChildProbe.NewPidFile();
+                try
+                {
+                    using (System.Threading.CancellationTokenSource cancel = new System.Threading.CancellationTokenSource())
+                    {
+                        Task<SelfDeployNativeCommandResult> run = new SelfDeployNativeCommandRunner().RunAsync(new SelfDeployNativeCommandRequest
+                        {
+                            FileName = "/bin/sh",
+                            Arguments = new[] { "-c", BackgroundChildProbe.Script(pidFile) }
+                        }, cancel.Token);
+                        int child = BackgroundChildProbe.ReadPid(pidFile);
+                        cancel.Cancel();
+
+                        bool ended = false;
+                        try
+                        {
+                            await run;
+                        }
+                        catch (Exception)
+                        {
+                            ended = true;
+                        }
+
+                        AssertTrue(ended, "a cancelled native command does not report a result");
+                        AssertTrue(await BackgroundChildProbe.GoneAsync(child),
+                            "the cancellation kills the command's process group, so a background child that left the tree dies too");
+                    }
+                }
+                finally
+                {
+                    BackgroundChildProbe.Cleanup(pidFile);
                 }
             });
         }

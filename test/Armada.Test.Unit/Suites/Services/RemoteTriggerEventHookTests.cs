@@ -15,6 +15,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using BackgroundChildProbe = global::Test.Shared.Infrastructure.BackgroundChildProbe;
     using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
     using SyslogLogging;
 
@@ -645,6 +646,50 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("process timed out after 1s", logText, "timeout diagnostic should include configured timeout.");
                 AssertContains("exited abnormally", logText, "timeout process exit should be logged as abnormal.");
                 AssertContains("timed out", logText, "exit diagnostic should preserve timeout state.");
+            });
+
+            await RunTest("AgentWakeProcessHost_Timeout_KillsABackgroundChildThatLeftTheTree", async () =>
+            {
+                if (OperatingSystem.IsWindows() || BoundedProcessRunner.GroupLauncher == null) return;
+                AgentWakeProcessHost host = new AgentWakeProcessHost(CreateLogging());
+                string pidFile = BackgroundChildProbe.NewPidFile();
+                try
+                {
+                    AgentWakeProcessRequest request = new AgentWakeProcessRequest();
+                    request.Command = "/bin/sh";
+                    request.ArgumentList = new List<string> { "-c", BackgroundChildProbe.Script(pidFile) };
+                    request.StdinPayload = string.Empty;
+                    request.TimeoutSeconds = 1;
+
+                    TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    AssertTrue(host.TryStart(request, () => exited.TrySetResult()), "The wake process starts.");
+                    int child = BackgroundChildProbe.ReadPid(pidFile);
+
+                    Task winner = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(15))).ConfigureAwait(false);
+                    AssertTrue(winner == exited.Task, "The timeout ends the wake process.");
+                    AssertTrue(await BackgroundChildProbe.GoneAsync(child).ConfigureAwait(false),
+                        "The timeout kills the agent's process group, so a background child that left the tree dies too.");
+                }
+                finally
+                {
+                    BackgroundChildProbe.Cleanup(pidFile);
+                }
+            });
+
+            await RunTest("AgentWakeProcessHost_MissingCommand_IsASpawnFailure", async () =>
+            {
+                AgentWakeProcessHost host = new AgentWakeProcessHost(CreateLogging());
+                AgentWakeProcessRequest request = new AgentWakeProcessRequest();
+                request.Command = "armada-no-such-agent-" + Guid.NewGuid().ToString("N");
+                request.ArgumentList = new List<string> { "--continue" };
+                request.StdinPayload = string.Empty;
+                request.TimeoutSeconds = 10;
+
+                bool exitedCalled = false;
+                bool started = host.TryStart(request, () => exitedCalled = true);
+                await Task.Delay(200).ConfigureAwait(false);
+                AssertFalse(started, "A command that does not exist fails to start, so the caller can try the next candidate.");
+                AssertFalse(exitedCalled, "A spawn failure never reports an exit.");
             });
 
             await RunTest("AgentWakeProcessHost_ChildFillingStderrBeforeReadingStdin_ExitsAndBoundsOutput", async () =>

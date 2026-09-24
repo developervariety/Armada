@@ -128,6 +128,12 @@ upstream integrations and excludes changes already present at that baseline.
 - **Typed-decision status:** the operator status view reads the one no-key
   effective-mode rule the settings use.
 
+- **Process groups for AgentWake, self-deploy and Helm build steps:** AgentWake
+  agent runs, self-deploy native commands and Helm `server start` build steps own
+  a process group, so a timeout or cancellation also kills a background child that
+  left the process tree. The bounded runner resolves the executable before it
+  uses the group launcher; a missing or non-executable file starts without the
+  group and fails to start exactly as it does without one.
 - **Event types match their emitters:** `voyage.completed` is recorded once when
   the voyage completion rule writes a voyage Complete, `captain.stopped` when a
   captain stop stops the agent process, and `voyage.dispatched` also for rescue
