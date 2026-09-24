@@ -109,7 +109,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -137,7 +137,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -167,7 +167,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -289,7 +289,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -348,7 +348,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -449,60 +449,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                 {
                     while (await reader.ReadAsync(token).ConfigureAwait(false))
-                        stages.Add(StageFromReader(reader));
+                        stages.Add(PipelineColumns.ReadStage(reader, SqliteDatabaseDriver.StoredValues));
                 }
             }
 
             return stages;
-        }
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to a Pipeline model (without stages).
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Pipeline instance.</returns>
-        private static Pipeline PipelineFromReader(SqliteDataReader reader)
-        {
-            Pipeline pipeline = new Pipeline();
-            pipeline.Id = reader["id"].ToString()!;
-            pipeline.TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]);
-            pipeline.UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]);
-            pipeline.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            pipeline.Name = reader["name"].ToString()!;
-            pipeline.Description = SqliteDatabaseDriver.NullableString(reader["description"]);
-            pipeline.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
-            pipeline.Active = Convert.ToInt64(reader["active"]) == 1;
-            pipeline.CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            pipeline.LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return pipeline;
-        }
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to a PipelineStage model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>PipelineStage instance.</returns>
-        private static PipelineStage StageFromReader(SqliteDataReader reader)
-        {
-            PipelineStage stage = new PipelineStage();
-            stage.Id = reader["id"].ToString()!;
-            stage.PipelineId = SqliteDatabaseDriver.NullableString(reader["pipeline_id"]);
-            stage.Order = Convert.ToInt32(reader["stage_order"]);
-            stage.PersonaName = reader["persona_name"].ToString()!;
-            stage.IsOptional = Convert.ToInt64(reader["is_optional"]) == 1;
-            stage.Description = SqliteDatabaseDriver.NullableString(reader["description"]);
-            try { stage.PreferredModel = SqliteDatabaseDriver.NullableString(reader["preferred_model"]); } catch { }
-            try { stage.RequiresReview = Convert.ToInt64(reader["requires_review"]) == 1; } catch { }
-            try
-            {
-                string? reviewDenyAction = SqliteDatabaseDriver.NullableString(reader["review_deny_action"]);
-                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
-                {
-                    stage.ReviewDenyAction = parsed;
-                }
-            }
-            catch { }
-            return stage;
         }
 
         #endregion

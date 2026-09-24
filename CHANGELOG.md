@@ -137,7 +137,7 @@ upstream integrations and excludes changes already present at that baseline.
   credentials, fleets, signals, events, captains, workflow profiles, Checks,
   deployment environments, releases, deployments, memories, model endpoints,
   prompt templates, token-usage records, request-history entries and details,
-  skills, project profiles, playbooks, mission playbook snapshots, landing jobs
+  personas, pipelines and their stages, skills, project profiles, playbooks, mission playbook snapshots, landing jobs
   and Judge follow-ups are read by one column reader per entity that every
   provider calls. Each provider configures only how it stores booleans; a
   timestamp converts by the value the driver returns, so one stored as text

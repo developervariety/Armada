@@ -109,7 +109,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -137,7 +137,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -167,7 +167,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -289,7 +289,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -348,7 +348,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -449,60 +449,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                 {
                     while (await reader.ReadAsync(token).ConfigureAwait(false))
-                        stages.Add(StageFromReader(reader));
+                        stages.Add(PipelineColumns.ReadStage(reader, SqlServerDatabaseDriver.StoredValues));
                 }
             }
 
             return stages;
-        }
-
-        /// <summary>
-        /// Convert a SqlDataReader row to a Pipeline model (without stages).
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Pipeline instance.</returns>
-        private static Pipeline PipelineFromReader(SqlDataReader reader)
-        {
-            Pipeline pipeline = new Pipeline();
-            pipeline.Id = reader["id"].ToString()!;
-            pipeline.TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]);
-            pipeline.UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]);
-            pipeline.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            pipeline.Name = reader["name"].ToString()!;
-            pipeline.Description = SqlServerDatabaseDriver.NullableString(reader["description"]);
-            pipeline.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
-            pipeline.Active = Convert.ToBoolean(reader["active"]);
-            pipeline.CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            pipeline.LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return pipeline;
-        }
-
-        /// <summary>
-        /// Convert a SqlDataReader row to a PipelineStage model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>PipelineStage instance.</returns>
-        private static PipelineStage StageFromReader(SqlDataReader reader)
-        {
-            PipelineStage stage = new PipelineStage();
-            stage.Id = reader["id"].ToString()!;
-            stage.PipelineId = SqlServerDatabaseDriver.NullableString(reader["pipeline_id"]);
-            stage.Order = Convert.ToInt32(reader["stage_order"]);
-            stage.PersonaName = reader["persona_name"].ToString()!;
-            stage.IsOptional = Convert.ToBoolean(reader["is_optional"]);
-            stage.Description = SqlServerDatabaseDriver.NullableString(reader["description"]);
-            try { stage.PreferredModel = SqlServerDatabaseDriver.NullableString(reader["preferred_model"]); } catch { }
-            try { stage.RequiresReview = Convert.ToBoolean(reader["requires_review"]); } catch { }
-            try
-            {
-                string? reviewDenyAction = SqlServerDatabaseDriver.NullableString(reader["review_deny_action"]);
-                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
-                {
-                    stage.ReviewDenyAction = parsed;
-                }
-            }
-            catch { }
-            return stage;
         }
 
         #endregion

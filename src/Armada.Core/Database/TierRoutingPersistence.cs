@@ -75,22 +75,6 @@ namespace Armada.Core.Database
             command.Parameters.Add(minimumTier);
         }
 
-        /// <summary>Read the minimum tier from a persona row.</summary>
-        /// <param name="reader">Reader positioned on a persona row that selects the minimum tier column.</param>
-        /// <param name="persona">Persona to populate.</param>
-        internal static void ReadPersona(DbDataReader reader, Persona persona)
-        {
-            try
-            {
-                string? minimumTier = reader[MinimumTierColumn] == DBNull.Value ? null : Convert.ToString(reader[MinimumTierColumn]);
-                persona.MinimumTier = String.IsNullOrWhiteSpace(minimumTier)
-                    ? null
-                    : Enum.TryParse(minimumTier, true, out Armada.Core.Enums.CaptainTierEnum parsed) ? parsed : null;
-            }
-            catch (IndexOutOfRangeException) { }
-            catch (ArgumentOutOfRangeException) { }
-        }
-
         #endregion
     }
 }

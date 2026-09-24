@@ -96,7 +96,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -124,7 +124,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -155,7 +155,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -253,7 +253,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PersonaFromReader(reader));
+                            results.Add(PersonaColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -312,7 +312,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PersonaFromReader(reader));
+                            results.Add(PersonaColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -369,33 +369,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #endregion
 
         #region Private-Methods
-
-        /// <summary>
-        /// Convert a MySqlDataReader row to a Persona model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Persona instance.</returns>
-        private static Persona PersonaFromReader(MySqlDataReader reader)
-        {
-            Persona persona = new Persona();
-            persona.Id = reader["id"].ToString()!;
-            persona.TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]);
-            persona.UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]);
-            persona.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            persona.Name = reader["name"].ToString()!;
-            persona.Description = MysqlDatabaseDriver.NullableString(reader["description"]);
-            persona.PromptTemplateName = reader["prompt_template_name"].ToString()!;
-            // Read defensively: the column arrives with a migration, so a reader running against a
-            // database that has not applied it must still map the rest of the row.
-            try { persona.DefaultCaptainId = MysqlDatabaseDriver.NullableString(reader["default_captain_id"]); } catch { }
-            TierRoutingPersistence.ReadPersona(reader, persona);
-            persona.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
-            try { persona.DefaultPlaybooks = MysqlDatabaseDriver.NullableString(reader["default_playbooks"]); } catch { }
-            persona.Active = Convert.ToInt64(reader["active"]) == 1;
-            persona.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            persona.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return persona;
-        }
 
         private static DateTime ToDatabaseTimestamp(DateTime dt)
         {

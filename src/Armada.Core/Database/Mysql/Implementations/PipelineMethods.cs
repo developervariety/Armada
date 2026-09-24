@@ -109,7 +109,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -142,7 +142,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -178,7 +178,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -314,7 +314,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -378,7 +378,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -489,60 +489,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                 {
                     while (await reader.ReadAsync(token).ConfigureAwait(false))
-                        stages.Add(StageFromReader(reader));
+                        stages.Add(PipelineColumns.ReadStage(reader, MysqlDatabaseDriver.StoredValues));
                 }
             }
 
             return stages;
-        }
-
-        /// <summary>
-        /// Convert a MySqlDataReader row to a Pipeline model (without stages).
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Pipeline instance.</returns>
-        private static Pipeline PipelineFromReader(MySqlDataReader reader)
-        {
-            Pipeline pipeline = new Pipeline();
-            pipeline.Id = reader["id"].ToString()!;
-            pipeline.TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]);
-            pipeline.UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]);
-            pipeline.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            pipeline.Name = reader["name"].ToString()!;
-            pipeline.Description = MysqlDatabaseDriver.NullableString(reader["description"]);
-            pipeline.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
-            pipeline.Active = Convert.ToInt64(reader["active"]) == 1;
-            pipeline.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            pipeline.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return pipeline;
-        }
-
-        /// <summary>
-        /// Convert a MySqlDataReader row to a PipelineStage model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>PipelineStage instance.</returns>
-        private static PipelineStage StageFromReader(MySqlDataReader reader)
-        {
-            PipelineStage stage = new PipelineStage();
-            stage.Id = reader["id"].ToString()!;
-            stage.PipelineId = MysqlDatabaseDriver.NullableString(reader["pipeline_id"]);
-            stage.Order = Convert.ToInt32(reader["stage_order"]);
-            stage.PersonaName = reader["persona_name"].ToString()!;
-            stage.IsOptional = Convert.ToInt64(reader["is_optional"]) == 1;
-            stage.Description = MysqlDatabaseDriver.NullableString(reader["description"]);
-            try { stage.PreferredModel = MysqlDatabaseDriver.NullableString(reader["preferred_model"]); } catch { }
-            try { stage.RequiresReview = Convert.ToInt64(reader["requires_review"]) == 1; } catch { }
-            try
-            {
-                string? reviewDenyAction = MysqlDatabaseDriver.NullableString(reader["review_deny_action"]);
-                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
-                {
-                    stage.ReviewDenyAction = parsed;
-                }
-            }
-            catch { }
-            return stage;
         }
 
         private static DateTime ToDatabaseTimestamp(DateTime dt)

@@ -204,6 +204,19 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Read an optional enum where the schema tolerates values outside the model: null, blank or unrecognised
+        /// text reads as null.
+        /// </summary>
+        internal TEnum? EnumOrNull<TEnum>(string column, bool ignoreCase) where TEnum : struct, System.Enum
+        {
+            object value = Value(column);
+            if (value == DBNull.Value) return null;
+            string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(text)) return null;
+            return System.Enum.TryParse(text, ignoreCase, out TEnum parsed) ? parsed : null;
+        }
+
+        /// <summary>
         /// Read an enum where the schema tolerates values outside the model: the stored name is matched without
         /// regard to case, and null, empty or unrecognised text reads as <paramref name="fallback"/>.
         /// </summary>

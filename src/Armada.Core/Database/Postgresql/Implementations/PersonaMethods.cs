@@ -98,7 +98,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -122,7 +122,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -148,7 +148,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -235,7 +235,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PersonaFromReader(reader));
+                            results.Add(PersonaColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -291,7 +291,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PersonaFromReader(reader));
+                            results.Add(PersonaColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -335,49 +335,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     return count > 0;
                 }
             }
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        /// <summary>
-        /// Convert a NpgsqlDataReader row to a Persona model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Persona instance.</returns>
-        private static Persona PersonaFromReader(NpgsqlDataReader reader)
-        {
-            Persona persona = new Persona();
-            persona.Id = reader["id"].ToString()!;
-            persona.TenantId = NullableString(reader["tenant_id"]);
-            persona.UserId = NullableString(reader["user_id"]);
-            persona.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            persona.Name = reader["name"].ToString()!;
-            persona.Description = NullableString(reader["description"]);
-            persona.PromptTemplateName = reader["prompt_template_name"].ToString()!;
-            // Read defensively: the column arrives with a migration, so a reader running against a
-            // database that has not applied it must still map the rest of the row.
-            try { persona.DefaultCaptainId = NullableString(reader["default_captain_id"]); } catch { }
-            TierRoutingPersistence.ReadPersona(reader, persona);
-            persona.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
-            try { persona.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
-            persona.Active = Convert.ToBoolean(reader["active"]);
-            persona.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            persona.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return persona;
-        }
-
-        /// <summary>
-        /// Return null if the value is DBNull or empty, otherwise return the string.
-        /// </summary>
-        /// <param name="value">Database value.</param>
-        /// <returns>String or null.</returns>
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion

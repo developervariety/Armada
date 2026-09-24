@@ -96,7 +96,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -119,7 +119,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -144,7 +144,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                            return PersonaColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -228,7 +228,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PersonaFromReader(reader));
+                            results.Add(PersonaColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -282,7 +282,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PersonaFromReader(reader));
+                            results.Add(PersonaColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -324,37 +324,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     return count > 0;
                 }
             }
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to a Persona model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Persona instance.</returns>
-        private static Persona PersonaFromReader(SqliteDataReader reader)
-        {
-            Persona persona = new Persona();
-            persona.Id = reader["id"].ToString()!;
-            persona.TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]);
-            persona.UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]);
-            persona.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            persona.Name = reader["name"].ToString()!;
-            persona.Description = SqliteDatabaseDriver.NullableString(reader["description"]);
-            persona.PromptTemplateName = reader["prompt_template_name"].ToString()!;
-            // Read defensively: the column arrives with a migration, so a reader running against a
-            // database that has not applied it must still map the rest of the row.
-            try { persona.DefaultCaptainId = SqliteDatabaseDriver.NullableString(reader["default_captain_id"]); } catch { }
-            TierRoutingPersistence.ReadPersona(reader, persona);
-            persona.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
-            try { persona.DefaultPlaybooks = SqliteDatabaseDriver.NullableString(reader["default_playbooks"]); } catch { }
-            persona.Active = Convert.ToInt64(reader["active"]) == 1;
-            persona.CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            persona.LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return persona;
         }
 
         #endregion

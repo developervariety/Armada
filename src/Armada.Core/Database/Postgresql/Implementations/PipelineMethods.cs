@@ -111,7 +111,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -140,7 +140,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -171,7 +171,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            pipeline = PipelineFromReader(reader);
+                            pipeline = PipelineColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -298,7 +298,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -359,7 +359,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(PipelineFromReader(reader));
+                            results.Add(PipelineColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -464,72 +464,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                 {
                     while (await reader.ReadAsync(token).ConfigureAwait(false))
-                        stages.Add(StageFromReader(reader));
+                        stages.Add(PipelineColumns.ReadStage(reader, PostgresqlDatabaseDriver.StoredValues));
                 }
             }
 
             return stages;
-        }
-
-        /// <summary>
-        /// Convert a NpgsqlDataReader row to a Pipeline model (without stages).
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Pipeline instance.</returns>
-        private static Pipeline PipelineFromReader(NpgsqlDataReader reader)
-        {
-            Pipeline pipeline = new Pipeline();
-            pipeline.Id = reader["id"].ToString()!;
-            pipeline.TenantId = NullableString(reader["tenant_id"]);
-            pipeline.UserId = NullableString(reader["user_id"]);
-            pipeline.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
-            pipeline.Name = reader["name"].ToString()!;
-            pipeline.Description = NullableString(reader["description"]);
-            pipeline.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
-            pipeline.Active = Convert.ToBoolean(reader["active"]);
-            pipeline.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            pipeline.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return pipeline;
-        }
-
-        /// <summary>
-        /// Convert a NpgsqlDataReader row to a PipelineStage model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>PipelineStage instance.</returns>
-        private static PipelineStage StageFromReader(NpgsqlDataReader reader)
-        {
-            PipelineStage stage = new PipelineStage();
-            stage.Id = reader["id"].ToString()!;
-            stage.PipelineId = NullableString(reader["pipeline_id"]);
-            stage.Order = Convert.ToInt32(reader["stage_order"]);
-            stage.PersonaName = reader["persona_name"].ToString()!;
-            stage.IsOptional = Convert.ToBoolean(reader["is_optional"]);
-            stage.Description = NullableString(reader["description"]);
-            try { stage.PreferredModel = NullableString(reader["preferred_model"]); } catch { }
-            try { stage.RequiresReview = Convert.ToBoolean(reader["requires_review"]); } catch { }
-            try
-            {
-                string? reviewDenyAction = NullableString(reader["review_deny_action"]);
-                if (!String.IsNullOrEmpty(reviewDenyAction) && Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
-                {
-                    stage.ReviewDenyAction = parsed;
-                }
-            }
-            catch { }
-            return stage;
-        }
-
-        /// <summary>
-        /// Return null if the value is DBNull or empty, otherwise return the string.
-        /// </summary>
-        /// <param name="value">Database value.</param>
-        /// <returns>String or null.</returns>
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion
