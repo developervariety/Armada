@@ -126,11 +126,13 @@ namespace Armada.Core.Services
         /// <param name="summary">The refinement summary; its <see cref="ObjectiveRefinementSummaryResponse.Summary"/> text may gain appended review lines.</param>
         /// <param name="kind">The objective Kind, given to the model as state.</param>
         /// <param name="token">Cancellation token, forwarded to the client so its timeout links to the caller.</param>
+        /// <param name="vesselIds">The vessels the objective names, for the egress vessel rule; null for none.</param>
         /// <returns>A task that completes when the criteria have been linted and any review lines appended.</returns>
         public async Task EvaluateAsync(
             ObjectiveRefinementSummaryResponse summary,
             ObjectiveKindEnum kind,
-            CancellationToken token)
+            CancellationToken token,
+            IReadOnlyList<string>? vesselIds = null)
         {
             if (summary == null) return;
 
@@ -149,15 +151,15 @@ namespace Armada.Core.Services
 
             // Criteria are independent, so they are answered together in as few requests as the limits
             // allow; each criterion still gets its own recorded event.
-            // The shared egress guard, per criterion: a criterion naming an excluded marker is not sent; it records
-            // why and appends nothing.
+            // The shared egress guard, per criterion: an objective naming an excluded vessel, or a criterion naming
+            // an excluded marker, is not sent; it records why and appends nothing.
             List<string?> refusals = new List<string?>(criteria.Count);
             List<TypedDecisionBatchItem?> batch = new List<TypedDecisionBatchItem?>(criteria.Count);
             for (int index = 0; index < criteria.Count; index++)
             {
                 string criterion = criteria[index];
                 int number = index + 1;
-                string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, (IEnumerable<string?>?)null, () => BuildState(criterion, number, kind, deliverable));
+                string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, vesselIds, () => BuildState(criterion, number, kind, deliverable));
                 refusals.Add(refusal);
                 batch.Add(refusal != null ? null : new TypedDecisionBatchItem(
                     DecisionStateRedactor.RedactState(BuildState(criterion, number, kind, deliverable), _Settings.MaxStateChars),

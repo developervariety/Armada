@@ -37,6 +37,9 @@ namespace Armada.Core.Services
         /// <summary>The related vessel identifier, when known, for the owner-addressed note.</summary>
         public string? VesselId { get; init; }
 
+        /// <summary>Every vessel the blocked objective names, for the egress vessel rule.</summary>
+        public IReadOnlyList<string> VesselIds { get; init; } = new List<string>();
+
         /// <summary>The mission this candidate belongs to, when any, for the per-call event owner scope. Usually null.</summary>
         public Mission? Mission { get; init; }
     }
@@ -258,6 +261,10 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(OwnerDigestCandidate input) => input.Mission;
+
+        /// <inheritdoc />
+        protected override IEnumerable<string?> VesselIdsOf(OwnerDigestCandidate input)
+            => TypedDecisionEgress.VesselsOf(input.VesselIds, input.VesselId, input.Mission?.VesselId);
 
         #endregion
 

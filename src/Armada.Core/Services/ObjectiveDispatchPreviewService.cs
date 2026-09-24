@@ -1071,7 +1071,9 @@ namespace Armada.Core.Services
                     .Where(item => !String.IsNullOrWhiteSpace(item)).ToList(),
                 Kind = objective.Kind.ToString(),
                 Stages = stages,
-                StageDescriptions = descriptions
+                StageDescriptions = descriptions,
+                VesselIds = TypedDecisionEgress.VesselsOf(objective.VesselIds, vessel?.Id)
+                    .Where(id => !String.IsNullOrWhiteSpace(id)).Select(id => id!).ToList()
             };
 
             // The adapter is contracted never to throw into the caller: Off returns the rule with no

@@ -141,7 +141,7 @@ namespace Armada.Core.Services
 
             string deliverable = DeliverableOf(objective);
             (TypedDecisionResult? decision, PriorArtReading? reading, string redacted) =
-                await ConsultAsync(deliverable, retrieval, new[] { vessel.Id }, isJudge: false, token).ConfigureAwait(false);
+                await ConsultAsync(deliverable, retrieval, TypedDecisionEgress.VesselsOf(objective.VesselIds, vessel.Id), isJudge: false, token).ConfigureAwait(false);
             if (decision == null || reading == null)
             {
                 await RecordUnavailableAsync(retrieval, redacted, decision, null, token).ConfigureAwait(false);

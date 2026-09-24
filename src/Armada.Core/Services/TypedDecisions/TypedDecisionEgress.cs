@@ -12,8 +12,8 @@ namespace Armada.Core.Services
     /// <summary>
     /// The one egress guard. Every path that sends decision state off the host - the adapter skeleton, the
     /// standalone adapters, the custom decisions and the captain tools - asks <see cref="Refusal(TypedDecisionSettings, IReadOnlyList{string}, IEnumerable{string}, Func{object})"/>
-    /// before it sends, so the rule cannot drift between them. The vessel rule - every mission and vessel the
-    /// decision concerns - is asked first, before any state is built. The marker rule reads the state BEFORE redaction, as text, because the redactor replaces absolute
+    /// before it sends, so the rule cannot drift between them. The vessel rule - every objective, mission and
+    /// vessel the decision concerns - is asked first, before any state is built. The marker rule reads the state BEFORE redaction, as text, because the redactor replaces absolute
     /// workspace paths - where dock and sibling-checkout paths live - with a placeholder, taking a marker inside
     /// them along.
     /// </summary>
@@ -26,15 +26,16 @@ namespace Armada.Core.Services
         public const string ExcludedVesselReason = "egress_excluded_vessel";
 
         /// <summary>
-        /// Why a state may not leave the host, or null when it may. A decision about a mission or vessel on <see cref="TypedDecisionSettings.EgressExcludedVesselIds"/> returns
+        /// Why a state may not leave the host, or null when it may. A decision about an objective, mission or vessel
+        /// that names a vessel on <see cref="TypedDecisionSettings.EgressExcludedVesselIds"/> returns
         /// <see cref="ExcludedVesselReason"/> without building the state; a state whose unredacted text contains one
         /// of <paramref name="markers"/> returns <see cref="ExcludedContentReason"/>. A state that cannot be built or
         /// read counts as carrying a marker: when the check cannot run, nothing is sent.
         /// </summary>
         /// <param name="settings">Typed-decision settings.</param>
         /// <param name="markers">The markers that apply to this decision.</param>
-        /// <param name="vesselIds">Every vessel the decision concerns: the mission's and the target vessel. Null or
-        /// empty when it concerns none.</param>
+        /// <param name="vesselIds">Every vessel the decision concerns: the mission's, the target vessel, the objective's
+        /// vessels. Null or empty when it concerns none.</param>
         /// <param name="buildState">Builds the unredacted state; called only when markers apply.</param>
         /// <returns>The refusal reason, or null.</returns>
         public static string? Refusal(TypedDecisionSettings settings, IReadOnlyList<string> markers, IEnumerable<string?>? vesselIds, Func<object?> buildState)
@@ -80,6 +81,21 @@ namespace Armada.Core.Services
         public static string? Refusal(TypedDecisionSettings settings, string decisionPoint, string? vesselId, Func<object?> buildState)
         {
             return Refusal(settings, decisionPoint, new[] { vesselId }, buildState);
+        }
+
+        /// <summary>
+        /// The vessels an objective-scoped decision concerns: the objective's own vessels plus any further ids
+        /// (the resolved target vessel).
+        /// </summary>
+        /// <param name="objectiveVesselIds">The objective's vessel ids; null for none.</param>
+        /// <param name="more">Further vessel ids; nulls are ignored.</param>
+        /// <returns>The ids.</returns>
+        public static List<string?> VesselsOf(IEnumerable<string>? objectiveVesselIds, params string?[] more)
+        {
+            List<string?> ids = new List<string?>();
+            if (objectiveVesselIds != null) ids.AddRange(objectiveVesselIds);
+            if (more != null) ids.AddRange(more);
+            return ids;
         }
 
         /// <summary>The unavailable result a refused call records in place of a provider answer.</summary>

@@ -97,9 +97,14 @@ the adapter skeleton, the standalone adapters (`prior_art`, `memory_review`,
 standalone adapter that decides several items at once asks per item: a refused
 item keeps its rule and records why, and the other items are still decided.
 
-- **Vessel exclusion.** A decision about a mission or a target vessel in
-  `egressExcludedVesselIds` sends nothing (`egress_excluded_vessel`). The vessel
-  is checked before any state is built.
+- **Vessel exclusion.** A decision whose state concerns an objective, a mission
+  or a vessel that names a vessel in `egressExcludedVesselIds` sends nothing
+  (`egress_excluded_vessel`). An objective counts through its `VesselIds`, so an
+  objective that lists an excluded vessel beside an allowed target is refused;
+  this covers the objective-scoped decisions (`preflight`, `prior_art` at
+  preflight, `criteria_lint`, `stage_necessity`, `owner_digest`,
+  `dispatch_staleness`) as well as the mission-scoped ones. The vessels are
+  checked before any state is built.
 - **Content markers.** A state whose UNREDACTED text contains one of the
   markers that apply sends nothing (`egress_excluded_content`). The check
   reads the state before redaction because the redactor replaces absolute

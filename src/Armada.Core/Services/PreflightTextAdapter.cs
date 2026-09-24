@@ -148,9 +148,9 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
             if (cfg.Mode == TypedDecisionModeEnum.Off) return;
 
-            // The shared egress guard: a target vessel on the list, or a state naming an excluded marker, sends
-            // nothing. The preview stays deterministic and records why.
-            string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, vessel.Id,
+            // The shared egress guard: an objective naming an excluded vessel, a target vessel on the list, or a
+            // state naming an excluded marker sends nothing. The preview stays deterministic and records why.
+            string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, TypedDecisionEgress.VesselsOf(objective.VesselIds, vessel.Id),
                 () => BuildState(objective, vessel, pipeline, result));
             if (refusal != null)
             {

@@ -546,6 +546,13 @@ upstream integrations and excludes changes already present at that baseline.
   vessel or naming an excluded marker is not sent and records
   `egress_excluded_vessel` or `egress_excluded_content`; in a multi-item pass the
   other items are still decided.
+- **Egress exclusion covers objectives:** a typed decision whose state concerns
+  an objective that lists an excluded vessel in its `VesselIds` sends nothing and
+  records `egress_excluded_vessel`, even when the resolved target vessel is
+  allowed. The objective-scoped decisions (`preflight`, `prior_art` at
+  preflight, `criteria_lint`, `stage_necessity`, `owner_digest`,
+  `dispatch_staleness`) pass the objective's and the target's vessels to the
+  shared guard.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

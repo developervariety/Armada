@@ -348,7 +348,11 @@ namespace Armada.Server
                 // criteria_review lines the operator sees, and never rewrites a criterion. It never
                 // throws, so a decision fault leaves the deterministic summary intact.
                 if (CriteriaLintAdapter != null)
-                    await CriteriaLintAdapter.EvaluateAsync(draft, objective.Kind, token).ConfigureAwait(false);
+                {
+                    List<string> vesselIds = new List<string>(objective.VesselIds ?? new List<string>());
+                    if (!String.IsNullOrWhiteSpace(session.VesselId)) vesselIds.Add(session.VesselId!);
+                    await CriteriaLintAdapter.EvaluateAsync(draft, objective.Kind, token, vesselIds).ConfigureAwait(false);
+                }
 
                 _WebSocketHub?.BroadcastEvent(
                     "objective-refinement-session.summary.created",

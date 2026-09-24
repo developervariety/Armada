@@ -14,6 +14,9 @@ namespace Armada.Core.Services
         /// <summary>The mission being dispatched, for the event owner scope. Null when dispatch has no mission yet.</summary>
         public Mission? Mission { get; init; }
 
+        /// <summary>The vessel being dispatched to, for the egress vessel rule.</summary>
+        public string? VesselId { get; init; }
+
         /// <summary>The configured codeIndex.dispatchStalenessPolicy.</summary>
         public CodeIndexDispatchStalenessPolicyEnum Policy { get; init; } = CodeIndexDispatchStalenessPolicyEnum.Proceed;
 
@@ -198,6 +201,10 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(DispatchStalenessInput input) => input.Mission;
+
+        /// <inheritdoc />
+        protected override IEnumerable<string?> VesselIdsOf(DispatchStalenessInput input)
+            => new[] { input.VesselId, input.Mission?.VesselId };
 
         #endregion
     }

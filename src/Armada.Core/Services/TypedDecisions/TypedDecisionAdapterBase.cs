@@ -259,6 +259,17 @@ namespace Armada.Core.Services
         /// <summary>The mission this decision belongs to, when any, for the event owner scope.</summary>
         protected abstract Mission? MissionOf(TInput input);
 
+        /// <summary>
+        /// Every vessel this decision concerns, for the egress vessel rule. The default is the mission's vessel; a
+        /// decision about an objective adds the objective's vessels and its target vessel.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>The vessel ids; nulls are ignored.</returns>
+        protected virtual IEnumerable<string?> VesselIdsOf(TInput input)
+        {
+            return new[] { MissionOf(input)?.VesselId };
+        }
+
         #endregion
 
         #region Private-Methods
@@ -298,16 +309,17 @@ namespace Armada.Core.Services
         /// <returns>The refusal reason, or null.</returns>
         private string? EgressRefusal(TInput input)
         {
-            Mission? mission;
+            IEnumerable<string?> vesselIds;
             try
             {
-                mission = MissionOf(input);
+                vesselIds = VesselIdsOf(input);
             }
             catch (Exception)
             {
-                mission = null;
+                // The vessels cannot be named, so they cannot be cleared either: nothing is sent.
+                return TypedDecisionEgress.ExcludedVesselReason;
             }
-            return TypedDecisionEgress.Refusal(_Settings, DecisionPoint, mission?.VesselId, () => BuildState(input));
+            return TypedDecisionEgress.Refusal(_Settings, DecisionPoint, vesselIds, () => BuildState(input));
         }
 
         private async Task<TypedDecisionResult> SendAsync(TypedDecisionBatchItem item, CancellationToken token)

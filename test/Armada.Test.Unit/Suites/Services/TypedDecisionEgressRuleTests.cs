@@ -443,6 +443,102 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
             }
 
+            await RunTest("AnObjectiveNamingAnExcludedVessel_SendsNothing_WhenTheTargetVesselIsAllowed", async () =>
+            {
+                // The objective lists the excluded vessel beside an allowed target vessel: the objective's own
+                // vessels count, not only the vessel the preview resolved.
+                Objective objective = new Objective
+                {
+                    Id = "obj_egress",
+                    Title = "Port the decoder",
+                    Description = CleanBody,
+                    VesselIds = new List<string> { AllowedVessel, ExcludedVessel }
+                };
+                foreach (string seam in new[] { "preflight", "prior_art" })
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Unavailable("http_429"));
+                        if (seam == "preflight")
+                        {
+                            PreflightTextAdapter adapter = new PreflightTextAdapter(StandaloneSettings(), client, new TypedDecisionRecorder(db.Driver, Quiet()), new FakeOwnerDecisionNotePoster(), Quiet());
+                            await adapter.EvaluateAsync(objective, VesselOf(AllowedVessel), null, new ObjectiveDispatchPreview { VesselId = AllowedVessel }, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            TypedPriorArtAdapter adapter = new TypedPriorArtAdapter(client, new TypedDecisionRecorder(db.Driver, Quiet()), StandaloneSettings(),
+                                new FakePriorArtRetriever(FakePriorArtRetriever.RetrievalOf(FakePriorArtRetriever.Candidate(PriorArtWhereEnum.Landed, "src/Existing.cs:12", CleanBody))), Quiet());
+                            await adapter.EvaluatePreflightAsync(objective, VesselOf(AllowedVessel), new ObjectiveDispatchPreview { VesselId = AllowedVessel }, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        AssertEqual(0, client.CallCount, seam + " sends nothing for an objective naming an excluded vessel");
+                        List<string> reasons = await UnavailableReasonsAsync(db.Driver).ConfigureAwait(false);
+                        AssertTrue(reasons.Contains(TypedDecisionEgress.ExcludedVesselReason), seam + " records the vessel exclusion (recorded: " + String.Join(",", reasons) + ")");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ObjectiveScopedSkeletonDecisions_ReadTheObjectivesVessels", async () =>
+            {
+                List<string> objectiveVessels = new List<string> { AllowedVessel, ExcludedVessel };
+                foreach (string seam in new[] { "stage_necessity", "owner_digest", "dispatch_staleness", "criteria_lint" })
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Unavailable("http_429"));
+                        TypedDecisionRecorder recorder = new TypedDecisionRecorder(db.Driver, Quiet());
+                        TypedDecisionSettings settings = StandaloneSettings();
+                        if (seam == "stage_necessity")
+                        {
+                            List<StageNecessityStageResult> stages = new List<StageNecessityStageResult>
+                            {
+                                TypedStageNecessityAdapter.Stage(1, "Architect"),
+                                TypedStageNecessityAdapter.Stage(2, "Worker")
+                            };
+                            await new TypedStageNecessityAdapter(client, recorder, settings, Quiet()).DecideAsync(new StageNecessityDecisionInput
+                            {
+                                Title = "Port the decoder",
+                                Description = CleanBody,
+                                Kind = "Feature",
+                                Stages = stages,
+                                VesselIds = objectiveVessels
+                            }, StageNecessityVerdict.Rule(stages), CancellationToken.None).ConfigureAwait(false);
+                        }
+                        else if (seam == "owner_digest")
+                        {
+                            OwnerDigestCandidate candidate = new OwnerDigestCandidate
+                            {
+                                QuestionText = "Should the decoder keep the legacy frame?",
+                                BlockedRow = "Port the decoder",
+                                VesselId = AllowedVessel,
+                                VesselIds = objectiveVessels
+                            };
+                            await new TypedOwnerDigestAdapter(client, recorder, settings, Quiet()).DecideAsync(candidate, TypedOwnerDigestAdapter.DeterministicRule(candidate), CancellationToken.None).ConfigureAwait(false);
+                        }
+                        else if (seam == "dispatch_staleness")
+                        {
+                            await new TypedDispatchStalenessAdapter(client, recorder, settings, Quiet()).DecideAsync(new DispatchStalenessInput
+                            {
+                                Policy = CodeIndexDispatchStalenessPolicyEnum.Block,
+                                Title = "Port the decoder",
+                                Description = CleanBody,
+                                VesselId = ExcludedVessel
+                            }, CodeIndexDispatchStalenessPolicyEnum.Block, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await new CriteriaLintAdapter(settings, client, recorder, Quiet()).EvaluateAsync(new ObjectiveRefinementSummaryResponse
+                            {
+                                Summary = "Port the decoder.",
+                                AcceptanceCriteria = new List<string> { CleanBody }
+                            }, ObjectiveKindEnum.Feature, CancellationToken.None, objectiveVessels).ConfigureAwait(false);
+                        }
+                        AssertEqual(0, client.CallCount, seam + " sends nothing for an objective naming an excluded vessel");
+                        List<string> reasons = await UnavailableReasonsAsync(db.Driver).ConfigureAwait(false);
+                        AssertTrue(reasons.Contains(TypedDecisionEgress.ExcludedVesselReason), seam + " records the vessel exclusion (recorded: " + String.Join(",", reasons) + ")");
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ARejectedRequest_IsRetriedOnceAtHalfTheState", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

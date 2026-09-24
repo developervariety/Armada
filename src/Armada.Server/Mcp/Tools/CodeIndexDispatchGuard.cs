@@ -75,6 +75,7 @@ namespace Armada.Server.Mcp.Tools
                         true,
                         workTitle,
                         workDescription,
+                        vesselId,
                         token).ConfigureAwait(false);
                     if (outcome == CodeIndexDispatchStalenessPolicyEnum.Block)
                     {
@@ -138,6 +139,7 @@ namespace Armada.Server.Mcp.Tools
                 false,
                 workTitle,
                 workDescription,
+                vesselId,
                 token).ConfigureAwait(false);
 
             switch (reaction)
@@ -191,6 +193,7 @@ namespace Armada.Server.Mcp.Tools
             bool updateInProgress,
             string? workTitle,
             string? workDescription,
+            string? vesselId,
             CancellationToken token)
         {
             if (adapter == null) return ruleVerdict;
@@ -203,7 +206,8 @@ namespace Armada.Server.Mcp.Tools
                         UpdateInProgress = updateInProgress,
                         Relevance = relevance ?? new CodeIndexStalenessRelevance(),
                         Title = workTitle ?? String.Empty,
-                        Description = workDescription ?? String.Empty
+                        Description = workDescription ?? String.Empty,
+                        VesselId = vesselId
                     },
                     ruleVerdict,
                     token).ConfigureAwait(false);
