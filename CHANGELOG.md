@@ -5,6 +5,13 @@ Net changes since the latest full upstream merge on 2026-05-24
 This compares the merged tree with the current fork. It includes later selected
 upstream integrations and excludes changes already present at that baseline.
 
+## Unreleased
+
+- **Captain tool inventory:** a running Mux mission captain's inventory lists
+  the MCP servers its launch delivers through `--mcp-config`, derived from the
+  launch plan, instead of the config directory's servers that `mux print` never
+  loads; a Mux CLI that cannot start no longer hides the delivered servers.
+
 ## Added
 
 - **Typed decisions:** provider-neutral closed-question classification behind

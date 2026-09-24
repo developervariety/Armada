@@ -35,7 +35,7 @@ namespace Armada.Server
         /// <param name="settings">Armada settings used to locate per-launch runtime configuration.</param>
         /// <param name="httpClient">Optional HTTP client for runtime MCP probes.</param>
         /// <param name="userProfileDirectory">Directory holding the user-level runtime configuration
-        /// (<c>.claude.json</c>, <c>.gemini</c>, <c>.mux</c>). Defaults to the current user's profile. Every MCP
+        /// (<c>.claude.json</c>, <c>.gemini</c>). Defaults to the current user's profile. Every MCP
         /// server listed there may be started to probe it, so a test supplies its own directory.</param>
         /// <param name="sessionTokens">Session token service that mints the mission owner's own scoped token for
         /// a running mission captain's Armada MCP probe; null presents no credential, so the probe reports the
@@ -88,7 +88,8 @@ namespace Armada.Server
             // A running mission captain reaches Armada MCP with the mission owner's own scoped token, so the
             // probe presents that same scoped token, never the admiral launch credential. When the owner
             // cannot be resolved the probe presents nothing and reports the endpoint unreachable.
-            string? missionArmadaAuthorization = await ResolveMissionProbeAuthorizationAsync(captain, database, token).ConfigureAwait(false);
+            McpCredentialReference missionCredential = await ResolveMissionProbeCredentialAsync(captain, database, token).ConfigureAwait(false);
+            string? missionArmadaAuthorization = missionCredential.HasToken ? "Bearer " + missionCredential.Token : null;
 
             switch (captain.Runtime)
             {
@@ -129,7 +130,7 @@ namespace Armada.Server
                         "Cursor built-in tools are not currently enumerated by Armada.")
                         .ConfigureAwait(false);
                 case AgentRuntimeEnum.Mux:
-                    return await DescribeMuxAsync(captain, token).ConfigureAwait(false);
+                    return await DescribeMuxAsync(captain, missionCredential, token).ConfigureAwait(false);
                 case AgentRuntimeEnum.OpenCode:
                     return new RuntimeToolCatalogSnapshot
                     {
@@ -387,18 +388,18 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// The Authorization header a running mission captain's Armada MCP probe presents: a Bearer with the
-        /// mission owner's own scoped session token. The owner is the mission's tenant and user, and failing
-        /// that the objective owner carried on the mission's voyage. Returns null when there is no running
-        /// mission, no session-token service, or no resolvable owner, so the probe presents no credential
-        /// rather than the admiral launch credential.
+        /// The credential a running mission captain's Armada MCP probe presents: the mission owner's own scoped
+        /// session token. The owner is the mission's tenant and user, and failing that the objective owner
+        /// carried on the mission's voyage. Carries no value when there is no running mission, no session-token
+        /// service, or no resolvable owner, so the probe presents no credential rather than the admiral launch
+        /// credential.
         /// </summary>
-        private async Task<string?> ResolveMissionProbeAuthorizationAsync(Captain captain, DatabaseDriver database, CancellationToken token)
+        private async Task<McpCredentialReference> ResolveMissionProbeCredentialAsync(Captain captain, DatabaseDriver database, CancellationToken token)
         {
-            if (_SessionTokens == null || String.IsNullOrWhiteSpace(captain.CurrentMissionId)) return null;
+            if (_SessionTokens == null || String.IsNullOrWhiteSpace(captain.CurrentMissionId)) return McpCredentialReference.MissionUnresolvedOwner;
 
             Mission? mission = await database.Missions.ReadAsync(captain.CurrentMissionId!, token).ConfigureAwait(false);
-            if (mission == null) return null;
+            if (mission == null) return McpCredentialReference.MissionUnresolvedOwner;
 
             string? tenantId = mission.TenantId;
             string? userId = mission.UserId;
@@ -413,10 +414,10 @@ namespace Armada.Server
                 }
             }
 
-            if (String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId)) return null;
+            if (String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId)) return McpCredentialReference.MissionUnresolvedOwner;
 
             AuthenticateResult issued = _SessionTokens.CreateToken(tenantId!, userId!);
-            return String.IsNullOrWhiteSpace(issued.Token) ? null : "Bearer " + issued.Token;
+            return String.IsNullOrWhiteSpace(issued.Token) ? McpCredentialReference.MissionUnresolvedOwner : McpCredentialReference.ForMission(issued.Token!);
         }
 
         private async Task<RuntimeToolCatalogSnapshot> DescribeConfiguredRuntimeAsync(
@@ -450,19 +451,23 @@ namespace Armada.Server
             }
         }
 
-        private async Task<RuntimeToolCatalogSnapshot> DescribeMuxAsync(Captain captain, CancellationToken token)
+        /// <summary>
+        /// Describe a running Mux mission captain from what its launch delivers. `mux print` loads MCP servers only
+        /// from the --mcp-config file the launch plan writes, never from the captain's config directory, so the
+        /// servers listed here are the ones <see cref="CaptainLaunchIsolationPlanner.PlanForLaunch"/> builds for
+        /// this mission, probed with the credential that launch carries. The only CLI call is a version check,
+        /// which makes no provider request; Mux exposes no built-in tool names, and the summary says so.
+        /// </summary>
+        private async Task<RuntimeToolCatalogSnapshot> DescribeMuxAsync(Captain captain, McpCredentialReference missionCredential, CancellationToken token)
         {
             RuntimeToolCatalogSnapshot snapshot = new RuntimeToolCatalogSnapshot
             {
-                AvailabilitySource = "mux-runtime-probe"
+                AvailabilitySource = "mux-launch-plan-probe"
             };
 
             try
             {
-                MuxCliService muxCli = new MuxCliService(_Logging);
-                MuxProbeResult probe = await muxCli.ProbeAsync(captain, token).ConfigureAwait(false);
-                MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
-                string configDirectory = ResolveMuxConfigDirectory(probe, options);
+                MuxProbeResult probe = await ProbeMuxCliAsync(captain, token).ConfigureAwait(false);
 
                 int builtInToolCount = Math.Max(0, probe.BuiltInToolCount);
                 if (probe.ToolsEnabled || builtInToolCount > 0)
@@ -470,7 +475,7 @@ namespace Armada.Server
                     snapshot.Servers.Add(CreateMuxBuiltInSummary(probe, builtInToolCount));
                 }
 
-                List<RuntimeMcpServerDefinition> servers = await ReadMuxConfiguredServersAsync(configDirectory, token).ConfigureAwait(false);
+                List<RuntimeMcpServerDefinition> servers = BuildMuxLaunchServers(captain, missionCredential);
                 snapshot.ConfiguredServerCount = servers.Count + snapshot.Servers.Count;
 
                 foreach (RuntimeMcpServerDefinition server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
@@ -494,6 +499,10 @@ namespace Armada.Server
                         serverSummary.Status = "Reachable";
                         snapshot.Tools.AddRange(tools);
                     }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         serverSummary.Reachable = false;
@@ -507,26 +516,31 @@ namespace Armada.Server
                 snapshot.ToolsAccessible = builtInToolCount > 0 || snapshot.Tools.Count > 0;
                 snapshot.ArmadaToolCount = snapshot.Tools.Count(t => String.Equals(t.RegistrationSource, "armada", StringComparison.OrdinalIgnoreCase));
                 snapshot.EffectiveToolCount = builtInToolCount + snapshot.Tools.Count;
-                snapshot.AvailabilityVerified = probe.Success || snapshot.Servers.Count > 0;
+                snapshot.AvailabilityVerified = true;
 
-                if (!probe.Success)
+                const string builtInNote = "Mux exposes no individual built-in tool names to Armada.";
+                string cliNote = probe.Success
+                    ? String.Empty
+                    : " The Mux CLI version check failed: " + FirstNonEmptyLine(probe.ErrorMessage, probe.ErrorCode) + ".";
+                if (servers.Count == 0)
                 {
-                    snapshot.Summary = "Mux probe failed before Armada could inspect this captain runtime: " +
-                        FirstNonEmptyLine(probe.ErrorMessage, probe.ErrorCode);
-                }
-                else if (servers.Count == 0)
-                {
-                    snapshot.Summary = "Mux CLI is installed. No external MCP servers are configured for the active Mux config directory, and current Mux versions do not expose individual built-in tool names through Armada.";
+                    snapshot.Summary = "This mission's Mux launch delivers no MCP server (dock MCP delivery is disabled), so `mux print` loads none. " +
+                        builtInNote + cliNote;
                 }
                 else
                 {
-                    snapshot.Summary = "Mux CLI is installed with " + servers.Count + " configured MCP server(s); " +
+                    snapshot.Summary = "This mission's Mux launch delivers " + servers.Count + " MCP server(s) through --mcp-config in strict mode; " +
                         snapshot.Servers.Count(s => s.SourceKind == "McpServer" && s.Reachable) +
-                        " MCP server(s) responded and exposed " + snapshot.Tools.Count +
-                        " named tool(s). Configured MCP servers that did not respond may simply be offline at query time. Current Mux versions do not expose individual built-in tool names through Armada.";
+                        " responded and exposed " + snapshot.Tools.Count +
+                        " named tool(s). Servers in the captain's Mux config directory are not listed, because `mux print` never loads them. " +
+                        builtInNote + cliNote;
                 }
 
                 return snapshot;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -534,6 +548,57 @@ namespace Armada.Server
                 snapshot.Summary = "Armada could not inspect Mux tools for this captain: " + ex.Message;
                 return snapshot;
             }
+        }
+
+        /// <summary>
+        /// Run the Mux CLI version check. A CLI that cannot start is reported as a failed check, so the MCP servers
+        /// the launch delivers are still listed.
+        /// </summary>
+        private async Task<MuxProbeResult> ProbeMuxCliAsync(Captain captain, CancellationToken token)
+        {
+            try
+            {
+                return await new MuxCliService(_Logging).ProbeAsync(captain, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new MuxProbeResult
+                {
+                    Success = false,
+                    ErrorCode = "mux_cli_error",
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        /// <summary>
+        /// The MCP servers a mission launch of this Mux captain delivers, read from the servers file the launch plan
+        /// builds. A plan without that file (dock MCP delivery disabled) passes no --mcp-config, so the launch has no
+        /// MCP server. The file references the credential by variable name; the probe resolves it from the launch
+        /// environment the plan sets, then from the server's own environment, as the launched process would.
+        /// </summary>
+        private List<RuntimeMcpServerDefinition> BuildMuxLaunchServers(Captain captain, McpCredentialReference missionCredential)
+        {
+            if (_Settings == null) throw new InvalidOperationException("Armada settings are required to derive the Mux launch MCP configuration.");
+
+            string scopedDirectory = CaptainLaunchIsolationPlanner.MissionScopedDirectory(_Settings.LogDirectory, captain.CurrentMissionId!, captain.Id);
+            CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.PlanForLaunch(
+                AgentRuntimeEnum.Mux,
+                _Settings.SeedDockRuntimeMcpConfig,
+                _Settings.McpPort,
+                scopedDirectory,
+                missionCredential);
+
+            IsolationConfigFile? serversFile = plan.FilesToWrite.FirstOrDefault(file =>
+                String.Equals(file.RelativePath, MuxCommandBuilder.ScopedMcpConfigFileName, StringComparison.Ordinal));
+            if (serversFile == null) return new List<RuntimeMcpServerDefinition>();
+
+            return ParseMuxServers(serversFile.Contents, name =>
+                plan.EnvironmentOverrides.TryGetValue(name, out string? value) ? value : Environment.GetEnvironmentVariable(name));
         }
 
         private async Task<RuntimeToolCatalogSnapshot> ProbeConfiguredSourcesAsync(
@@ -742,20 +807,8 @@ namespace Armada.Server
             return servers;
         }
 
-        private async Task<List<RuntimeMcpServerDefinition>> ReadMuxConfiguredServersAsync(string configDirectory, CancellationToken token)
+        private List<RuntimeMcpServerDefinition> ParseMuxServers(string json, Func<string, string?> readVariable)
         {
-            if (String.IsNullOrWhiteSpace(configDirectory))
-            {
-                return new List<RuntimeMcpServerDefinition>();
-            }
-
-            string configPath = Path.Combine(configDirectory, "mcp-servers.json");
-            if (!File.Exists(configPath))
-            {
-                return new List<RuntimeMcpServerDefinition>();
-            }
-
-            string json = await File.ReadAllTextAsync(configPath, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(json))
             {
                 return new List<RuntimeMcpServerDefinition>();
@@ -790,9 +843,9 @@ namespace Armada.Server
                     Arguments = muxServer.Args?.Where(arg => !String.IsNullOrWhiteSpace(arg)).ToList() ?? new List<string>(),
                     Environment = muxServer.Env?.ToDictionary(
                         kvp => kvp.Key,
-                        kvp => ExpandEnvironmentReference(kvp.Value),
+                        kvp => ExpandEnvironmentReference(kvp.Value, readVariable),
                         StringComparer.OrdinalIgnoreCase),
-                    Headers = BuildMuxHeaders(muxServer),
+                    Headers = BuildMuxHeaders(muxServer, readVariable),
                     EnabledTools = new List<string>(),
                     DisabledTools = new List<string>(),
                     StartupTimeout = TimeSpan.FromSeconds(15),
@@ -816,10 +869,10 @@ namespace Armada.Server
         {
             MuxMcpServersFile? file = JsonSerializer.Deserialize<MuxMcpServersFile>(mcpServersJson, JsonDefaults.Insensitive);
             MuxMcpServerConfig? server = file?.Servers?.FirstOrDefault(s => String.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
-            return server == null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : BuildMuxHeaders(server);
+            return server == null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : BuildMuxHeaders(server, Environment.GetEnvironmentVariable);
         }
 
-        private static Dictionary<string, string> BuildMuxHeaders(MuxMcpServerConfig server)
+        private static Dictionary<string, string> BuildMuxHeaders(MuxMcpServerConfig server, Func<string, string?> readVariable)
         {
             // The probe presents the same credential Mux would: an api_key scheme sends the key in its named
             // header (X-API-Key by default), a bearer_token scheme sends an Authorization bearer header.
@@ -827,15 +880,15 @@ namespace Armada.Server
             string scheme = server.Auth?.Scheme?.Trim() ?? String.Empty;
             if (String.Equals(scheme, "api_key", StringComparison.OrdinalIgnoreCase))
             {
-                string key = ExpandEnvironmentReference(server.Auth!.Key);
+                string key = ExpandEnvironmentReference(server.Auth!.Key, readVariable);
                 if (key.Length > 0)
                     headers[String.IsNullOrWhiteSpace(server.Auth.HeaderName) ? "X-API-Key" : server.Auth.HeaderName.Trim()] = key;
             }
             else if (String.Equals(scheme, "bearer_token", StringComparison.OrdinalIgnoreCase))
             {
-                string token = ExpandEnvironmentReference(server.Auth!.Token);
-                if (token.Length > 0)
-                    headers["Authorization"] = "Bearer " + token;
+                string bearer = ExpandEnvironmentReference(server.Auth!.Token, readVariable);
+                if (bearer.Length > 0)
+                    headers["Authorization"] = "Bearer " + bearer;
             }
             return headers;
         }
@@ -1511,7 +1564,7 @@ namespace Armada.Server
         private string? ResolveScopedConfigDirectory(Captain captain)
         {
             if (_Settings == null || String.IsNullOrWhiteSpace(captain.CurrentMissionId)) return null;
-            string directory = Path.Combine(_Settings.LogDirectory, "runtime-config", captain.CurrentMissionId, captain.Id);
+            string directory = CaptainLaunchIsolationPlanner.MissionScopedDirectory(_Settings.LogDirectory, captain.CurrentMissionId!, captain.Id);
             return Directory.Exists(directory) ? directory : null;
         }
 
@@ -1995,21 +2048,6 @@ namespace Armada.Server
             };
         }
 
-        private string ResolveMuxConfigDirectory(MuxProbeResult probe, MuxCaptainOptions? options)
-        {
-            if (!String.IsNullOrWhiteSpace(probe.ConfigDirectory))
-            {
-                return probe.ConfigDirectory;
-            }
-
-            if (!String.IsNullOrWhiteSpace(options?.ConfigDirectory))
-            {
-                return options.ConfigDirectory!;
-            }
-
-            return Path.Combine(_UserProfileDirectory, ".mux");
-        }
-
         private static string BuildMuxBuiltInTarget(MuxProbeResult probe)
         {
             List<string> parts = new List<string>();
@@ -2078,7 +2116,7 @@ namespace Armada.Server
             return normalizedBase + normalizedPath;
         }
 
-        private static string ExpandEnvironmentReference(string? value)
+        private static string ExpandEnvironmentReference(string? value, Func<string, string?> readVariable)
         {
             if (String.IsNullOrWhiteSpace(value))
             {
@@ -2089,7 +2127,7 @@ namespace Armada.Server
             if (trimmed.StartsWith("${", StringComparison.Ordinal) && trimmed.EndsWith("}", StringComparison.Ordinal) && trimmed.Length > 3)
             {
                 string variableName = trimmed.Substring(2, trimmed.Length - 3);
-                return Environment.GetEnvironmentVariable(variableName) ?? String.Empty;
+                return readVariable(variableName) ?? String.Empty;
             }
 
             return trimmed;

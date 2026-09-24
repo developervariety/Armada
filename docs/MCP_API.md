@@ -504,9 +504,15 @@ syntax:
 | Codex | `bearer_token_env_var = "ARMADA_MCP_TOKEN"` |
 | Mux | `"auth": { "scheme": "bearer_token", "token": "${ARMADA_MCP_TOKEN}" }` |
 
-The captain tool inventory probes a Mux captain's configured HTTP servers with
-the same credential its `auth` object declares, and probes a running mission
-captain's Armada endpoint with the mission owner's own scoped token.
+The captain tool inventory of a running Mux mission captain lists the MCP
+servers that mission's launch delivers: it reads the servers file the launch
+plan builds, not the captain's config directory, whose servers `mux print`
+never loads. With dock MCP delivery disabled the launch passes no
+`--mcp-config`, so the inventory lists no MCP server. It probes each delivered
+server with the credential its `auth` object declares, which for the Armada
+entry is the mission owner's own scoped token. The only Mux CLI call is
+`mux --version`, which makes no provider request; Mux exposes no built-in tool
+names, and the inventory summary says so.
 
 Because the token is caller-scoped, a mission reaches only its owner's records
 and the tools that owner's tenant and user may use - never an operator-only or

@@ -907,11 +907,7 @@ namespace Armada.Server
             Mission mission,
             CancellationToken token = default)
         {
-            string scopedDirectory = Path.Combine(
-                _Settings.LogDirectory,
-                "runtime-config",
-                mission.Id,
-                captain.Id);
+            string scopedDirectory = CaptainLaunchIsolationPlanner.MissionScopedDirectory(_Settings.LogDirectory, mission.Id, captain.Id);
             // A mission captain authenticates to Armada MCP with the mission owner's own scoped session
             // token, which the endpoint scopes to that owner's tenant and user. The admiral launch
             // credential, which maps to global admin, never enters a mission captain's environment, so a

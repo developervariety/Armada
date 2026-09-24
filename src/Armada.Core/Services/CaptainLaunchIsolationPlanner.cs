@@ -154,6 +154,21 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The per-launch scoped configuration directory of one mission captain start.
+        /// </summary>
+        /// <param name="logDirectory">Armada log directory.</param>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <returns>Absolute directory path.</returns>
+        public static string MissionScopedDirectory(string logDirectory, string missionId, string captainId)
+        {
+            if (String.IsNullOrWhiteSpace(logDirectory)) throw new ArgumentNullException(nameof(logDirectory));
+            if (String.IsNullOrWhiteSpace(missionId)) throw new ArgumentNullException(nameof(missionId));
+            if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentNullException(nameof(captainId));
+            return Path.Combine(logDirectory, "runtime-config", missionId, captainId);
+        }
+
+        /// <summary>
         /// Build the launch plan for one captain start with the mission's scoped MCP credential. When dock MCP
         /// delivery is enabled, Claude Code, Codex and Mux receive their scoped MCP configuration, and every
         /// runtime receives the credential value, because the dock configuration seeded for Cursor, Gemini and
