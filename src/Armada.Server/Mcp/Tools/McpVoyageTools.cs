@@ -64,8 +64,17 @@ namespace Armada.Server.Mcp.Tools
             ObjectiveService? objectiveService = null,
             LongRunningJobService? jobs = null,
             ObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
-            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null)
+            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null,
+            MissionOperations? operations = null)
         {
+            MissionOperations missionOperations = operations ?? new MissionOperations(
+                database,
+                settings ?? new ArmadaSettings(),
+                null,
+                (captainId, token) => admiral.RecallCaptainAsync(captainId, token),
+                OperationNotifier.None,
+                logging);
+
             register(
                 "armada_dispatch",
                 "Dispatch a new voyage with missions to a vessel. Link objectiveId for non-trivial work so the objective/backlog item carries scope and evidence lineage. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may use preferredModel with a complexity tier: low, mid, or high.",
@@ -356,7 +365,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_purge_voyage",
-                "Permanently delete a voyage and all its missions from the database. This cannot be undone.",
+                "Permanently delete a voyage and all its missions, with each mission's dock record, worktree, log files and saved diff. A live voyage or one holding a mission a captain is working is refused. This cannot be undone.",
                 new
                 {
                     type = "object",
@@ -373,25 +382,10 @@ namespace Armada.Server.Mcp.Tools
                     Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
                     if (voyage == null) return (object)new { Error = "Voyage not found" };
 
-                    // Block deletion of active voyages
-                    if (voyage.Status == VoyageStatusEnum.Open || voyage.Status == VoyageStatusEnum.InProgress)
-                        return (object)new { Error = "Cannot delete voyage while status is " + voyage.Status + ". Cancel the voyage first." };
-
-                    List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
-
-                    // Block deletion if any missions are actively assigned or in progress
-                    int activeMissionCount = missions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
-                    if (activeMissionCount > 0)
-                        return (object)new { Error = "Cannot delete voyage with " + activeMissionCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
-
-                    foreach (Mission m in missions)
-                    {
-                        await CleanupMissionResourcesAsync(m, database, settings, logging).ConfigureAwait(false);
-                        await database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
-                    }
-
-                    await database.Voyages.DeleteAsync(voyageId).ConfigureAwait(false);
-                    return (object)new { Status = "deleted", VoyageId = voyageId, MissionsDeleted = missions.Count };
+                    WorkPurgeResult purge = await missionOperations.PurgeVoyageAsync(voyage).ConfigureAwait(false);
+                    if (!purge.Succeeded)
+                        return (object)new { Error = purge.Message, Code = purge.Code };
+                    return (object)new { Status = "deleted", VoyageId = voyageId, MissionsDeleted = purge.MissionsDeleted };
                 });
 
             register(
@@ -412,101 +406,11 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)new { Error = "ids is required and must not be empty" };
 
-                    DeleteMultipleResult result = new DeleteMultipleResult();
-                    foreach (string id in request.Ids)
-                    {
-                        if (String.IsNullOrEmpty(id))
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                            continue;
-                        }
-                        Voyage? voyage = await database.Voyages.ReadAsync(id).ConfigureAwait(false);
-                        if (voyage == null)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                            continue;
-                        }
-                        if (voyage.Status == VoyageStatusEnum.Open || voyage.Status == VoyageStatusEnum.InProgress)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete voyage while status is " + voyage.Status + ". Cancel the voyage first."));
-                            continue;
-                        }
-                        List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false);
-                        int activeMissionCount = missions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
-                        if (activeMissionCount > 0)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete voyage with " + activeMissionCount + " active mission(s). Cancel or complete them first."));
-                            continue;
-                        }
-                        foreach (Mission m in missions)
-                        {
-                            await CleanupMissionResourcesAsync(m, database, settings, logging).ConfigureAwait(false);
-                            await database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
-                        }
-                        await database.Voyages.DeleteAsync(id).ConfigureAwait(false);
-                        result.Deleted++;
-                    }
-                    result.ResolveStatus();
+                    DeleteMultipleResult result = await missionOperations.PurgeVoyagesAsync(
+                        request.Ids,
+                        id => database.Voyages.ReadAsync(id)).ConfigureAwait(false);
                     return (object)result;
                 });
-        }
-
-        /// <summary>
-        /// Cleans up filesystem resources associated with a mission (dock/worktree, log files, diff files).
-        /// Cleanup failures are silently caught to avoid blocking the mission delete.
-        /// </summary>
-        /// <param name="mission">The mission being deleted.</param>
-        /// <param name="database">Database driver.</param>
-        /// <param name="settings">Optional settings for log/diff paths.</param>
-        private static async Task CleanupMissionResourcesAsync(Mission mission, DatabaseDriver database, ArmadaSettings? settings, LoggingModule? logging)
-        {
-            // Clean up associated dock/worktree
-            if (!String.IsNullOrEmpty(mission.DockId))
-            {
-                try
-                {
-                    Dock? dock = await database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false);
-                    if (dock != null)
-                    {
-                        if (!String.IsNullOrEmpty(dock.WorktreePath) && Directory.Exists(dock.WorktreePath))
-                        {
-                            try { Directory.Delete(dock.WorktreePath, true); }
-                            catch (Exception deleteEx)
-                            {
-                                logging?.Warn("[McpVoyageTools] could not delete worktree " + dock.WorktreePath + " of deleted mission " + mission.Id + "; the directory remains on disk: " + deleteEx.Message);
-                            }
-                        }
-                        await database.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception dockEx)
-                {
-                    logging?.Warn("[McpVoyageTools] could not remove dock " + mission.DockId + " of deleted mission " + mission.Id + "; the dock record may remain: " + dockEx.Message);
-                }
-            }
-
-            // Clean up log and diff files
-            if (settings != null)
-            {
-                try
-                {
-                    string logPath = Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log");
-                    if (File.Exists(logPath)) File.Delete(logPath);
-                }
-                catch (Exception logEx)
-                {
-                    logging?.Warn("[McpVoyageTools] could not delete the log of deleted mission " + mission.Id + ": " + logEx.Message);
-                }
-                try
-                {
-                    string diffPath = Path.Combine(settings.LogDirectory, "diffs", mission.Id + ".diff");
-                    if (File.Exists(diffPath)) File.Delete(diffPath);
-                }
-                catch (Exception diffEx)
-                {
-                    logging?.Warn("[McpVoyageTools] could not delete the diff of deleted mission " + mission.Id + ": " + diffEx.Message);
-                }
-            }
         }
 
         private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields)

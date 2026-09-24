@@ -1727,7 +1727,9 @@ Cancel a voyage. Every `Pending`, `Assigned`, `InProgress`, `Testing`, or `Revie
 
 #### purge_voyage
 
-Permanently delete a voyage and all of its missions.
+Permanently delete a voyage and all of its missions through the same shared purge as
+`DELETE /api/v1/voyages/{id}/purge` and `armada_purge_voyage`: a live voyage or one holding a mission a captain is
+working is refused with `code: "work_active"`, and each mission's dock, worktree, log and diff are removed.
 
 **Request:**
 
@@ -1995,7 +1997,10 @@ broadcast.
 
 #### purge_mission
 
-Permanently delete a mission from the database. This action is irreversible.
+Permanently delete a mission. This action is irreversible. It runs the same shared purge as
+`DELETE /api/v1/missions/{id}/purge` and `armada_purge_mission`: a mission a captain is working is refused with
+`code: "work_active"`; otherwise its dock record and worktree (through the dock service), log files and saved diff are
+removed and a `mission.deleted` event is written.
 
 **Request:**
 
@@ -2025,7 +2030,7 @@ Permanently delete a mission from the database. This action is irreversible.
 }
 ```
 
-**Errors:** `command.error` if mission not found.
+**Errors:** `command.error` if the mission is not found or a captain is working it.
 
 ---
 

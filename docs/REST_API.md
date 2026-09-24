@@ -1168,7 +1168,7 @@ Batch delete multiple fleets from the database by ID. Returns a summary of delet
 }
 ```
 
-Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empty ID").
+Skipped entries include the entity ID and the reason (e.g., "Not found", "Empty ID", or the at-work refusal).
 
 ---
 
@@ -1630,7 +1630,11 @@ Cancel a voyage. Sets the voyage status to `Cancelled` and cancels every `Pendin
 
 #### DELETE /api/v1/voyages/{id}/purge
 
-Permanently delete a voyage and all its associated missions from the database. **This cannot be undone.**
+Permanently delete a voyage and all its missions. **This cannot be undone.** Each mission is deleted by the mission
+purge rule (see `DELETE /api/v1/missions/{id}/purge`): its dock record and worktree are removed through the dock
+service, and its log files and saved diff are deleted. A voyage that is `Open` or `InProgress`, or that holds a mission
+a captain is working, is refused with `409`. REST, WebSocket `purge_voyage` and MCP `armada_purge_voyage` share this
+one purge, and each writes a `voyage.deleted` event.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -1647,13 +1651,15 @@ Permanently delete a voyage and all its associated missions from the database. *
 }
 ```
 
-**Error:** `404` - Voyage not found
+**Error:** `404` - Voyage not found; `409` - the voyage is live or a captain is working one of its missions
 
 ---
 
 #### `POST /api/v1/voyages/delete/multiple`
 
-Batch delete multiple voyages and their associated missions from the database by ID. Voyages that are Open/InProgress or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Batch delete multiple voyages by ID, each by the single-voyage purge rule. Voyages that are Open/InProgress or hold a
+mission a captain is working are skipped. REST and MCP `armada_delete_voyages` share this rule and write one
+`voyage.batch_deleted` event. Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
 **Request Body:**
 
@@ -1888,9 +1894,26 @@ run one shared cancel:
 
 ---
 
+#### DELETE /api/v1/missions/{id}/purge
+
+Permanently delete a mission. **This cannot be undone.** A mission a captain is working (`Assigned`, `InProgress`,
+`Testing`, `Review`, or still held by its captain) is refused with `409` and keeps its worktree. Otherwise the
+mission's dock record and worktree are removed through the dock service (a worktree another active dock now owns is
+left in place), its log files (`<id>.log` and `<id>.*.log`) and saved diff are deleted, and the row is deleted. REST,
+WebSocket `purge_mission` and MCP `armada_purge_mission` share this one purge, and each writes a `mission.deleted`
+event.
+
+**Response:** `200 OK` - `{ "Status": "deleted", "MissionId": "msn_abc123" }`
+
+**Error:** `404` - Mission not found; `409` - a captain is working the mission
+
+---
+
 #### `POST /api/v1/missions/delete/multiple`
 
-Batch delete multiple missions from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Batch delete multiple missions by ID, each by the single-mission purge rule; a mission a captain is working is skipped
+with its reason. REST and MCP `armada_delete_missions` share this rule and write one `mission.batch_deleted` event.
+Returns a summary of deleted and skipped entries. **This cannot be undone.**
 
 **Request Body:**
 

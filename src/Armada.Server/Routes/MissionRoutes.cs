@@ -935,25 +935,25 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                if (ctx.IsAdmin)
-                    await _database.Missions.DeleteAsync(id).ConfigureAwait(false);
-                else if (ctx.IsTenantAdmin)
-                    await _database.Missions.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                else
-                    await _database.Missions.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-
-                await _emitEvent("mission.deleted", "Mission " + id + " permanently deleted",
-                    "mission", id, null, null, null, null).ConfigureAwait(false);
+                // REST, WebSocket and MCP share one mission purge: the at-work refusal, the guarded dock and
+                // worktree removal, the log and diff deletion, and the event.
+                WorkPurgeResult purge = await _operations.PurgeMissionAsync(mission).ConfigureAwait(false);
+                if (!purge.Succeeded)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = purge.Message };
+                }
 
                 return (object)new { Status = "deleted", MissionId = id };
             },
             api => api
                 .WithTag("Missions")
                 .WithSummary("Permanently delete a mission")
-                .WithDescription("Permanently deletes a mission from the database. This cannot be undone.")
+                .WithDescription("Permanently deletes a mission with its dock record, worktree, log files and saved diff. A mission a captain is working is refused with 409. This cannot be undone.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<object>("Deleted mission"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("A captain is working the mission"))
                 .WithSecurity("ApiKey"));
 
             app.Post<DeleteMultipleRequest>("/api/v1/missions/delete/multiple", async (ApiRequest req) =>
@@ -967,43 +967,19 @@ namespace Armada.Server.Routes
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
 
-                DeleteMultipleResult result = new DeleteMultipleResult();
-                foreach (string id in body.Ids)
-                {
-                    if (String.IsNullOrEmpty(id))
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                        continue;
-                    }
-                    Mission? mission = ctx.IsAdmin
-                        ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                DeleteMultipleResult result = await _operations.PurgeMissionsAsync(
+                    body.Ids,
+                    missionId => ctx.IsAdmin
+                        ? _database.Missions.ReadAsync(missionId)
                         : ctx.IsTenantAdmin
-                            ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                            : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                    if (mission == null)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                        continue;
-                    }
-                    if (ctx.IsAdmin)
-                        await _database.Missions.DeleteAsync(id).ConfigureAwait(false);
-                    else if (ctx.IsTenantAdmin)
-                        await _database.Missions.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                    else
-                        await _database.Missions.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                    result.Deleted++;
-                }
-
-                await _emitEvent("mission.batch_deleted", "Batch deleted " + result.Deleted + " missions",
-                    "mission", null, null, null, null, null).ConfigureAwait(false);
-
-                result.ResolveStatus();
+                            ? _database.Missions.ReadAsync(ctx.TenantId!, missionId)
+                            : _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, missionId)).ConfigureAwait(false);
                 return (object)result;
             },
             api => api
                 .WithTag("Missions")
                 .WithSummary("Batch delete multiple missions")
-                .WithDescription("Permanently deletes multiple missions from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.")
+                .WithDescription("Permanently deletes multiple missions by ID, each by the single-mission purge rule: a mission a captain is working is skipped with its reason. Returns a summary of deleted and skipped entries. This cannot be undone.")
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of mission IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));

@@ -210,7 +210,8 @@ namespace Armada.Test.Unit.TestHelpers
 
             new MissionRoutes(Driver, Admiral.Service, missionService, Settings, Git, landing, landingPreview, gitHub,
                 emitEvent, null, logging, _RestJsonOptions, transitions, Operations).Register(_Server, authenticate, authz);
-            new VoyageRoutes(Driver, Admiral.Service, emitEvent, null, logging, objectives, null, Settings, _RestJsonOptions).Register(_Server, authenticate, authz);
+            new VoyageRoutes(Driver, Admiral.Service, emitEvent, null, logging, objectives, null, Settings, _RestJsonOptions,
+                operations: Operations).Register(_Server, authenticate, authz);
             new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new CaptainRoutes(Driver, Admiral.Service, Settings, runtimeFactory, lifecycle, new CaptainToolService(logging, Driver, Settings),
                 emitEvent, _RestJsonOptions, null, null, logging).Register(_Server, authenticate, authz);

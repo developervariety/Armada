@@ -683,68 +683,18 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>purge_voyage</c> command.
+        /// Run the <c>purge_voyage</c> command through the shared voyage purge REST and MCP use.
         /// </summary>
         private async Task<object> PurgeVoyageCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             string pvId = command.Id ?? "";
             Voyage? pvVoyage = await _Database.Voyages.ReadAsync(pvId).ConfigureAwait(false);
             if (pvVoyage == null)
-                return new { type = "command.error", action = "purge_voyage", error = "Voyage not found" };
-            else if (pvVoyage.Status == VoyageStatusEnum.Open || pvVoyage.Status == VoyageStatusEnum.InProgress)
-                return new { type = "command.error", action = "purge_voyage", error = "Cannot delete voyage while status is " + pvVoyage.Status + ". Cancel the voyage first." };
-            else
-            {
-                List<Mission> pvMissions = await _Database.Missions.EnumerateByVoyageAsync(pvId).ConfigureAwait(false);
-                int pvActiveCount = pvMissions.Count(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress);
-                if (pvActiveCount > 0)
-                    return new { type = "command.error", action = "purge_voyage", error = "Cannot delete voyage with " + pvActiveCount + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
-                else
-                {
-                    foreach (Mission m in pvMissions)
-                    {
-                        // Clean up associated dock/worktree
-                        if (!String.IsNullOrEmpty(m.DockId))
-                        {
-                            try
-                            {
-                                Dock? pvDock = await _Database.Docks.ReadAsync(m.DockId).ConfigureAwait(false);
-                                if (pvDock != null)
-                                {
-                                    if (!String.IsNullOrEmpty(pvDock.WorktreePath) && System.IO.Directory.Exists(pvDock.WorktreePath))
-                                    {
-                                        try { System.IO.Directory.Delete(pvDock.WorktreePath, true); }
-                                        catch { }
-                                    }
-                                    await _Database.Docks.DeleteAsync(pvDock.Id).ConfigureAwait(false);
-                                }
-                            }
-                            catch { }
-                        }
-
-                        // Clean up log and diff files
-                        if (_Settings != null)
-                        {
-                            try
-                            {
-                                string pvLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", m.Id + ".log");
-                                if (System.IO.File.Exists(pvLogPath)) System.IO.File.Delete(pvLogPath);
-                            }
-                            catch { }
-                            try
-                            {
-                                string pvDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", m.Id + ".diff");
-                                if (System.IO.File.Exists(pvDiffPath)) System.IO.File.Delete(pvDiffPath);
-                            }
-                            catch { }
-                        }
-
-                        await _Database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
-                    }
-                    await _Database.Voyages.DeleteAsync(pvId).ConfigureAwait(false);
-                    return new { type = "command.result", action = "purge_voyage", data = (object)new { status = "deleted", voyageId = pvId, missionsDeleted = pvMissions.Count } };
-                }
-            }
+                return NotFound("purge_voyage", "Voyage not found");
+            WorkPurgeResult purge = await Operations.PurgeVoyageAsync(pvVoyage).ConfigureAwait(false);
+            if (!purge.Succeeded)
+                return new { type = "command.error", action = "purge_voyage", error = purge.Message, code = purge.Code };
+            return new { type = "command.result", action = "purge_voyage", data = (object)new { status = "deleted", voyageId = pvId, missionsDeleted = purge.MissionsDeleted } };
         }
 
         /// <summary>
@@ -906,55 +856,18 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>purge_mission</c> command.
+        /// Run the <c>purge_mission</c> command through the shared mission purge REST and MCP use.
         /// </summary>
         private async Task<object> PurgeMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             string pmId = command.Id ?? "";
             Mission? pmMission = await _Database.Missions.ReadAsync(pmId).ConfigureAwait(false);
             if (pmMission == null)
-                return new { type = "command.error", action = "purge_mission", error = "Mission not found" };
-            else
-            {
-                // Clean up associated dock/worktree
-                if (!String.IsNullOrEmpty(pmMission.DockId))
-                {
-                    try
-                    {
-                        Dock? pmDock = await _Database.Docks.ReadAsync(pmMission.DockId).ConfigureAwait(false);
-                        if (pmDock != null)
-                        {
-                            if (!String.IsNullOrEmpty(pmDock.WorktreePath) && System.IO.Directory.Exists(pmDock.WorktreePath))
-                            {
-                                try { System.IO.Directory.Delete(pmDock.WorktreePath, true); }
-                                catch { }
-                            }
-                            await _Database.Docks.DeleteAsync(pmDock.Id).ConfigureAwait(false);
-                        }
-                    }
-                    catch { }
-                }
-
-                // Clean up log and diff files
-                if (_Settings != null)
-                {
-                    try
-                    {
-                        string pmLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", pmId + ".log");
-                        if (System.IO.File.Exists(pmLogPath)) System.IO.File.Delete(pmLogPath);
-                    }
-                    catch { }
-                    try
-                    {
-                        string pmDiffPath = System.IO.Path.Combine(_Settings.LogDirectory, "diffs", pmId + ".diff");
-                        if (System.IO.File.Exists(pmDiffPath)) System.IO.File.Delete(pmDiffPath);
-                    }
-                    catch { }
-                }
-
-                await _Database.Missions.DeleteAsync(pmId).ConfigureAwait(false);
-                return new { type = "command.result", action = "purge_mission", data = (object)new { status = "deleted", missionId = pmId } };
-            }
+                return NotFound("purge_mission", "Mission not found");
+            WorkPurgeResult purge = await Operations.PurgeMissionAsync(pmMission).ConfigureAwait(false);
+            if (!purge.Succeeded)
+                return new { type = "command.error", action = "purge_mission", error = purge.Message, code = purge.Code };
+            return new { type = "command.result", action = "purge_mission", data = (object)new { status = "deleted", missionId = pmId } };
         }
 
         /// <summary>

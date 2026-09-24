@@ -130,7 +130,7 @@ namespace Armada.Server.Mcp
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
-            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService, dispatchStalenessAdapter);
+            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService, dispatchStalenessAdapter, missionOperations);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, statusTransitions, missionOperations);
             if (captainAdministration == null)
             {

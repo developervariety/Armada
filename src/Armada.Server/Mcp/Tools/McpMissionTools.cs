@@ -344,7 +344,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_purge_mission",
-                "Permanently delete a mission from the database. This cannot be undone.",
+                "Permanently delete a mission with its dock record, worktree, log files and saved diff. A mission a captain is working is refused. This cannot be undone.",
                 new
                 {
                     type = "object",
@@ -361,49 +361,15 @@ namespace Armada.Server.Mcp.Tools
                     Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
 
-                    // Clean up associated dock/worktree if present
-                    if (!String.IsNullOrEmpty(mission.DockId))
-                    {
-                        try
-                        {
-                            Dock? dock = await database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false);
-                            if (dock != null)
-                            {
-                                if (!String.IsNullOrEmpty(dock.WorktreePath) && Directory.Exists(dock.WorktreePath))
-                                {
-                                    try { Directory.Delete(dock.WorktreePath, true); }
-                                    catch { }
-                                }
-                                await database.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);
-                            }
-                        }
-                        catch { }
-                    }
-
-                    // Clean up log files if settings are available
-                    if (settings != null)
-                    {
-                        try
-                        {
-                            string logPath = Path.Combine(settings.LogDirectory, "missions", missionId + ".log");
-                            if (File.Exists(logPath)) File.Delete(logPath);
-                        }
-                        catch { }
-                        try
-                        {
-                            string diffPath = Path.Combine(settings.LogDirectory, "diffs", missionId + ".diff");
-                            if (File.Exists(diffPath)) File.Delete(diffPath);
-                        }
-                        catch { }
-                    }
-
-                    await database.Missions.DeleteAsync(missionId).ConfigureAwait(false);
+                    WorkPurgeResult purge = await missionOperations.PurgeMissionAsync(mission).ConfigureAwait(false);
+                    if (!purge.Succeeded)
+                        return (object)new { Error = purge.Message, Code = purge.Code };
                     return (object)new { Status = "deleted", MissionId = missionId };
                 });
 
             register(
                 "armada_delete_missions",
-                "Permanently delete multiple missions from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.",
+                "Permanently delete multiple missions by ID, each by the single-mission purge rule; a mission a captain is working is skipped with its reason. Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {
                     type = "object",
@@ -419,60 +385,9 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)new { Error = "ids is required and must not be empty" };
 
-                    DeleteMultipleResult result = new DeleteMultipleResult();
-                    foreach (string id in request.Ids)
-                    {
-                        if (String.IsNullOrEmpty(id))
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                            continue;
-                        }
-                        Mission? mission = await database.Missions.ReadAsync(id).ConfigureAwait(false);
-                        if (mission == null)
-                        {
-                            result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                            continue;
-                        }
-                        // Clean up associated dock/worktree if present
-                        if (!String.IsNullOrEmpty(mission.DockId))
-                        {
-                            try
-                            {
-                                Dock? dock = await database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false);
-                                if (dock != null)
-                                {
-                                    if (!String.IsNullOrEmpty(dock.WorktreePath) && Directory.Exists(dock.WorktreePath))
-                                    {
-                                        try { Directory.Delete(dock.WorktreePath, true); }
-                                        catch { }
-                                    }
-                                    await database.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);
-                                }
-                            }
-                            catch { }
-                        }
-
-                        // Clean up log files if settings are available
-                        if (settings != null)
-                        {
-                            try
-                            {
-                                string logPath = Path.Combine(settings.LogDirectory, "missions", id + ".log");
-                                if (File.Exists(logPath)) File.Delete(logPath);
-                            }
-                            catch { }
-                            try
-                            {
-                                string diffPath = Path.Combine(settings.LogDirectory, "diffs", id + ".diff");
-                                if (File.Exists(diffPath)) File.Delete(diffPath);
-                            }
-                            catch { }
-                        }
-
-                        await database.Missions.DeleteAsync(id).ConfigureAwait(false);
-                        result.Deleted++;
-                    }
-                    result.ResolveStatus();
+                    DeleteMultipleResult result = await missionOperations.PurgeMissionsAsync(
+                        request.Ids,
+                        id => database.Missions.ReadAsync(id)).ConfigureAwait(false);
                     return (object)result;
                 });
 

@@ -32,6 +32,7 @@ namespace Armada.Server.Routes
         private readonly ICodeIndexService? _codeIndexService;
         private readonly ArmadaSettings? _settings;
         private readonly JsonSerializerOptions _jsonOptions;
+        private readonly MissionOperations _operations;
 
         /// <summary>
         /// Instantiate.
@@ -46,6 +47,8 @@ namespace Armada.Server.Routes
         /// <param name="settings">Optional Armada settings.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="objectiveDispatchPreview">Optional shared objective dispatch preflight.</param>
+        /// <param name="operations">Shared mission and voyage operations. When null, one is built that writes events
+        /// through <paramref name="emitEvent"/> and removes no docks, so a mission with a dock is not purged.</param>
         public VoyageRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -57,7 +60,8 @@ namespace Armada.Server.Routes
             ArmadaSettings? settings,
             JsonSerializerOptions jsonOptions,
             ObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
-            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null)
+            TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null,
+            MissionOperations? operations = null)
         {
             _database = database;
             _admiral = admiral;
@@ -70,6 +74,13 @@ namespace Armada.Server.Routes
             _jsonOptions = jsonOptions;
             _objectiveDispatchPreview = objectiveDispatchPreview;
             _dispatchStalenessAdapter = dispatchStalenessAdapter;
+            _operations = operations ?? new MissionOperations(
+                database,
+                settings ?? new ArmadaSettings(),
+                null,
+                (captainId, token) => admiral.RecallCaptainAsync(captainId, token),
+                new OperationNotifier(emitEvent, mission => webSocketHub?.BroadcastMissionChange(mission), voyage => webSocketHub?.BroadcastVoyageChange(voyage)),
+                logging);
         }
 
         /// <summary>
@@ -525,43 +536,25 @@ namespace Armada.Server.Routes
                         : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
 
-                // Block deletion of active voyages
-                if (voyage.Status == VoyageStatusEnum.Open || voyage.Status == VoyageStatusEnum.InProgress)
+                // REST, WebSocket and MCP share one voyage purge: the live-voyage and at-work refusals, and each
+                // mission's guarded dock, worktree, log and diff removal.
+                WorkPurgeResult purge = await _operations.PurgeVoyageAsync(
+                    voyage,
+                    voyageId => ctx.IsAdmin
+                        ? _database.Missions.EnumerateByVoyageAsync(voyageId)
+                        : _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, voyageId)).ConfigureAwait(false);
+                if (!purge.Succeeded)
                 {
                     req.Http.Response.StatusCode = 409;
-                    return (object)new { Error = "Conflict", Message = "Cannot delete voyage while status is " + voyage.Status + ". Cancel the voyage first." };
+                    return (object)new { Error = "Conflict", Message = purge.Message };
                 }
 
-                List<Mission> missions = ctx.IsAdmin
-                    ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
-
-                // Block deletion if any missions are actively assigned or in progress
-                List<Mission> activeMissions = missions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
-                if (activeMissions.Count > 0)
-                {
-                    req.Http.Response.StatusCode = 409;
-                    return (object)new { Error = "Conflict", Message = "Cannot delete voyage with " + activeMissions.Count + " active mission(s) in Assigned or InProgress status. Cancel or complete them first." };
-                }
-
-                // Cascade delete all missions in this voyage
-                foreach (Mission m in missions)
-                {
-                    await _database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
-                }
-
-                // Delete the voyage itself
-                await _database.Voyages.DeleteAsync(id).ConfigureAwait(false);
-
-                await _emitEvent("voyage.deleted", "Voyage " + id + " permanently deleted with " + missions.Count + " missions",
-                    "voyage", id, null, null, null, null).ConfigureAwait(false);
-
-                return (object)new { Status = "deleted", VoyageId = id, MissionsDeleted = missions.Count };
+                return (object)new { Status = "deleted", VoyageId = id, MissionsDeleted = purge.MissionsDeleted };
             },
             api => api
                 .WithTag("Voyages")
                 .WithSummary("Permanently delete a voyage")
-                .WithDescription("Permanently deletes a voyage and all its associated missions from the database. This cannot be undone. Blocked if voyage is Open/InProgress or has active missions.")
+                .WithDescription("Permanently deletes a voyage and all its missions, with each mission's dock record, worktree, log files and saved diff. This cannot be undone. Refused with 409 while the voyage is Open or InProgress or a captain is working one of its missions.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Voyage ID (vyg_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<object>("Deleted voyage and missions"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
@@ -579,56 +572,22 @@ namespace Armada.Server.Routes
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
 
-                DeleteMultipleResult result = new DeleteMultipleResult();
-                foreach (string id in body.Ids)
-                {
-                    if (String.IsNullOrEmpty(id))
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
-                        continue;
-                    }
-                    Voyage? voyage = ctx.IsAdmin
-                        ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
+                DeleteMultipleResult result = await _operations.PurgeVoyagesAsync(
+                    body.Ids,
+                    voyageId => ctx.IsAdmin
+                        ? _database.Voyages.ReadAsync(voyageId)
                         : ctx.IsTenantAdmin
-                            ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                            : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                    if (voyage == null)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
-                        continue;
-                    }
-                    if (voyage.Status == VoyageStatusEnum.Open || voyage.Status == VoyageStatusEnum.InProgress)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete voyage while status is " + voyage.Status + ". Cancel the voyage first."));
-                        continue;
-                    }
-                    List<Mission> missions = ctx.IsAdmin
-                        ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                    List<Mission> activeMissions = missions.Where(m => m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress).ToList();
-                    if (activeMissions.Count > 0)
-                    {
-                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Cannot delete voyage with " + activeMissions.Count + " active mission(s). Cancel or complete them first."));
-                        continue;
-                    }
-                    foreach (Mission m in missions)
-                    {
-                        await _database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
-                    }
-                    await _database.Voyages.DeleteAsync(id).ConfigureAwait(false);
-                    result.Deleted++;
-                }
-
-                await _emitEvent("voyage.batch_deleted", "Batch deleted " + result.Deleted + " voyages",
-                    "voyage", null, null, null, null, null).ConfigureAwait(false);
-
-                result.ResolveStatus();
+                            ? _database.Voyages.ReadAsync(ctx.TenantId!, voyageId)
+                            : _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, voyageId),
+                    voyageId => ctx.IsAdmin
+                        ? _database.Missions.EnumerateByVoyageAsync(voyageId)
+                        : _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, voyageId)).ConfigureAwait(false);
                 return (object)result;
             },
             api => api
                 .WithTag("Voyages")
                 .WithSummary("Batch delete multiple voyages")
-                .WithDescription("Permanently deletes multiple voyages and their associated missions from the database by ID. Voyages that are Open/InProgress or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.")
+                .WithDescription("Permanently deletes multiple voyages by ID, each by the single-voyage purge rule. Voyages that are Open/InProgress or hold a mission a captain is working are skipped with their reason. Returns a summary of deleted and skipped entries. This cannot be undone.")
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of voyage IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));

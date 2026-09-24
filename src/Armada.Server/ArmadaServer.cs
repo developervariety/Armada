@@ -1555,7 +1555,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Voyages
-            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _ObjectiveService, _CodeIndex, _Settings, _JsonOptions, _ObjectiveDispatchPreviewService, _DispatchStalenessAdapter)
+            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _ObjectiveService, _CodeIndex, _Settings, _JsonOptions, _ObjectiveDispatchPreviewService, _DispatchStalenessAdapter, _MissionOperations)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions

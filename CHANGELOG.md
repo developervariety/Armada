@@ -182,6 +182,14 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One mission and voyage purge:** mission purge, batch mission delete, voyage
+  purge and batch voyage delete run one shared rule on REST, WebSocket and MCP.
+  A mission a captain is working is refused (mission purge had no guard, and MCP
+  and WebSocket deleted the running captain's worktree). Every surface removes a
+  purged mission's dock record and worktree through the dock service and its
+  ownership guard, and deletes its log files and saved diff (REST left all of
+  them behind); every surface writes the `mission.deleted`, `voyage.deleted` and
+  batch events (only REST did).
 - **One mission cancel:** REST `DELETE /api/v1/missions/{id}`, WebSocket
   `cancel_mission` and MCP `armada_cancel_mission` run one shared cancel. A
   Complete, Failed or Cancelled mission is refused and keeps its outcome (all
