@@ -1257,7 +1257,222 @@ namespace Armada.Test.Unit.Suites.Services
                     Task finished = await Task.WhenAny(exitSeen.Task, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
                     AssertTrue(finished == exitSeen.Task, "The exit reaches the admiral.");
                     AssertEqual(0, exitSeen.Task.Result, "A process stopped after its terminal marker completes as a clean exit.");
+                    await WaitForProcessExitCompletedAsync(handler, processId).ConfigureAwait(false);
                     AssertFalse(markers.TryGet(mission.Id, out _), "The marker is cleared once the process has exited.");
+                }
+            });
+
+            // ----------------------------------------------------------------
+            // A superseded process's exit never clears the relaunched process's per-mission state
+            // ----------------------------------------------------------------
+
+            await RunTest("A superseded process's exit leaves the relaunched process's output, terminal marker and heartbeat throttle in place", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int supersededPid = 989801;
+                    const int relaunchedPid = 989802;
+                    IntentionalProcessStops stops = new IntentionalProcessStops();
+                    AdmiralService admiral = CreateRealAdmiral(testDb.Driver, stops);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, admiral);
+                    handler.SetIntentionalStops(stops);
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("relaunch-captain", AgentRuntimeEnum.ClaudeCode)
+                    {
+                        State = CaptainStateEnum.Working,
+                        ProcessId = relaunchedPid
+                    }).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Relaunched mission")
+                    {
+                        Status = MissionStatusEnum.InProgress,
+                        CaptainId = captain.Id,
+                        ProcessId = relaunchedPid
+                    }).ConfigureAwait(false);
+                    captain.CurrentMissionId = mission.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    // The admiral stopped the old process to relaunch the mission; the new process is the captain's current one.
+                    AssertTrue(stops.TryRegister(supersededPid, captain.Id, mission.Id, IntentionalStopKindEnum.Superseded), "the old process is registered as superseded");
+                    RegisterTrackedProcess(handler, supersededPid, captain.Id, mission.Id);
+                    RegisterTrackedProcess(handler, relaunchedPid, captain.Id, mission.Id);
+
+                    handler.HandleAgentOutput(relaunchedPid, "relaunched process early output");
+                    handler.HandleAgentHeartbeat(relaunchedPid, "relaunched process early output");
+                    handler.HandleAgentOutput(relaunchedPid, "[ARMADA:RESULT] COMPLETE");
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+                    AssertTrue(markers.TryGet(mission.Id, out _), "the relaunched process's terminal marker is recorded");
+                    AssertTrue(HasMissionHeartbeatThrottle(handler, mission.Id), "the relaunched process's heartbeat throttle is recorded");
+
+                    // The old process's kill arrives after the relaunch started writing.
+                    handler.HandleAgentProcessExited(supersededPid, 137);
+                    await WaitForProcessExitCompletedAsync(handler, supersededPid).ConfigureAwait(false);
+
+                    AssertTrue(markers.TryGet(mission.Id, out TerminalMarkerRecord? marker), "the relaunched process's terminal marker survives the superseded exit");
+                    AssertEqual("COMPLETE", marker!.Value);
+                    AssertTrue(HasMissionHeartbeatThrottle(handler, mission.Id), "the relaunched process's heartbeat throttle survives the superseded exit");
+                    string output = handler.GetAndClearMissionOutput(mission.Id) ?? "";
+                    AssertContains("relaunched process early output", output, "the relaunched process's output survives the superseded exit");
+
+                    Mission after = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.InProgress, after.Status, "the superseded exit is not the mission's outcome");
+                }
+            });
+
+            await RunTest("The current process's exit clears its mission's output, terminal marker and heartbeat throttle", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int currentPid = 989803;
+                    AdmiralService admiral = CreateRealAdmiral(testDb.Driver, new IntentionalProcessStops());
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, admiral);
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("current-exit-captain", AgentRuntimeEnum.ClaudeCode)
+                    {
+                        State = CaptainStateEnum.Working,
+                        ProcessId = currentPid
+                    }).ConfigureAwait(false);
+                    // A terminal mission keeps the admiral from acting on the exit, so only the cleanup is observed.
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Finished mission")
+                    {
+                        Status = MissionStatusEnum.Complete,
+                        CaptainId = captain.Id,
+                        ProcessId = currentPid
+                    }).ConfigureAwait(false);
+
+                    RegisterTrackedProcess(handler, currentPid, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(currentPid, "current process output");
+                    handler.HandleAgentHeartbeat(currentPid, "current process output");
+                    handler.HandleAgentOutput(currentPid, "[ARMADA:RESULT] COMPLETE");
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+
+                    handler.HandleAgentProcessExited(currentPid, 0);
+                    await WaitForProcessExitCompletedAsync(handler, currentPid).ConfigureAwait(false);
+
+                    AssertFalse(markers.TryGet(mission.Id, out _), "the current process's exit clears the terminal marker");
+                    AssertFalse(HasMissionHeartbeatThrottle(handler, mission.Id), "the current process's exit clears the heartbeat throttle");
+                    AssertNull(handler.GetAndClearMissionOutput(mission.Id), "the current process's exit discards the unclaimed output");
+                }
+            });
+
+            await RunTest("A relaunch made while the admiral handles the current process's exit keeps its output and terminal marker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SyntheticLaunchRuntime runtime = new SyntheticLaunchRuntime { NextProcessId = 989811 };
+                    StubAdmiralService admiral = new StubAdmiralService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, admiral,
+                        new StopRecordingRuntimeFactory(CreateLogging(), runtime));
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_inner_relaunch_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+
+                    try
+                    {
+                        Mission mission = new Mission("Inner relaunch mission")
+                        {
+                            Persona = "Worker",
+                            BranchName = "feature/inner-relaunch",
+                            Status = MissionStatusEnum.InProgress
+                        };
+                        Captain captain = new Captain("inner-relaunch-captain", AgentRuntimeEnum.Cursor)
+                        {
+                            Model = "inner-relaunch-model",
+                            State = CaptainStateEnum.Working,
+                            CurrentMissionId = mission.Id
+                        };
+                        mission.CaptainId = captain.Id;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        Dock dock = new Dock { BranchName = "feature/inner-relaunch", WorktreePath = worktreePath };
+
+                        int firstPid = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+                        handler.HandleAgentOutput(firstPid, "first process output");
+
+                        // Handling the first process's exit re-dispatches the mission, and the new process
+                        // writes output and its terminal marker before the exit handling returns.
+                        int relaunchedPid = 0;
+                        admiral.OnHandleProcessExit = async (pid, code, cpt, msn) =>
+                        {
+                            if (pid != firstPid) return;
+                            runtime.NextProcessId = 989812;
+                            relaunchedPid = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+                            handler.HandleAgentOutput(relaunchedPid, "relaunched process output");
+                            handler.HandleAgentOutput(relaunchedPid, "[ARMADA:RESULT] COMPLETE");
+                        };
+
+                        handler.HandleAgentProcessExited(firstPid, 1);
+                        await WaitForProcessExitCompletedAsync(handler, firstPid).ConfigureAwait(false);
+                        await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+
+                        AssertEqual(989812, relaunchedPid, "the mission was relaunched inside the exit handling");
+                        AssertTrue(markers.TryGet(mission.Id, out TerminalMarkerRecord? marker), "the relaunched process's terminal marker survives the exit that relaunched it");
+                        AssertEqual("COMPLETE", marker!.Value);
+                        string output = handler.GetAndClearMissionOutput(mission.Id) ?? "";
+                        AssertContains("relaunched process output", output, "the relaunched process's output survives the exit that relaunched it");
+                        AssertFalse(output.Contains("first process output", StringComparison.Ordinal), "the first process's output is not carried into the relaunch");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A launch starts its mission with no output, terminal marker or heartbeat throttle left by an earlier process", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_relaunch_state_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+
+                    try
+                    {
+                        Mission mission = new Mission("Relaunch state mission")
+                        {
+                            Persona = "Worker",
+                            BranchName = "feature/relaunch-state",
+                            Status = MissionStatusEnum.InProgress
+                        };
+                        Captain captain = new Captain("relaunch-state-captain", AgentRuntimeEnum.Cursor)
+                        {
+                            Model = "relaunch-model",
+                            State = CaptainStateEnum.Working,
+                            CurrentMissionId = mission.Id
+                        };
+                        mission.CaptainId = captain.Id;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        // An earlier process for the mission wrote output and a terminal marker, and its exit never cleared them.
+                        const int earlierPid = 989804;
+                        RegisterTrackedProcess(handler, earlierPid, captain.Id, mission.Id);
+                        handler.HandleAgentOutput(earlierPid, "earlier process output");
+                        handler.HandleAgentHeartbeat(earlierPid, "earlier process output");
+                        handler.HandleAgentOutput(earlierPid, "[ARMADA:RESULT] COMPLETE");
+                        await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+                        AssertTrue(markers.TryGet(mission.Id, out _), "the earlier process's marker is recorded");
+
+                        Dock dock = new Dock { BranchName = "feature/relaunch-state", WorktreePath = worktreePath };
+                        await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+
+                        AssertFalse(markers.TryGet(mission.Id, out _), "a launch never inherits an earlier process's terminal marker");
+                        AssertFalse(HasMissionHeartbeatThrottle(handler, mission.Id), "a launch never inherits an earlier process's heartbeat throttle");
+                        string output = handler.GetAndClearMissionOutput(mission.Id) ?? "";
+                        AssertFalse(output.Contains("earlier process output", StringComparison.Ordinal), "a launch never inherits an earlier process's output");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
                 }
             });
 
@@ -1585,6 +1800,50 @@ namespace Armada.Test.Unit.Suites.Services
             public override Armada.Runtimes.Interfaces.IAgentRuntime Create(AgentRuntimeEnum runtimeType) => _Runtime;
         }
 
+        /// <summary>
+        /// Runtime whose start returns a chosen process id and never raises events, so a test drives the
+        /// process's output and exit itself.
+        /// </summary>
+        private sealed class SyntheticLaunchRuntime : Armada.Runtimes.Interfaces.IAgentRuntime
+        {
+            public int NextProcessId { get; set; }
+
+            public string Name => "SyntheticLaunch";
+
+            public bool SupportsResume => false;
+
+            public bool SupportsPlanningSessions => false;
+
+            public event Action<int, string>? OnOutputReceived { add { } remove { } }
+
+            public event Action<int, string>? OnStdoutReceived { add { } remove { } }
+
+            public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived { add { } remove { } }
+
+            public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived { add { } remove { } }
+
+            public event Action<int>? OnProcessStarted { add { } remove { } }
+
+            public event Action<int, int?>? OnProcessExited { add { } remove { } }
+
+            public Task<int> StartAsync(
+                string workingDirectory,
+                string prompt,
+                Dictionary<string, string>? environment = null,
+                string? logFilePath = null,
+                string? finalMessageFilePath = null,
+                string? model = null,
+                Captain? captain = null,
+                bool showThinking = false,
+                CancellationToken token = default,
+                CaptainLaunchIsolationPlan? isolationPlan = null)
+                => Task.FromResult(NextProcessId);
+
+            public Task StopAsync(int processId, CancellationToken token = default) => Task.CompletedTask;
+
+            public Task<bool> IsRunningAsync(int processId, CancellationToken token = default) => Task.FromResult(true);
+        }
+
         private sealed class StopRecordingRuntime : Armada.Runtimes.Interfaces.IAgentRuntime
         {
             public List<int> StopCalls { get; } = new List<int>();
@@ -1715,23 +1974,57 @@ namespace Armada.Test.Unit.Suites.Services
             return stored;
         }
 
+        /// <summary>
+        /// Track a process as a launch would: it takes ownership of the mission's per-process state, then is
+        /// mapped to its captain and mission.
+        /// </summary>
         private static void RegisterTrackedProcess(AgentLifecycleHandler handler, int processId, string captainId, string missionId)
         {
-            FieldInfo captainField = typeof(AgentLifecycleHandler).GetField("_ProcessToCaptain", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("Could not find _ProcessToCaptain field");
-            FieldInfo missionField = typeof(AgentLifecycleHandler).GetField("_ProcessToMission", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("Could not find _ProcessToMission field");
+            handler.RegisterMissionProcess(processId, captainId, missionId, handler.TakeMissionStateOwnership(missionId));
+        }
 
-            Dictionary<int, string> captainMap = (Dictionary<int, string>)(captainField.GetValue(handler)
-                ?? throw new InvalidOperationException("Captain process map was null"));
-            Dictionary<int, string> missionMap = (Dictionary<int, string>)(missionField.GetValue(handler)
-                ?? throw new InvalidOperationException("Mission process map was null"));
+        private static AdmiralService CreateRealAdmiral(DatabaseDriver database, IntentionalProcessStops stops)
+        {
+            LoggingModule logging = CreateLogging();
+            ArmadaSettings settings = CreateSettings();
+            StubGitService git = new StubGitService();
+            IDockService docks = new DockService(logging, database, settings, git);
+            CaptainService captains = new CaptainService(logging, database, settings, git, docks);
+            MissionService missions = new MissionService(logging, database, settings, docks, captains, git: git);
+            return new AdmiralService(logging, database, settings, captains, missions, new VoyageService(logging, database), docks,
+                git: git, intentionalStops: stops);
+        }
 
-            lock (captainMap)
+        private static bool HasMissionHeartbeatThrottle(AgentLifecycleHandler handler, string missionId)
+        {
+            FieldInfo field = typeof(AgentLifecycleHandler).GetField("_MissionHeartbeatWrites", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find _MissionHeartbeatWrites field");
+            ConcurrentDictionary<string, DateTime> writes = (ConcurrentDictionary<string, DateTime>)(field.GetValue(handler)
+                ?? throw new InvalidOperationException("Mission heartbeat map was null"));
+            return writes.ContainsKey(missionId);
+        }
+
+        /// <summary>
+        /// Wait until the handler has finished its asynchronous handling of a process exit, including the
+        /// cleanup that runs after the admiral returns.
+        /// </summary>
+        private static async Task WaitForProcessExitCompletedAsync(AgentLifecycleHandler handler, int processId)
+        {
+            FieldInfo handledField = typeof(AgentLifecycleHandler).GetField("_HandledProcessExits", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find handled process map");
+            FieldInfo inFlightField = typeof(AgentLifecycleHandler).GetField("_InFlightProcessExits", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find in-flight process map");
+            ConcurrentDictionary<int, DateTime> handled = (ConcurrentDictionary<int, DateTime>)handledField.GetValue(handler)!;
+            ConcurrentDictionary<int, byte> inFlight = (ConcurrentDictionary<int, byte>)inFlightField.GetValue(handler)!;
+
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline)
             {
-                captainMap[processId] = captainId;
-                missionMap[processId] = missionId;
+                if (handled.ContainsKey(processId) && !inFlight.ContainsKey(processId)) return;
+                await Task.Delay(20).ConfigureAwait(false);
             }
+
+            throw new TimeoutException("Timed out waiting for the exit of process " + processId + " to be handled");
         }
 
         private static void MarkProcessExitHandled(AgentLifecycleHandler handler, int processId)

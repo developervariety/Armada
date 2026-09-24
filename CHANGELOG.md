@@ -150,6 +150,13 @@ upstream integrations and excludes changes already present at that baseline.
   returns to Pending, the captain is released,
   `captain.recovery_deferred_dispatch_hold` is recorded once per mission and
   engagement, and assignment skips the mission until the hold clears.
+- **Per-mission process state:** a mission's streamed output buffer,
+  final-message artifact, first terminal marker and heartbeat throttle are owned
+  by the launch that started the mission's current process. Each launch takes
+  ownership and starts that state empty; a process exit releases it only while
+  the exiting process's launch still owns it. A superseded or stale process's
+  late exit, or the exit whose handling relaunched the mission, never clears the
+  relaunched process's output or terminal marker.
 - **Child processes:** one bounded runner in Core runs short-lived child
   processes. It reads both output streams at once, keeps each within a byte budget
   (beginning and end, with a marker and a count of the omitted bytes), kills the

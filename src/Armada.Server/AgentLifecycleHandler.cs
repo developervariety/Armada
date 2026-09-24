@@ -96,6 +96,26 @@ namespace Armada.Server
         private System.Collections.Concurrent.ConcurrentDictionary<string, (string CaptainId, string MissionId)> _PendingLaunches = new System.Collections.Concurrent.ConcurrentDictionary<string, (string CaptainId, string MissionId)>();
 
         /// <summary>
+        /// The launch that owns each mission's per-process state: its streamed output, final-message
+        /// artifact, first terminal marker and heartbeat throttle. That state is keyed by mission, so a
+        /// release names the launch it releases for and clears the state only while that launch still owns
+        /// it. Guarded by its own lock, which also covers every take and release of the state.
+        /// </summary>
+        private readonly Dictionary<string, long> _MissionStateOwners = new Dictionary<string, long>();
+
+        /// <summary>
+        /// The owning launch of each tracked process, so an exit releases only the state its own launch took.
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, long> _ProcessStateOwners = new System.Collections.Concurrent.ConcurrentDictionary<int, long>();
+
+        /// <summary>
+        /// The owning launch of each launch still waiting for its process id, keyed like <see cref="_PendingLaunches"/>.
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _PendingLaunchOwners = new System.Collections.Concurrent.ConcurrentDictionary<string, long>();
+
+        private long _LastMissionStateOwner;
+
+        /// <summary>
         /// Maps process IDs to captain IDs for progress tracking.
         /// </summary>
         private Dictionary<int, string> _ProcessToCaptain = new Dictionary<int, string>();
@@ -717,6 +737,11 @@ namespace Armada.Server
             BaseAgentRuntime? harborAdapter = harborRoute != null ? CreateHarborAdapter(captain) : null;
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = harborAdapter ?? await CreateRuntimeAsync(captain).ConfigureAwait(false);
             string launchKey = captain.Id + ":" + mission.Id;
+
+            // The new process owns the mission's per-process state from here, and starts it empty. An earlier
+            // process's exit, even one handled after this point, can no longer release it.
+            long stateOwner = TakeMissionStateOwnership(mission.Id);
+            _PendingLaunchOwners[launchKey] = stateOwner;
             _PendingLaunches[launchKey] = (captain.Id, mission.Id);
             runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
             runtime.OnOutputReceived += HandleAgentOutput;
@@ -804,18 +829,16 @@ namespace Armada.Server
             catch
             {
                 _PendingLaunches.TryRemove(launchKey, out _);
-                _MissionFinalMessageFiles.TryRemove(mission.Id, out _);
+                _PendingLaunchOwners.TryRemove(launchKey, out _);
+                ReleaseMissionState(stateOwner, mission.Id);
                 throw;
             }
 
             await PersistStartedProcessIdAsync(processId, launchKey).ConfigureAwait(false);
 
-            lock (_ProcessToCaptain)
-            {
-                _ProcessToCaptain[processId] = captain.Id;
-                _ProcessToMission[processId] = mission.Id;
-            }
+            RegisterMissionProcess(processId, captain.Id, mission.Id, stateOwner);
             _PendingLaunches.TryRemove(launchKey, out _);
+            _PendingLaunchOwners.TryRemove(launchKey, out _);
 
             _Logging.Info(_Header + "agent process " + processId + " started for captain " + captain.Id + " (log: " + logFilePath + ")");
             StartProcessLivenessHeartbeat(processId, captain.Id, mission.Id);
@@ -1088,12 +1111,10 @@ namespace Armada.Server
         {
             if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) launch))
                 return;
+            if (!_PendingLaunchOwners.TryGetValue(launchKey, out long stateOwner))
+                return;
 
-            lock (_ProcessToCaptain)
-            {
-                _ProcessToCaptain[processId] = launch.CaptainId;
-                _ProcessToMission[processId] = launch.MissionId;
-            }
+            RegisterMissionProcess(processId, launch.CaptainId, launch.MissionId, stateOwner);
 
             _ = PersistStartedProcessIdAsync(processId, launchKey);
         }
@@ -1585,14 +1606,17 @@ namespace Armada.Server
                 _Logging.Info(_Header + "process " + processId + " was stopped after its terminal marker; completing mission " + missionId + " from the recorded output");
                 exitCode = 0;
             }
-            _TerminalMarkers?.Clear(missionId);
+
+            // Only the launch that still owns the mission's state releases it. The exit of a process the
+            // mission has already been relaunched from leaves the new process's marker and throttle alone.
+            if (_ProcessStateOwners.TryGetValue(processId, out long stateOwner))
+                ClearMissionMarkerState(stateOwner, missionId);
 
             lock (_ProcessToCaptain)
             {
                 _ProcessToCaptain.Remove(processId);
                 _ProcessToMission.Remove(processId);
             }
-            _MissionHeartbeatWrites.TryRemove(missionId, out _);
 
             // Mark this PID as in flight BEFORE the async work begins. The health check consults
             // the marker so it never treats a process that exited cleanly, but whose completion
@@ -1616,11 +1640,13 @@ namespace Armada.Server
 
         /// <summary>
         /// Async handler for agent process exit, delegating to the admiral service.
-        /// After admiral processing completes, discards any unclaimed streamed output buffer
-        /// so failure/cancel exits do not leak per-mission StringBuilders into long-lived memory.
-        /// The successful pipeline-handoff path drains the buffer via OnGetMissionOutput before this point;
-        /// final-message artifacts consumed by handoff are removed by GetAndClearMissionOutput, so this
-        /// follow-up only cleans up entries that no successful path claimed.
+        /// After admiral processing completes, releases the mission's per-process state for the exiting
+        /// process's launch, so failure/cancel exits do not leak per-mission StringBuilders into long-lived
+        /// memory. The successful pipeline-handoff path drains the buffer via OnGetMissionOutput before this
+        /// point; final-message artifacts consumed by handoff are removed by GetAndClearMissionOutput, so this
+        /// follow-up only cleans up entries that no successful path claimed. The release is a no-op when a
+        /// newer launch owns the state: a superseded process's late exit, or a relaunch the admiral made
+        /// while handling this exit.
         /// </summary>
         public async Task HandleAgentProcessExitedAsync(int processId, int? exitCode, string captainId, string missionId)
         {
@@ -1635,6 +1661,70 @@ namespace Armada.Server
                 // at which the health check can see neither.
                 _HandledProcessExits[processId] = DateTime.UtcNow;
                 _InFlightProcessExits.TryRemove(processId, out _);
+                if (_ProcessStateOwners.TryRemove(processId, out long stateOwner))
+                    ReleaseMissionState(stateOwner, missionId);
+            }
+        }
+
+        /// <summary>
+        /// Make a new launch the owner of a mission's per-process state and start that state empty.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>The owner token the launch's process releases with.</returns>
+        internal long TakeMissionStateOwnership(string missionId)
+        {
+            long owner = Interlocked.Increment(ref _LastMissionStateOwner);
+            lock (_MissionStateOwners)
+            {
+                _MissionStateOwners[missionId] = owner;
+                _TerminalMarkers?.Clear(missionId);
+                _MissionHeartbeatWrites.TryRemove(missionId, out _);
+                DiscardUnclaimedMissionOutput(missionId);
+            }
+            return owner;
+        }
+
+        /// <summary>
+        /// Track a started process for its captain and mission, under the launch that owns the mission's state.
+        /// </summary>
+        /// <param name="processId">Process identifier.</param>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="owner">Owner token returned by <see cref="TakeMissionStateOwnership"/>.</param>
+        internal void RegisterMissionProcess(int processId, string captainId, string missionId, long owner)
+        {
+            _ProcessStateOwners[processId] = owner;
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToCaptain[processId] = captainId;
+                _ProcessToMission[processId] = missionId;
+            }
+        }
+
+        /// <summary>
+        /// Clear a mission's first terminal marker and heartbeat throttle while the given launch owns them.
+        /// </summary>
+        private void ClearMissionMarkerState(long owner, string missionId)
+        {
+            lock (_MissionStateOwners)
+            {
+                if (!_MissionStateOwners.TryGetValue(missionId, out long current) || current != owner) return;
+                _TerminalMarkers?.Clear(missionId);
+                _MissionHeartbeatWrites.TryRemove(missionId, out _);
+            }
+        }
+
+        /// <summary>
+        /// Release all of a mission's per-process state, and its ownership, while the given launch owns it.
+        /// </summary>
+        private void ReleaseMissionState(long owner, string missionId)
+        {
+            lock (_MissionStateOwners)
+            {
+                if (!_MissionStateOwners.TryGetValue(missionId, out long current) || current != owner) return;
+                _MissionStateOwners.Remove(missionId);
+                _TerminalMarkers?.Clear(missionId);
+                _MissionHeartbeatWrites.TryRemove(missionId, out _);
                 DiscardUnclaimedMissionOutput(missionId);
             }
         }
