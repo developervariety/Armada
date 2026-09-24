@@ -3120,8 +3120,7 @@ namespace Armada.Core.Services
                     Mission = mission,
                     AgentOutputTail = LastOutputLines(failureReason, 40),
                     MissionTitle = mission.Title ?? String.Empty,
-                    MarkerPresent = failureReason != null
-                        && failureReason.Contains(CaptainRefusalClassifier.RefusalMarker, StringComparison.Ordinal)
+                    MarkerPresent = CaptainRefusalClassifier.HasRefusalMarker(failureReason)
                 };
                 return await RefusalAdapter.DecideAsync(input, ruleVerdict, token).ConfigureAwait(false);
             }

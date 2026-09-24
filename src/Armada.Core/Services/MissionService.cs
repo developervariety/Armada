@@ -1875,7 +1875,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Report whether captain output claims the mission finished, by whichever marker the
-        /// persona uses. Its ABSENCE is the signal, and it is the only one the platform has:
+        /// persona uses. The marker counts only at the start of a line (<see cref="ProgressParser"/>);
+        /// prose that mentions it mid-line is not a claim. Its ABSENCE is the signal, and it is the only one the platform has:
         /// a captain whose provider stream dies mid-run leaves no other trace, because the
         /// runtime wrapper still exits 0.
         /// </summary>
@@ -1887,9 +1888,7 @@ namespace Armada.Core.Services
         /// </remarks>
         internal static bool HasCompletionMarker(string? agentOutput)
         {
-            if (String.IsNullOrEmpty(agentOutput)) return false;
-            return agentOutput.Contains(CompletionMarker, StringComparison.Ordinal)
-                || agentOutput.Contains(VerdictMarker, StringComparison.Ordinal);
+            return ProgressParser.HasTerminalMarker(agentOutput);
         }
 
         /// <summary>
@@ -5684,9 +5683,7 @@ namespace Armada.Core.Services
             HandoffOutcomeVerdict verdict;
             try
             {
-                bool markerPresent = !String.IsNullOrEmpty(completedMission.AgentOutput)
-                    && (completedMission.AgentOutput.Contains("[ARMADA:RESULT]", StringComparison.Ordinal)
-                        || completedMission.AgentOutput.Contains("[ARMADA:VERDICT]", StringComparison.Ordinal));
+                bool markerPresent = ProgressParser.HasSignal(completedMission.AgentOutput, "result", "verdict");
 
                 HandoffOutcomeDecisionInput input = new HandoffOutcomeDecisionInput
                 {
@@ -7697,8 +7694,7 @@ namespace Armada.Core.Services
                     Mission = mission,
                     AgentOutputTail = LastOutputLines(mission.AgentOutput, 40),
                     MissionTitle = mission.Title ?? String.Empty,
-                    MarkerPresent = mission.AgentOutput != null
-                        && mission.AgentOutput.Contains(CaptainRefusalClassifier.RefusalMarker, StringComparison.Ordinal)
+                    MarkerPresent = CaptainRefusalClassifier.HasRefusalMarker(mission.AgentOutput)
                 };
                 return await RefusalAdapter.DecideAsync(input, ruleVerdict, token).ConfigureAwait(false);
             }
@@ -9396,10 +9392,10 @@ namespace Armada.Core.Services
             // that way must never replace the one it already delivered.
             foreach (string rawLine in lines)
             {
-                string line = rawLine.Trim().Trim('\r');
-                if (!line.StartsWith(VerdictMarker, StringComparison.OrdinalIgnoreCase)) continue;
+                ProgressParser.ProgressSignal? signal = ProgressParser.TryParse(rawLine);
+                if (signal == null || !String.Equals(signal.Type, "verdict", StringComparison.Ordinal)) continue;
 
-                JudgeVerdict? canonicalVerdict = ParseStructuredJudgeVerdictSignal(line);
+                JudgeVerdict? canonicalVerdict = ParseStructuredJudgeVerdictSignal(rawLine.Trim());
                 if (canonicalVerdict.HasValue) return canonicalVerdict.Value;
             }
 

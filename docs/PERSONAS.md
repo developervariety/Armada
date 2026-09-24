@@ -158,6 +158,21 @@ reads on the Judge's brief, not a structured signal. Do not rely on it to gate
 anything automatically; the Judge's `[ARMADA:VERDICT]` line is the structured
 outcome.
 
+### A marker counts only at the start of a line
+
+Every reader of `[ARMADA:RESULT]` and `[ARMADA:VERDICT]` applies one rule: a
+marker counts only when it starts a physical line, after optional leading
+whitespace. This holds for progress and terminal-marker tracking, the
+completion claim that no-op detection reads, refusal classification
+(`[ARMADA:RESULT] REFUSED`), the Architect's `[ARMADA:RESULT] BLOCKED`, the
+handoff-outcome check and the Judge verdict. Prose that mentions a marker in the
+middle of a line is not a marker, and neither is a marker glued to other text
+(`Done.[ARMADA:RESULT] COMPLETE`) or wrapped in formatting
+(`**[ARMADA:VERDICT] PASS**`). The runtimes put a real marker on its own line:
+each text block becomes its own record, and streamed text is joined into whole
+lines before a record is written. The terminal values are `[ARMADA:RESULT]
+COMPLETE` and `[ARMADA:VERDICT] PASS`, `FAIL` or `NEEDS_REVISION`, exactly.
+
 ### Several markers in one output record
 
 A runtime can deliver several physical lines as one output record, for example

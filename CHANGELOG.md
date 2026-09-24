@@ -146,6 +146,14 @@ upstream integrations and excludes changes already present at that baseline.
   on the other providers and serialize with a `Z`. The database runner checks
   the kind and value of the objective and model endpoint timestamps after a
   reopen.
+- **Protocol markers:** `[ARMADA:RESULT]` and `[ARMADA:VERDICT]` markers count
+  only at the start of a line, after optional leading whitespace, for every
+  reader: the completion claim used by no-op detection, refusal classification,
+  the Architect `BLOCKED` result, the handoff-outcome check, the Judge verdict and
+  its follow-up label, and progress parsing. A marker mentioned mid-line, glued to
+  other text or wrapped in formatting is not a marker. A completion claim is one
+  of the exact terminal values (`COMPLETE`, `PASS`, `FAIL`, `NEEDS_REVISION`).
+
 - **Token usage input buckets:** every runtime records input tokens as three
   separate buckets, counted the same way for every provider: uncached input,
   cache-read input and cache-write input. A record's input is their sum and its

@@ -16,6 +16,19 @@ namespace Armada.Core.Services
         /// <summary>Structured marker a captain writes when it declines work, followed by its reason.</summary>
         public const string RefusalMarker = "[ARMADA:RESULT] REFUSED";
 
+        private const string RefusedWord = "REFUSED";
+
+        /// <summary>
+        /// True when the output holds the refusal marker at the start of a line, the one place a marker counts
+        /// (<see cref="ProgressParser"/>).
+        /// </summary>
+        /// <param name="output">Agent output or a failure reason.</param>
+        /// <returns>True when a refusal marker starts a line.</returns>
+        public static bool HasRefusalMarker(string? output)
+        {
+            return ProgressParser.TryFindSignal(output, "result", RefusedWord, true, out ProgressParser.MarkerLine _);
+        }
+
         /// <summary>Maximum characters kept from a refusal reason or evidence line.</summary>
         public const int MaxReasonChars = 500;
 
@@ -60,23 +73,18 @@ namespace Armada.Core.Services
 
             string[] lines = agentOutput.Replace("\r\n", "\n").Split('\n');
 
-            for (int i = lines.Length - 1; i >= 0; i--)
+            if (ProgressParser.TryFindSignal(agentOutput, "result", RefusedWord, true, out ProgressParser.MarkerLine refused))
             {
-                string line = lines[i].Trim();
-                int markerIndex = line.IndexOf(RefusalMarker, StringComparison.Ordinal);
-                if (markerIndex < 0) continue;
-
-                string reason = line.Substring(markerIndex + RefusalMarker.Length).TrimStart(':', ' ', '-').Trim();
+                string reason = refused.Remainder.TrimStart(':', ' ', '-').Trim();
                 return new CaptainRefusal
                 {
                     Kind = CaptainRefusalKindEnum.DeclaredRefusal,
                     Reason = Bound(reason),
-                    Evidence = Bound(line)
+                    Evidence = Bound(refused.Line)
                 };
             }
 
-            if (agentOutput.Contains(MissionService.CompletionMarker, StringComparison.Ordinal)
-                || agentOutput.Contains(MissionService.VerdictMarker, StringComparison.Ordinal))
+            if (ProgressParser.HasTerminalMarker(agentOutput))
             {
                 return none;
             }

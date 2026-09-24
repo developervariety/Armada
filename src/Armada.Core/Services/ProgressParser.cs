@@ -1,11 +1,16 @@
 namespace Armada.Core.Services
 {
+    using System;
     using System.Collections.Generic;
     using System.Text.RegularExpressions;
     using Armada.Core.Enums;
 
     /// <summary>
-    /// Parses agent output for progress signals.
+    /// Parses agent output for progress signals, and is the one definition of where a protocol marker counts:
+    /// only at the start of a physical line (leading whitespace allowed). A marker in the middle of a prose line,
+    /// or glued to the end of other text ("Done.[ARMADA:RESULT] COMPLETE"), is not a marker for any reader. The
+    /// runtimes deliver captain text so that a real marker starts its own line: they write each text block as its
+    /// own record and join streamed text pieces into whole lines before a record is written.
     /// Agents can emit lines like:
     ///   [ARMADA:PROGRESS] 75
     ///   [ARMADA:STATUS] Testing
@@ -99,6 +104,106 @@ namespace Armada.Core.Services
         {
             List<ProgressSignal> signals = ParseAll(line);
             return signals.Count > 0 ? signals[0] : null;
+        }
+
+        /// <summary>
+        /// True when the output holds a terminal marker (<see cref="TerminalMarkerTracker.IsTerminalMarker"/>) at the
+        /// start of a line: the captain's claim that its stage finished.
+        /// </summary>
+        /// <param name="output">Agent output.</param>
+        /// <returns>True when a terminal marker starts a line.</returns>
+        public static bool HasTerminalMarker(string? output)
+        {
+            foreach (ProgressSignal signal in ParseAll(output))
+            {
+                if (TerminalMarkerTracker.IsTerminalMarker(signal)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// True when the output holds a marker of one of the given types (for example "result" or "verdict") at the
+        /// start of a line, whatever its value.
+        /// </summary>
+        /// <param name="output">Agent output.</param>
+        /// <param name="types">Lower-case signal types.</param>
+        /// <returns>True when such a marker starts a line.</returns>
+        public static bool HasSignal(string? output, params string[] types)
+        {
+            foreach (ProgressSignal signal in ParseAll(output))
+            {
+                foreach (string type in types)
+                {
+                    if (String.Equals(signal.Type, type, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Find a marker of the given type whose value begins with the given word (for example a
+        /// <c>[ARMADA:RESULT] REFUSED &lt;reason&gt;</c> line), searching forward or from the end.
+        /// </summary>
+        /// <param name="output">Agent output.</param>
+        /// <param name="type">Lower-case signal type.</param>
+        /// <param name="leadingWord">Word the marker value must begin with, compared without case.</param>
+        /// <param name="fromEnd">True to return the last such marker, false for the first.</param>
+        /// <param name="match">The marker found.</param>
+        /// <returns>True when such a marker starts a line.</returns>
+        public static bool TryFindSignal(string? output, string type, string leadingWord, bool fromEnd, out MarkerLine match)
+        {
+            match = new MarkerLine();
+            if (String.IsNullOrEmpty(output)) return false;
+
+            List<MarkerLine> found = new List<MarkerLine>();
+            int offset = 0;
+            foreach (string physicalLine in output.Split('\n'))
+            {
+                ProgressSignal? signal = TryParsePhysicalLine(physicalLine);
+                if (signal != null
+                    && String.Equals(signal.Type, type, StringComparison.OrdinalIgnoreCase)
+                    && StartsWithWord(signal.Value, leadingWord))
+                {
+                    found.Add(new MarkerLine
+                    {
+                        Line = physicalLine.Trim(),
+                        LineStart = offset,
+                        Remainder = signal.Value.Substring(leadingWord.Length).Trim()
+                    });
+                    if (!fromEnd) break;
+                }
+
+                offset += physicalLine.Length + 1;
+            }
+
+            if (found.Count == 0) return false;
+            match = fromEnd ? found[found.Count - 1] : found[0];
+            return true;
+        }
+
+        /// <summary>
+        /// A marker line found by <see cref="TryFindSignal"/>.
+        /// </summary>
+        public sealed class MarkerLine
+        {
+            /// <summary>The physical line, trimmed.</summary>
+            public string Line { get; set; } = "";
+
+            /// <summary>Character index in the output where the physical line starts.</summary>
+            public int LineStart { get; set; }
+
+            /// <summary>The marker value after its leading word, trimmed.</summary>
+            public string Remainder { get; set; } = "";
+        }
+
+        private static bool StartsWithWord(string value, string word)
+        {
+            if (String.IsNullOrEmpty(value) || !value.StartsWith(word, StringComparison.OrdinalIgnoreCase)) return false;
+            if (value.Length == word.Length) return true;
+            char next = value[word.Length];
+            return !Char.IsLetterOrDigit(next) && next != '_';
         }
 
         private static ProgressSignal? TryParsePhysicalLine(string line)

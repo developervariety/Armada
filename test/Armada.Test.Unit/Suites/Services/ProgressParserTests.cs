@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Test.Common;
 
@@ -10,6 +11,60 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            // One rule for every marker reader: a marker counts only at the start of a line, leading whitespace
+            // allowed. The runtimes put a real marker on its own line (each text block is its own record, and
+            // streamed text is joined into whole lines before a record is written), so a marker glued to other
+            // text is never a real one.
+            await RunTest("Every marker reader counts a marker only at the start of a line", () =>
+            {
+                string[] notMarkers =
+                {
+                    "The brief says to finish with [ARMADA:RESULT] COMPLETE once done.",
+                    "Remember that a Judge writes [ARMADA:VERDICT] PASS at the end.",
+                    "Done.[ARMADA:RESULT] COMPLETE"
+                };
+                foreach (string prose in notMarkers)
+                {
+                    AssertFalse(ProgressParser.HasTerminalMarker(prose), "ProgressParser: " + prose);
+                    AssertFalse(MissionService.HasCompletionMarker(prose), "HasCompletionMarker: " + prose);
+                    AssertEqual(CaptainRefusalKindEnum.ModelPolicyRefusal, CaptainRefusalClassifier.Classify(prose + "\nI can't help with that.").Kind,
+                        "A completion marker mid-line does not suppress the refusal fallback: " + prose);
+                }
+
+                string refusalProse = "The captain may write [ARMADA:RESULT] REFUSED out of scope when it declines.";
+                AssertFalse(CaptainRefusalClassifier.HasRefusalMarker(refusalProse), "A refusal marker mid-line is not a marker");
+                AssertTrue(CaptainRefusalClassifier.Classify(refusalProse).Kind != CaptainRefusalKindEnum.DeclaredRefusal, "Classify ignores a refusal marker mid-line");
+                AssertFalse(ProgressParser.HasSignal("Note: [ARMADA:RESULT] COMPLETE is the claim.", "result", "verdict"), "The handoff marker check ignores a marker mid-line");
+                ArchitectParseResult architectProse = new ArchitectOutputParser().Parse("Plan: if stuck write [ARMADA:RESULT] BLOCKED and list questions.\n- q1");
+                AssertTrue(architectProse.Verdict != ArchitectParseVerdict.Blocked, "Architect BLOCKED mid-line is not a marker");
+                Mission decorated = new Mission("m", "d") { Status = MissionStatusEnum.Complete, AgentOutput = "**[ARMADA:VERDICT] NEEDS_REVISION**" };
+                AssertEqual("PASS", JudgeOutputParser.ParseVerdictLabel(decorated), "A decorated verdict marker does not start its line");
+
+                string[] markers =
+                {
+                    "All checks pass.\n[ARMADA:RESULT] COMPLETE\nSummary follows.",
+                    "Review body\n  [ARMADA:VERDICT] PASS"
+                };
+                foreach (string output in markers)
+                {
+                    AssertTrue(ProgressParser.HasTerminalMarker(output), "ProgressParser: " + output);
+                    AssertTrue(MissionService.HasCompletionMarker(output), "HasCompletionMarker: " + output);
+                    AssertTrue(ProgressParser.HasSignal(output, "result", "verdict"), "Handoff marker check: " + output);
+                    AssertEqual(CaptainRefusalKindEnum.None, CaptainRefusalClassifier.Classify(output + "\nI can't help with that.").Kind, "A completion claim at line start suppresses the prose refusal fallback");
+                }
+
+                string refusal = "Looked at the brief.\n[ARMADA:RESULT] REFUSED out of scope";
+                AssertTrue(CaptainRefusalClassifier.HasRefusalMarker(refusal), "A refusal marker at line start is a marker");
+                CaptainRefusal declared = CaptainRefusalClassifier.Classify(refusal);
+                AssertEqual(CaptainRefusalKindEnum.DeclaredRefusal, declared.Kind, "Classify reads a refusal marker at line start");
+                AssertEqual("out of scope", declared.Reason, "The refusal reason follows the marker");
+                ArchitectParseResult blocked = new ArchitectOutputParser().Parse("Plan draft\n[ARMADA:RESULT] BLOCKED\n- which database?");
+                AssertEqual(ArchitectParseVerdict.Blocked, blocked.Verdict, "Architect BLOCKED at line start is a marker");
+                AssertEqual("which database?", blocked.BlockedQuestions[0], "Blocked questions follow the marker line");
+                Mission verdict = new Mission("m", "d") { Status = MissionStatusEnum.Complete, AgentOutput = "Findings\n[ARMADA:VERDICT] NEEDS_REVISION" };
+                AssertEqual("NEEDS_REVISION", JudgeOutputParser.ParseVerdictLabel(verdict), "A verdict marker at line start is read");
+            });
+
             await RunTest("TryParse Null ReturnsNull", () =>
             {
                 ProgressParser.ProgressSignal? result = ProgressParser.TryParse(null!);

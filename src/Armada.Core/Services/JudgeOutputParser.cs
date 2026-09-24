@@ -136,10 +136,14 @@ namespace Armada.Core.Services
             string[] lines = (mission.AgentOutput ?? String.Empty).Replace("\r\n", "\n").Split('\n');
             for (int i = lines.Length - 1; i >= 0; i--)
             {
-                string normalized = lines[i].Trim().Trim('*', '_', '`', '#', '>', '-', ' ')
-                    .Replace("[ARMADA:VERDICT]", String.Empty, StringComparison.OrdinalIgnoreCase)
-                    .Replace("[VERDICT]", String.Empty, StringComparison.OrdinalIgnoreCase)
-                    .Trim();
+                // A verdict marker counts only at the start of a line (ProgressParser); the rest of this loop reads
+                // the runtime's "[verdict]" echo and a bare verdict word.
+                ProgressParser.ProgressSignal? marker = ProgressParser.TryParse(lines[i]);
+                string normalized = marker != null && String.Equals(marker.Type, "verdict", StringComparison.Ordinal)
+                    ? marker.Value
+                    : lines[i].Trim().Trim('*', '_', '`', '#', '>', '-', ' ')
+                        .Replace("[VERDICT]", String.Empty, StringComparison.OrdinalIgnoreCase)
+                        .Trim();
                 if (normalized.Equals("NEEDS_REVISION", StringComparison.OrdinalIgnoreCase)
                     || normalized.Equals("NEEDS REVISION", StringComparison.OrdinalIgnoreCase)) return "NEEDS_REVISION";
                 if (normalized.Equals("FAIL", StringComparison.OrdinalIgnoreCase)) return "FAIL";
