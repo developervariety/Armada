@@ -3,7 +3,6 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
-    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -11,11 +10,19 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// Production implementation of <see cref="IAgentWakeProcessHost"/>.
-    /// Spawns the agent CLI process, writes stdin, drains stdout/stderr in the background,
-    /// and enforces a timeout via kill. The background monitor calls <c>onExited</c> when done.
+    /// Runs the agent CLI through <see cref="BoundedProcessRunner"/>: standard input is written while both output
+    /// streams are read, each stream is kept within a byte budget, and the timeout kills the process tree. The
+    /// background monitor calls <c>onExited</c> when done.
     /// </summary>
     public sealed class AgentWakeProcessHost : IAgentWakeProcessHost
     {
+        #region Public-Members
+
+        /// <summary>Most UTF-8 bytes kept from each output stream of a wake process; only a snippet is logged.</summary>
+        public const int OutputLimitBytes = 64 * 1024;
+
+        #endregion
+
         #region Private-Members
 
         private readonly LoggingModule _Logging;
@@ -44,10 +51,6 @@ namespace Armada.Core.Services
             ProcessStartInfo psi = new ProcessStartInfo
             {
                 FileName = request.Command,
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
             };
 
             if (!string.IsNullOrEmpty(request.WorkingDirectory))
@@ -62,10 +65,16 @@ namespace Armada.Core.Services
                     psi.Environment[kv.Key] = kv.Value;
             }
 
-            Process? process;
+            Task<BoundedProcessResult> run;
             try
             {
-                process = Process.Start(psi);
+                // A timeout of zero or less still kills at once, as it always has, rather than running unbounded.
+                BoundedProcessRequest bounded = new BoundedProcessRequest(psi, TimeSpan.FromSeconds(Math.Max(0.001, request.TimeoutSeconds)))
+                {
+                    StandardInput = string.IsNullOrEmpty(request.StdinPayload) ? null : request.StdinPayload,
+                    OutputLimitBytes = OutputLimitBytes
+                };
+                run = BoundedProcessRunner.RunAsync(bounded);
             }
             catch (Exception ex)
             {
@@ -73,14 +82,16 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            if (process == null)
+            // The runner starts the process before its first await, so a start failure has already faulted the task.
+            if (run.IsFaulted)
             {
-                _Logging.Error(_Header + "spawn returned null for command " + request.Command);
+                Exception failure = run.Exception!.GetBaseException();
+                _Logging.Error(_Header + "spawn failed for command " + request.Command + ": " + failure.Message);
                 return false;
             }
 
-            _Logging.Info(_Header + "spawned pid " + process.Id + " for command " + request.Command);
-            _ = Task.Run(async () => await MonitorAsync(process, request, onExited).ConfigureAwait(false));
+            _Logging.Info(_Header + "spawned command " + request.Command);
+            _ = Task.Run(async () => await MonitorAsync(run, request, onExited).ConfigureAwait(false));
             return true;
         }
 
@@ -88,39 +99,15 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private async Task MonitorAsync(Process process, AgentWakeProcessRequest request, Action onExited)
+        private async Task MonitorAsync(Task<BoundedProcessResult> run, AgentWakeProcessRequest request, Action onExited)
         {
-            bool timedOut = false;
             try
             {
-                if (!string.IsNullOrEmpty(request.StdinPayload))
-                    await process.StandardInput.WriteAsync(request.StdinPayload).ConfigureAwait(false);
-                process.StandardInput.Close();
+                BoundedProcessResult result = await run.ConfigureAwait(false);
+                if (result.TimedOut)
+                    _Logging.Warn(_Header + "process timed out after " + request.TimeoutSeconds + "s; killed command " + request.Command);
 
-                Task<string> stdoutDrain = process.StandardOutput.ReadToEndAsync();
-                Task<string> stderrDrain = process.StandardError.ReadToEndAsync();
-
-                using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(request.TimeoutSeconds));
-                try
-                {
-                    await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    timedOut = true;
-                    _Logging.Warn(_Header + "process timed out after " + request.TimeoutSeconds + "s; killing pid " + process.Id);
-                    try { process.Kill(entireProcessTree: true); } catch { }
-                }
-
-                await Task.WhenAny(Task.WhenAll(stdoutDrain, stderrDrain), Task.Delay(5000)).ConfigureAwait(false);
-
-                string stdoutSnippet = ExtractSnippet(stdoutDrain);
-                string stderrSnippet = ExtractSnippet(stderrDrain);
-
-                int? exitCode = null;
-                try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
-
-                LogExit(process.Id, request.Command, exitCode, timedOut, stdoutSnippet, stderrSnippet);
+                LogExit(request.Command, result);
             }
             catch (Exception ex)
             {
@@ -128,17 +115,8 @@ namespace Armada.Core.Services
             }
             finally
             {
-                try { process.Dispose(); } catch { }
                 onExited();
             }
-        }
-
-        private static string ExtractSnippet(Task<string> drain)
-        {
-            if (drain == null) return string.Empty;
-            if (!drain.IsCompletedSuccessfully) return string.Empty;
-            string value = drain.Result ?? string.Empty;
-            return TruncateForLog(value);
         }
 
         private static string TruncateForLog(string value)
@@ -150,13 +128,18 @@ namespace Armada.Core.Services
             return "..." + trimmed.Substring(trimmed.Length - maxChars);
         }
 
-        private void LogExit(int pid, string command, int? exitCode, bool timedOut, string stdoutSnippet, string stderrSnippet)
+        private void LogExit(string command, BoundedProcessResult result)
         {
-            string baseInfo = "pid " + pid + " command " + command +
+            int? exitCode = result.ExitCode;
+            string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
+            string baseInfo = "command " + command +
                 " exitCode=" + (exitCode.HasValue ? exitCode.Value.ToString() : "unknown") +
-                (timedOut ? " (timed out)" : string.Empty);
+                (result.TimedOut ? " (timed out)" : string.Empty) +
+                (string.IsNullOrEmpty(anomalies) ? string.Empty : " [" + anomalies + "]");
 
-            bool failed = timedOut || (exitCode.HasValue && exitCode.Value != 0) || !exitCode.HasValue;
+            string stdoutSnippet = TruncateForLog(result.StandardOutput);
+            string stderrSnippet = TruncateForLog(result.StandardError);
+            bool failed = result.TimedOut || (exitCode.HasValue && exitCode.Value != 0) || !exitCode.HasValue;
             if (failed)
             {
                 string detail = baseInfo;

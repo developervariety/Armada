@@ -179,6 +179,13 @@ upstream integrations and excludes changes already present at that baseline.
   runner. A caller cancellation kills the command instead of leaving it running,
   check and gate commands own their process group, and a failing-test set read
   from truncated output is marked incomplete.
+- **Wake, daemon and Helm build output:** AgentWake agent runs and the Helm
+  `server start` build steps (server build, `tsc`, `vite`) run through the bounded
+  runner, so a child that fills its stderr pipe, or fills it before reading its
+  input, no longer hangs the wake or the CLI; a build step that never finishes is
+  killed after 15 minutes. The OpenCode server the admiral launches has both output
+  streams drained at once into a fixed per-stream budget instead of being held
+  whole for the life of the daemon.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.

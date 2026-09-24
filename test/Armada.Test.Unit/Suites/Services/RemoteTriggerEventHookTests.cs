@@ -646,6 +646,40 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("exited abnormally", logText, "timeout process exit should be logged as abnormal.");
                 AssertContains("timed out", logText, "exit diagnostic should preserve timeout state.");
             });
+
+            await RunTest("AgentWakeProcessHost_ChildFillingStderrBeforeReadingStdin_ExitsAndBoundsOutput", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string logPath = Path.Combine(Path.GetTempPath(), "armada_agentwake_pipes_" + Guid.NewGuid().ToString("N") + ".log");
+                LoggingModule logging = CreateFileLogging(logPath);
+                AgentWakeProcessHost host = new AgentWakeProcessHost(logging);
+
+                // The child writes 1 MiB to stderr before it reads any of its 1 MiB of input. A host that finishes
+                // writing standard input before it starts reading the output waits on a child that is itself
+                // blocked writing stderr, and the timeout never gets a chance to fire.
+                AgentWakeProcessRequest request = new AgentWakeProcessRequest();
+                request.Command = "/bin/sh";
+                request.ArgumentList = new List<string>
+                {
+                    "-c",
+                    "head -c 1048576 /dev/zero | tr '\\0' 'e' >&2; cat > /dev/null; printf 'agent-wake-pipes-done\\n'; exit 5"
+                };
+                request.StdinPayload = new string('i', 1048576);
+                request.TimeoutSeconds = 60;
+
+                TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool started = host.TryStart(request, () => exited.TrySetResult());
+                AssertTrue(started, "AgentWakeProcessHost.TryStart should succeed for a pipe-filling shell command.");
+
+                Task winner = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(20))).ConfigureAwait(false);
+                AssertTrue(winner == exited.Task, "a child that fills stderr before reading stdin must still run to its own exit.");
+
+                await logging.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                string logText = File.ReadAllText(logPath);
+                AssertContains("exitCode=5", logText, "the child's own exit code is logged, not a timeout.");
+                AssertContains("stdout=agent-wake-pipes-done", logText, "stdout written after the large stderr is kept.");
+                AssertContains("stderr_omitted_bytes=", logText, "stderr past the host's budget is dropped and named, not held whole.");
+            });
         }
 
         private sealed class MissionOutcomeCapture

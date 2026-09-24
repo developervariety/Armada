@@ -24,6 +24,39 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("DefaultProcessRunner_DaemonOutput_IsDrainedConcurrentlyWithinABudget", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                // 1 MiB on stderr first, then 8 MiB on stdout: both streams must be read at once, and a daemon's
+                // output over its lifetime must not be held whole.
+                ProcessStartInfo startInfo = new ProcessStartInfo("/bin/sh")
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                startInfo.ArgumentList.Add("-c");
+                startInfo.ArgumentList.Add("head -c 1048576 /dev/zero | tr '\\0' 'e' >&2; head -c 8388608 /dev/zero | tr '\\0' 'o'; printf 'daemon-stdout-end\\n'");
+
+                OpenCodeServerLauncher.IProcessRunner runner = new OpenCodeServerLauncher.DefaultProcessRunner();
+                using (OpenCodeServerLauncher.ILaunchedProcess? launched = runner.Start(startInfo))
+                {
+                    AssertNotNull(launched, "the default runner starts the process");
+                    Task<string> stdout = launched!.DrainStandardOutputAsync();
+                    Task<string> stderr = launched.DrainStandardErrorAsync();
+                    Task both = Task.WhenAll(stdout, stderr);
+                    Task winner = await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+                    AssertTrue(winner == both, "both drains finish once the process exits");
+
+                    string kept = await stdout.ConfigureAwait(false);
+                    AssertTrue(kept.Length <= OpenCodeServerLauncher.OutputLimitBytes + 256, "stdout is held within its budget; kept " + kept.Length + " chars");
+                    AssertContains("bytes of output omitted", kept, "the dropped middle is named");
+                    AssertTrue(kept.EndsWith("daemon-stdout-end\n", StringComparison.Ordinal), "the end of the stream is kept");
+                    AssertTrue((await stderr.ConfigureAwait(false)).Length <= OpenCodeServerLauncher.OutputLimitBytes + 256, "stderr is held within its budget");
+                }
+            });
+
             await RunTest("StartAsync_HealthyDaemonAlreadyRunning_DoesNotSpawn", async () =>
             {
                 ScriptedHttpMessageHandler handler = new ScriptedHttpMessageHandler();

@@ -9,6 +9,7 @@ namespace Armada.Helm.Commands
     using Spectre.Console;
     using Spectre.Console.Cli;
     using Armada.Core;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Start the Admiral server.
@@ -16,6 +17,9 @@ namespace Armada.Helm.Commands
     [Description("Start the Admiral server")]
     public class ServerStartCommand : BaseCommand<ServerStartSettings>
     {
+        private const int _BuildStepOutputLimitBytes = 256 * 1024;
+        private static readonly TimeSpan _BuildStepTimeout = TimeSpan.FromMinutes(15);
+
         /// <inheritdoc />
         protected override async Task<int> ExecuteAsync(CommandContext context, ServerStartSettings settings, CancellationToken cancellationToken)
         {
@@ -40,7 +44,7 @@ namespace Armada.Helm.Commands
             }
 
             // Find the server executable
-            string? serverExe = FindServerExe();
+            string? serverExe = await FindServerExeAsync(cancellationToken).ConfigureAwait(false);
             if (serverExe == null)
             {
                 AnsiConsole.MarkupLine("[red]Admiral server executable not found.[/]");
@@ -49,7 +53,7 @@ namespace Armada.Helm.Commands
             }
 
             // Build and deploy the React dashboard if source is available
-            BuildAndDeployDashboard(serverExe);
+            await BuildAndDeployDashboardAsync(serverExe, cancellationToken).ConfigureAwait(false);
 
             // Launch the server executable
             ProcessStartInfo startInfo;
@@ -134,7 +138,7 @@ namespace Armada.Helm.Commands
         /// 1. Next to the CLI executable (installed/published scenario)
         /// 2. Dev: build from source project and return built exe path
         /// </summary>
-        private string? FindServerExe()
+        private async Task<string?> FindServerExeAsync(CancellationToken token)
         {
             // Platform-aware executable name
             string exeName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
@@ -170,7 +174,7 @@ namespace Armada.Helm.Commands
                     {
                         if (attempt == 0)
                             AnsiConsole.MarkupLine("[dim]Waiting for previous server process to release...[/]");
-                        Thread.Sleep(1000);
+                        await Task.Delay(1000, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -198,13 +202,9 @@ namespace Armada.Helm.Commands
                 if (buildAttempt == 0)
                     buildInfo.ArgumentList.Add("-q");
 
-                Process buildProcess = new Process { StartInfo = buildInfo };
-                buildProcess.Start();
-                buildProcess.StandardOutput.ReadToEnd();
-                string buildStderr = buildProcess.StandardError.ReadToEnd();
-                buildProcess.WaitForExit();
+                BoundedProcessResult build = await RunBuildStepAsync(buildInfo, token).ConfigureAwait(false);
 
-                if (buildProcess.ExitCode == 0)
+                if (build.ExitCode == 0)
                     break;
 
                 if (buildAttempt == 0)
@@ -214,8 +214,7 @@ namespace Armada.Helm.Commands
                 }
 
                 AnsiConsole.MarkupLine("[red]Server build failed.[/]");
-                if (!string.IsNullOrEmpty(buildStderr))
-                    AnsiConsole.MarkupLine($"[dim]{Markup.Escape(buildStderr.Trim())}[/]");
+                WriteStepFailure(build);
                 return null;
             }
 
@@ -311,7 +310,7 @@ namespace Armada.Helm.Commands
         /// <summary>
         /// Build the React dashboard and deploy it to the data directory.
         /// </summary>
-        private void BuildAndDeployDashboard(string serverExe)
+        private async Task BuildAndDeployDashboardAsync(string serverExe, CancellationToken token)
         {
             // Find the dashboard source relative to the server project
             string? dashboardDir = FindDashboardProject(serverExe);
@@ -380,13 +379,9 @@ namespace Armada.Helm.Commands
                     tscInfo.ArgumentList.Add(tscPath);
                 }
 
-                Process tscProcess = new Process { StartInfo = tscInfo };
-                tscProcess.Start();
-                tscProcess.StandardOutput.ReadToEnd();
-                string tscStderr = tscProcess.StandardError.ReadToEnd();
-                tscProcess.WaitForExit();
+                BoundedProcessResult tsc = await RunBuildStepAsync(tscInfo, token).ConfigureAwait(false);
 
-                if (tscProcess.ExitCode != 0)
+                if (tsc.ExitCode != 0)
                 {
                     if (hasExistingDist)
                         AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Continuing with the existing React dashboard bundle.[/]");
@@ -395,8 +390,7 @@ namespace Armada.Helm.Commands
                     else
                         AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; /dashboard serves nothing until a dashboard build exists.[/]");
 
-                    if (!string.IsNullOrEmpty(tscStderr))
-                        AnsiConsole.MarkupLine($"[dim]{Markup.Escape(tscStderr.Trim())}[/]");
+                    WriteStepFailure(tsc);
 
                     return;
                 }
@@ -417,13 +411,9 @@ namespace Armada.Helm.Commands
                 }
                 viteInfo.ArgumentList.Add("build");
 
-                Process viteProcess = new Process { StartInfo = viteInfo };
-                viteProcess.Start();
-                viteProcess.StandardOutput.ReadToEnd();
-                string viteStderr = viteProcess.StandardError.ReadToEnd();
-                viteProcess.WaitForExit();
+                BoundedProcessResult vite = await RunBuildStepAsync(viteInfo, token).ConfigureAwait(false);
 
-                if (viteProcess.ExitCode != 0)
+                if (vite.ExitCode != 0)
                 {
                     if (hasExistingDist)
                         AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Continuing with the existing React dashboard bundle.[/]");
@@ -432,8 +422,7 @@ namespace Armada.Helm.Commands
                     else
                         AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; /dashboard serves nothing until a dashboard build exists.[/]");
 
-                    if (!string.IsNullOrEmpty(viteStderr))
-                        AnsiConsole.MarkupLine($"[dim]{Markup.Escape(viteStderr.Trim())}[/]");
+                    WriteStepFailure(vite);
 
                     return;
                 }
@@ -493,6 +482,29 @@ namespace Armada.Helm.Commands
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Run one build step (the server build, tsc, vite) through the bounded runner: both output streams are read
+        /// at once, so a step that writes more than a pipe buffer to either stream cannot block, each stream keeps its
+        /// beginning and its end within a budget, and a step that never finishes is killed with its tree.
+        /// </summary>
+        internal static Task<BoundedProcessResult> RunBuildStepAsync(ProcessStartInfo startInfo, CancellationToken token)
+        {
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, _BuildStepTimeout)
+            {
+                OutputLimitBytes = _BuildStepOutputLimitBytes
+            };
+            return BoundedProcessRunner.RunAsync(request, token);
+        }
+
+        private static void WriteStepFailure(BoundedProcessResult result)
+        {
+            string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
+            if (!string.IsNullOrEmpty(anomalies))
+                AnsiConsole.MarkupLine($"[dim]{Markup.Escape(anomalies)}[/]");
+            if (!string.IsNullOrEmpty(result.StandardError))
+                AnsiConsole.MarkupLine($"[dim]{Markup.Escape(result.StandardError.Trim())}[/]");
         }
 
         private static void CopyDirectory(string sourceDir, string destDir)

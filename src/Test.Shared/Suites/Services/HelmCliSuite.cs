@@ -339,6 +339,29 @@ namespace Test.Shared.Suites.Services
                     AssertFalse(await RestartMayStartAsync(refused), "A refused stop must cancel the restart.");
                     AssertTrue(await RestartMayStartAsync(exiting), "A server that exits lets the restart proceed.");
                     AssertTrue(await RestartMayStartAsync(absent), "A server that was not running lets the restart proceed.");
+                }),
+                CaseAsync("server_start_build_step_survives_a_full_stderr_pipe", "Helm server start build steps do not block on a child that fills its stderr pipe", TestTags.Negative, async () =>
+                {
+                    if (OperatingSystem.IsWindows()) return;
+
+                    // 1 MiB on stderr before anything on stdout: a reader that finishes stdout before starting stderr
+                    // waits for an end of stdout that never comes, because the child is blocked writing stderr.
+                    System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo("/bin/sh");
+                    startInfo.ArgumentList.Add("-c");
+                    startInfo.ArgumentList.Add("head -c 1048576 /dev/zero | tr '\\0' 'e' >&2; echo done; exit 3");
+                    startInfo.RedirectStandardOutput = true;
+                    startInfo.RedirectStandardError = true;
+                    startInfo.UseShellExecute = false;
+
+                    Task<Armada.Core.Services.BoundedProcessResult> step = Task.Run(() => ServerStartCommand.RunBuildStepAsync(startInfo, CancellationToken.None));
+                    Task winner = await Task.WhenAny(step, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+                    AssertTrue(winner == step, "The build step must return while its child writes more than a pipe buffer to stderr.");
+
+                    Armada.Core.Services.BoundedProcessResult result = await step.ConfigureAwait(false);
+                    AssertEqual(3, result.ExitCode ?? -1, "The step reports the child's exit code.");
+                    AssertFalse(result.TimedOut, "The step finished on its own, not by timeout.");
+                    AssertTrue(result.StandardErrorTruncated, "Stderr past the step's budget is dropped and counted, not held whole.");
+                    AssertTrue(result.StandardError.EndsWith("eeee", StringComparison.Ordinal), "The end of stderr, where a build explains its failure, is kept.");
                 })
             };
 

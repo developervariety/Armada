@@ -11,6 +11,7 @@ namespace Armada.Core.Services
     using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Settings;
     using SyslogLogging;
 
@@ -71,6 +72,9 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Members
+
+        /// <summary>Most UTF-8 bytes of each daemon output stream held at once.</summary>
+        internal const int OutputLimitBytes = 64 * 1024;
 
         private const string _Header = "[OpenCodeServerLauncher] ";
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
@@ -378,7 +382,7 @@ namespace Armada.Core.Services
             public bool Healthy { get; set; }
         }
 
-        private sealed class DefaultProcessRunner : IProcessRunner
+        internal sealed class DefaultProcessRunner : IProcessRunner
         {
             public ILaunchedProcess? Start(ProcessStartInfo startInfo)
             {
@@ -402,12 +406,23 @@ namespace Armada.Core.Services
 
             public Task<string> DrainStandardOutputAsync()
             {
-                return _Process.StandardOutput.ReadToEndAsync();
+                return DrainAsync(_Process.StandardOutput);
             }
 
             public Task<string> DrainStandardErrorAsync()
             {
-                return _Process.StandardError.ReadToEndAsync();
+                return DrainAsync(_Process.StandardError);
+            }
+
+            /// <summary>
+            /// Read the stream to its end, holding only its beginning and a rolling end within
+            /// <see cref="OutputLimitBytes"/>: the daemon runs for the life of the admiral, so its output is never held whole.
+            /// </summary>
+            private static async Task<string> DrainAsync(StreamReader reader)
+            {
+                BoundedTextCapture capture = new BoundedTextCapture(OutputLimitBytes, BoundedOutputShapeEnum.HeadAndTail);
+                await BoundedOutputPump.PumpTextAsync(reader, capture, CancellationToken.None).ConfigureAwait(false);
+                return capture.Render();
             }
 
             public void Kill(bool entireProcessTree)
