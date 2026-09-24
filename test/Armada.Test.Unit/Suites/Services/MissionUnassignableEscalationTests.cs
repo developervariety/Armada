@@ -52,6 +52,36 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(MissionStatusEnum.Pending, after!.Status, "escalation reports the state; it does not change the mission");
             }).ConfigureAwait(false);
 
+            await RunTest("A mission whose Smart Routing persona routes admit no captain is unassignable by construction", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Scene scene = await CreateSceneAsync(testDb, "[\"Judge\"]", CaptainStateEnum.Idle, (settings, captain) =>
+                {
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Enabled = true,
+                        Accounts = new List<UsageAccountSettings>
+                        {
+                            new UsageAccountSettings { Id = "routes-account", CaptainIds = new List<string> { captain.Id } }
+                        },
+                        PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>>
+                        {
+                            ["Judge"] = new List<UsageRouteSettings>
+                            {
+                                new UsageRouteSettings { AccountId = "routes-account", Models = new List<string> { "unused-route-model" } }
+                            }
+                        }
+                    };
+                }).ConfigureAwait(false);
+
+                await scene.Missions.TryAssignAsync(scene.Mission, scene.Vessel).ConfigureAwait(false);
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false);
+                AssertTrue(String.IsNullOrEmpty(after!.CaptainId), "precondition: assignment never gives the mission to the captain its routes exclude");
+                AssertEqual(1, await CountEventsAsync(testDb, scene.Mission.Id).ConfigureAwait(false),
+                    "a persona route that admits no captain is named as unassignable by construction");
+            }).ConfigureAwait(false);
+
             await RunTest("A mission waiting for a busy captain that could serve it is not escalated", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -75,7 +105,11 @@ namespace Armada.Test.Unit.Suites.Services
             public Mission Mission { get; set; } = null!;
         }
 
-        private static async Task<Scene> CreateSceneAsync(TestDatabase testDb, string allowedPersonas, CaptainStateEnum captainState)
+        private static async Task<Scene> CreateSceneAsync(
+            TestDatabase testDb,
+            string allowedPersonas,
+            CaptainStateEnum captainState,
+            Action<ArmadaSettings, Captain>? configure = null)
         {
             if (await testDb.Driver.Tenants.ReadAsync(TenantId).ConfigureAwait(false) == null)
                 await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = TenantId, Name = TenantId }).ConfigureAwait(false);
@@ -120,7 +154,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Persona = "Judge"
             }).ConfigureAwait(false);
 
-            await testDb.Driver.Captains.CreateAsync(new Captain("persona-locked-captain")
+            Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("persona-locked-captain")
             {
                 TenantId = TenantId,
                 State = captainState,
@@ -133,6 +167,7 @@ namespace Armada.Test.Unit.Suites.Services
                 DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_unassignable_docks_" + unique),
                 ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_unassignable_repos_" + unique)
             };
+            configure?.Invoke(settings, captain);
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             StubGitService git = new StubGitService();

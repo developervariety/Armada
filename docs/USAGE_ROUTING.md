@@ -55,9 +55,10 @@ the effective floor is never chosen, even when a persona model list names its
 model.
 
 A mission continued on another runtime after a policy refusal uses the same
-rule. A captain on another runtime is an approved alternate when this layer
-admits it, so a pinned model that only the refusing runtime runs is a tier
-floor for the continuation too.
+rules as assignment. A captain on another runtime is an approved alternate when
+it is in the mission's tenant, the persona routes admit it (when Smart Routing
+is on), and this layer admits it. A pinned model that only the refusing runtime
+runs is therefore a tier floor for the continuation too.
 
 ## Layer 2: order (Legacy Routing)
 
@@ -120,7 +121,11 @@ steps are:
 1. **Route restriction (optional).** When the persona has `personaRoutes`
    (or a `"*"` entry applies), only captains on the named accounts stay in
    the pool. A route with a `models` list also limits the models. A persona
-   without routes is not restricted. Route order has no effect.
+   without routes is not restricted. Route order has no effect. When the
+   routes admit no captain of the mission's tenant that allows its persona,
+   the mission can never be assigned: Armada records
+   `mission.unassignable_by_construction` once and opens an incident if the
+   mission stays that way.
 2. **Legacy Routing order.** The Legacy Routing selector picks its first
    captain, then its next captain from those left, until it picks none. A
    captain that layer 1 (persona lock or tier floor) excludes is not in the

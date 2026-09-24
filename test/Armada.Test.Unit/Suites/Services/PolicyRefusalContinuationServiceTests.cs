@@ -122,50 +122,33 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Codex", String.Join(",", decision.AlternateRuntimes), "the alternate runtime is named");
             });
 
-            await RunTest("Every alternate captain is approved exactly when the assignment selector could choose it", () =>
+            await RunTest("Every alternate captain is approved exactly when assignment assigns it the mission", async () =>
             {
-                ModelTierSettings tiers = new ModelTierSettings();
-                Captain refusing = MakeCaptain("refusing", AgentRuntimeEnum.ClaudeCode);
-                refusing.Model = "claude-opus-4-7";
-                refusing.Tier = CaptainTierEnum.Premium;
-
-                List<Captain> alternates = new List<Captain>();
-                foreach (CaptainTierEnum tier in new[] { CaptainTierEnum.Economy, CaptainTierEnum.Standard, CaptainTierEnum.Premium })
-                {
-                    foreach (string model in new[] { "claude-opus-4-7", "gpt-5.6-sol", "example-model" })
-                    {
-                        Captain open = MakeCaptain("open-" + tier + "-" + model, AgentRuntimeEnum.Codex);
-                        open.Model = model;
-                        open.Tier = tier;
-                        alternates.Add(open);
-                        Captain locked = MakeCaptain("judge-only-" + tier + "-" + model, AgentRuntimeEnum.Codex);
-                        locked.Model = model;
-                        locked.Tier = tier;
-                        locked.AllowedPersonas = "[\"Judge\"]";
-                        alternates.Add(locked);
-                    }
-                }
-
-                int approved = 0;
+                List<AlternateParityCase> domain = AlternateParityCase.Domain();
+                List<string> disagreements = new List<string>();
+                int assigned = 0;
                 int refused = 0;
-                foreach (string? preferredModel in new[] { null, "low", "mid", "high", "claude-opus-4-7", "gpt-5.6-sol", "example-model", "unrun-model" })
+                foreach (AlternateParityCase parityCase in domain)
                 {
-                    Mission mission = MakeMission();
-                    mission.PreferredModel = preferredModel;
-                    foreach (Captain alternate in alternates)
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                     {
-                        bool couldSelect = LegacyCaptainSelector.CouldSelect(tiers, mission, alternate);
-                        PolicyRefusalContinuationDecision decision = PolicyRefusalContinuationService.Decide(
-                            mission, refusing, Declared(), policyPresent: true, continuationAlreadyUsed: false,
-                            new List<Captain> { refusing, alternate }, tiers);
-                        bool continued = decision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue;
-                        AssertEqual(couldSelect, continued,
-                            "pin " + (preferredModel ?? "(none)") + ", captain " + alternate.Name + ": the continuation must approve exactly the captains assignment could choose");
-                        if (continued) approved++; else refused++;
+                        AlternateParityVerdict verdict = await EvaluateAlternateParityAsync(testDb, parityCase);
+                        if (verdict.Assigned) assigned++;
+                        else refused++;
+                        if (verdict.Approved != verdict.Assigned)
+                        {
+                            disagreements.Add(parityCase.Label
+                                + ": continuation " + (verdict.Approved ? "approved" : "refused")
+                                + ", assignment " + (verdict.Assigned ? "assigned" : "never assigned"));
+                        }
                     }
                 }
 
-                AssertTrue(approved > 0 && refused > 0, "the domain holds both approved and refused alternates");
+                AssertTrue(assigned > 0, "the domain holds cases assignment serves");
+                AssertTrue(refused > 0, "the domain holds cases assignment refuses, so the comparison is not only yes against yes");
+                AssertEqual(0, disagreements.Count,
+                    disagreements.Count + " of " + domain.Count + " cases disagree:" + Environment.NewLine
+                    + String.Join(Environment.NewLine, disagreements.Take(40)));
             });
 
             await RunTest("HandleAsync records the refusal, continues once, then stops with the reason on a second refusal", async () =>
@@ -310,6 +293,124 @@ namespace Armada.Test.Unit.Suites.Services
                     "an ordinary retry skip list keeps its fall-back-to-any-captain behaviour");
                 AssertFalse(MissionService.IsExcludedForAssignment(null, captain), "a null mission excludes nobody");
             });
+        }
+
+        private sealed class AlternateParityVerdict
+        {
+            public bool Approved { get; set; }
+            public bool Assigned { get; set; }
+        }
+
+        private sealed class AlternateParityCase
+        {
+            public CaptainTierEnum Tier { get; set; } = CaptainTierEnum.Premium;
+            public string Model { get; set; } = "gpt-5.6-sol";
+            public bool Locked { get; set; } = false;
+            public bool OtherTenant { get; set; } = false;
+            public string? Pin { get; set; } = null;
+            public string Routing { get; set; } = "off";
+
+            public string Label => "tier=" + Tier + " model=" + Model + " locked=" + Locked + " otherTenant=" + OtherTenant
+                + " pin=" + (Pin ?? "none") + " routing=" + Routing;
+
+            // One alternate-runtime captain whose tier, model, persona lock and tenant vary, against no pin, a tier
+            // selector, the model only the refusing runtime runs and a model no captain runs, with Smart Routing off,
+            // persona routes that admit the alternate, and persona routes that admit nobody.
+            public static List<AlternateParityCase> Domain()
+            {
+                List<AlternateParityCase> cases = new List<AlternateParityCase>();
+                foreach (CaptainTierEnum tier in new[] { CaptainTierEnum.Economy, CaptainTierEnum.Premium })
+                    foreach (string model in new[] { "claude-opus-4-7", "gpt-5.6-sol" })
+                        foreach (bool locked in new[] { false, true })
+                            foreach (bool otherTenant in new[] { false, true })
+                                foreach (string? pin in new[] { null, "high", "claude-opus-4-7", "unrun-model" })
+                                    foreach (string routing in new[] { "off", "admit-alternate", "admit-none" })
+                                        cases.Add(new AlternateParityCase { Tier = tier, Model = model, Locked = locked, OtherTenant = otherTenant, Pin = pin, Routing = routing });
+                return cases;
+            }
+        }
+
+        // The continuation's verdict on one alternate, and whether real assignment gives that alternate the mission
+        // while the refusing captain is busy.
+        private static async Task<AlternateParityVerdict> EvaluateAlternateParityAsync(TestDatabase testDb, AlternateParityCase parityCase)
+        {
+            string id = Guid.NewGuid().ToString("N");
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.DocksDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_refusal_parity_docks_" + id);
+            settings.ReposDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_refusal_parity_repos_" + id);
+            settings.LogDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_refusal_parity_logs_" + id);
+
+            Captain refusing = MakeCaptain("refusing", AgentRuntimeEnum.ClaudeCode);
+            refusing.Model = "claude-opus-4-7";
+            refusing.Tier = CaptainTierEnum.Premium;
+            refusing.State = CaptainStateEnum.Working;
+            refusing = await testDb.Driver.Captains.CreateAsync(refusing);
+
+            Captain alternate = MakeCaptain("alternate", AgentRuntimeEnum.Codex);
+            alternate.Model = parityCase.Model;
+            alternate.Tier = parityCase.Tier;
+            if (parityCase.Locked) alternate.AllowedPersonas = "[\"Judge\"]";
+            if (parityCase.OtherTenant)
+            {
+                TenantMetadata other = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Refusal parity other tenant"));
+                alternate.TenantId = other.Id;
+            }
+            alternate = await testDb.Driver.Captains.CreateAsync(alternate);
+
+            if (parityCase.Routing != "off")
+            {
+                settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                {
+                    Enabled = true,
+                    Accounts = new List<UsageAccountSettings>
+                    {
+                        new UsageAccountSettings { Id = "parity-account", CaptainIds = new List<string> { refusing.Id, alternate.Id } }
+                    },
+                    PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>>
+                    {
+                        ["Worker"] = new List<UsageRouteSettings>
+                        {
+                            new UsageRouteSettings
+                            {
+                                AccountId = "parity-account",
+                                Models = parityCase.Routing == "admit-none" ? new List<string> { "unused-route-model" } : new List<string>()
+                            }
+                        }
+                    }
+                };
+            }
+
+            Vessel vessel = new Vessel("refusal-parity-vessel-" + id, "https://github.com/test/refusal-parity.git");
+            vessel.LocalPath = System.IO.Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+            vessel.DefaultBranch = "main";
+            vessel = await testDb.Driver.Vessels.CreateAsync(vessel);
+
+            Mission mission = MakeMission();
+            mission.VesselId = vessel.Id;
+            mission.PreferredModel = parityCase.Pin;
+            mission.Status = MissionStatusEnum.Pending;
+            mission = await testDb.Driver.Missions.CreateAsync(mission);
+
+            PolicyRefusalContinuationDecision decision = PolicyRefusalContinuationService.Decide(
+                mission, refusing, Declared(), policyPresent: true, continuationAlreadyUsed: false,
+                new List<Captain> { refusing, alternate }, settings.ModelTier);
+
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            StubGitService git = new StubGitService();
+            IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+            CaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, docks);
+            captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64101);
+            MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captainService,
+                resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
+            await missions.TryAssignAsync(mission, vessel);
+            Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id);
+
+            return new AlternateParityVerdict
+            {
+                Approved = decision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue,
+                Assigned = String.Equals(stored?.CaptainId, alternate.Id, StringComparison.Ordinal)
+            };
         }
     }
 }

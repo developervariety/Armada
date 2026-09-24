@@ -1636,7 +1636,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "Worker",
                     fleet.SpecialistPersonas);
                 AssertEqual("high", enforced, "the legacy helper keeps an explicit high request");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", enforced, fleet),
+                AssertFalse(LegacyCaptainSelector.CouldSelect(fleet, new Mission { Persona = "Worker", PreferredModel = enforced }, captain),
                     "an explicit high request leaves a Standard captain below the floor");
 
                 string? resolved = PreferredModelTierSelector.ResolveEffectivePreferredModel(
@@ -1646,7 +1646,7 @@ namespace Armada.Test.Unit.Suites.Services
                     fleet.SpecialistPersonas);
                 AssertEqual("high", resolved, "the persona-aware resolver keeps the mission floor");
                 AssertTrue(
-                    !MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", resolved, fleet),
+                    !LegacyCaptainSelector.CouldSelect(fleet, new Mission { Persona = "Worker", PreferredModel = resolved }, captain),
                     "a Standard captain remains below an explicit Premium request");
                 return Task.CompletedTask;
             });

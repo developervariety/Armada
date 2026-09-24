@@ -504,33 +504,34 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("CaptainSatisfiesPreferredRouting_TierPin_UsesTheCaptainTier", () =>
+            await RunTest("CouldSelect_TierPin_UsesTheCaptainTier", () =>
             {
+                ModelTierSettings settings = new ModelTierSettings();
                 Captain standard = MakeCaptain("gpt-5.6-luna", CaptainTierEnum.Standard, 0, "[\"Worker\"]");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(standard, null, "high"), "a Standard captain does not satisfy a high pin");
+                AssertFalse(LegacyCaptainSelector.CouldSelect(settings, new Mission { PreferredModel = "high" }, standard), "a Standard captain does not satisfy a high pin");
                 standard.Tier = CaptainTierEnum.Premium;
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(standard, null, "high"), "pinning the captain to Premium lets it satisfy a high pin");
+                AssertTrue(LegacyCaptainSelector.CouldSelect(settings, new Mission { PreferredModel = "high" }, standard), "pinning the captain to Premium lets it satisfy a high pin");
                 return Task.CompletedTask;
             });
 
-            await RunTest("CaptainSatisfiesPreferredRouting_PersonaMinimum_IsAHardFloor", () =>
+            await RunTest("CouldSelect_PersonaMinimum_IsAHardFloor", () =>
             {
                 Captain standard = MakeCaptain("model-s", CaptainTierEnum.Standard);
                 Captain premium = MakeCaptain("model-p", CaptainTierEnum.Premium);
                 ModelTierSettings settings = Settings("Judge");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(standard, "Judge", "mid", settings), "a specialist needs Premium even for a mid request");
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(premium, "Judge", null, settings), "a Premium captain serves the specialist");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(standard, "Judge", "model-s", settings), "a literal pin below the persona minimum is rejected");
+                AssertFalse(LegacyCaptainSelector.CouldSelect(settings, new Mission { Persona = "Judge", PreferredModel = "mid" }, standard), "a specialist needs Premium even for a mid request");
+                AssertTrue(LegacyCaptainSelector.CouldSelect(settings, new Mission { Persona = "Judge" }, premium), "a Premium captain serves the specialist");
+                AssertFalse(LegacyCaptainSelector.CouldSelect(settings, new Mission { Persona = "Judge", PreferredModel = "model-s" }, standard), "a literal pin below the persona minimum is rejected");
                 return Task.CompletedTask;
             });
 
-            await RunTest("CaptainSatisfiesPreferredRouting_LiteralPinAndPersona_AreEnforced", () =>
+            await RunTest("CouldSelect_LiteralPinAndPersona_AreEnforced", () =>
             {
+                ModelTierSettings settings = new ModelTierSettings();
                 Captain captain = MakeCaptain("claude-opus-4-7", CaptainTierEnum.Premium, 0, "[\"Worker\",\"Judge\"]");
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "claude-opus-4-7"), "exact literal model pin is satisfied");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, null, "gpt-5.6-sol"), "a non-matching literal model pin is rejected");
-                AssertTrue(MissionService.CaptainSatisfiesPreferredRouting(captain, "Judge", null), "an allowed persona with no model pin is satisfied");
-                AssertFalse(MissionService.CaptainSatisfiesPreferredRouting(captain, "Architect", null), "a persona absent from the allow-list is rejected");
+                AssertTrue(LegacyCaptainSelector.CouldSelect(settings, new Mission { PreferredModel = "claude-opus-4-7" }, captain), "exact literal model pin is satisfied");
+                AssertTrue(LegacyCaptainSelector.CouldSelect(settings, new Mission { Persona = "Judge" }, captain), "an allowed persona with no model pin is satisfied");
+                AssertFalse(LegacyCaptainSelector.CouldSelect(settings, new Mission { Persona = "Architect" }, captain), "a persona absent from the allow-list is rejected");
                 return Task.CompletedTask;
             });
 

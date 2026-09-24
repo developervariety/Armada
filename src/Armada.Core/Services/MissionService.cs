@@ -9880,51 +9880,6 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Whether a captain satisfies optional persona allow-list and optional preferred model
-        /// (literal or tier selector), ignoring idle state. Used for hard pins and pipeline
-        /// stage pin resolution.
-        /// </summary>
-        /// <param name="captain">Captain row to evaluate.</param>
-        /// <param name="missionPersona">Mission persona, if any.</param>
-        /// <param name="preferredModel">Preferred model or tier selector, if any.</param>
-        /// <param name="modelTierSettings">Optional settings whose persona minimum tier adds an eligibility floor.</param>
-        /// <returns>True when the captain may run the mission under the given pins.</returns>
-        public static bool CaptainSatisfiesPreferredRouting(
-            Captain captain,
-            string? missionPersona,
-            string? preferredModel,
-            ModelTierSettings? modelTierSettings = null)
-        {
-            if (captain == null) throw new ArgumentNullException(nameof(captain));
-
-            bool literalPin = !String.IsNullOrEmpty(preferredModel) && !PreferredModelTierSelector.IsTierSelector(preferredModel);
-            if (!String.IsNullOrEmpty(preferredModel))
-            {
-                if (PreferredModelTierSelector.IsTierSelector(preferredModel))
-                {
-                    if (!PreferredModelTierSelector.CaptainMatchesTierOrAbove(captain, preferredModel))
-                        return false;
-                }
-                else if (!String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
-
-            if (!literalPin && modelTierSettings != null
-                && !LegacyCaptainSelector.TierOrderFor(modelTierSettings, new Mission { Persona = missionPersona, PreferredModel = preferredModel })
-                    .Contains(CaptainTierSelector.EffectiveTier(captain))) return false;
-            if (literalPin && FailsPersonaMinimumTier(captain, missionPersona, modelTierSettings)) return false;
-
-            if (!String.IsNullOrEmpty(missionPersona))
-            {
-                return CaptainAllowsPersona(captain, missionPersona);
-            }
-
-            return true;
-        }
-
-        /// <summary>
         /// Whether the persona's minimum tier excludes the captain. The minimum holds for every captain that
         /// takes the persona, whatever model the mission pins and whichever captain it requests.
         /// </summary>
@@ -10124,9 +10079,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Returns why no captain of the mission's tenant, in any state, can ever serve the mission, or null
         /// when at least one could. Quarantine, benching and busy captains are temporary and do not count.
-        /// The verdict covers the tenant, the persona lock and the Legacy Routing tier floor only. It does not
-        /// read Smart Routing persona routes, which remove captains before the Legacy Routing order: a mission
-        /// whose persona routes admit no eligible captain waits forever and is not reported here.
+        /// When Smart Routing is enabled the persona routes apply first, as they do in assignment; the usage
+        /// filter is temporary and does not count, so the verdict holds with Smart Routing enabled.
         /// </summary>
         private async Task<string?> DescribeUnassignableByConstructionAsync(Mission mission, CancellationToken token)
         {
@@ -10140,6 +10094,16 @@ namespace Armada.Core.Services
             List<Captain> personaCaptains = tenantCaptains.Where(item => CaptainAllowsPersona(item, mission.Persona)).ToList();
             if (personaCaptains.Count == 0)
                 return "no captain of the tenant allows persona " + (mission.Persona ?? "(none)");
+
+            UsageRoutingSettings usagePolicy = _Settings.ModelTier.UsageRouting;
+            if (usagePolicy.Enabled)
+            {
+                personaCaptains = personaCaptains
+                    .Where(item => UsageRoutingService.PersonaRoutesAdmit(usagePolicy, mission.Persona, item))
+                    .ToList();
+                if (personaCaptains.Count == 0)
+                    return "the Smart Routing routes for persona " + (mission.Persona ?? "(none)") + " admit no captain of the tenant that allows it";
+            }
 
             string? preferredModel = mission.PreferredModel;
             CaptainTierEnum? minimumTier = _Settings.ModelTier.MinimumTierForPersona(mission.Persona);
