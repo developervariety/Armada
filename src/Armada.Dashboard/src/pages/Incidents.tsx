@@ -34,6 +34,7 @@ import Pagination from '../components/shared/Pagination';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 
 const INCIDENT_STATUSES: IncidentStatus[] = ['Open', 'Monitoring', 'Mitigated', 'RolledBack', 'Closed'];
 const INCIDENT_SEVERITIES: IncidentSeverity[] = ['Critical', 'High', 'Medium', 'Low'];
@@ -62,10 +63,7 @@ export default function Incidents() {
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
   const [severityFilter, setSeverityFilter] = useState<'all' | IncidentSeverity>('all');
   // Filters and pages run on the server (a page holds at most 500), so totals cover every incident.
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging({ initialPageSize: 25, maxPageSize: 500 });
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
@@ -173,9 +171,8 @@ export default function Incidents() {
         pageRequest,
       ]);
       if (!request.isCurrent()) return;
+      if (!acceptPage(incidentResult)) return;
       setIncidents(incidentResult.objects || []);
-      setTotalPages(incidentResult.totalPages || 1);
-      setTotalRecords(incidentResult.totalRecords || 0);
       setStatusCounts(Object.fromEntries(INCIDENT_STATUSES.map((status, index) => [status, countResults[index]?.totalRecords ?? 0])));
       setVessels(vesselResult);
       setEnvironments(environmentResult);
@@ -187,7 +184,7 @@ export default function Incidents() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, appliedSearch, pageNumber, pageSize, severityFilter, statusFilter, t]);
+  }, [acceptPage, requests, appliedSearch, pageNumber, pageSize, severityFilter, statusFilter, t]);
 
   useEffect(() => {
     void load();

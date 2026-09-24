@@ -18,6 +18,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import { retainSelection } from '../lib/selection';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -45,10 +46,7 @@ export default function Signals() {
   const [loading, setLoading] = useState(false);
 
   // Pagination
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber: page, pageSize, totalPages, totalRecords, setPageNumber: setPage, setPageSize, acceptPage } = useServerPaging();
   const [totalMs, setTotalMs] = useState(0);
 
   // Filters
@@ -93,9 +91,8 @@ export default function Signals() {
       if (filterUnreadOnly) filters.unreadOnly = 'true';
       const result = await listSignals({ pageNumber: page, pageSize, filters });
       if (!request.isCurrent()) return;
+      if (!acceptPage(result)) return;
       setSignals(result.objects || []);
-      setTotalPages(result.totalPages || 0);
-      setTotalRecords(result.totalRecords || 0);
       setTotalMs(result.totalMs || 0);
       setSelected(prev => retainSelection(prev, (result.objects || []).map(s => s.id)));
     } catch {
@@ -103,7 +100,7 @@ export default function Signals() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, page, pageSize, filterType, filterToCaptain, filterUnreadOnly, t]);
+  }, [requests, page, pageSize, filterType, filterToCaptain, filterUnreadOnly, acceptPage, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -206,7 +203,6 @@ export default function Signals() {
 
   function handlePageSizeChange(newSize: number) {
     setPageSize(newSize);
-    setPage(1);
   }
 
   function resetFilters() {

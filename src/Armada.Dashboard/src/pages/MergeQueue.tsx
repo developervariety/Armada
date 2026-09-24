@@ -28,6 +28,7 @@ import CopyButton from '../components/shared/CopyButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import { retainSelection } from '../lib/selection';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -47,10 +48,7 @@ export default function MergeQueue() {
   const [error, setError] = useState('');
 
   // Pagination (server-side)
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging();
 
   // Enqueue modal
   const [showEnqueue, setShowEnqueue] = useState(false);
@@ -100,9 +98,8 @@ export default function MergeQueue() {
       if (statusFilter) filters.status = statusFilter;
       const result = await listMergeQueue({ pageNumber, pageSize, filters });
       if (!request.isCurrent()) return;
+      if (!acceptPage(result)) return;
       setEntries(result.objects || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalRecords(result.totalRecords || 0);
       setSelected(prev => retainSelection(prev, (result.objects || []).map(e => e.id)));
       setError('');
     } catch {
@@ -110,7 +107,7 @@ export default function MergeQueue() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, pageNumber, pageSize, statusFilter, t]);
+  }, [acceptPage, requests, pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 

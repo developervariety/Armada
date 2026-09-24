@@ -14,6 +14,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import { retainSelection } from '../lib/selection';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -34,10 +35,7 @@ export default function Events() {
   const [error, setError] = useState('');
 
   // Pagination (server-side)
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging({ initialPageSize: 50 });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -74,9 +72,8 @@ export default function Events() {
       setLoading(true);
       const result = await listEvents({ pageNumber, pageSize });
       if (!request.isCurrent()) return;
+      if (!acceptPage(result)) return;
       setEvents(result.objects || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalRecords(result.totalRecords || 0);
       setSelected(prev => retainSelection(prev, (result.objects || []).map(e => e.id)));
       setError('');
     } catch {
@@ -84,7 +81,7 @@ export default function Events() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, pageNumber, pageSize, t]);
+  }, [acceptPage, requests, pageNumber, pageSize, t]);
 
   useEffect(() => { load(); }, [load]);
 

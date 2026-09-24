@@ -150,6 +150,11 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard server-paged lists:** Missions, Signals, Events, Merge Queue, Voyages,
+  Memories, Check Runs, Incidents and Requests share one paging state
+  (`useServerPaging`). When a reload finds the list now ends before the page on
+  screen (rows deleted or expired), the page moves to the last page and reloads it
+  instead of showing an empty table past the end.
 - **Dashboard diff viewer:** the file list and per-file view read Git's diff headers by
   the same rules as the server: C-quoted names (non-ASCII or special characters) show
   the real name and open their own pane, a name containing ` b/` keeps it, and a rename

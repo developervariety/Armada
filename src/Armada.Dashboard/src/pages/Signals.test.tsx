@@ -114,3 +114,25 @@ test('an earlier filter that responds last neither replaces the rows nor prunes 
   expect(rowCheckbox('sig_mail').checked).toBe(true);
   expect(screen.getByText(/Delete Selected/)).toHaveTextContent('(1)');
 });
+
+test('a reload that finds the page past the new end moves to the last page instead of showing an empty table', async () => {
+  let totalPages = 2;
+  vi.mocked(listSignals).mockImplementation((async (params?: { pageNumber?: number }) => {
+    const pageNumber = params?.pageNumber ?? 1;
+    if (pageNumber > totalPages) return { ...empty, pageNumber, totalPages, totalRecords: totalPages, objects: [] };
+    return { ...empty, pageNumber, totalPages, totalRecords: totalPages, objects: [signal(`sig_p${pageNumber}`)] };
+  }) as never);
+  render(<MemoryRouter><Signals /></MemoryRouter>);
+  await screen.findByText('sig_p1', { selector: '.id-value' });
+
+  fireEvent.click(screen.getByText('Next'));
+  await screen.findByText('sig_p2', { selector: '.id-value' });
+
+  // The only row on page 2 is removed elsewhere; the list now ends at page 1.
+  totalPages = 1;
+  fireEvent.click(screen.getByTitle('Refresh signals'));
+
+  await screen.findByText('sig_p1', { selector: '.id-value' });
+  expect(listSignals).toHaveBeenLastCalledWith(expect.objectContaining({ pageNumber: 1 }));
+  expect(screen.getByRole('spinbutton')).toHaveValue(1);
+});

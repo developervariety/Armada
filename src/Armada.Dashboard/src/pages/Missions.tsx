@@ -26,6 +26,7 @@ import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -51,10 +52,7 @@ export default function Missions() {
   const { pushToast } = useNotifications();
 
   // Pagination: server-side for the default creation-time order, client-side over every mission otherwise
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging();
 
   // Server-side status filter
   const [statusFilter, setStatusFilter] = useState('');
@@ -122,9 +120,8 @@ export default function Missions() {
       } else {
         const result = await listMissionSummaries({ pageNumber, pageSize, filters });
         if (!request.isCurrent()) return;
+        if (!acceptPage(result)) return;
         setMissions(result.objects || []);
-        setTotalPages(result.totalPages || 1);
-        setTotalRecords(result.totalRecords || 0);
       }
       setError('');
     } catch {
@@ -132,7 +129,7 @@ export default function Missions() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, fullList, pageNumber, pageSize, statusFilter, sortField, sortDir, t]);
+  }, [acceptPage, requests, fullList, pageNumber, pageSize, statusFilter, sortField, sortDir, t]);
 
   useEffect(() => {
     listAllVessels().then(setVessels).catch(() => {});

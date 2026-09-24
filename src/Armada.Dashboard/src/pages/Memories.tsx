@@ -6,6 +6,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { canEditOwned, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import PageHeader from '../components/shared/PageHeader';
 import Pagination from '../components/shared/Pagination';
@@ -30,10 +31,7 @@ export default function Memories() {
 
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(false);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging();
   const [typeFilter, setTypeFilter] = useState<'' | MemoryType>('');
   const [search, setSearch] = useState('');
   // The list queries the search text only after typing pauses, so a word sends one request, not one per keystroke.
@@ -52,15 +50,14 @@ export default function Memories() {
       if (appliedSearch) filters.search = appliedSearch;
       const result = await listMemories({ pageNumber, pageSize, filters });
       if (!request.isCurrent()) return;
+      if (!acceptPage(result)) return;
       setMemories(result.objects ?? []);
-      setTotalPages(result.totalPages ?? 1);
-      setTotalRecords(result.totalRecords ?? 0);
     } catch {
       if (request.isCurrent()) pushToast('error', t('Failed to load memories.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, pageNumber, pageSize, typeFilter, appliedSearch, pushToast, t]);
+  }, [acceptPage, requests, pageNumber, pageSize, typeFilter, appliedSearch, pushToast, t]);
 
   useEffect(() => { void load(); }, [load]);
 

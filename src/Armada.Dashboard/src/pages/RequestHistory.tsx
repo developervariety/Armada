@@ -27,6 +27,7 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
@@ -343,10 +344,7 @@ export default function RequestHistory() {
   const [activityRange, setActivityRange] = useState<ActivityRangeId>('lastDay');
   const [entries, setEntries] = useState<RequestHistoryEntry[]>([]);
   const [summary, setSummary] = useState<RequestHistorySummaryResult | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging();
   const [totalMs, setTotalMs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -414,9 +412,8 @@ export default function RequestHistory() {
       setLoading(true);
       const result = await listRequestHistory(query);
       if (!request.isCurrent()) return;
+      if (!acceptPage(result)) return;
       setEntries(result.objects || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalRecords(result.totalRecords || 0);
       setTotalMs(result.totalMs || 0);
       setSelectedIds([]);
       setError('');
@@ -425,7 +422,7 @@ export default function RequestHistory() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [entryRequests, query, t]);
+  }, [acceptPage, entryRequests, query, t]);
 
   const loadSummary = useCallback(async () => {
     const request = summaryRequests.begin();

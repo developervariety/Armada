@@ -13,6 +13,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -31,10 +32,7 @@ export default function Voyages() {
   const [error, setError] = useState('');
 
   // Pagination and the status filter run on the server, so pages and totals cover every voyage.
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging();
   const [statusFilter, setStatusFilter] = useState('');
 
   // JSON viewer
@@ -63,16 +61,15 @@ export default function Voyages() {
       if (statusFilter) filters.status = statusFilter;
       const result = await listVoyages({ pageNumber, pageSize, filters });
       if (!request.isCurrent()) return;
+      if (!acceptPage(result)) return;
       setVoyages(result.objects || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalRecords(result.totalRecords || 0);
       setError('');
     } catch {
       if (request.isCurrent()) setError(t('Failed to load voyages.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, pageNumber, pageSize, statusFilter, t]);
+  }, [acceptPage, requests, pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 

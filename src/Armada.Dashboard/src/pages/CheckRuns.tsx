@@ -21,6 +21,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useServerPaging } from '../lib/useServerPaging';
 import StatusBadge from '../components/shared/StatusBadge';
 import Pagination from '../components/shared/Pagination';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
@@ -129,10 +130,7 @@ export default function CheckRuns() {
   const [sourceFilter, setSourceFilter] = useState<'all' | 'Armada' | 'External'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | CheckRunType>('all');
   // Filters and pages run on the server (a page holds at most 500 runs), so they cover every run.
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging({ initialPageSize: 25, maxPageSize: 500 });
   const [summaryCounts, setSummaryCounts] = useState({ total: 0, passed: 0, failed: 0, running: 0 });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
@@ -177,9 +175,8 @@ export default function CheckRuns() {
         pageRequest,
       ]);
       if (!request.isCurrent()) return;
+      if (!acceptPage(runResult)) return;
       setRuns(runResult.objects || []);
-      setTotalPages(runResult.totalPages || 1);
-      setTotalRecords(runResult.totalRecords || 0);
       setSummaryCounts({ total: counts[0], passed: counts[1], failed: counts[2], running: counts[3] });
       setVessels(vesselResult);
       setProfiles(profileResult);
@@ -189,7 +186,7 @@ export default function CheckRuns() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, pageNumber, pageSize, sourceFilter, statusFilter, t, typeFilter, vesselFilter]);
+  }, [acceptPage, requests, pageNumber, pageSize, sourceFilter, statusFilter, t, typeFilter, vesselFilter]);
 
   useEffect(() => {
     void load();
