@@ -168,6 +168,7 @@ namespace Armada.Test.Database
             await RunTest("Fleet_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyFleetsAsync(token), token);
             await RunTest("Signal_Every_Property_Create_MarkRead_Reopen", "Operational", () => roundTrips.VerifySignalsAsync(token), token);
             await RunTest("Event_Every_Property_Create_Reopen", "Operational", () => roundTrips.VerifyEventsAsync(token), token);
+            await RunTest("Captain_Every_Property_Create_Liveness_Update_Reopen", "Operational", () => roundTrips.VerifyCaptainsAsync(token), token);
             await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
             await RunTest("Pipeline_Same_Order_Stages_Keep_Submitted_Order", "Operational", () => TestPipelineSiblingOrderAsync(token), token);
             await RunTest("RequestHistory_Timestamp_RoundTrip_And_Same_Day_Range", "Operational", () => TestRequestHistorySameDayRangeAsync(token), token);

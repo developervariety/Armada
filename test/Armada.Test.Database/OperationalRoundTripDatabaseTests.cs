@@ -629,6 +629,107 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyCaptainsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? captainId = null;
+            string? endpointId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("captain-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "captain-round-trip", token: token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                ModelEndpoint endpoint = await _Driver.ModelEndpoints.CreateAsync(new ModelEndpoint
+                {
+                    Id = "mep_captain_" + suffix,
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Name = "Captain endpoint " + suffix,
+                    Kind = ModelEndpointKindEnum.Inference,
+                    Scope = ScopeEnum.UserSpecific,
+                    Provider = ModelProviderEnum.OpenAICompatible,
+                    BaseUrl = "http://localhost:9999/v1",
+                    Model = "captain-model"
+                }, token).ConfigureAwait(false);
+                endpointId = endpoint.Id;
+
+                // Sub-second digits and a date far from the host's daylight-saving rules make a host-offset read visible.
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                Captain captain = new Captain("round-trip-captain-" + suffix + "-ユニコード", AgentRuntimeEnum.ApiEndpoint)
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Model = "model ユニコード",
+                    ModelEndpointId = endpoint.Id,
+                    ApiKey = "api-key-" + suffix,
+                    ApiBaseUrl = "https://provider.example.test/v1",
+                    SystemInstructions = "System instructions ユニコード",
+                    AllowedPersonas = "[\"Worker\",\"Judge\"]",
+                    PreferredPersona = "Judge",
+                    RuntimeOptionsJson = "{\"reasoning\":\"high\"}",
+                    Tier = CaptainTierEnum.Economy,
+                    PreferenceRank = -7,
+                    State = CaptainStateEnum.Stalled,
+                    CurrentMissionId = "msn_captain_" + suffix,
+                    CurrentDockId = "dck_captain_" + suffix,
+                    ProcessId = 424242,
+                    ProcessStartedUtc = baseUtc.AddMinutes(-3),
+                    RecoveryAttempts = 3,
+                    LastHeartbeatUtc = baseUtc.AddMinutes(-2),
+                    QuarantineUntilUtc = baseUtc.AddHours(6),
+                    QuarantineReason = "Quarantine reason ユニコード",
+                    DefaultPlaybooks = "[{\"playbookId\":\"pbk_" + suffix + "\",\"deliveryMode\":\"InstructionWithReference\"}]",
+                    CreatedUtc = baseUtc.AddMinutes(-5)
+                };
+                Captain created = await _Driver.Captains.CreateAsync(captain, token).ConfigureAwait(false);
+                captainId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Captains.ReadAsync(created.Id, token).ConfigureAwait(false), "Captain");
+                DatabaseAssert.AllProperties(created, await _Driver.Captains.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "Captain by tenant and user");
+                DatabaseAssert.AllProperties(created, await _Driver.Captains.ReadByNameAsync(created.Name, token).ConfigureAwait(false), "Captain by name");
+
+                DateTime aliveFloor = DateTime.UtcNow.AddSeconds(-1);
+                await _Driver.Captains.UpdateProcessAliveAsync(created.Id, token).ConfigureAwait(false);
+                Captain alive = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(created.Id, token).ConfigureAwait(false), "Captain after liveness");
+                DatabaseAssert.True(alive.LastProcessAliveUtc.HasValue && alive.LastProcessAliveUtc.Value.Kind == DateTimeKind.Utc
+                    && alive.LastProcessAliveUtc.Value >= aliveFloor && alive.LastProcessAliveUtc.Value <= DateTime.UtcNow.AddSeconds(1),
+                    "Captain liveness reads back as the UTC instant it was written, got " + alive.LastProcessAliveUtc?.ToString("O"));
+
+                created.Model = null;
+                created.ModelEndpointId = null;
+                created.ApiKey = null;
+                created.ApiBaseUrl = null;
+                created.SystemInstructions = null;
+                created.AllowedPersonas = null;
+                created.PreferredPersona = null;
+                created.RuntimeOptionsJson = null;
+                created.Tier = null;
+                created.PreferenceRank = 0;
+                created.State = CaptainStateEnum.Idle;
+                created.CurrentMissionId = null;
+                created.CurrentDockId = null;
+                created.ProcessId = null;
+                created.RecoveryAttempts = 0;
+                created.LastHeartbeatUtc = null;
+                created.QuarantineUntilUtc = null;
+                created.QuarantineReason = null;
+                created.DefaultPlaybooks = null;
+                Captain updated = await _Driver.Captains.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Captain reread = DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Captain");
+                    // Liveness is written only by its own refresh, so an ordinary update keeps the refreshed value.
+                    DatabaseAssert.UtcInstant(alive.LastProcessAliveUtc, reread.LastProcessAliveUtc, "Reopened Captain.LastProcessAliveUtc");
+                    DatabaseAssert.AllProperties(updated, reread, "Reopened Captain", nameof(Captain.LastProcessAliveUtc));
+                }
+            }
+            finally
+            {
+                if (captainId != null && !_NoCleanup) await _Driver.Captains.DeleteAsync(captainId, token).ConfigureAwait(false);
+                if (endpointId != null && !_NoCleanup) await _Driver.ModelEndpoints.DeleteAsync(endpointId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
