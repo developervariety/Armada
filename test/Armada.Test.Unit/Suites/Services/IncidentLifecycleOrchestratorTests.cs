@@ -434,6 +434,60 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(updated.ClosedUtc.HasValue, "Rolled-back incidents should get closure timestamp.");
             }).ConfigureAwait(false);
 
+            await RunTest("Links to another tenant's records are never read as evidence", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_own", "usr_inc_life_own").ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_other", "usr_inc_life_other").ConfigureAwait(false);
+                Vessel ownVessel = await CreateVesselAsync(testDb, "ten_inc_life_own", "usr_inc_life_own").ConfigureAwait(false);
+                Vessel otherVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                {
+                    TenantId = "ten_inc_life_other",
+                    UserId = "usr_inc_life_other",
+                    Name = "Incident Lifecycle Other Tenant Vessel",
+                    RepoUrl = "file:///tmp/incident-lifecycle-other.git",
+                    DefaultBranch = "main"
+                }).ConfigureAwait(false);
+
+                // Every linked record belongs to the other tenant and would move the incident if it were read.
+                Deployment otherDeployment = await testDb.Driver.Deployments.CreateAsync(new Deployment
+                {
+                    TenantId = otherVessel.TenantId,
+                    UserId = otherVessel.UserId,
+                    VesselId = otherVessel.Id,
+                    Title = "Other tenant deployment",
+                    Status = DeploymentStatusEnum.RolledBack,
+                    VerificationStatus = DeploymentVerificationStatusEnum.Passed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-2),
+                    RolledBackUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Mission otherMission = await CreateMissionAsync(testDb, otherVessel, MissionStatusEnum.Complete, "Other tenant mission").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(ownVessel.TenantId!, ownVessel.UserId!, false, true, "UnitTest");
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Deployment failed",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    VesselId = ownVessel.Id,
+                    DeploymentId = otherDeployment.Id,
+                    RollbackDeploymentId = otherDeployment.Id,
+                    MissionId = otherMission.Id,
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-5)
+                }).ConfigureAwait(false);
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "No incident moves on another tenant's evidence");
+
+                Incident? unchanged = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertTrue(unchanged != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Open, unchanged!.Status);
+                AssertFalse((unchanged.RecoveryNotes ?? "").Contains(otherDeployment.Id), "Another tenant's deployment is not written into recovery notes");
+                AssertFalse((unchanged.RecoveryNotes ?? "").Contains(otherMission.Id), "Another tenant's mission is not written into recovery notes");
+            }).ConfigureAwait(false);
+
             await RunTest("Sweep reaches an open incident when newer closed incidents fill a whole sweep page", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

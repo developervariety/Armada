@@ -118,6 +118,7 @@ namespace Armada.Server.Routes
                 try
                 {
                     await ValidateObjectivesAsync(ctx, request.ObjectiveIds).ConfigureAwait(false);
+                    await _Incidents.EnsureCallerLinksVisibleAsync(ctx, request).ConfigureAwait(false);
                     Incident incident = await _Incidents.CreateAsync(ctx, request).ConfigureAwait(false);
                     await LinkObjectivesAsync(ctx, incident, request.ObjectiveIds).ConfigureAwait(false);
                     req.Http.Response.StatusCode = 201;
@@ -132,7 +133,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Incidents")
                 .WithSummary("Create an incident")
-                .WithDescription("Creates an operational incident tied to current delivery entities.")
+                .WithDescription("Creates an operational incident tied to current delivery entities. Every linked id (deployment, rollback deployment, release, check run, environment, vessel, mission, voyage) must name a record visible to the caller; otherwise 400 and nothing is created.")
                 .WithRequestBody(OpenApiJson.BodyFor<IncidentUpsertRequest>("Incident create request", true))
                 .WithResponse(201, OpenApiJson.For<Incident>("Created incident"))
                 .WithSecurity("ApiKey"));
@@ -147,6 +148,7 @@ namespace Armada.Server.Routes
                 try
                 {
                     await ValidateObjectivesAsync(ctx, request.ObjectiveIds).ConfigureAwait(false);
+                    await _Incidents.EnsureCallerLinksVisibleAsync(ctx, request).ConfigureAwait(false);
                     Incident incident = await _Incidents.UpdateAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
                     await LinkObjectivesAsync(ctx, incident, request.ObjectiveIds).ConfigureAwait(false);
                     return incident;
@@ -164,7 +166,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Incidents")
                 .WithSummary("Update an incident")
-                .WithDescription("Updates incident status, impact, root cause, recovery, and postmortem details.")
+                .WithDescription("Updates incident status, impact, root cause, recovery, and postmortem details. A supplied linked id that names a record the caller may not see returns 404 and nothing changes.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Incident ID (inc_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<IncidentUpsertRequest>("Incident update request", true))
                 .WithResponse(200, OpenApiJson.For<Incident>("Updated incident"))

@@ -631,9 +631,17 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "captainId is required." };
                 }
 
+                // The captain runs against this vessel's repository, so it is read in the caller's scope like the vessel.
+                Captain? buildCaptain = await Armada.Core.Authorization.CallerScopedRead.ReadCaptainAsync(_database, ctx, request.CaptainId).ConfigureAwait(false);
+                if (buildCaptain == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" };
+                }
+
                 try
                 {
-                    Vessel updated = await _contextService.BuildAsync(buildVessel.Id, request.CaptainId, request.Notes).ConfigureAwait(false);
+                    Vessel updated = await _contextService.BuildAsync(buildVessel.Id, buildCaptain.Id, request.Notes).ConfigureAwait(false);
                     return (object)updated;
                 }
                 catch (TimeoutException ex)
@@ -650,7 +658,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Vessels")
                 .WithSummary("Build or refine the vessel Model Context")
-                .WithDescription("Launches the chosen captain in a worktree of the vessel repository to analyze it and write a Model Context document. Refines the existing context when one is present. Runs synchronously and can take several minutes.")
+                .WithDescription("Launches the chosen captain in a worktree of the vessel repository to analyze it and write a Model Context document. Refines the existing context when one is present. Runs synchronously and can take several minutes. The captain must be visible to the caller; otherwise 404 and nothing runs.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<VesselBuildContextRequest>("Build context request", true))
                 .WithResponse(200, OpenApiJson.For<Vessel>("Updated vessel with new Model Context"))

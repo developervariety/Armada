@@ -174,7 +174,9 @@ namespace Armada.Server.Routes
                 Persona? existing = ctx.IsAdmin
                     ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
+                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanView(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
+                // Every tenant uses a built-in persona, so only a global administrator may change it.
+                if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) return RouteAuthRefusal.Forbid(req, existing.IsBuiltIn ? "Built-in personas can be changed only by a global administrator" : "You may not change this persona");
                 Persona body = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
                 if (body.Description != null) existing.Description = body.Description;
@@ -203,10 +205,11 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Personas")
                 .WithSummary("Update a persona")
-                .WithDescription("Updates an existing persona by name. Only supplied fields are updated: Description, PromptTemplateName, MinimumTier (Economy, Standard, Premium, or null to clear), and DefaultCaptainId (null or empty clears it). A DefaultCaptainId that names no captain in the persona's tenant returns 400 default_captain_not_found; a captain whose AllowedPersonas excludes the persona returns 400 default_captain_persona_locked.")
+                .WithDescription("Updates an existing persona by name. Only supplied fields are updated: Description, PromptTemplateName, MinimumTier (Economy, Standard, Premium, or null to clear), and DefaultCaptainId (null or empty clears it). A DefaultCaptainId that names no captain in the persona's tenant returns 400 default_captain_not_found; a captain whose AllowedPersonas excludes the persona returns 400 default_captain_persona_locked. Every tenant uses a built-in persona, so only a global administrator may change one; any other caller receives 403.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Persona>("Updated persona data", true))
                 .WithResponse(200, OpenApiJson.For<Persona>("Updated persona"))
+                .WithResponse(403, OpenApiResponseMetadata.Forbidden())
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
@@ -224,7 +227,7 @@ namespace Armada.Server.Routes
                 Persona? existing = ctx.IsAdmin
                     ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
+                if (existing == null || (!existing.IsBuiltIn && !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing))) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in personas cannot be deleted" }; }
                 await _database.Personas.DeleteAsync(existing.Id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;

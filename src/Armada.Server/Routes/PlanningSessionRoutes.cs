@@ -102,6 +102,13 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                     }
 
+                    if (!String.IsNullOrWhiteSpace(request.FleetId)
+                        && await Armada.Core.Authorization.CallerScopedRead.ReadFleetAsync(_database, ctx, request.FleetId).ConfigureAwait(false) == null)
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" };
+                    }
+
                     if (!String.IsNullOrWhiteSpace(request.ObjectiveId))
                     {
                         Objective? objective = await _objectives.ReadAsync(ctx, request.ObjectiveId).ConfigureAwait(false);

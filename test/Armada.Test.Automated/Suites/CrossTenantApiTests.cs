@@ -1738,6 +1738,154 @@ using System.IO;
 
             #endregion
 
+            #region Body-Reference-Scope
+
+            // An id in a request body is read in the caller's scope exactly like an id in the path.
+            // Tenant B's administrator names tenant A's records by id and is refused as if they did not
+            // exist; nothing is created, dispatched or attached.
+            string vesselBId = null!;
+
+            await RunTest("BodyReference_Setup_CreateTenantBVessel", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/vessels",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-vessel-B-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl()
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode);
+                vesselBId = (await JsonHelper.DeserializeAsync<Vessel>(response).ConfigureAwait(false)).Id;
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_VoyageCreateWithOtherTenantVessel_Returns404AndDispatchesNothing", async () =>
+            {
+                string title = "xt-cross-voyage-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/voyages",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Title = title,
+                        VesselId = vesselAId,
+                        Missions = new[] { new { Title = title + "-m", Description = "cross-tenant dispatch" } }
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's vessel must not be reachable by body id");
+
+                // A voyage dispatched into a vessel takes the vessel's tenant, so tenant A would see it.
+                EnumerationResult<Voyage> voyages = await JsonHelper.DeserializeAsync<EnumerationResult<Voyage>>(
+                    await _ClientA!.GetAsync("/api/v1/voyages").ConfigureAwait(false)).ConfigureAwait(false);
+                AssertFalse(voyages.Objects.Any(v => v.Title == title), "No voyage is dispatched into tenant A's vessel");
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_MissionCreateWithOtherTenantReferences_Returns404", async () =>
+            {
+                object[] bodies = new object[]
+                {
+                    new { Title = "xt-cross-vessel", VesselId = vesselAId },
+                    new { Title = "xt-cross-voyage", VoyageId = voyageAId },
+                    new { Title = "xt-cross-dependency", DependsOnMissionId = missionAId },
+                    new { Title = "xt-cross-captain", CaptainId = captainAId },
+                    new { Title = "xt-cross-requested-captain", RequestedCaptainId = captainAId }
+                };
+                foreach (object body in bodies)
+                {
+                    HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/missions", JsonHelper.ToJsonContent(body)).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Refused: " + JsonHelper.ToJsonContent(body).ReadAsStringAsync().Result);
+                }
+
+                EnumerationResult<Mission> missions = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(
+                    await _ClientB!.GetAsync("/api/v1/missions").ConfigureAwait(false)).ConfigureAwait(false);
+                AssertFalse(missions.Objects.Any(m => m.Title.StartsWith("xt-cross-", StringComparison.Ordinal)), "No refused mission is created");
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_MissionUpdateToOtherTenantDependency_Returns404", async () =>
+            {
+                HttpResponseMessage created = await _ClientB!.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new { Title = "xt-own-mission-B" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, created.StatusCode);
+                string body = await created.Content.ReadAsStringAsync().ConfigureAwait(false);
+                MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+                Mission own = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
+
+                HttpResponseMessage update = await _ClientB!.PutAsync("/api/v1/missions/" + own.Id,
+                    JsonHelper.ToJsonContent(new { Title = own.Title, DependsOnMissionId = missionAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, update.StatusCode, "A dependency on another tenant's mission is refused");
+
+                Mission stored = await JsonHelper.DeserializeAsync<Mission>(
+                    await _ClientB!.GetAsync("/api/v1/missions/" + own.Id).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertNull(stored.DependsOnMissionId, "The refused dependency is not stored");
+                await _ClientB!.DeleteAsync("/api/v1/missions/" + own.Id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_BuildContextWithOtherTenantCaptain_Returns404", async () =>
+            {
+                // A runtime that cannot launch keeps the pre-fix path from starting a real agent.
+                HttpResponseMessage captainResponse = await _ClientA!.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new { Name = "xt-context-captain-A-" + Guid.NewGuid().ToString("N").Substring(0, 8), Runtime = "Custom" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, captainResponse.StatusCode);
+                Captain captain = await JsonHelper.DeserializeAsync<Captain>(captainResponse).ConfigureAwait(false);
+
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/vessels/" + vesselBId + "/build-context",
+                    JsonHelper.ToJsonContent(new { CaptainId = captain.Id })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's captain must not run against this vessel");
+                await _ClientA!.DeleteAsync("/api/v1/captains/" + captain.Id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_MergeEnqueueWithOtherTenantMission_Returns404", async () =>
+            {
+                string branch = "feature/xt-cross-merge-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/merge-queue",
+                    JsonHelper.ToJsonContent(new { MissionId = missionAId, VesselId = vesselBId, BranchName = branch, TargetBranch = "main" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's mission must not be attached to a merge entry");
+
+                HttpResponseMessage vesselResponse = await _ClientB!.PostAsync("/api/v1/merge-queue",
+                    JsonHelper.ToJsonContent(new { VesselId = vesselAId, BranchName = branch, TargetBranch = "main" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, vesselResponse.StatusCode, "Another tenant's vessel must not be a merge target");
+
+                EnumerationResult<MergeEntry> entries = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(
+                    await _ClientB!.GetAsync("/api/v1/merge-queue").ConfigureAwait(false)).ConfigureAwait(false);
+                AssertFalse(entries.Objects.Any(e => e.BranchName == branch), "No refused entry is enqueued");
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_IncidentWithOtherTenantLinks_IsRefused", async () =>
+            {
+                HttpResponseMessage created = await _ClientB!.PostAsync("/api/v1/incidents",
+                    JsonHelper.ToJsonContent(new { Title = "xt-cross-incident", MissionId = missionAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, created.StatusCode, "An incident linking another tenant's mission is refused");
+
+                created = await _ClientB!.PostAsync("/api/v1/incidents",
+                    JsonHelper.ToJsonContent(new { Title = "xt-cross-incident", VesselId = vesselAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, created.StatusCode, "An incident linking another tenant's vessel is refused");
+
+                HttpResponseMessage own = await _ClientB!.PostAsync("/api/v1/incidents",
+                    JsonHelper.ToJsonContent(new { Title = "xt-own-incident", VesselId = vesselBId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, own.StatusCode, "An incident linking the caller's own vessel is created");
+                Incident incident = await JsonHelper.DeserializeAsync<Incident>(own).ConfigureAwait(false);
+
+                HttpResponseMessage update = await _ClientB!.PutAsync("/api/v1/incidents/" + incident.Id,
+                    JsonHelper.ToJsonContent(new { VoyageId = voyageAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, update.StatusCode, "An update linking another tenant's voyage is refused");
+                await _ClientB!.DeleteAsync("/api/v1/incidents/" + incident.Id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_GlobalAdminStillCreatesMissionOnAnyTenantVessel", async () =>
+            {
+                HttpResponseMessage response = await _AdminClient.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new { Title = "xt-admin-cross-" + Guid.NewGuid().ToString("N").Substring(0, 8), VoyageId = voyageAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode, "A global administrator names any tenant's records");
+                string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+                Mission mission = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
+                await _AdminClient.DeleteAsync("/api/v1/missions/" + mission.Id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("BodyReference_Cleanup_DeleteTenantBVessel", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/vessels/" + vesselBId).ConfigureAwait(false);
+                Assert(response.StatusCode == HttpStatusCode.NoContent || response.StatusCode == HttpStatusCode.OK,
+                    "Expected tenant B to delete its vessel, got " + response.StatusCode);
+            }).ConfigureAwait(false);
+
+            #endregion
+
             #region Event-Isolation
 
             await RunTest("Event_ListFromTenantA_DoesNotContainTenantBEvents", async () =>
@@ -1863,6 +2011,43 @@ using System.IO;
 
                 HttpResponseMessage fromA = await _ClientA!.DeleteAsync("/api/v1/personas/" + name).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.NoContent, fromA.StatusCode, "Tenant A deletes its own persona");
+            }).ConfigureAwait(false);
+
+            await RunTest("BuiltInPipelineAndPersona_UpdateFromDefaultTenantAdmin_Returns403AndGlobalAdminSucceeds", async () =>
+            {
+                // Built-ins are stored in the default tenant and used by every tenant, so a tenant
+                // administrator of the default tenant must not change them.
+                TenantUserCredentialResult defaultAdmin = await CreateUserCredentialAsync("default", "default-tenant-admin", true).ConfigureAwait(false);
+                using (HttpClient defaultAdminClient = CreateBearerClient(defaultAdmin.BearerToken))
+                {
+                    try
+                    {
+                        Pipeline builtIn = await JsonHelper.DeserializeAsync<Pipeline>(
+                            await _AdminClient.GetAsync("/api/v1/pipelines/FullPipeline").ConfigureAwait(false)).ConfigureAwait(false);
+                        AssertTrue(builtIn.IsBuiltIn, "FullPipeline is a built-in");
+
+                        HttpResponseMessage refused = await defaultAdminClient.PutAsync("/api/v1/pipelines/FullPipeline",
+                            JsonHelper.ToJsonContent(new { Description = "changed by a tenant admin" })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Forbidden, refused.StatusCode, "A tenant administrator may not change a built-in pipeline");
+
+                        HttpResponseMessage personaRefused = await defaultAdminClient.PutAsync("/api/v1/personas/Worker",
+                            JsonHelper.ToJsonContent(new { Description = "changed by a tenant admin" })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Forbidden, personaRefused.StatusCode, "A tenant administrator may not change a built-in persona");
+
+                        Pipeline unchanged = await JsonHelper.DeserializeAsync<Pipeline>(
+                            await _AdminClient.GetAsync("/api/v1/pipelines/FullPipeline").ConfigureAwait(false)).ConfigureAwait(false);
+                        AssertEqual(builtIn.Description, unchanged.Description, "The refused change is not stored");
+
+                        HttpResponseMessage allowed = await _AdminClient.PutAsync("/api/v1/pipelines/FullPipeline",
+                            JsonHelper.ToJsonContent(new { Description = builtIn.Description })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.OK, allowed.StatusCode, "A global administrator changes a built-in pipeline");
+                    }
+                    finally
+                    {
+                        await _AdminClient.DeleteAsync("/api/v1/credentials/" + defaultAdmin.CredentialId).ConfigureAwait(false);
+                        await _AdminClient.DeleteAsync("/api/v1/users/" + defaultAdmin.UserId).ConfigureAwait(false);
+                    }
+                }
             }).ConfigureAwait(false);
 
             await RunTest("PromptTemplate_ResetFromTenantAdmin_Returns403", async () =>

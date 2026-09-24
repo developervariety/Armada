@@ -8,6 +8,7 @@ namespace Armada.Server
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -119,8 +120,14 @@ namespace Armada.Server
                 return StageSkipRefusedResult(refused);
             }
 
+            // The vessel and dependency missions a request names are read in the caller's scope, exactly as a
+            // path id is: the admiral reads them again by id alone and gives the voyage the vessel's tenant, so
+            // an unchecked id dispatches into another tenant's vessel and captains. A requested captain needs no
+            // check here: assignment only ever picks a captain of the mission's own tenant.
             string vesselId = request.VesselId;
-            Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
+            Vessel? dispatchVessel = request.ObjectiveAuthContext != null
+                ? await CallerScopedRead.ReadVesselAsync(_Database, request.ObjectiveAuthContext, vesselId, token).ConfigureAwait(false)
+                : await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
             {
                 Error = "Vessel not found: " + vesselId,
@@ -129,6 +136,9 @@ namespace Armada.Server
                 Action = "Register the vessel via armada_add_vessel or verify the vesselId.",
                 VesselId = vesselId
             });
+
+            VoyageDispatchResult? referenceValidation = await ValidateCallerReferencesAsync(request, token).ConfigureAwait(false);
+            if (referenceValidation != null) return referenceValidation;
 
             VoyageDispatchResult? objectiveValidation = await ValidateObjectiveAsync(
                 NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext, vesselId).ConfigureAwait(false);
@@ -487,6 +497,32 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        private async Task<VoyageDispatchResult?> ValidateCallerReferencesAsync(SharedVoyageDispatchRequest request, CancellationToken token)
+        {
+            AuthContext? caller = request.ObjectiveAuthContext;
+            if (caller == null) return null;
+
+            if (request.Missions != null)
+            {
+                foreach (MissionDescription mission in request.Missions)
+                {
+                    string? dependsOn = NormalizeEmpty(mission?.DependsOnMissionId);
+                    if (dependsOn == null) continue;
+                    Mission? dependency = await CallerScopedRead.ReadMissionAsync(_Database, caller, dependsOn, token).ConfigureAwait(false);
+                    if (dependency == null) return VoyageDispatchResult.NotFound(new
+                    {
+                        Error = "dependsOnMissionId not found: " + dependsOn,
+                        Code = "mission_not_found",
+                        Reason = "Mission " + dependsOn + " does not exist in the caller's scope.",
+                        Action = "Verify the dependsOnMissionId.",
+                        MissionId = dependsOn
+                    });
+                }
+            }
+
+            return null;
+        }
 
         /// <summary>
         /// Apply the dispatch-preflight gate to a linked objective's preview. An incomplete preflight and

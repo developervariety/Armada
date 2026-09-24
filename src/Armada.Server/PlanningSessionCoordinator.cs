@@ -113,6 +113,15 @@ namespace Armada.Server
                 await _Playbooks.ResolveSelectionsAsync(tenantId, request.SelectedPlaybooks, token).ConfigureAwait(false);
             }
 
+            // A named fleet must belong to the planned vessel's tenant: the session's fleet is copied onto the
+            // objectives it produces, so a fleet of another tenant would link them across the tenant boundary.
+            if (!String.IsNullOrWhiteSpace(request.FleetId))
+            {
+                Fleet? fleet = await _Database.Fleets.ReadAsync(request.FleetId, token).ConfigureAwait(false);
+                if (fleet == null || !Armada.Core.Authorization.OwnershipPolicy.SameTenant(fleet.TenantId, vessel.TenantId))
+                    throw new InvalidOperationException("Fleet not found: " + request.FleetId);
+            }
+
             PlanningSession session = new PlanningSession
             {
                 TenantId = tenantId,

@@ -568,6 +568,13 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
             {
                 Mission? dependency = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
+                // A dependency is honoured only inside the vessel's tenant: the dependency's branch and commit
+                // become this mission's starting point, so another tenant's mission reads as absent.
+                if (dependency != null && !Armada.Core.Authorization.OwnershipPolicy.SameTenant(dependency.TenantId, vessel.TenantId))
+                {
+                    _Logging.Warn(_Header + "mission " + mission.Id + " depends on " + mission.DependsOnMissionId + " of another tenant -- dependency not honoured");
+                    dependency = null;
+                }
                 if (dependency == null)
                 {
                     _Logging.Warn(_Header + "mission " + mission.Id + " depends on " + mission.DependsOnMissionId + " which was not found -- skipping assignment");
@@ -9906,10 +9913,7 @@ namespace Armada.Core.Services
         public static bool CaptainServesTenant(Captain captain, string? missionTenantId)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
-            return String.Equals(
-                Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(captain.TenantId),
-                Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(missionTenantId),
-                StringComparison.Ordinal);
+            return Armada.Core.Authorization.OwnershipPolicy.SameTenant(captain.TenantId, missionTenantId);
         }
 
         /// <summary>
@@ -10608,7 +10612,7 @@ namespace Armada.Core.Services
                 }
                 else if (!String.IsNullOrEmpty(mission.RequestedCaptainId))
                 {
-                    CaptainTierEnum? preferredTier = await CaptainEffectiveTierAsync(mission.RequestedCaptainId, token).ConfigureAwait(false);
+                    CaptainTierEnum? preferredTier = await CaptainEffectiveTierAsync(mission.RequestedCaptainId, mission.TenantId, token).ConfigureAwait(false);
                     if (preferredTier != null)
                     {
                         mission.Tier = preferredTier;
@@ -10660,11 +10664,12 @@ namespace Armada.Core.Services
                 record => record.Name).ConfigureAwait(false);
         }
 
-        private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, CancellationToken token)
+        private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, string? missionTenantId, CancellationToken token)
         {
             if (String.IsNullOrEmpty(captainId)) return null;
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
-            if (captain == null) return null;
+            // A captain of another tenant can never take the mission, so its tier never shapes it.
+            if (captain == null || !CaptainServesTenant(captain, missionTenantId)) return null;
             return CaptainTierSelector.EffectiveTier(captain);
         }
 

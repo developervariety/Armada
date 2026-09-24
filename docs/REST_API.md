@@ -131,7 +131,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/prompt-templates` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below. A user-specific template is never resolved into a mission prompt |
 | `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant. Create records the caller's tenant and user |
 | `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
-| `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the persona inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant |
+| `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the persona inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant. Every tenant uses a built-in persona, so only a global admin may update one; anyone else receives `403` |
 | `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/jobs` | GET | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
@@ -141,7 +141,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/workspace/vessels/{id}/exec` | POST | AdminOnly | Global admin only. The command runs as the server process, so it is host shell access |
 | `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
-| `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant |
+| `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant. Every tenant uses a built-in pipeline, so only a global admin may update one; anyone else receives `403` |
 
 **Ownership rule for personas, pipelines and prompt templates.** Each record has
 `TenantId`, `UserId` and `OwnershipScope` (`TenantWide` or `UserSpecific`). The
@@ -154,6 +154,26 @@ and a record the caller may not read returns `404`. `OwnershipScope` is about
 who may see a record. It is separate from the applicability `Scope` of workflow
 and project profiles. Records that existed before ownership are tenant-wide with
 no owning user.
+
+**Ids in a request body follow the same scope as ids in the path.** A route reads
+every record its body names by id with the caller's scope, exactly as it reads a
+path id, before it stores or acts on the request. A record outside that scope
+returns `404` (an incident create returns `400`), and nothing is created,
+dispatched or attached. This covers the vessel and dependency missions of
+`POST /api/v1/voyages`; the vessel, voyage, captain, requested captain,
+dependency and parent of `POST /api/v1/missions` and the dependency and parent a
+`PUT /api/v1/missions/{id}` changes; the captain of
+`POST /api/v1/vessels/{id}/build-context`; the vessel and mission of
+`POST /api/v1/merge-queue`; the fleet of `POST /api/v1/planning-sessions`; and
+the deployment, rollback deployment, release, check run, environment, vessel,
+mission and voyage links of incident create and update. The matching MCP and
+WebSocket create surfaces apply the same rule. A global admin names any record.
+
+Paths that run without a caller read linked records only inside the owning
+record's tenant: a mission's dependency must share the tenant of the vessel the
+mission runs in, a Judge follow-up joins only a merge entry of its own tenant,
+the incident lifecycle ignores a linked record of another tenant, and fleet and
+captain default playbooks enter only a mission of their own tenant.
 
 Dispatch uses a pipeline or persona on behalf of the owner of the vessel or
 mission. A user-specific record of another user is refused, whether the
@@ -3299,7 +3319,7 @@ curl -X POST http://localhost:7890/api/v1/personas \
 
 #### PUT /api/v1/personas/{name}
 
-Update an existing persona.
+Update an existing persona. Every tenant uses a built-in persona, so only a global admin may update one; any other caller receives `403`.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -3434,7 +3454,7 @@ curl -X POST http://localhost:7890/api/v1/pipelines \
 
 #### PUT /api/v1/pipelines/{name}
 
-Update an existing pipeline.
+Update an existing pipeline. Every tenant uses a built-in pipeline, so only a global admin may update one; any other caller receives `403`.
 
 **Path Parameters:**
 | Parameter | Description |

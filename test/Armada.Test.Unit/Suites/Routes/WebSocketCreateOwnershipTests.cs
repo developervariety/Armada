@@ -126,9 +126,13 @@ namespace Armada.Test.Unit.Suites.Routes
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     AuthContext caller = await SeedCallerAsync(testDb).ConfigureAwait(false);
+                    Vessel vessel = new Vessel("ws-owned-vessel", "https://github.com/test/ws-owned.git");
+                    vessel.TenantId = caller.TenantId;
+                    vessel.UserId = caller.UserId;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     IAdmiralService admiral = DispatchProxy.Create<IAdmiralService, RecordingAdmiralProxy>();
                     await SendAsync(CreateHandler(testDb, admiral: admiral), "create_mission",
-                        new { Title = "ws-owned-mission", Description = "owned", VesselId = "vsl_owned" }, caller).ConfigureAwait(false);
+                        new { Title = "ws-owned-mission", Description = "owned", VesselId = vessel.Id }, caller).ConfigureAwait(false);
 
                     Mission? dispatched = ((RecordingAdmiralProxy)(object)admiral).LastDispatched;
                     AssertNotNull(dispatched, "the mission reaches dispatch");

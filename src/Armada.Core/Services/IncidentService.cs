@@ -5,6 +5,7 @@ namespace Armada.Core.Services
     using System.Linq;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -255,6 +256,60 @@ namespace Armada.Core.Services
             await WriteSnapshotAsync(auth, incident, token).ConfigureAwait(false);
             OnIncidentChanged?.Invoke(incident);
             return incident;
+        }
+
+        /// <summary>
+        /// Refuse a caller's incident create or update that links a delivery record the caller may not see.
+        /// The incident lifecycle reads each linked record by id to move the incident and to write its
+        /// recovery notes, so every caller-facing create and update surface calls this before writing. A
+        /// global administrator may link any id. Only links the request supplies are checked.
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="request">Incident create or update request.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <exception cref="InvalidOperationException">A supplied link names a record the caller may not see; the message names it.</exception>
+        public async Task EnsureCallerLinksVisibleAsync(AuthContext auth, IncidentUpsertRequest request, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            string? unreachable = await FindUnreachableLinkAsync(auth, request, token).ConfigureAwait(false);
+            if (unreachable != null) throw new InvalidOperationException(unreachable);
+        }
+
+        private async Task<string?> FindUnreachableLinkAsync(AuthContext auth, IncidentUpsertRequest request, CancellationToken token)
+        {
+            if (auth.IsAdmin) return null;
+
+            if (Supplied(request.DeploymentId)
+                && await CallerScopedRead.ReadDeploymentAsync(_Database, auth, request.DeploymentId, token).ConfigureAwait(false) == null)
+                return "Deployment not found: " + request.DeploymentId;
+            if (Supplied(request.RollbackDeploymentId)
+                && await CallerScopedRead.ReadDeploymentAsync(_Database, auth, request.RollbackDeploymentId, token).ConfigureAwait(false) == null)
+                return "Rollback deployment not found: " + request.RollbackDeploymentId;
+            if (Supplied(request.ReleaseId)
+                && await CallerScopedRead.ReadReleaseAsync(_Database, auth, request.ReleaseId, token).ConfigureAwait(false) == null)
+                return "Release not found: " + request.ReleaseId;
+            if (Supplied(request.CheckRunId)
+                && await CallerScopedRead.ReadCheckRunAsync(_Database, auth, request.CheckRunId, token).ConfigureAwait(false) == null)
+                return "Check run not found: " + request.CheckRunId;
+            if (Supplied(request.EnvironmentId)
+                && await CallerScopedRead.ReadEnvironmentAsync(_Database, auth, request.EnvironmentId, token).ConfigureAwait(false) == null)
+                return "Environment not found: " + request.EnvironmentId;
+            if (Supplied(request.VesselId)
+                && await CallerScopedRead.ReadVesselAsync(_Database, auth, request.VesselId, token).ConfigureAwait(false) == null)
+                return "Vessel not found: " + request.VesselId;
+            if (Supplied(request.MissionId)
+                && await CallerScopedRead.ReadMissionAsync(_Database, auth, request.MissionId, token).ConfigureAwait(false) == null)
+                return "Mission not found: " + request.MissionId;
+            if (Supplied(request.VoyageId)
+                && await CallerScopedRead.ReadVoyageAsync(_Database, auth, request.VoyageId, token).ConfigureAwait(false) == null)
+                return "Voyage not found: " + request.VoyageId;
+            return null;
+        }
+
+        private static bool Supplied(string? id)
+        {
+            return !String.IsNullOrWhiteSpace(id);
         }
 
         /// <summary>

@@ -159,7 +159,9 @@ namespace Armada.Server.Routes
                 Pipeline? existing = ctx.IsAdmin
                     ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
+                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanView(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
+                // Every tenant uses a built-in pipeline, so only a global administrator may change it.
+                if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) return RouteAuthRefusal.Forbid(req, existing.IsBuiltIn ? "Built-in pipelines can be changed only by a global administrator" : "You may not change this pipeline");
                 Pipeline body = JsonSerializer.Deserialize<Pipeline>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Pipeline.");
                 if (body.Description != null) existing.Description = body.Description;
@@ -171,10 +173,11 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Pipelines")
                 .WithSummary("Update a pipeline")
-                .WithDescription("Updates an existing pipeline by name. Replaces stages if provided.")
+                .WithDescription("Updates an existing pipeline by name. Replaces stages if provided. Every tenant uses a built-in pipeline, so only a global administrator may change one; any other caller receives 403.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Pipeline name (e.g. WorkerOnly, FullPipeline)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Pipeline>("Updated pipeline data", true))
                 .WithResponse(200, OpenApiJson.For<Pipeline>("Updated pipeline"))
+                .WithResponse(403, OpenApiResponseMetadata.Forbidden())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
@@ -191,7 +194,7 @@ namespace Armada.Server.Routes
                 Pipeline? existing = ctx.IsAdmin
                     ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
+                if (existing == null || (!existing.IsBuiltIn && !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing))) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
                 if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in pipelines cannot be deleted" }; }
                 await _database.Pipelines.DeleteAsync(existing.Id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;

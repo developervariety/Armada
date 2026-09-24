@@ -85,6 +85,10 @@ namespace Armada.Test.Unit.Suites.Services
                     TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("mission-owner-tenant")).ConfigureAwait(false);
                     UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "mission-owner@example.com", "password")).ConfigureAwait(false);
                     AuthContext caller = AuthContext.Authenticated(tenant.Id, user.Id, false, false, "Test");
+                    Vessel vessel = new Vessel("mission-owner-vessel", "https://github.com/test/mission-owner.git");
+                    vessel.TenantId = tenant.Id;
+                    vessel.UserId = user.Id;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     Func<JsonElement?, Task<object>>? createHandler = null;
@@ -98,7 +102,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     using (McpCallerContext.Begin(caller))
                     {
-                        await createHandler!(JsonSerializer.SerializeToElement(new { title = "owned", description = "owned mission", vesselId = "vsl_owned" })).ConfigureAwait(false);
+                        await createHandler!(JsonSerializer.SerializeToElement(new { title = "owned", description = "owned mission", vesselId = vessel.Id })).ConfigureAwait(false);
                     }
 
                     AssertNotNull(admiralDouble.LastDispatched, "the mission reaches dispatch");

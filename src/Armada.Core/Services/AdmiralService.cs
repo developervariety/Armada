@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System.IO;
     using System.Linq;
     using SyslogLogging;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -268,7 +269,7 @@ namespace Armada.Core.Services
 
             // Validate request-shaped inputs before creating any durable voyage state.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
-            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateDependsOnReferencesOrThrowAsync(vessel.TenantId, missionDescriptions, token).ConfigureAwait(false);
             await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             await using FleetCapacityReservation capacityAdmission = await _FleetCapacityAdmission
@@ -406,7 +407,7 @@ namespace Armada.Core.Services
 
             // Validate request-shaped inputs before creating any durable voyage state.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
-            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateDependsOnReferencesOrThrowAsync(vessel.TenantId, missionDescriptions, token).ConfigureAwait(false);
             await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             await using FleetCapacityReservation capacityAdmission = await _FleetCapacityAdmission
@@ -565,7 +566,7 @@ namespace Armada.Core.Services
 
             // Validate request-shaped inputs before creating any durable voyage state.
             ValidatePrestagedFilesOrThrow(missionDescriptions);
-            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateDependsOnReferencesOrThrowAsync(vessel.TenantId, missionDescriptions, token).ConfigureAwait(false);
             await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             await using FleetCapacityReservation capacityAdmission = await _FleetCapacityAdmission
@@ -729,20 +730,16 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
-            {
-                Mission? referenced = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
-                if (referenced == null)
-                {
-                    throw new InvalidOperationException("dependsOnMissionId not found: " + mission.DependsOnMissionId);
-                }
-            }
-
             Vessel? capacityVessel = String.IsNullOrWhiteSpace(mission.VesselId)
                 ? null
                 : await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
             if (!String.IsNullOrWhiteSpace(mission.VesselId) && capacityVessel == null)
                 throw new InvalidOperationException("Vessel not found: " + mission.VesselId);
+
+            if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
+            {
+                await ReadDependencyOrThrowAsync(capacityVessel?.TenantId ?? mission.TenantId, mission.DependsOnMissionId, token).ConfigureAwait(false);
+            }
             if (capacityVessel != null && !String.IsNullOrWhiteSpace(mission.StartFromRef))
             {
                 MissionDescription start = new MissionDescription(mission.Title, mission.Description ?? String.Empty)
@@ -1095,19 +1092,28 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task ValidateDependsOnReferencesOrThrowAsync(List<MissionDescription> missionDescriptions, CancellationToken token)
+        private async Task ValidateDependsOnReferencesOrThrowAsync(string? ownerTenantId, List<MissionDescription> missionDescriptions, CancellationToken token)
         {
             if (missionDescriptions == null) return;
             for (int i = 0; i < missionDescriptions.Count; i++)
             {
                 MissionDescription md = missionDescriptions[i];
                 if (md == null || String.IsNullOrEmpty(md.DependsOnMissionId)) continue;
-                Mission? referenced = await _Database.Missions.ReadAsync(md.DependsOnMissionId, token).ConfigureAwait(false);
-                if (referenced == null)
-                {
-                    throw new InvalidOperationException("dependsOnMissionId not found: " + md.DependsOnMissionId);
-                }
+                await ReadDependencyOrThrowAsync(ownerTenantId, md.DependsOnMissionId, token).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Read the mission a new mission depends on. A dependency is honoured only inside the tenant of the
+        /// vessel the dependent mission runs in, so a mission of another tenant reads as absent: its branch
+        /// and commit would otherwise become the dependent mission's starting point.
+        /// </summary>
+        private async Task<Mission> ReadDependencyOrThrowAsync(string? ownerTenantId, string dependsOnMissionId, CancellationToken token)
+        {
+            Mission? referenced = await _Database.Missions.ReadAsync(dependsOnMissionId, token).ConfigureAwait(false);
+            if (referenced == null || !OwnershipPolicy.SameTenant(referenced.TenantId, ownerTenantId))
+                throw new InvalidOperationException("dependsOnMissionId not found: " + dependsOnMissionId);
+            return referenced;
         }
 
         private async Task PersistMissionPlaybooksAsync(Mission mission, List<SelectedPlaybook>? selections, CancellationToken token)
@@ -1160,6 +1166,13 @@ namespace Armada.Core.Services
             if (vessel == null || String.IsNullOrEmpty(vessel.FleetId)) return new List<SelectedPlaybook>();
             Fleet? fleet = await _Database.Fleets.ReadAsync(vessel.FleetId!, token).ConfigureAwait(false);
             if (fleet == null) return new List<SelectedPlaybook>();
+            // A fleet layer applies only to a vessel of the fleet's own tenant: default playbooks can carry
+            // inline content, and a vessel naming another tenant's fleet must not ship that content.
+            if (!OwnershipPolicy.SameTenant(fleet.TenantId, vessel.TenantId))
+            {
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " names fleet " + fleet.Id + " of another tenant -- fleet playbooks not merged");
+                return new List<SelectedPlaybook>();
+            }
             return fleet.GetDefaultPlaybooks();
         }
 
@@ -1196,7 +1209,8 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(mission.CaptainId))
             {
                 Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId!, token).ConfigureAwait(false);
-                if (captain != null)
+                // A captain's default playbooks enter only a mission of the captain's own tenant.
+                if (captain != null && MissionService.CaptainServesTenant(captain, mission.TenantId))
                 {
                     captainLayer = captain.GetDefaultPlaybooks();
                 }

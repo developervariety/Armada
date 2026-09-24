@@ -279,6 +279,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A merge entry of another tenant never takes a follow-up", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    foreach (string tenantId in new[] { "ten_followup_owner", "ten_followup_other" })
+                    {
+                        if (await testDb.Driver.Tenants.ReadAsync(tenantId).ConfigureAwait(false) == null)
+                            await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = tenantId, Name = tenantId }).ConfigureAwait(false);
+                    }
+
+                    JudgeFollowUpService service = new JudgeFollowUpService(testDb.Driver, logging);
+                    JudgeFollowUp followUp = BuildFollowUp(
+                        "msn_judge-cross", "msn_reviewed-cross", "vsl_cross", DateTime.UtcNow);
+                    followUp.TenantId = "ten_followup_owner";
+                    followUp = await testDb.Driver.JudgeFollowUps.UpsertAsync(followUp).ConfigureAwait(false);
+                    followUp.AuditVerdict = "Concern";
+                    followUp.AuditNotes = "Owner-only audit notes.";
+                    followUp.AuditCompletedUtc = DateTime.UtcNow;
+                    followUp = await testDb.Driver.JudgeFollowUps.UpdateAsync(followUp).ConfigureAwait(false);
+                    AssertEqual("ten_followup_owner", followUp.TenantId, "The follow-up keeps its tenant");
+
+                    MergeEntry foreign = new MergeEntry("cross-branch", "main")
+                    {
+                        TenantId = "ten_followup_other",
+                        MissionId = followUp.ReviewedMissionId,
+                        VesselId = followUp.VesselId
+                    };
+                    foreign = await testDb.Driver.MergeEntries.CreateAsync(foreign).ConfigureAwait(false);
+
+                    AssertEqual(0, await service.AssociateForMergeEntryAsync(foreign).ConfigureAwait(false), "Enqueue association stays inside the tenant");
+                    AssertEqual(0, await service.ReconcilePendingAssociationsAsync(null).ConfigureAwait(false), "Late reconciliation stays inside the tenant");
+
+                    JudgeFollowUp? reloaded = await testDb.Driver.JudgeFollowUps.ReadAsync(followUp.Id).ConfigureAwait(false);
+                    AssertNull(reloaded!.MergeEntryId, "The follow-up is not attached to another tenant's entry");
+                    MergeEntry? untouched = await testDb.Driver.MergeEntries.ReadAsync(foreign.Id).ConfigureAwait(false);
+                    AssertNull(untouched!.AuditDeepVerdict, "Another tenant's entry does not receive the audit verdict");
+                    AssertNull(untouched.AuditDeepNotes, "Another tenant's entry does not receive the audit notes");
+
+                    MergeEntry own = new MergeEntry("own-branch", "main")
+                    {
+                        TenantId = "ten_followup_owner",
+                        MissionId = followUp.ReviewedMissionId,
+                        VesselId = followUp.VesselId
+                    };
+                    own = await testDb.Driver.MergeEntries.CreateAsync(own).ConfigureAwait(false);
+                    AssertEqual(1, await service.AssociateForMergeEntryAsync(own).ConfigureAwait(false), "The owner's entry takes the follow-up");
+                }
+            });
+
             await RunTest("Concurrent audit completion and association preserve both fields", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

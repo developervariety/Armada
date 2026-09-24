@@ -695,6 +695,13 @@ namespace Armada.Test.Unit.Suites.Services
                             TenantId = Constants.DefaultTenantId,
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
+                    // The MCP caller's dependency is read in its scope, so the named dependency must exist there.
+                    await mcpDb.Driver.Missions.CreateAsync(new Mission("existing dependency", "dependency")
+                    {
+                        Id = "msn_existing_0001",
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
 
                     string prestagedSource = Path.Combine(Path.GetTempPath(), "parity-input.txt");
 

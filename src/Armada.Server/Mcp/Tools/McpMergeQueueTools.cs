@@ -6,6 +6,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Enums;
+    using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Server;
@@ -31,7 +32,11 @@ namespace Armada.Server.Mcp.Tools
         /// job handle immediately instead of blocking the caller for the length of an integration
         /// build and test run; null preserves the original synchronous behavior.
         /// </param>
-        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue, LongRunningJobService? jobs = null)
+        /// <param name="database">
+        /// Database driver used to read an enqueue's vessel and mission in the caller's scope. Null skips
+        /// that check, for hosts that register the tools without a database.
+        /// </param>
+        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue, LongRunningJobService? jobs = null, DatabaseDriver? database = null)
         {
             register(
                 "armada_get_merge_entry",
@@ -88,6 +93,11 @@ namespace Armada.Server.Mcp.Tools
                         entry.Priority = request.Priority.Value;
                     if (request.TestCommand != null)
                         entry.TestCommand = request.TestCommand;
+                    if (database != null)
+                    {
+                        string? unreachable = await MergeEntryReferenceScope.FindUnreachableAsync(database, enqueueCaller, entry).ConfigureAwait(false);
+                        if (unreachable != null) return (object)new { Error = unreachable };
+                    }
                     entry = await mergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
                     return (object)entry;
                 });

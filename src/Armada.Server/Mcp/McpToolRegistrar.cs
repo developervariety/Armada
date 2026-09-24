@@ -143,7 +143,7 @@ namespace Armada.Server.Mcp
             if (logging != null) McpInboxTools.Register(register, database, logging, inboxTriageAdapter);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
-            if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs);
+            if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs, database);
             if (checkRunService != null) McpCheckRunTools.Register(register, database, checkRunService);
             if (objectiveService != null) McpObjectiveTools.Register(register, database, objectiveService, planningSessionCoordinator, objectiveRefinementCoordinator, objectiveDispatchPreviewService);
             if (releaseService != null) McpReleaseTools.Register(register, releaseService);

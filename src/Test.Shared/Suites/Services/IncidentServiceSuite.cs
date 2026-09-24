@@ -321,6 +321,39 @@ namespace Test.Shared.Suites.Services
                 await AssertThrowsAsync<ArgumentNullException>(() => incidents.CreateAsync(auth, null!));
             }));
 
+            cases.Add(CaseAsync("caller_links_other_tenant_deployment_refused", "EnsureCallerLinksVisibleAsync refuses another tenant's deployment", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                await EnsureTenantAndUserAsync(testDb, "ten_incident_link_a", "usr_incident_link_a").ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_incident_link_b", "usr_incident_link_b").ConfigureAwait(false);
+
+                Deployment own = await testDb.Driver.Deployments.CreateAsync(new Deployment
+                {
+                    TenantId = "ten_incident_link_a",
+                    UserId = "usr_incident_link_a",
+                    Title = "Tenant A deployment",
+                    Status = DeploymentStatusEnum.Succeeded
+                }).ConfigureAwait(false);
+                Deployment foreign = await testDb.Driver.Deployments.CreateAsync(new Deployment
+                {
+                    TenantId = "ten_incident_link_b",
+                    UserId = "usr_incident_link_b",
+                    Title = "Tenant B deployment",
+                    Status = DeploymentStatusEnum.RolledBack
+                }).ConfigureAwait(false);
+
+                AuthContext tenantAdmin = AuthContext.Authenticated("ten_incident_link_a", "usr_incident_link_a", false, true, "UnitTest");
+                await AssertThrowsAsync<InvalidOperationException>(() => incidents.EnsureCallerLinksVisibleAsync(tenantAdmin,
+                    new IncidentUpsertRequest { Title = "cross", DeploymentId = foreign.Id }), "another tenant's deployment is refused");
+                await AssertThrowsAsync<InvalidOperationException>(() => incidents.EnsureCallerLinksVisibleAsync(tenantAdmin,
+                    new IncidentUpsertRequest { Title = "cross", RollbackDeploymentId = foreign.Id }), "another tenant's rollback deployment is refused");
+                await incidents.EnsureCallerLinksVisibleAsync(tenantAdmin, new IncidentUpsertRequest { Title = "own", DeploymentId = own.Id }).ConfigureAwait(false);
+
+                AuthContext globalAdmin = AuthContext.Authenticated("ten_incident_link_a", "usr_incident_link_a", true, true, "UnitTest");
+                await incidents.EnsureCallerLinksVisibleAsync(globalAdmin, new IncidentUpsertRequest { Title = "admin", DeploymentId = foreign.Id }).ConfigureAwait(false);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.IncidentService",
                 displayName: "Incident Service",

@@ -113,6 +113,12 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as MergeEntry.");
                 entry.TenantId = ctx.TenantId;
                 entry.UserId = ctx.UserId;
+                string? unreachable = await MergeEntryReferenceScope.FindUnreachableAsync(_database, ctx, entry).ConfigureAwait(false);
+                if (unreachable != null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = unreachable };
+                }
                 entry = await _mergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return entry;
@@ -120,7 +126,8 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("MergeQueue")
                 .WithSummary("Enqueue a branch for merge")
-                .WithDescription("Adds a branch to the merge queue for testing and merging into the target branch.")
+                .WithDescription("Adds a branch to the merge queue for testing and merging into the target branch. The vesselId and missionId must name records visible to the caller; otherwise 404 and nothing is enqueued.")
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithRequestBody(OpenApiJson.BodyFor<MergeEntry>("Merge entry", true))
                 .WithResponse(201, OpenApiJson.For<MergeEntry>("Enqueued entry"))
                 .WithSecurity("ApiKey"));

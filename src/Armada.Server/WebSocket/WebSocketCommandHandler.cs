@@ -793,6 +793,8 @@ namespace Armada.Server.WebSocket
             Mission newMission = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data!;
             newMission.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             newMission.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
+            string? unreachable = await MissionReferenceScope.FindUnreachableOnCreateAsync(_Database, caller, newMission).ConfigureAwait(false);
+            if (unreachable != null) return NotFound("create_mission", unreachable);
             await MissionDefaultPlaybooks.MergeVesselDefaultsAsync(_Database, newMission).ConfigureAwait(false);
             try
             {

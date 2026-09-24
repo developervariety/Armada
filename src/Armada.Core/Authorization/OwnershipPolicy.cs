@@ -110,6 +110,19 @@ namespace Armada.Core.Authorization
         }
 
         /// <summary>
+        /// True when two stored records belong to the same tenant. A record without a tenant belongs to
+        /// the default tenant. A system path that reads a linked record by id, without a caller, applies
+        /// this rule so a link written by one tenant never reaches another tenant's record.
+        /// </summary>
+        /// <param name="tenantId">First record's tenant, possibly empty.</param>
+        /// <param name="otherTenantId">Second record's tenant, possibly empty.</param>
+        /// <returns>True when both records belong to the same tenant.</returns>
+        public static bool SameTenant(string? tenantId, string? otherTenantId)
+        {
+            return String.Equals(TenantOfRecord(tenantId), TenantOfRecord(otherTenantId), StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Tenant a stored record belongs to. A record without a tenant belongs to the default tenant,
         /// exactly as a caller without a tenant acts in it, so records written before tenancy keep working.
         /// </summary>
@@ -144,7 +157,9 @@ namespace Armada.Core.Authorization
         }
 
         /// <summary>
-        /// Decide whether a caller may change an owned configuration record.
+        /// Decide whether a caller may change an owned configuration record. A built-in record is used by
+        /// every tenant, so only a global administrator may change it; a tenant administrator of the tenant
+        /// that stores it may not.
         /// </summary>
         /// <param name="auth">Caller.</param>
         /// <param name="record">Record.</param>
@@ -152,6 +167,7 @@ namespace Armada.Core.Authorization
         public static bool CanEdit(AuthContext auth, IOwnedRecord record)
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
+            if (record.IsBuiltIn) return auth != null && auth.IsAuthenticated && auth.IsAdmin;
             return CanEdit(auth, record.TenantId, record.UserId, record.OwnershipScope);
         }
 

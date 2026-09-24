@@ -122,6 +122,14 @@ namespace Armada.Server.Mcp.Tools
                     }
                     AuthContext auth = McpCallerContext.Require();
                     await ValidateObjectiveLinksAsync(auth, objectiveService, request.ObjectiveIds).ConfigureAwait(false);
+                    try
+                    {
+                        await incidentService.EnsureCallerLinksVisibleAsync(auth, request).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return (object)new { Error = ex.Message };
+                    }
                     Incident incident = await incidentService.CreateAsync(auth, request).ConfigureAwait(false);
                     await LinkObjectiveIdsAsync(auth, objectiveService, request.ObjectiveIds, incident.Id).ConfigureAwait(false);
                     return (object)incident;
@@ -151,6 +159,7 @@ namespace Armada.Server.Mcp.Tools
                     await ValidateObjectiveLinksAsync(auth, objectiveService, update.ObjectiveIds).ConfigureAwait(false);
                     try
                     {
+                        await incidentService.EnsureCallerLinksVisibleAsync(auth, update).ConfigureAwait(false);
                         Incident incident = await incidentService.UpdateAsync(auth, request.IncidentId, update).ConfigureAwait(false);
                         await LinkObjectiveIdsAsync(auth, objectiveService, update.ObjectiveIds, incident.Id).ConfigureAwait(false);
                         return (object)incident;

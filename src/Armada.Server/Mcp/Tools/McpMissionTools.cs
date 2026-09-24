@@ -204,6 +204,8 @@ namespace Armada.Server.Mcp.Tools
                         mission.DependsOnMissionId = request.DependsOnMissionId;
                     }
                     mission.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    string? unreachable = await MissionReferenceScope.FindUnreachableOnCreateAsync(database, createCaller, mission).ConfigureAwait(false);
+                    if (unreachable != null) return (object)new { Error = unreachable };
                     await MissionDefaultPlaybooks.MergeVesselDefaultsAsync(database, mission).ConfigureAwait(false);
                     try
                     {

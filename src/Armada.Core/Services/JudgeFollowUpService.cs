@@ -112,6 +112,7 @@ namespace Armada.Core.Services
             int associated = 0;
             foreach (JudgeFollowUp followUp in matches)
             {
+                if (!BelongsToEntryTenant(followUp, entry)) continue;
                 if (await AssociateAsync(followUp, entry, token).ConfigureAwait(false)) associated++;
             }
             return associated;
@@ -172,7 +173,9 @@ namespace Armada.Core.Services
         {
             try
             {
-                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+                List<MergeEntry> entries = (await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false))
+                    .Where(entry => BelongsToEntryTenant(followUp, entry))
+                    .ToList();
                 MergeEntry? match = entries
                     .Where(entry => String.Equals(entry.MissionId, followUp.ReviewedMissionId, StringComparison.Ordinal))
                     .OrderByDescending(entry => entry.CreatedUtc)
@@ -192,6 +195,16 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "could not associate durable follow-up " + followUp.Id + ": " + ex.Message);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Association runs without a caller and finds follow-ups by mission id alone, so a follow-up joins
+        /// only a merge entry of its own tenant. An entry without a tenant is a system entry and joins any.
+        /// </summary>
+        private static bool BelongsToEntryTenant(JudgeFollowUp followUp, MergeEntry entry)
+        {
+            if (String.IsNullOrWhiteSpace(entry.TenantId)) return true;
+            return Armada.Core.Authorization.OwnershipPolicy.SameTenant(followUp.TenantId, entry.TenantId);
         }
 
         private async Task<bool> AssociateAsync(JudgeFollowUp followUp, MergeEntry entry, CancellationToken token)

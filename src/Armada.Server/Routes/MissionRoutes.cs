@@ -407,6 +407,12 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Mission.");
                 mission.TenantId = ctx.TenantId;
                 mission.UserId = ctx.UserId;
+                string? unreachable = await MissionReferenceScope.FindUnreachableOnCreateAsync(_database, ctx, mission).ConfigureAwait(false);
+                if (unreachable != null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = unreachable };
+                }
                 await MissionDefaultPlaybooks.MergeVesselDefaultsAsync(_database, mission).ConfigureAwait(false);
                 try
                 {
@@ -444,7 +450,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Create a mission")
-                .WithDescription("Creates and dispatches a new mission. If a vesselId is provided, the Admiral will assign a captain and set up a worktree.")
+                .WithDescription("Creates and dispatches a new mission. If a vesselId is provided, the Admiral will assign a captain and set up a worktree. Every id the body names (vesselId, voyageId, captainId, requestedCaptainId, dependsOnMissionId, parentMissionId) must be visible to the caller; otherwise 404 and nothing is created.")
                 .WithRequestBody(OpenApiJson.BodyFor<Mission>("Mission data", true))
                 .WithResponse(201, OpenApiJson.For<Mission>("Created mission"))
                 .WithSecurity("ApiKey"));
@@ -723,6 +729,13 @@ namespace Armada.Server.Routes
                 MissionBindingUpdateRequest bindings = JsonSerializer.Deserialize<MissionBindingUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as mission bindings.");
 
+                string? unreachableLink = await MissionReferenceScope.FindUnreachableOnUpdateAsync(_database, ctx, existing, incoming).ConfigureAwait(false);
+                if (unreachableLink != null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = unreachableLink };
+                }
+
                 string? bindingError = MissionMetadataUpdate.Apply(existing, incoming, bindings);
                 if (bindingError != null)
                 {
@@ -736,7 +749,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Update a mission")
-                .WithDescription("Updates an existing mission by ID.")
+                .WithDescription("Updates an existing mission by ID. A changed dependsOnMissionId or parentMissionId must name a mission visible to the caller; otherwise 404 and nothing changes.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Mission>("Updated mission data", true))
                 .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))

@@ -81,6 +81,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Tenant scope for ids in request bodies:** voyage and mission create, mission
+  update, vessel build-context, merge-queue enqueue, incident create and update,
+  and planning-session create read every record their body names by id with the
+  caller's scope, as they read a path id, and return `404` (`400` for an
+  incident create) for a record outside it; the MCP and WebSocket create surfaces
+  apply the same rule. Caller-less paths read linked records only inside the
+  owning tenant: mission dependencies, Judge follow-up association, incident
+  lifecycle evidence, and fleet and captain default playbooks.
+- **Built-in personas and pipelines:** only a global administrator may change a
+  built-in persona or pipeline, because every tenant uses them; a tenant
+  administrator of the tenant that stores them receives `403`.
 - **Authentication and scope:** REST, MCP, WebSocket, chat, planning, and captain
   launch paths apply caller ownership. Captains receive scoped credentials;
   administrative tools and cross-tenant events remain restricted. Server-owned

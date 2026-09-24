@@ -547,14 +547,7 @@ namespace Armada.Server.Mcp.Tools
         /// <returns>The vessel, or null when it does not exist within the caller's scope.</returns>
         internal static async Task<Vessel?> ReadVisibleVesselAsync(DatabaseDriver database, AuthContext caller, string vesselId)
         {
-            if (database == null) throw new ArgumentNullException(nameof(database));
-            if (caller == null) throw new ArgumentNullException(nameof(caller));
-            if (String.IsNullOrWhiteSpace(vesselId)) return null;
-            if (caller.IsAdmin) return await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
-            if (String.IsNullOrWhiteSpace(caller.TenantId)) return null;
-            if (caller.IsTenantAdmin) return await database.Vessels.ReadAsync(caller.TenantId, vesselId).ConfigureAwait(false);
-            if (String.IsNullOrWhiteSpace(caller.UserId)) return null;
-            return await database.Vessels.ReadAsync(caller.TenantId, caller.UserId, vesselId).ConfigureAwait(false);
+            return await Armada.Core.Authorization.CallerScopedRead.ReadVesselAsync(database, caller, vesselId).ConfigureAwait(false);
         }
 
         /// <summary>

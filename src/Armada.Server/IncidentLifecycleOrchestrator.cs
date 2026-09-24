@@ -218,6 +218,17 @@ namespace Armada.Server
             return false;
         }
 
+        /// <summary>
+        /// The lifecycle runs without a caller and reads each linked record by id, so a linked record counts
+        /// as evidence only when it belongs to the incident's own tenant. An incident without a tenant was
+        /// written by a global administrator and reads any linked record.
+        /// </summary>
+        private static bool IsIncidentTenant(Incident incident, string? recordTenantId)
+        {
+            if (String.IsNullOrWhiteSpace(incident.TenantId)) return true;
+            return Armada.Core.Authorization.OwnershipPolicy.SameTenant(incident.TenantId, recordTenantId);
+        }
+
         private async Task<IncidentEvidence> ReadEvidenceAsync(Incident incident, CancellationToken token)
         {
             IncidentEvidence? rollback = await ReadRollbackEvidenceAsync(incident, token).ConfigureAwait(false);
@@ -244,12 +255,14 @@ namespace Armada.Server
             Deployment? rollbackDeployment = null;
             if (!String.IsNullOrWhiteSpace(incident.RollbackDeploymentId))
                 rollbackDeployment = await _Database.Deployments.ReadAsync(incident.RollbackDeploymentId, token: token).ConfigureAwait(false);
+            if (rollbackDeployment != null && !IsIncidentTenant(incident, rollbackDeployment.TenantId)) rollbackDeployment = null;
             if (rollbackDeployment?.Status == DeploymentStatusEnum.RolledBack)
                 return IncidentEvidence.RolledBack("Rollback deployment completed: " + rollbackDeployment.Id + ".");
 
             if (!String.IsNullOrWhiteSpace(incident.ReleaseId))
             {
                 Release? release = await _Database.Releases.ReadAsync(incident.ReleaseId, token: token).ConfigureAwait(false);
+                if (release != null && !IsIncidentTenant(incident, release.TenantId)) release = null;
                 if (release?.Status == ReleaseStatusEnum.RolledBack)
                     return IncidentEvidence.RolledBack("Linked release was rolled back: " + release.Id + ".");
             }
@@ -262,6 +275,7 @@ namespace Armada.Server
             CheckRun? failed = !String.IsNullOrWhiteSpace(incident.CheckRunId)
                 ? await _Database.CheckRuns.ReadAsync(incident.CheckRunId, token: token).ConfigureAwait(false)
                 : null;
+            if (failed != null && !IsIncidentTenant(incident, failed.TenantId)) failed = null;
 
             CheckRunQuery query = new CheckRunQuery
             {
@@ -304,7 +318,7 @@ namespace Armada.Server
                 return IncidentEvidence.None;
 
             Deployment? deployment = await _Database.Deployments.ReadAsync(incident.DeploymentId, token: token).ConfigureAwait(false);
-            if (deployment == null) return IncidentEvidence.None;
+            if (deployment == null || !IsIncidentTenant(incident, deployment.TenantId)) return IncidentEvidence.None;
 
             if (deployment.Status == DeploymentStatusEnum.RolledBack)
                 return IncidentEvidence.RolledBack("Deployment rolled back: " + deployment.Id + ".");
@@ -324,7 +338,7 @@ namespace Armada.Server
                 return IncidentEvidence.None;
 
             Release? release = await _Database.Releases.ReadAsync(incident.ReleaseId, token: token).ConfigureAwait(false);
-            if (release == null) return IncidentEvidence.None;
+            if (release == null || !IsIncidentTenant(incident, release.TenantId)) return IncidentEvidence.None;
 
             if (release.Status == ReleaseStatusEnum.RolledBack)
                 return IncidentEvidence.RolledBack("Release rolled back: " + release.Id + ".");
@@ -342,7 +356,7 @@ namespace Armada.Server
                 return IncidentEvidence.None;
 
             Mission? mission = await _Database.Missions.ReadAsync(incident.MissionId, token).ConfigureAwait(false);
-            if (mission == null) return IncidentEvidence.None;
+            if (mission == null || !IsIncidentTenant(incident, mission.TenantId)) return IncidentEvidence.None;
 
             if (mission.Status == MissionStatusEnum.Complete)
                 return IncidentEvidence.Mitigated("Linked mission completed: " + mission.Id + ".");
