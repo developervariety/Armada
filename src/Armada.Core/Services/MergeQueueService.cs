@@ -24,6 +24,12 @@ namespace Armada.Core.Services
         private const string _ORIGIN_PREFIX = "origin/";
 
         private string _Header = "[MergeQueue] ";
+
+        /// <summary>Per-stream budget for a merge-queue test command: its first failures and closing totals fit.</summary>
+        private const int _TestOutputLimitBytes = 1024 * 1024;
+
+        /// <summary>Per-stream budget for a merge-queue git command: merge, status and statistics output.</summary>
+        private const int _GitOutputLimitBytes = 16 * 1024 * 1024;
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
@@ -2488,34 +2494,34 @@ namespace Armada.Core.Services
         {
             _Logging.Info(_Header + "running tests: " + testCommand + " in " + workingDir);
 
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            string shell = GetShell();
+            ProcessStartInfo startInfo = new ProcessStartInfo(shell) { WorkingDirectory = workingDir };
+            if (OperatingSystem.IsWindows())
             {
-                FileName = GetShell(),
-                Arguments = GetShellArgs(testCommand),
-                WorkingDirectory = workingDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            TimeSpan timeout = TimeSpan.FromSeconds(_Settings.MergeQueueTestTimeoutSeconds);
-            GitProcessResult result;
-            try
-            {
-                result = await RunBoundedProcessAsync(startInfo, timeout, token).ConfigureAwait(false);
+                startInfo.Arguments = "/c " + testCommand;
             }
-            catch (TimeoutException ex)
+            else
             {
-                _Logging.Warn(_Header + "tests TIMED OUT in " + workingDir + ": " + ex.Message);
-                return new TestResult(-1, "merge_queue_test_timeout: " + ex.Message);
+                startInfo.ArgumentList.Add("-c");
+                startInfo.ArgumentList.Add(testCommand);
+            }
+
+            // A test command owns its process group, so a timeout also stops what it left running in the
+            // background. 1 MiB per stream keeps a suite's first failures and its closing totals.
+            TimeSpan timeout = TimeSpan.FromSeconds(_Settings.MergeQueueTestTimeoutSeconds);
+            BoundedProcessResult result = await RunBoundedProcessAsync(startInfo, timeout, _TestOutputLimitBytes, true, token).ConfigureAwait(false);
+            if (result.TimedOut)
+            {
+                string message = shell + " did not finish within " + ((int)timeout.TotalSeconds) + " seconds and was stopped with its process tree";
+                _Logging.Warn(_Header + "tests TIMED OUT in " + workingDir + ": " + message);
+                return new TestResult(-1, "merge_queue_test_timeout: " + message);
             }
 
             string output = result.StandardOutput;
             if (!String.IsNullOrEmpty(result.StandardError))
                 output += "\n--- STDERR ---\n" + result.StandardError;
 
-            return new TestResult(result.ExitCode, output);
+            return new TestResult(result.ExitCode ?? -1, output);
         }
 
         private async Task RunGitAsync(string workingDir, CancellationToken token, params string[] args)
@@ -2534,83 +2540,44 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<GitProcessResult> RunGitCapturingAsync(string workingDir, CancellationToken token, params string[] args)
         {
-            ProcessStartInfo startInfo = new ProcessStartInfo
-            {
-                FileName = "git",
-                WorkingDirectory = workingDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
             // Fail fast on credential prompts instead of waiting on a terminal nobody answers.
-            startInfo.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
-            startInfo.EnvironmentVariables["GCM_INTERACTIVE"] = "Never";
-
-            foreach (string arg in args)
+            ProcessStartInfo startInfo = GitProcessStartInfo.Create(workingDir, args);
+            TimeSpan timeout = GitProcessTimeouts.Resolve();
+            BoundedProcessResult result = await RunBoundedProcessAsync(startInfo, timeout, _GitOutputLimitBytes, false, token).ConfigureAwait(false);
+            if (result.TimedOut)
             {
-                startInfo.ArgumentList.Add(arg);
+                throw new TimeoutException(
+                    startInfo.FileName + " did not finish within " + ((int)timeout.TotalSeconds) + " seconds and was stopped with its process tree");
             }
 
-            return await RunBoundedProcessAsync(startInfo, GitProcessTimeouts.Resolve(), token).ConfigureAwait(false);
+            return new GitProcessResult(result.ExitCode ?? -1, result.StandardOutput, result.StandardError);
         }
 
         /// <summary>
-        /// The one process runner for the merge queue. Stdout and stderr drain concurrently, so a child
-        /// that fills one pipe while holding the other open cannot block; the caller's cancellation and
-        /// <paramref name="timeout"/> both stop the wait and kill the whole process tree. A timeout
-        /// throws <see cref="TimeoutException"/>; a caller cancellation throws
-        /// <see cref="OperationCanceledException"/>.
+        /// Run one merge-queue process through the shared bounded runner. A caller cancellation throws
+        /// <see cref="OperationCanceledException"/>; a timeout is returned for the caller to word.
         /// </summary>
-        private async Task<GitProcessResult> RunBoundedProcessAsync(ProcessStartInfo startInfo, TimeSpan timeout, CancellationToken token)
+        private async Task<BoundedProcessResult> RunBoundedProcessAsync(ProcessStartInfo startInfo, TimeSpan timeout, int outputLimitBytes, bool ownProcessGroup, CancellationToken token)
         {
-            using (CancellationTokenSource timeoutCts = new CancellationTokenSource(timeout))
-            using (CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token))
-            using (Process process = new Process { StartInfo = startInfo })
+            BoundedProcessRequest request = new BoundedProcessRequest(startInfo, timeout)
             {
-                process.Start();
-
-                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCts.Token);
-                Task<string> stderrTask = process.StandardError.ReadToEndAsync(linkedCts.Token);
-                try
-                {
-                    await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-                    string stdout = await stdoutTask.ConfigureAwait(false);
-                    string stderr = await stderrTask.ConfigureAwait(false);
-                    return new GitProcessResult(process.ExitCode, stdout, stderr);
-                }
-                catch (OperationCanceledException)
-                {
-                    try
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // Kill throws InvalidOperationException only when the process has already
-                        // exited, which is the state the kill wants.
-                    }
-                    catch (Exception killEx)
-                    {
-                        _Logging.Warn(_Header + "could not kill " + startInfo.FileName + " process tree; it may still be running: " + killEx.Message);
-                    }
-
-                    ObserveDrain(stdoutTask);
-                    ObserveDrain(stderrTask);
-
-                    if (token.IsCancellationRequested) throw;
-                    throw new TimeoutException(
-                        startInfo.FileName + " did not finish within " + ((int)timeout.TotalSeconds) + " seconds and was stopped with its process tree");
-                }
+                OutputLimitBytes = outputLimitBytes,
+                OwnProcessGroup = ownProcessGroup
+            };
+            string fileName = startInfo.FileName;
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill " + fileName + " process tree; it may still be running: " + result.KillError);
+            if (result.Cancelled)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
             }
-        }
 
-        private static void ObserveDrain(Task<string> drain)
-        {
-            // A cancelled drain faults after the process is killed; observe it so the fault is not
-            // raised later as an unobserved task exception.
-            drain.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+            string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
+            if (anomalies.Length > 0 && !result.TimedOut)
+                _Logging.Warn(_Header + fileName + ": " + anomalies);
+            return result;
         }
 
         private async Task<bool> IsBranchCheckedOutInWorktreeAsync(string repoPath, string branchName, CancellationToken token)
@@ -2698,12 +2665,6 @@ namespace Armada.Core.Services
             // Use /bin/sh (POSIX-guaranteed) instead of /bin/bash which may
             // not exist on Alpine, minimal containers, or some Linux distros.
             return "/bin/sh";
-        }
-
-        private string GetShellArgs(string command)
-        {
-            if (OperatingSystem.IsWindows()) return "/c " + command;
-            return "-c \"" + command.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
 
         private string TruncateOutput(string output)

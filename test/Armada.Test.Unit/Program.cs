@@ -140,6 +140,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReleaseVersionTests());
             runner.AddSuite(new ReleaseServiceTests());
             runner.AddSuite(new StartupScriptTests());
+            runner.AddSuite(new BoundedProcessRunnerTests());
             runner.AddSuite(new GitServiceTests());
             runner.AddSuite(new GitServiceIsPrMergedTests());
             runner.AddSuite(new GitServiceCommitCountTests());

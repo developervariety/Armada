@@ -150,6 +150,13 @@ upstream integrations and excludes changes already present at that baseline.
   returns to Pending, the captain is released,
   `captain.recovery_deferred_dispatch_hold` is recorded once per mission and
   engagement, and assignment skips the mission until the hold clears.
+- **Child processes:** one bounded runner in Core runs short-lived child
+  processes. It reads both output streams at once, keeps each within a byte budget
+  (beginning and end, with a marker and a count of the omitted bytes), kills the
+  process tree on a timeout or a caller cancellation (and the process group for
+  shell commands), and gives the readers a bounded drain window after exit or kill,
+  so a background child holding a pipe cannot hang the call. `run_command`,
+  merge-queue git and test commands, and self-deploy native commands use it.
 - **Captain administration:** REST, MCP, WebSocket and the dashboard share one
   service for single stop, emergency stop, deletion and restart. A single stop ends
   a Planning or Refining captain's session and stops and recalls any other captain.

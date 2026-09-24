@@ -4,7 +4,6 @@ namespace Armada.Runtimes.Tools
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
-    using System.Runtime.InteropServices;
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -49,10 +48,6 @@ namespace Armada.Runtimes.Tools
     {
         #region Private-Members
 
-        private const int SignalKill = 9;
-        private static readonly TimeSpan KillDrainTimeout = TimeSpan.FromSeconds(2);
-        private static readonly Lazy<IReadOnlyList<string>?> _GroupLauncher = new Lazy<IReadOnlyList<string>?>(ResolveGroupLauncher);
-
         #endregion
 
         #region Public-Members
@@ -76,12 +71,6 @@ namespace Armada.Runtimes.Tools
 
         /// <summary>The unique name of this tool.</summary>
         public string Name => "run_command";
-
-        /// <summary>
-        /// Launcher prefix that makes the shell a process-group leader, or null when the host has none. Resolved
-        /// once per process.
-        /// </summary>
-        internal static IReadOnlyList<string>? GroupLauncher => _GroupLauncher.Value;
 
         /// <summary>A human-readable description of what this tool does.</summary>
         public string Description => "Runs one shell command with bash in the mission workspace and returns its exit code "
@@ -146,92 +135,67 @@ namespace Armada.Runtimes.Tools
             int timeoutSeconds = Math.Clamp(request.TimeoutSeconds ?? DefaultTimeoutSeconds, 1, MaximumTimeoutSeconds);
             int outputLimit = Math.Clamp(ToolSafetyLimits.MaxProcessOutputBytes, 1024, 16 * 1024 * 1024);
 
-            ProcessStartInfo startInfo = BuildStartInfo(request.Command!, runDirectory);
-            bool ownsProcessGroup = GroupLauncher != null;
-            BoundedOutput output = new BoundedOutput(outputLimit);
-            Stopwatch clock = Stopwatch.StartNew();
-
-            using (Process process = new Process { StartInfo = startInfo })
-            using (CancellationTokenSource readersStop = new CancellationTokenSource())
+            BoundedProcessRequest run = new BoundedProcessRequest(BuildStartInfo(request.Command!, runDirectory), TimeSpan.FromSeconds(timeoutSeconds))
             {
-                process.Start();
-                process.StandardInput.Close();
+                OutputLimitBytes = outputLimit,
+                CombineOutput = true,
+                OwnProcessGroup = true,
+                // The command ends when the shell has exited AND its output is closed: a child that still holds the
+                // output pipe is still part of the command.
+                WaitForOutputClose = true
+            };
+            BoundedProcessResult processResult = await BoundedProcessRunner.RunAsync(run, cancellationToken).ConfigureAwait(false);
+            if (processResult.Cancelled)
+                return ToolExecution.Cancelled(toolCallId, cancellationToken);
 
-                // Chunked readers, not line events: a line reader holds a whole line before any cap applies.
-                Task stdoutPump = BoundedOutputPump.PumpAsync(process.StandardOutput, output, outputLimit, readersStop.Token);
-                Task stderrPump = BoundedOutputPump.PumpAsync(process.StandardError, output, outputLimit, readersStop.Token);
-                Task pumps = Task.WhenAll(stdoutPump, stderrPump);
-
-                bool timedOut = false;
-                using (CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            bool timedOut = processResult.TimedOut;
+            int? exitCode = timedOut ? null : processResult.ExitCode;
+            string error = timedOut ? "timed_out" : (exitCode == 0 ? String.Empty : "nonzero_exit");
+            string rendered = processResult.StandardOutput;
+            ToolOutputPruneResult prune = ToolOutputRetention.Prune(request.Command, rendered);
+            string kept = prune.Output;
+            string? archive = null;
+            long omitted = processResult.StandardOutputOmittedBytes;
+            if (prune.Pruned)
+            {
+                archive = TryArchive(workingDirectory, toolCallId, rendered);
+                if (archive == null)
                 {
-                    limit.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-                    try
-                    {
-                        // The command ends when the shell has exited AND its output is closed: a child that still
-                        // holds the output pipe is still part of the command.
-                        await process.WaitForExitAsync(limit.Token).ConfigureAwait(false);
-                        await pumps.WaitAsync(limit.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (limit.IsCancellationRequested)
-                    {
-                        timedOut = !cancellationToken.IsCancellationRequested;
-                        KillCommand(process, ownsProcessGroup);
-                        await DrainAfterKillAsync(pumps, readersStop).ConfigureAwait(false);
-                        if (cancellationToken.IsCancellationRequested)
-                            return ToolExecution.Cancelled(toolCallId, cancellationToken);
-                    }
+                    // A prune whose archive cannot be written leaves the original: the captain can
+                    // still read every line, and a hole it cannot recover is worse than a large log.
+                    kept = rendered;
+                    prune = ToolOutputPruneResult.Unchanged(rendered, "archive_failed");
                 }
-
-                clock.Stop();
-
-                int? exitCode = timedOut ? null : process.ExitCode;
-                string error = timedOut ? "timed_out" : (exitCode == 0 ? String.Empty : "nonzero_exit");
-                string rendered = output.Render();
-                ToolOutputPruneResult prune = ToolOutputRetention.Prune(request.Command, rendered);
-                string kept = prune.Output;
-                string? archive = null;
-                long omitted = output.OmittedBytes;
-                if (prune.Pruned)
+                else
                 {
-                    archive = TryArchive(workingDirectory, toolCallId, rendered);
-                    if (archive == null)
-                    {
-                        // A prune whose archive cannot be written leaves the original: the captain can
-                        // still read every line, and a hole it cannot recover is worse than a large log.
-                        kept = rendered;
-                        prune = ToolOutputPruneResult.Unchanged(rendered, "archive_failed");
-                    }
-                    else
-                    {
-                        omitted += Encoding.UTF8.GetByteCount(rendered) - Encoding.UTF8.GetByteCount(kept);
-                    }
+                    omitted += Encoding.UTF8.GetByteCount(rendered) - Encoding.UTF8.GetByteCount(kept);
                 }
-
-                RunCommandResult result = new RunCommandResult
-                {
-                    ExitCode = exitCode,
-                    TimedOut = timedOut,
-                    DurationMs = clock.ElapsedMilliseconds,
-                    Truncated = output.Truncated || prune.Pruned,
-                    Pruned = prune.Pruned,
-                    OmittedBytes = omitted,
-                    OutputArchive = archive,
-                    Output = kept,
-                    Error = String.IsNullOrEmpty(error) ? null : error
-                };
-
-                return new ToolResult
-                {
-                    ToolCallId = toolCallId,
-                    Success = String.IsNullOrEmpty(error),
-                    Content = JsonSerializer.Serialize(result)
-                };
             }
+
+            RunCommandResult result = new RunCommandResult
+            {
+                ExitCode = exitCode,
+                TimedOut = timedOut,
+                DurationMs = (long)processResult.Duration.TotalMilliseconds,
+                Truncated = processResult.StandardOutputTruncated || prune.Pruned,
+                Pruned = prune.Pruned,
+                OmittedBytes = omitted,
+                OutputArchive = archive,
+                Output = kept,
+                Error = String.IsNullOrEmpty(error) ? null : error
+            };
+
+            return new ToolResult
+            {
+                ToolCallId = toolCallId,
+                Success = String.IsNullOrEmpty(error),
+                Content = JsonSerializer.Serialize(result)
+            };
         }
 
         /// <summary>
-        /// Build the process start info: bash in the requested directory, closed-over environment, redirected streams.
+        /// Build the process start info: bash in the requested directory with the allowlisted environment. The runner
+        /// redirects the streams and starts it as a process-group leader.
         /// </summary>
         /// <param name="command">Shell command text.</param>
         /// <param name="runDirectory">Resolved working directory inside the workspace.</param>
@@ -240,21 +204,11 @@ namespace Armada.Runtimes.Tools
         {
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
-                FileName = GroupLauncher != null ? GroupLauncher[0] : "bash",
+                FileName = "bash",
                 WorkingDirectory = runDirectory,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
-            if (GroupLauncher != null)
-            {
-                for (int i = 1; i < GroupLauncher.Count; i++) startInfo.ArgumentList.Add(GroupLauncher[i]);
-                startInfo.ArgumentList.Add("bash");
-            }
             startInfo.ArgumentList.Add("-c");
             startInfo.ArgumentList.Add(command);
 
@@ -293,114 +247,6 @@ namespace Armada.Runtimes.Tools
         #endregion
 
         #region Private-Methods
-
-        /// <summary>
-        /// Kill everything the command started. With a process group, the whole group is signalled even after the
-        /// shell has exited, so a background child the shell left behind dies with it; the shell's own tree is
-        /// also killed while the shell is alive, which is the only containment available without a group.
-        /// </summary>
-        private static void KillCommand(Process process, bool ownsProcessGroup)
-        {
-            if (ownsProcessGroup && !OperatingSystem.IsWindows())
-            {
-                int processGroup;
-                try
-                {
-                    processGroup = process.Id;
-                }
-                catch (InvalidOperationException)
-                {
-                    processGroup = 0;
-                }
-
-                // The launcher made the shell a session and group leader, so its identifier names the group.
-                if (processGroup > 0) SignalProcessGroup(processGroup, SignalKill);
-            }
-
-            try
-            {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-                // Exited between the check and the kill.
-            }
-        }
-
-        /// <summary>
-        /// Let the readers take what the killed command wrote, then stop them: a descendant that left the process
-        /// group can hold the output pipe open indefinitely, and the call must still return.
-        /// </summary>
-        private static async Task DrainAfterKillAsync(Task pumps, CancellationTokenSource readersStop)
-        {
-            try
-            {
-                await pumps.WaitAsync(KillDrainTimeout).ConfigureAwait(false);
-                return;
-            }
-            catch (TimeoutException)
-            {
-                readersStop.Cancel();
-            }
-
-            await pumps.ConfigureAwait(false);
-        }
-
-        private static void SignalProcessGroup(int processGroup, int signal)
-        {
-            try
-            {
-                // A negative identifier addresses the whole process group. ESRCH (the group is already gone) is the
-                // expected outcome after a normal exit and needs no handling.
-                kill(-processGroup, signal);
-            }
-            catch (Exception ex) when (ex is DllNotFoundException || ex is EntryPointNotFoundException)
-            {
-                // No libc kill on this host: the tree kill that follows is the remaining containment.
-            }
-        }
-
-        [DllImport("libc", SetLastError = true)]
-        private static extern int kill(int pid, int sig);
-
-        /// <summary>
-        /// Resolve the command that starts bash as the leader of a new session and process group: the util-linux
-        /// setsid, or perl's POSIX::setsid where setsid is not installed. Null when neither exists (Windows, or
-        /// a host with neither), in which case only the shell's live process tree can be killed.
-        /// </summary>
-        private static IReadOnlyList<string>? ResolveGroupLauncher()
-        {
-            if (OperatingSystem.IsWindows()) return null;
-
-            string? setsid = FindOnPath("setsid");
-            if (setsid != null) return new List<string> { setsid };
-
-            string? perl = FindOnPath("perl");
-            if (perl != null)
-            {
-                return new List<string>
-                {
-                    perl,
-                    "-e",
-                    "use POSIX (); POSIX::setsid() or die \"setsid: $!\\n\"; exec { $ARGV[0] } @ARGV or die \"exec: $!\\n\";"
-                };
-            }
-
-            return null;
-        }
-
-        private static string? FindOnPath(string name)
-        {
-            string? path = Environment.GetEnvironmentVariable("PATH");
-            if (String.IsNullOrEmpty(path)) path = "/usr/local/bin:/usr/bin:/bin";
-            foreach (string directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-            {
-                string candidate = Path.Combine(directory, name);
-                if (File.Exists(candidate)) return candidate;
-            }
-
-            return null;
-        }
 
         private static string? TryArchive(string workspace, string toolCallId, string fullOutput)
         {

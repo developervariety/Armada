@@ -1,4 +1,4 @@
-namespace Armada.Runtimes.Tools
+namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
@@ -15,7 +15,7 @@ namespace Armada.Runtimes.Tools
     /// runner prints its failures and its totals LAST, so a head-only cut would hand a Judge the progress dots
     /// and hide the verdict it needs. A fifth of the budget holds the head and the rest a rolling tail.
     /// </remarks>
-    internal sealed class BoundedOutput
+    public sealed class BoundedOutput
     {
         #region Public-Members
 

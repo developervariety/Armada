@@ -1,4 +1,4 @@
-namespace Armada.Runtimes.Tools
+namespace Armada.Core.Services
 {
     using System;
     using System.IO;
@@ -15,7 +15,7 @@ namespace Armada.Runtimes.Tools
     /// <remarks>
     /// Line terminators follow <see cref="TextReader.ReadLine"/>: a line ends at "\n", "\r" or "\r\n".
     /// </remarks>
-    internal static class BoundedOutputPump
+    public static class BoundedOutputPump
     {
         #region Public-Members
 
@@ -82,6 +82,34 @@ namespace Armada.Runtimes.Tools
             }
 
             if (!line.IsEmpty || line.DroppedBytes > 0) line.Deliver(output);
+        }
+
+        /// <summary>
+        /// Copy a stream into an exact-text capture until end of stream or until the token is cancelled.
+        /// </summary>
+        /// <param name="reader">Stream reader to drain.</param>
+        /// <param name="capture">Destination capture.</param>
+        /// <param name="token">Stops the copy; what was read so far stays in the capture.</param>
+        /// <returns>A task that completes when the stream ends or the copy is stopped.</returns>
+        public static async Task PumpTextAsync(TextReader reader, BoundedTextCapture capture, CancellationToken token)
+        {
+            if (reader == null) throw new ArgumentNullException(nameof(reader));
+            if (capture == null) throw new ArgumentNullException(nameof(capture));
+
+            char[] chunk = new char[ChunkChars];
+            try
+            {
+                while (true)
+                {
+                    int read = await reader.ReadAsync(chunk.AsMemory(), token).ConfigureAwait(false);
+                    if (read == 0) break;
+                    capture.Append(chunk.AsSpan(0, read));
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // The caller stopped the copy after its own deadline; what was read stays in the capture.
+            }
         }
 
         #endregion
