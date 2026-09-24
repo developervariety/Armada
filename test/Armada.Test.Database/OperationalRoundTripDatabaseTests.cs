@@ -239,5 +239,140 @@ namespace Armada.Test.Database
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
         }
+        internal async Task VerifyLandingJobsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? mergeEntryId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("landing-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "landing-user", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "landing-fleet", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "landing-vessel", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "landing-captain", token).ConfigureAwait(false);
+                Voyage voyage = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "landing-voyage", token).ConfigureAwait(false);
+                Mission mission = await fixture.CreateMissionAsync(tenant.Id, user.Id, voyage.Id, vessel.Id, captain.Id, "landing-mission", token).ConfigureAwait(false);
+                MergeEntry entry = await fixture.CreateMergeEntryAsync(tenant.Id, user.Id, mission.Id, vessel.Id, token).ConfigureAwait(false);
+                mergeEntryId = entry.Id;
+
+                LandingJob job = new LandingJob
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    MergeEntryId = entry.Id,
+                    MissionId = mission.Id,
+                    VesselId = vessel.Id,
+                    BranchName = "armada/landing-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    TargetBranch = "release/next",
+                    State = LandingJobStateEnum.Testing,
+                    RetryCount = 2,
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-4),
+                    StartedUtc = DateTime.UtcNow.AddMinutes(-3),
+                    LastError = "Previous attempt failed ユニコード"
+                };
+                LandingJob created = await _Driver.LandingJobs.CreateAsync(job, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(created, await _Driver.LandingJobs.ReadAsync(created.Id, token).ConfigureAwait(false), "LandingJob");
+                DatabaseAssert.AllProperties(created, await _Driver.LandingJobs.ReadByMergeEntryAsync(entry.Id, token).ConfigureAwait(false), "LandingJob by merge entry");
+                DatabaseAssert.ContainsIds(await _Driver.LandingJobs.EnumerateByStateAsync(LandingJobStateEnum.Testing, token).ConfigureAwait(false), item => item.Id, created.Id);
+
+                created.State = LandingJobStateEnum.Landed;
+                created.RetryCount = 3;
+                created.CompletedUtc = DateTime.UtcNow;
+                created.LastError = null;
+                LandingJob updated = await _Driver.LandingJobs.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.LandingJobs.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened LandingJob");
+                }
+
+                List<LandingJob> testing = await _Driver.LandingJobs.EnumerateByStateAsync(LandingJobStateEnum.Testing, token).ConfigureAwait(false);
+                DatabaseAssert.True(testing.TrueForAll(item => item.Id != created.Id), "A landed job leaves the testing state list");
+
+                await _Driver.LandingJobs.DeleteByMergeEntryAsync(entry.Id, token).ConfigureAwait(false);
+                DatabaseAssert.True(await _Driver.LandingJobs.ReadAsync(created.Id, token).ConfigureAwait(false) == null, "Deleted landing job is gone");
+            }
+            finally
+            {
+                if (mergeEntryId != null && !_NoCleanup) await _Driver.LandingJobs.DeleteByMergeEntryAsync(mergeEntryId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyJudgeFollowUpsAsync(CancellationToken token)
+        {
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            string vesselId = "vsl_follow_" + suffix;
+            JudgeFollowUp? stored = null;
+            try
+            {
+                JudgeFollowUp followUp = new JudgeFollowUp
+                {
+                    TenantId = "ten_follow_" + suffix,
+                    UserId = "usr_follow_" + suffix,
+                    JudgeMissionId = "msn_judge_" + suffix,
+                    ReviewedMissionId = "msn_reviewed_" + suffix,
+                    VoyageId = "vyg_follow_" + suffix,
+                    VesselId = vesselId,
+                    JudgeVerdict = "PASS_WITH_NOTES",
+                    SuggestedFollowUps = "- Split the helper ユニコード",
+                    AuditVerdict = "Pending",
+                    CreatedUtc = DateTime.UtcNow.AddMinutes(-2)
+                };
+                stored = await _Driver.JudgeFollowUps.UpsertAsync(followUp, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(followUp, stored, "JudgeFollowUp");
+                DatabaseAssert.AllProperties(followUp, await _Driver.JudgeFollowUps.ReadAsync(stored.Id, token).ConfigureAwait(false), "JudgeFollowUp by id");
+                DatabaseAssert.AllProperties(followUp, await _Driver.JudgeFollowUps.ReadByJudgeMissionAsync(followUp.JudgeMissionId, token).ConfigureAwait(false), "JudgeFollowUp by Judge mission");
+                DatabaseAssert.Equal(1, (await _Driver.JudgeFollowUps.EnumeratePendingAsync(vesselId, token).ConfigureAwait(false)).Count, "Pending follow-up for the vessel");
+                DatabaseAssert.Equal(1, (await _Driver.JudgeFollowUps.EnumerateUnassociatedAsync(vesselId, token).ConfigureAwait(false)).Count, "Unassociated follow-up for the vessel");
+                DatabaseAssert.Equal(1, (await _Driver.JudgeFollowUps.EnumerateUnassociatedByReviewedMissionAsync(followUp.ReviewedMissionId, token).ConfigureAwait(false)).Count,
+                    "Unassociated follow-up by reviewed mission");
+                DatabaseAssert.Equal(1, (await _Driver.JudgeFollowUps.EnumerateUnassociatedByJudgeMissionAsync(followUp.JudgeMissionId, token).ConfigureAwait(false)).Count,
+                    "Unassociated follow-up by Judge mission");
+
+                string mergeEntryId = "mrg_follow_" + suffix;
+                DatabaseAssert.True(await _Driver.JudgeFollowUps.TryAssociateAsync(stored.Id, mergeEntryId, token).ConfigureAwait(false), "First association wins");
+                DatabaseAssert.True(!await _Driver.JudgeFollowUps.TryAssociateAsync(stored.Id, "mrg_other_" + suffix, token).ConfigureAwait(false), "A second association is refused");
+                JudgeFollowUp associated = DatabaseAssert.NotNull(await _Driver.JudgeFollowUps.ReadByMergeEntryAsync(mergeEntryId, token).ConfigureAwait(false), "Follow-up by merge entry");
+                DatabaseAssert.Equal(stored.Id, associated.Id, "Associated follow-up id");
+                DatabaseAssert.Equal(0, (await _Driver.JudgeFollowUps.EnumerateUnassociatedAsync(vesselId, token).ConfigureAwait(false)).Count, "An associated follow-up is no longer unassociated");
+
+                DateTime completedUtc = DateTime.UtcNow.AddSeconds(-5);
+                JudgeFollowUp audited = await _Driver.JudgeFollowUps.CompleteAuditAsync(stored.Id, "Actionable", "Audit notes 内容", "Open an objective", completedUtc, token).ConfigureAwait(false);
+                DatabaseAssert.Equal("Actionable", audited.AuditVerdict, "Audit verdict");
+                DatabaseAssert.Equal("Audit notes 内容", audited.AuditNotes, "Audit notes");
+                DatabaseAssert.Equal("Open an objective", audited.AuditRecommendedAction, "Audit recommended action");
+                DatabaseAssert.UtcInstant(completedUtc, audited.AuditCompletedUtc, "JudgeFollowUp.AuditCompletedUtc");
+                DatabaseAssert.Equal(mergeEntryId, audited.MergeEntryId, "Completing an audit keeps the association");
+                DatabaseAssert.Equal(0, (await _Driver.JudgeFollowUps.EnumeratePendingAsync(vesselId, token).ConfigureAwait(false)).Count, "An audited follow-up is no longer pending");
+
+                audited.SuggestedFollowUps = "- Updated suggestion";
+                audited.AuditRecommendedAction = null;
+                JudgeFollowUp updated = await _Driver.JudgeFollowUps.UpdateAsync(audited, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.JudgeFollowUps.ReadAsync(stored.Id, token).ConfigureAwait(false), "Reopened JudgeFollowUp");
+                }
+            }
+            finally
+            {
+                // The follow-up method set has no delete; remove the fixture row directly.
+                if (stored != null && !_NoCleanup)
+                {
+                    using (System.Data.Common.DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+                    {
+                        await connection.OpenAsync(token).ConfigureAwait(false);
+                        using (System.Data.Common.DbCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = "DELETE FROM judge_follow_ups WHERE id = @id;";
+                            System.Data.Common.DbParameter parameter = command.CreateParameter();
+                            parameter.ParameterName = "@id";
+                            parameter.Value = stored.Id;
+                            command.Parameters.Add(parameter);
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

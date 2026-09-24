@@ -264,7 +264,7 @@ If no `--type` is provided, Test.Automated uses a temporary SQLite database. Tes
 
 Armada supports four database backends: SQLite, PostgreSQL, SQL Server, and MySQL. The testing strategy covers databases at two layers:
 
-- **Test.Database** exhaustively tests the database driver layer directly, running CRUD operations for all 9 entity types (fleets, vessels, captains, missions, voyages, docks, signals, artifacts, merge queue entries) against each backend.
+- **Test.Database** tests the database driver layer directly and runs the same cases against each backend. The operational cases create, read, update, reopen through a fresh driver, filter and delete each stored record type, including skills, project profiles, playbooks, landing jobs, Judge follow-ups and the coordination board (rooms, participants, messages, claims). Round-trip cases compare every public property of the record and require every timestamp to read back as the same instant with `DateTimeKind.Utc`. A case for a record type a backend does not store (the coordination board on MySQL and SQL Server) is a named skip with its reason, counted in the summary, never a pass.
 - **Test.Automated** tests the full stack (REST API, MCP tools, WebSocket) and can target any database backend via the `--type` argument.
 
 ### CI Recommendations

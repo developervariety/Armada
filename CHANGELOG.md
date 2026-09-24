@@ -85,6 +85,11 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **Database runner coverage for landing jobs and Judge follow-ups:** the
+  database runner round-trips landing jobs (create, read by id and merge
+  entry, state list, update, reopen, delete) and Judge follow-ups (upsert,
+  the pending and unassociated lists, single association, audit completion,
+  update, reopen) on every provider, comparing every property.
 - **Coordination board storage:** the SQLite participant heartbeat is one
   insert-or-update statement, so two first heartbeats for the same key no
   longer race to a unique-constraint failure. Extending a participant's active
