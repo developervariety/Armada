@@ -5,13 +5,6 @@ Net changes since the latest full upstream merge on 2026-05-24
 This compares the merged tree with the current fork. It includes later selected
 upstream integrations and excludes changes already present at that baseline.
 
-## Unreleased
-
-- **Captain tool inventory:** a running Mux mission captain's inventory lists
-  the MCP servers its launch delivers through `--mcp-config`, derived from the
-  launch plan, instead of the config directory's servers that `mux print` never
-  loads; a Mux CLI that cannot start no longer hides the delivered servers.
-
 ## Added
 
 - **Typed decisions:** provider-neutral closed-question classification behind
@@ -251,6 +244,12 @@ upstream integrations and excludes changes already present at that baseline.
   directory (`--config-dir`, or `~/.mux`) keeps selecting its endpoints and
   settings, so captains that share a config directory no longer share MCP
   servers, and a launch sets no `MUX_CONFIG_ROOT` variable, which Mux never read.
+- **Mux captain tool inventory:** a running Mux mission captain's inventory
+  lists the MCP servers its launch delivers through `--mcp-config`, derived from
+  the launch plan, instead of the config directory's servers that `mux print`
+  never loads; its Armada probe presents the credential the launch resolves for
+  the same mission, and a Mux CLI that cannot start no longer hides the
+  delivered servers.
 - **API-endpoint tool bounds:** `run_command` owns a process group and kills it on
   timeout or cancellation, including children the shell left behind, and caps
   output while reading instead of after a whole line. `edit_file` and `multi_edit`

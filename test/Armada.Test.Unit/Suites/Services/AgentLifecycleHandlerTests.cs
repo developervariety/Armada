@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Concurrent;
     using System.Diagnostics;
     using System.IO;
+    using System.Net.Http;
     using System.Reflection;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -120,6 +121,48 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(tenantC.Id, ctx.TenantId, "the autonomous mission is scoped to the objective owner's tenant");
                     AssertEqual(ownerC.Id, ctx.UserId, "the autonomous mission is scoped to the objective owner's user");
                     AssertFalse(ctx.IsAdmin, "the autonomous mission is not a global admin");
+                }
+            });
+
+            await RunTest("The captain tool inventory probes with the same mission owner the launch credential carries", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // The inventory describes what a launch delivers, so its Armada probe must present the credential
+                    // the launch resolves for the same mission. The mission carries no owner, so both must fall back
+                    // to the objective owner carried on its voyage.
+                    SessionTokenService tokens = new SessionTokenService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, sessionTokens: tokens);
+
+                    TenantMetadata tenant = new TenantMetadata("Inventory tenant");
+                    await testDb.Driver.Tenants.CreateAsync(tenant).ConfigureAwait(false);
+                    UserMaster owner = new UserMaster(tenant.Id, "inventory-owner@example.com", "password");
+                    await testDb.Driver.Users.CreateAsync(owner).ConfigureAwait(false);
+                    Voyage voyage = new Voyage("Inventory voyage") { TenantId = tenant.Id, UserId = owner.Id };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Inventory mission") { VoyageId = voyage.Id }).ConfigureAwait(false);
+                    Captain captain = new Captain("mux-inventory-captain", AgentRuntimeEnum.Mux) { CurrentMissionId = mission.Id };
+
+                    CaptainLaunchIsolationPlan? plan = await handler.PrepareCaptainLaunchIsolationAsync(captain, mission).ConfigureAwait(false);
+                    AssertTrue(plan != null && plan.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), "the launch carries a mission credential");
+                    AuthContext? launched = tokens.ValidateToken(plan!.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable]);
+
+                    AuthorizationRecordingHandler http = new AuthorizationRecordingHandler();
+                    string profile = Path.Combine(Path.GetTempPath(), "armada_inventory_profile_" + Guid.NewGuid().ToString("N"));
+                    using (HttpClient client = new HttpClient(http))
+                    {
+                        CaptainRuntimeToolCatalogService catalog = new CaptainRuntimeToolCatalogService(CreateLogging(), settings, client, profile, tokens);
+                        await catalog.TryDescribeAsync(captain, testDb.Driver).ConfigureAwait(false);
+                    }
+
+                    string probed = http.Authorizations.FirstOrDefault(value => value.StartsWith("Bearer ", StringComparison.Ordinal)) ?? String.Empty;
+                    AuthContext? inventoried = probed.Length > 0 ? tokens.ValidateToken(probed.Substring("Bearer ".Length)) : null;
+
+                    AssertNotNull(launched, "the launch credential names an owner");
+                    AssertNotNull(inventoried, "the inventory probe presents a credential that names an owner");
+                    AssertEqual(launched!.TenantId, inventoried!.TenantId, "the inventory probe's tenant matches the launch credential's");
+                    AssertEqual(launched.UserId, inventoried.UserId, "the inventory probe's user matches the launch credential's");
+                    AssertEqual(owner.Id, launched.UserId, "both resolve the objective owner carried on the voyage");
                 }
             });
 
@@ -1516,6 +1559,17 @@ namespace Armada.Test.Unit.Suites.Services
         {
             LoggingModule logging = CreateLogging();
             return new AuthenticationService(database, sessionTokens, new ArmadaSettings(), logging);
+        }
+
+        private sealed class AuthorizationRecordingHandler : HttpMessageHandler
+        {
+            public List<string> Authorizations { get; } = new List<string>();
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                Authorizations.Add(request.Headers.Authorization?.ToString() ?? String.Empty);
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable) { Content = new StringContent(String.Empty) });
+            }
         }
 
         private sealed class StopRecordingRuntimeFactory : AgentRuntimeFactory

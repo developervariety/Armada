@@ -388,11 +388,10 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// The credential a running mission captain's Armada MCP probe presents: the mission owner's own scoped
-        /// session token. The owner is the mission's tenant and user, and failing that the objective owner
-        /// carried on the mission's voyage. Carries no value when there is no running mission, no session-token
-        /// service, or no resolvable owner, so the probe presents no credential rather than the admiral launch
-        /// credential.
+        /// The credential a running mission captain's Armada MCP probe presents: the one the mission's launch
+        /// carries, resolved by <see cref="MissionMcpCredentialResolver"/>. Carries no value when there is no
+        /// running mission or no resolvable owner, so the probe presents no credential rather than the admiral
+        /// launch credential.
         /// </summary>
         private async Task<McpCredentialReference> ResolveMissionProbeCredentialAsync(Captain captain, DatabaseDriver database, CancellationToken token)
         {
@@ -401,23 +400,7 @@ namespace Armada.Server
             Mission? mission = await database.Missions.ReadAsync(captain.CurrentMissionId!, token).ConfigureAwait(false);
             if (mission == null) return McpCredentialReference.MissionUnresolvedOwner;
 
-            string? tenantId = mission.TenantId;
-            string? userId = mission.UserId;
-            if ((String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId))
-                && !String.IsNullOrWhiteSpace(mission.VoyageId))
-            {
-                Voyage? voyage = await database.Voyages.ReadAsync(mission.VoyageId!, token).ConfigureAwait(false);
-                if (voyage != null)
-                {
-                    if (String.IsNullOrWhiteSpace(tenantId)) tenantId = voyage.TenantId;
-                    if (String.IsNullOrWhiteSpace(userId)) userId = voyage.UserId;
-                }
-            }
-
-            if (String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId)) return McpCredentialReference.MissionUnresolvedOwner;
-
-            AuthenticateResult issued = _SessionTokens.CreateToken(tenantId!, userId!);
-            return String.IsNullOrWhiteSpace(issued.Token) ? McpCredentialReference.MissionUnresolvedOwner : McpCredentialReference.ForMission(issued.Token!);
+            return await MissionMcpCredentialResolver.ResolveAsync(mission, database, _SessionTokens, null, token).ConfigureAwait(false);
         }
 
         private async Task<RuntimeToolCatalogSnapshot> DescribeConfiguredRuntimeAsync(
