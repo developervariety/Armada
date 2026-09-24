@@ -401,20 +401,31 @@ namespace Test.Shared.Suites.E2E
 
             cases.Add(CaseAsync("vessel_create_in_tenant_a_returns_201", "Vessel_CreateInTenantA_Returns201", TestTags.Positive, async () =>
             {
-                await E2EServerFixture.AcquireAsync(this);
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                string name = "xt-vessel-A-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
                 HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/vessels",
                     JsonHelper.ToJsonContent(new
                     {
-                        Name = "xt-vessel-A-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Name = name,
                         FleetId = _FleetAId,
-                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl()
+                        RepoUrl = "https://example.invalid/" + name + ".git"
                     })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.Created, response.StatusCode);
 
                 Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(response).ConfigureAwait(false);
                 AssertNotNull(vessel.Id, "Vessel ID");
                 _VesselAId = vessel.Id;
+
+                // A local repository URL is a server path only a global administrator may set.
+                HttpResponseMessage update = await fx.AuthClient.PutAsync("/api/v1/vessels/" + vessel.Id,
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Name = name,
+                        FleetId = _FleetAId,
+                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl()
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, update.StatusCode, "Global administrator sets the local repository URL");
             }));
 
             cases.Add(CaseAsync("vessel_list_from_tenant_a_contains_vessel", "Vessel_ListFromTenantA_ContainsVessel", TestTags.Positive, async () =>

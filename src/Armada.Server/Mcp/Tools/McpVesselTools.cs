@@ -193,6 +193,8 @@ namespace Armada.Server.Mcp.Tools
                     vessel.ProjectContext = request.ProjectContext;
                     vessel.StyleGuide = request.StyleGuide;
                     vessel.WorkingDirectory = request.WorkingDirectory;
+                    string? addPathError = Armada.Core.Authorization.VesselPathPolicy.ValidateCreate(addCaller, vessel, out bool _);
+                    if (addPathError != null) return (object)new { Error = addPathError };
                     // A repository that is already a local clone is the working directory when none is named, so
                     // the vessel is usable at once. LocalPath stays unset: it names the managed bare repository,
                     // which vessel removal deletes, and must never point at the operator's own clone.
@@ -309,6 +311,22 @@ namespace Armada.Server.Mcp.Tools
                     if (vessel == null
                         || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(updateCaller, vessel.TenantId, vessel.UserId, OwnershipScopeEnum.UserSpecific))
                         return (object)new { Error = "Vessel not found" };
+                    if (request.Name != null && !String.Equals(request.Name, vessel.Name, StringComparison.Ordinal))
+                    {
+                        string? nameError = Armada.Core.Authorization.VesselPathPolicy.ValidateName(request.Name);
+                        if (nameError != null) return (object)new { Error = nameError };
+                    }
+                    if (!updateCaller.IsAdmin)
+                    {
+                        // Server paths are server-owned for every caller that is not a global administrator.
+                        if ((request.WorkingDirectory != null && !String.Equals(request.WorkingDirectory, vessel.WorkingDirectory, StringComparison.Ordinal))
+                            || (request.LocalPath != null && !String.Equals(request.LocalPath, vessel.LocalPath, StringComparison.Ordinal)))
+                            return (object)new { Error = Armada.Core.Authorization.VesselPathPolicy.ServerPathRefusal };
+                        if (request.RepoUrl != null
+                            && !String.Equals(request.RepoUrl, vessel.RepoUrl, StringComparison.Ordinal)
+                            && Armada.Core.Authorization.VesselPathPolicy.IsServerLocalRepoUrl(request.RepoUrl))
+                            return (object)new { Error = Armada.Core.Authorization.VesselPathPolicy.LocalRepoUrlRefusal };
+                    }
                     if (request.Name != null)
                         vessel.Name = request.Name;
                     if (request.RepoUrl != null)

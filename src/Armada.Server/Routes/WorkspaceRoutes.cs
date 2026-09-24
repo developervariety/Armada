@@ -25,6 +25,11 @@ namespace Armada.Server.Routes
                 @"(?<path>(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:cs|csproj|sln|md|json|yaml|yml|ts|tsx|js|jsx|css|html|sh|bat))",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        /// <summary>
+        /// Message returned to an authenticated caller that is not a global administrator and asks to run a workspace command.
+        /// </summary>
+        public const string WorkspaceExecRefusal = "Only global administrators can run workspace commands; the command runs as the server process.";
+
         private readonly DatabaseDriver _database;
         private readonly IWorkspaceService _workspace;
         private readonly JsonSerializerOptions _jsonOptions;
@@ -392,12 +397,15 @@ namespace Armada.Server.Routes
 
             app.Post<WorkspaceExecRequest>("/api/v1/workspace/vessels/{vesselId}/exec", async (ApiRequest req) =>
             {
-                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                if (!ctx.IsAdmin && !ctx.IsTenantAdmin)
+                // The command runs as the server process with the server's own filesystem, network and credentials,
+                // so only a global administrator may run one. The matrix holds the same rule; the handler names it.
+                AuthContext execCtx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(execCtx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery)
+                    || !execCtx.IsAdmin)
                 {
-                    return RouteAuthRefusal.Forbid(req, "Only tenant administrators can run workspace commands");
+                    return RouteAuthRefusal.Refuse(req, execCtx, WorkspaceExecRefusal);
                 }
+                AuthContext ctx = execCtx;
 
                 Vessel? vessel = await ReadVesselForContextAsync(ctx, req.Parameters["vesselId"]).ConfigureAwait(false);
                 if (vessel == null)
@@ -421,7 +429,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Workspace")
                 .WithSummary("Run a command in the vessel workspace")
-                .WithDescription("Executes a shell command in the vessel working tree (the in-browser dock terminal), bounded by a timeout. Tenant administrators only.")
+                .WithDescription("Executes a shell command in the vessel working tree (the in-browser dock terminal), bounded by a timeout. The command runs as the server process, so only global administrators may call it.")
                 .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<WorkspaceExecRequest>("Command to run", true))
                 .WithResponse(200, OpenApiJson.For<WorkspaceExecResult>("Command result"))

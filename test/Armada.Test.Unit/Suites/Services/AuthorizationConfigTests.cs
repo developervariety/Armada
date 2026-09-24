@@ -313,6 +313,25 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/coordination/rooms/fleet/participants"));
             });
 
+            // --- Host command execution and gate evidence ---
+
+            await RunTest("CheckRun Writes AreTenantAdmin And Reads StayAuthenticated", () =>
+            {
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/check-runs"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/check-runs/import"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/check-runs/chk_abc/retry"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/check-runs/sync/github-actions"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("DELETE", "/api/v1/check-runs/chk_abc"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/check-runs/enumerate"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/check-runs/chk_abc"));
+            });
+
+            await RunTest("WorkspaceExec POST IsAdminOnly", () =>
+            {
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/workspace/vessels/vsl_abc/exec"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/workspace/vessels/vsl_abc/tree"));
+            });
+
             // --- Case insensitivity ---
 
             await RunTest("MethodCaseInsensitive", () =>

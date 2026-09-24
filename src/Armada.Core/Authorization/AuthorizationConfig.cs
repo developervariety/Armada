@@ -89,6 +89,10 @@ namespace Armada.Core.Authorization
             if (path.TrimEnd('/') == "/api/v1/captains/stop-all" && method == "POST") return PermissionLevel.AdminOnly;
             if (path.TrimEnd('/') == "/api/v1/merge-queue/process" && method == "POST") return PermissionLevel.AdminOnly;
 
+            // A workspace command runs as the server process with the server's filesystem, network and credentials,
+            // so it is host shell access: only a global administrator may run one.
+            if (method == "POST" && path.StartsWith("/api/v1/workspace/") && path.TrimEnd('/').EndsWith("/exec")) return PermissionLevel.AdminOnly;
+
             // Code-index routes use POST bodies for search/graph reads and refresh requests.
             // Route handlers enforce the vessel ACL after authentication.
             if (path.StartsWith("/api/v1/vessels/") && path.Contains("/code-index/")) return PermissionLevel.Authenticated;
@@ -118,6 +122,12 @@ namespace Armada.Core.Authorization
             if (path.StartsWith("/api/v1/merge-queue") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/request-history") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/harbor-runners") && method != "GET") return PermissionLevel.TenantAdmin;
+
+            // Check runs execute commands in a vessel's working directory and write the evidence the Judge and voyage
+            // gates read, so running, importing, retrying, syncing or deleting one needs a tenant administrator.
+            // Enumerate reads through a POST body and keeps the read level. A command override is refused inside
+            // the service for every caller that is not a global administrator.
+            if (path.StartsWith("/api/v1/check-runs") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.TenantAdmin;
 
             // Personas and pipelines belong to a tenant. Their handlers find the record inside the
             // caller's tenant; enumerate reads through a POST body and keeps the read level.

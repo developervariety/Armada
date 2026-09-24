@@ -10,6 +10,7 @@ namespace Armada.Server.Routes
     using WatsonWebserver.Core.OpenApi;
     using Armada.Server;
     using Armada.Core;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -232,6 +233,13 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "repoUrl is required when creating a vessel" };
                 }
+                string? createPathError = VesselPathPolicy.ValidateCreate(ctx, vessel, out bool createPathForbidden);
+                if (createPathError != null)
+                {
+                    if (createPathForbidden) return RouteAuthRefusal.Forbid(req, createPathError);
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createPathError };
+                }
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
                 vessel.AutoLandPredicate = autoLandPredicateJson;
@@ -300,6 +308,13 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
                 updated.AutoLandPredicate = updateAlpJson;
                 VesselUpdateMerge.KeepServerOwnedFields(existing, updated);
+                string? updatePathError = VesselPathPolicy.ApplyUpdate(ctx, existing, updated, out bool updatePathForbidden);
+                if (updatePathError != null)
+                {
+                    if (updatePathForbidden) return RouteAuthRefusal.Forbid(req, updatePathError);
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updatePathError };
+                }
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },
@@ -782,11 +797,12 @@ namespace Armada.Server.Routes
                 catch (Exception ex) { errors.Add("Dock " + dock.Id + ": " + ex.Message); }
             }
 
-            // Delete vessel dock directory
+            // Delete vessel dock directory. The directory is built from the name, so a name that is not one safe
+            // path segment never reaches a recursive delete.
             string vesselDockDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 ".armada", "docks", vessel.Name);
-            if (Directory.Exists(vesselDockDir))
+            if (VesselPathPolicy.ValidateName(vessel.Name) == null && Directory.Exists(vesselDockDir))
             {
                 try { Directory.Delete(vesselDockDir, true); }
                 catch (Exception ex) { errors.Add("Dock dir: " + ex.Message); }

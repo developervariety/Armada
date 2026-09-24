@@ -7669,7 +7669,7 @@ namespace Armada.Core.Services
             bool isFullyReportOnly = VoyageReportOnlyClassifier.IsFullyReportOnly(missions);
             if (!anyFailed && !isFullyReportOnly)
             {
-                VoyageCheckGate gate = await EvaluateVoyageChecksAsync(voyageId, missions, token).ConfigureAwait(false);
+                VoyageCheckGate gate = await EvaluateVoyageChecksAsync(voyage, missions, token).ConfigureAwait(false);
                 if (gate == VoyageCheckGate.HasFailed)
                 {
                     anyFailed = true;
@@ -7723,15 +7723,15 @@ namespace Armada.Core.Services
         /// enforcement point for "a Judge PASS must be backed by green independent Checks".
         /// </summary>
         private async Task<VoyageCheckGate> EvaluateVoyageChecksAsync(
-            string voyageId, List<Mission> missions, CancellationToken token)
+            Voyage voyage, List<Mission> missions, CancellationToken token)
         {
             List<CheckRunQuery> queries = new List<CheckRunQuery>
             {
-                new CheckRunQuery { VoyageId = voyageId }
+                new CheckRunQuery { VoyageId = voyage.Id }
             };
             foreach (Mission m in missions) queries.Add(new CheckRunQuery { MissionId = m.Id });
             Dictionary<string, CheckRun> checks = await CheckRunEnumeration
-                .ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
+                .ReadAllAsync(_Database, voyage.TenantId, queries, token).ConfigureAwait(false);
 
             // An armed record on a voyage that has committed work is queued work the executor will
             // run, so it holds completion; before any commit it is an inert marker and is ignored.
@@ -7905,7 +7905,7 @@ namespace Armada.Core.Services
                 queries.Add(new CheckRunQuery { MissionId = mission.Id });
                 if (queries.Count == 0) return String.Empty;
 
-                Dictionary<string, CheckRun> checks = await CheckRunEnumeration.ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
+                Dictionary<string, CheckRun> checks = await CheckRunEnumeration.ReadAllAsync(_Database, mission.TenantId, queries, token).ConfigureAwait(false);
                 if (checks.Count == 0) return "no checks";
 
                 List<string> parts = new List<string>();
@@ -7945,7 +7945,7 @@ namespace Armada.Core.Services
             }
             queries.Add(new CheckRunQuery { MissionId = judgeMission.Id });
             Dictionary<string, CheckRun> checks = await CheckRunEnumeration
-                .ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
+                .ReadAllAsync(_Database, judgeMission.TenantId, queries, token).ConfigureAwait(false);
 
             List<CheckRun> collected = checks.Values.ToList();
             await StampArmedChecksAtReviewedCommitAsync(collected, judgeMission, token).ConfigureAwait(false);

@@ -122,6 +122,10 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 201;
                     return run;
                 }
+                catch (UnauthorizedAccessException ex)
+                {
+                    return RouteAuthRefusal.Forbid(req, ex.Message);
+                }
                 catch (InvalidOperationException ex)
                 {
                     req.Http.Response.StatusCode = 400;
@@ -131,7 +135,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("CheckRuns")
                 .WithSummary("Run a check")
-                .WithDescription("Executes a structured build, test, deploy, or verification check and persists the result.")
+                .WithDescription("Executes a structured build, test, or verification check and persists the result. A commandOverride is accepted from global administrators only; Deploy and Rollback checks run through the deployment workflow.")
                 .WithRequestBody(OpenApiJson.BodyFor<CheckRunRequest>("Check-run request", true))
                 .WithResponse(201, OpenApiJson.For<CheckRun>("Created check run"))
                 .WithSecurity("ApiKey"));
@@ -149,6 +153,10 @@ namespace Armada.Server.Routes
                     CheckRun run = await _checkRuns.ImportAsync(ctx, request).ConfigureAwait(false);
                     req.Http.Response.StatusCode = 201;
                     return run;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    return RouteAuthRefusal.Forbid(req, ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -223,6 +231,10 @@ namespace Armada.Server.Routes
                     CheckRun run = await _checkRuns.RetryAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                     req.Http.Response.StatusCode = 201;
                     return run;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    return RouteAuthRefusal.Forbid(req, ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {

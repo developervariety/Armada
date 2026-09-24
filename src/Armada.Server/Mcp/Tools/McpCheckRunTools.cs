@@ -95,7 +95,7 @@ namespace Armada.Server.Mcp.Tools
                         regressionPurpose = new { type = "string", description = "Optional post-land regression class this Check guards: None, Consumer, or Ledger" },
                         regressionObjectiveId = new { type = "string", description = "Optional objective (obj_ prefix) whose landed change this Check guards" },
                         regressionLandedCommit = new { type = "string", description = "Optional landed commit hash this Check guards" },
-                        commandOverride = new { type = "string", description = "Optional raw shell command to execute instead of the workflow-profile command" }
+                        commandOverride = new { type = "string", description = "Optional raw shell command to execute instead of the workflow-profile command. Global administrators only: it runs as the server process." }
                     },
                     required = new[] { "vesselId", "type" }
                 },
@@ -226,7 +226,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static bool IsExpectedToolFailure(Exception ex)
         {
-            return ex is JsonException || ex is InvalidOperationException || ex is ArgumentException;
+            return ex is JsonException || ex is InvalidOperationException || ex is ArgumentException || ex is UnauthorizedAccessException;
         }
 
         private static object BuildFailure(

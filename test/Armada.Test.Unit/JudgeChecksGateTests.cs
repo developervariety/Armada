@@ -292,6 +292,69 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("ForeignTenantCheck_NeverReachesVoyageOrJudgeGate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_gate_own", Name = "ten_gate_own" }).ConfigureAwait(false);
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_gate_foreign", Name = "ten_gate_foreign" }).ConfigureAwait(false);
+
+                    (MissionService svc, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    voyage.TenantId = "ten_gate_own";
+                    await testDb.Driver.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                    List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    foreach (Mission m in missions)
+                    {
+                        m.TenantId = "ten_gate_own";
+                        await testDb.Driver.Missions.UpdateAsync(m).ConfigureAwait(false);
+                    }
+                    Mission judge = missions.First(m => m.Persona == "Judge");
+                    judge.AgentOutput = "review body\n[ARMADA:VERDICT] PASS";
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                    // A Failed record another tenant wrote against this voyage and its Judge by id.
+                    foreach (CheckRun forged in new[]
+                    {
+                        new CheckRun { TenantId = "ten_gate_foreign", VoyageId = voyage.Id },
+                        new CheckRun { TenantId = "ten_gate_foreign", MissionId = judge.Id }
+                    })
+                    {
+                        forged.Label = "Build";
+                        forged.Type = CheckRunTypeEnum.Build;
+                        forged.Source = CheckRunSourceEnum.External;
+                        forged.Status = CheckRunStatusEnum.Failed;
+                        forged.Command = "dotnet build";
+                        forged.ExitCode = 1;
+                        forged.Output = "Build failed.";
+                        await testDb.Driver.CheckRuns.CreateAsync(forged).ConfigureAwait(false);
+                    }
+
+                    // The tenant's own green Check.
+                    CheckRun own = new CheckRun
+                    {
+                        TenantId = "ten_gate_own",
+                        VoyageId = voyage.Id,
+                        Label = "Build",
+                        Type = CheckRunTypeEnum.Build,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Passed,
+                        Command = "dotnet build",
+                        ExitCode = 0,
+                        Output = "Build succeeded."
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(own).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "a Check from another tenant does not reject this tenant's Judge PASS");
+
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status, "a Check from another tenant does not fail this tenant's voyage");
+                }
+            }).ConfigureAwait(false);
+
             // Judge-level gate: the pure classifier behind a Judge PASS.
             await RunTest("JudgeGate_Classify_PureCases", () =>
             {

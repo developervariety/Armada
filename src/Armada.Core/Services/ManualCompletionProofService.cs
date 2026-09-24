@@ -163,7 +163,7 @@ namespace Armada.Core.Services
 
             queries.Add(new CheckRunQuery { MissionId = mission.Id });
             Dictionary<string, CheckRun> checks = await CheckRunEnumeration
-                .ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
+                .ReadAllAsync(_Database, mission.TenantId, queries, token).ConfigureAwait(false);
             return checks.Values.ToList();
         }
     }

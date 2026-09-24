@@ -442,6 +442,11 @@ namespace Armada.Server.WebSocket
             Vessel newVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
             if (String.IsNullOrEmpty(newVessel.RepoUrl))
                 return new { type = "command.error", action = "create_vessel", error = "repoUrl is required when creating a vessel" };
+            string? createPathError = Armada.Core.Authorization.VesselPathPolicy.ValidateCreate(caller, newVessel, out bool createPathForbidden);
+            if (createPathError != null)
+                return createPathForbidden
+                    ? Forbidden("create_vessel", createPathError)
+                    : new { type = "command.error", action = "create_vessel", error = createPathError };
             newVessel.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             newVessel.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
             newVessel.NormalizeGitHubTokenOverride();
@@ -460,6 +465,11 @@ namespace Armada.Server.WebSocket
                 return NotFound("update_vessel", "Vessel not found");
             Vessel updVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
             VesselUpdateMerge.KeepServerOwnedFields(existVessel, updVessel);
+            string? updatePathError = Armada.Core.Authorization.VesselPathPolicy.ApplyUpdate(caller, existVessel, updVessel, out bool updatePathForbidden);
+            if (updatePathError != null)
+                return updatePathForbidden
+                    ? Forbidden("update_vessel", updatePathError)
+                    : new { type = "command.error", action = "update_vessel", error = updatePathError };
             updVessel = await _Database.Vessels.UpdateAsync(updVessel).ConfigureAwait(false);
             return new { type = "command.result", action = "update_vessel", data = (object)updVessel };
         }

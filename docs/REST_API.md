@@ -118,7 +118,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/settings` | PUT | AdminOnly | Partial update of server configuration and remote-control settings |
 | `/api/v1/settings/reload` | POST | AdminOnly | Validate and apply runtime-tunable values from the bound settings file |
 | `/api/v1/fleets` | ALL | Authenticated | Tenant-scoped |
-| `/api/v1/vessels` | ALL | Authenticated | Tenant-scoped |
+| `/api/v1/vessels` | ALL | Authenticated | Tenant-scoped. `LocalPath`, `WorkingDirectory` and a local-path `RepoUrl` are server paths only a global admin sets; see [POST /api/v1/vessels](#post-apiv1vessels) |
 | `/api/v1/captains` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/missions` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/voyages` | ALL | Authenticated | Tenant-scoped |
@@ -136,6 +136,9 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/jobs` | GET | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
+| `/api/v1/check-runs` | GET, POST `/enumerate` | Authenticated | Tenant-scoped reads |
+| `/api/v1/check-runs` | POST/DELETE | TenantAdmin | Run, import, retry, GitHub Actions sync and delete. A linked mission, voyage or deployment must be in the caller's tenant (`400` otherwise). `commandOverride`, and retrying an imported check, are global admin only (`403`). `Deploy` and `Rollback` checks run only through the deployment workflow (`400`) |
+| `/api/v1/workspace/vessels/{id}/exec` | POST | AdminOnly | Global admin only. The command runs as the server process, so it is host shell access |
 | `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
 | `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant |
@@ -1162,10 +1165,19 @@ Register a new vessel (git repository).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `Name` | string | yes | Vessel name |
+| `Name` | string | yes | Vessel name. One path segment: no `/` or `\`, no `..`, no `:`, no control characters, and no leading `.` |
 | `RepoUrl` | string | yes | Remote repository URL |
 | `FleetId` | string | no | Fleet to assign to |
 | `DefaultBranch` | string | no | Default branch name (default: `"main"`) |
+| `LocalPath` | string | no | Managed bare repository path on the server. Global admin only |
+| `WorkingDirectory` | string | no | Working checkout path on the server. Global admin only |
+
+`LocalPath` and `WorkingDirectory` name places on the server's own disk: branch listing, git status, workspace file
+access, check runs and vessel removal act on them, and removal deletes `LocalPath`. A `RepoUrl` that is a local path,
+a `file:` URL or a `<transport>::<address>` helper makes the server read its own disk. Only a global administrator may
+set any of these. Any other caller that sends a non-empty `LocalPath` or `WorkingDirectory`, or such a `RepoUrl`,
+receives `403`. A name that is not one safe path segment receives `400` for every caller, because the managed
+repository and dock directories are built from it.
 
 **Response:** `201 Created` - [Vessel](#vessel)
 
@@ -1207,7 +1219,9 @@ vessel as read with your changes applied. To change only the context fields, use
 `PATCH /api/v1/vessels/{id}/context`.
 
 The server keeps `TenantId`, `UserId`, `CreatedUtc` and `AutoLandCalibrationLandedCount` from the stored vessel; body
-values for them are ignored.
+values for them are ignored. For a caller that is not a global administrator it also keeps the stored `LocalPath` and
+`WorkingDirectory`, and it refuses a changed `RepoUrl` that is a server path with `403`. A new name must be one safe
+path segment (`400` otherwise).
 
 `autoLandPredicate` must be a JSON object (or `null` to clear it). The key matches in any letter case. A GET returns
 the stored predicate as a JSON string, so parse it before sending it back.
@@ -3673,7 +3687,8 @@ elsewhere) as the leader of its own process group, and is killed with every
 process it started when it exceeds the timeout. `stdout` and `stderr` each keep
 256 KiB; past that the beginning and the end stay, with a marker naming the
 omitted bytes.
-**Tenant administrators only.**
+**Global administrators only.** The command runs as the server process, with its
+filesystem, network and credentials. Any other caller receives `403`.
 
 **Path Parameters:** `vesselId` (vessel ID).
 

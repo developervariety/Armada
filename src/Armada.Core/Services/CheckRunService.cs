@@ -124,16 +124,44 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Refusal message for a command override from a caller that is not a global administrator.
+        /// </summary>
+        public const string CommandOverrideRefusal =
+            "Only a global administrator can run a check with a command override; other callers run the command the workflow profile resolves.";
+
+        /// <summary>
         /// Execute a check run synchronously and persist the result.
         /// </summary>
-        public async Task<CheckRun> RunAsync(AuthContext auth, CheckRunRequest request, CancellationToken token = default)
+        /// <remarks>
+        /// A command override is a raw shell command run as the server process, so only a global administrator may
+        /// send one; anyone else gets <see cref="UnauthorizedAccessException"/> before any record or process exists.
+        /// Deploy and Rollback checks run only through the deployment workflow, which passes its approval.
+        /// </remarks>
+        public Task<CheckRun> RunAsync(AuthContext auth, CheckRunRequest request, CancellationToken token = default)
+        {
+            return RunCoreAsync(auth, request, false, token);
+        }
+
+        private async Task<CheckRun> RunCoreAsync(AuthContext auth, CheckRunRequest request, bool allowDeploymentExecution, CancellationToken token)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
 
+            if (!String.IsNullOrWhiteSpace(request.CommandOverride) && !auth.IsAdmin)
+                throw new UnauthorizedAccessException(CommandOverrideRefusal);
+
+            if (IsDeploymentExecutionType(request.Type))
+            {
+                if (String.IsNullOrWhiteSpace(request.DeploymentId))
+                    throw new InvalidOperationException(request.Type + " checks must be linked to a deployment.");
+                if (!allowDeploymentExecution)
+                    throw new InvalidOperationException("Deployment-linked checks must be executed through the deployment workflow.");
+            }
+
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
+            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, token).ConfigureAwait(false);
 
             if (request.Type == CheckRunTypeEnum.Slop && String.IsNullOrWhiteSpace(request.CommandOverride))
                 return await RunNewSlopAsync(auth, vessel, request, token).ConfigureAwait(false);
@@ -413,7 +441,7 @@ namespace Armada.Core.Services
             if (pending != null)
                 return await RunPendingAsync(auth, pending.Id, allowDeploymentExecution, token).ConfigureAwait(false);
 
-            return await RunAsync(auth, request, token).ConfigureAwait(false);
+            return await RunCoreAsync(auth, request, allowDeploymentExecution, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -427,6 +455,7 @@ namespace Armada.Core.Services
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
+            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, token).ConfigureAwait(false);
 
             WorkflowProfile? profile = await ResolveImportProfileAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
             CheckRun run = BuildImportedRun(auth, vessel, profile, request);
@@ -446,6 +475,7 @@ namespace Armada.Core.Services
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
+            await EnsureLinkedRecordsAccessibleAsync(auth, request.MissionId, request.VoyageId, request.DeploymentId, token).ConfigureAwait(false);
 
             WorkflowProfile? profile = await ResolveImportProfileAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
             CheckRun run = BuildImportedRun(auth, vessel, profile, request);
@@ -519,6 +549,11 @@ namespace Armada.Core.Services
             if (prior == null) throw new InvalidOperationException("Check run not found.");
             if (!String.IsNullOrWhiteSpace(prior.DeploymentId))
                 throw new InvalidOperationException("Deployment-linked checks must be retried through the deployment workflow.");
+            // An imported record carries a command Armada never resolved, and any stored command is the same raw
+            // shell text an override is, so only a global administrator re-executes it verbatim. Everyone else
+            // retries with the command the workflow profile resolves now.
+            if (prior.Source == CheckRunSourceEnum.External && !auth.IsAdmin)
+                throw new UnauthorizedAccessException("Only a global administrator can re-execute an imported check; run a new check instead.");
             if (prior.Status == CheckRunStatusEnum.Pending)
                 return await RunPendingAsync(auth, prior.Id, allowDeploymentExecution: false, token).ConfigureAwait(false);
 
@@ -537,7 +572,7 @@ namespace Armada.Core.Services
                 RegressionPurpose = prior.RegressionPurpose,
                 RegressionObjectiveId = prior.RegressionObjectiveId,
                 RegressionLandedCommit = prior.RegressionLandedCommit,
-                CommandOverride = prior.Command
+                CommandOverride = auth.IsAdmin ? prior.Command : null
             }, token).ConfigureAwait(false);
         }
 
@@ -972,6 +1007,34 @@ namespace Armada.Core.Services
             if (auth.IsTenantAdmin)
                 return await _Database.Vessels.ReadAsync(auth.TenantId!, vesselId, token).ConfigureAwait(false);
             return await _Database.Vessels.ReadAsync(auth.TenantId!, auth.UserId!, vesselId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Refuse a mission, voyage or deployment link outside the caller's tenant. A check record counts in the gates
+        /// of whatever it links to, so a link outside the tenant would let one tenant write evidence into another
+        /// tenant's Judge and voyage gates. A global administrator may link any record.
+        /// </summary>
+        private async Task EnsureLinkedRecordsAccessibleAsync(
+            AuthContext auth,
+            string? missionId,
+            string? voyageId,
+            string? deploymentId,
+            CancellationToken token)
+        {
+            if (auth.IsAdmin) return;
+            string tenantId = auth.TenantId ?? String.Empty;
+
+            if (!String.IsNullOrWhiteSpace(missionId)
+                && await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false) == null)
+                throw new InvalidOperationException("Mission not found or not accessible.");
+
+            if (!String.IsNullOrWhiteSpace(voyageId)
+                && await _Database.Voyages.ReadAsync(tenantId, voyageId, token).ConfigureAwait(false) == null)
+                throw new InvalidOperationException("Voyage not found or not accessible.");
+
+            if (!String.IsNullOrWhiteSpace(deploymentId)
+                && await _Database.Deployments.ReadAsync(deploymentId, new DeploymentQuery { TenantId = tenantId }, token).ConfigureAwait(false) == null)
+                throw new InvalidOperationException("Deployment not found or not accessible.");
         }
 
         private async Task<CommandExecutionResult> ExecuteCommandAsync(

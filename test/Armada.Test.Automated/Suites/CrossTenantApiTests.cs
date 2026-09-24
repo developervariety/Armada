@@ -169,6 +169,40 @@ using System.IO;
             return new TenantUserCredentialResult { TenantId = tenantId, UserId = user.Id, CredentialId = credential.Id, BearerToken = credential.BearerToken };
         }
 
+        /// <summary>
+        /// Create a vessel as <paramref name="owner"/>, then name its server paths as the global administrator. A
+        /// local repository URL and LocalPath are server paths only a global administrator may set.
+        /// </summary>
+        private async Task<Vessel> CreateVesselWithServerPathsAsync(
+            HttpClient owner,
+            string name,
+            string? fleetId,
+            string defaultBranch,
+            string repoUrl,
+            string? localPath)
+        {
+            HttpResponseMessage create = await owner.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+            {
+                Name = name,
+                FleetId = fleetId,
+                RepoUrl = "https://example.invalid/" + name + ".git",
+                DefaultBranch = defaultBranch
+            })).ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.Created, create.StatusCode, "Owner creates vessel " + name);
+            Vessel created = await JsonHelper.DeserializeAsync<Vessel>(create).ConfigureAwait(false);
+
+            HttpResponseMessage update = await _AdminClient.PutAsync("/api/v1/vessels/" + created.Id, JsonHelper.ToJsonContent(new
+            {
+                Name = name,
+                FleetId = fleetId,
+                RepoUrl = repoUrl,
+                LocalPath = localPath,
+                DefaultBranch = defaultBranch
+            })).ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.OK, update.StatusCode, "Global administrator sets the server paths of " + name);
+            return await JsonHelper.DeserializeAsync<Vessel>(update).ConfigureAwait(false);
+        }
+
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] arguments)
         {
             ProcessStartInfo startInfo = new ProcessStartInfo
@@ -629,16 +663,13 @@ using System.IO;
 
             await RunTest("Vessel_CreateInTenantA_Returns201", async () =>
             {
-                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/vessels",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Name = "xt-vessel-A-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        FleetId = fleetAId,
-                        RepoUrl = TestRepoHelper.GetLocalBareRepoUrl()
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, response.StatusCode);
-
-                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(response).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselWithServerPathsAsync(
+                    _ClientA!,
+                    "xt-vessel-A-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    fleetAId,
+                    "main",
+                    TestRepoHelper.GetLocalBareRepoUrl(),
+                    null).ConfigureAwait(false);
                 AssertNotNull(vessel.Id, "Vessel ID");
                 vesselAId = vessel.Id;
             }).ConfigureAwait(false);
@@ -709,15 +740,8 @@ using System.IO;
                     string refsBefore = await RunGitAsync(working, "show-ref").ConfigureAwait(false);
                     string bareRefsBefore = await RunGitAsync(bare, "show-ref").ConfigureAwait(false);
 
-                    HttpResponseMessage create = await _ClientA2!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
-                    {
-                        Name = "xt-branch-working-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        RepoUrl = "file:///branch-working",
-                        LocalPath = working,
-                        DefaultBranch = "main"
-                    })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, create.StatusCode, "Ordinary owner creates working repository vessel");
-                    Vessel workingVessel = await JsonHelper.DeserializeAsync<Vessel>(create).ConfigureAwait(false);
+                    Vessel workingVessel = await CreateVesselWithServerPathsAsync(
+                        _ClientA2!, "xt-branch-working-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "main", "file:///branch-working", working).ConfigureAwait(false);
                     vesselId = workingVessel.Id;
                     HttpResponseMessage demoteOwner = await _AdminClient.PutAsync("/api/v1/users/" + _UserA2Id, JsonHelper.ToJsonContent(new
                     {
@@ -755,15 +779,8 @@ using System.IO;
                     HttpResponseMessage adminResponse = await _AdminClient.GetAsync("/api/v1/vessels/" + vesselId + "/branches").ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, adminResponse.StatusCode, "Global admin can inspect branches");
 
-                    HttpResponseMessage bareCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
-                    {
-                        Name = "xt-branch-bare-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        RepoUrl = "file:///branch-bare",
-                        LocalPath = bare,
-                        DefaultBranch = "main"
-                    })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, bareCreate.StatusCode, "Ordinary owner creates bare repository vessel");
-                    bareVesselId = (await JsonHelper.DeserializeAsync<Vessel>(bareCreate).ConfigureAwait(false)).Id;
+                    bareVesselId = (await CreateVesselWithServerPathsAsync(
+                        _ClientA, "xt-branch-bare-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "main", "file:///branch-bare", bare).ConfigureAwait(false)).Id;
                     HttpResponseMessage bareResponse = await _ClientA.GetAsync("/api/v1/vessels/" + bareVesselId + "/branches").ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, bareResponse.StatusCode, "Tenant admin can inspect bare repository");
                     BranchListResponse bareListing = await JsonHelper.DeserializeAsync<BranchListResponse>(bareResponse).ConfigureAwait(false);
@@ -776,15 +793,8 @@ using System.IO;
 
                     string detached = Path.Combine(root, "detached");
                     await RunGitAsync(working, "worktree", "add", "--detach", detached, "feature/ünusual.name").ConfigureAwait(false);
-                    HttpResponseMessage detachedCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
-                    {
-                        Name = "xt-branch-detached-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        RepoUrl = "file:///branch-detached",
-                        LocalPath = detached,
-                        DefaultBranch = "missing-default"
-                    })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, detachedCreate.StatusCode, "Ordinary owner creates detached repository vessel");
-                    Vessel detachedVessel = await JsonHelper.DeserializeAsync<Vessel>(detachedCreate).ConfigureAwait(false);
+                    Vessel detachedVessel = await CreateVesselWithServerPathsAsync(
+                        _ClientA, "xt-branch-detached-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "missing-default", "file:///branch-detached", detached).ConfigureAwait(false);
                     BranchListResponse detachedListing = await JsonHelper.DeserializeAsync<BranchListResponse>(await _ClientA.GetAsync("/api/v1/vessels/" + detachedVessel.Id + "/branches").ConfigureAwait(false)).ConfigureAwait(false);
                     AssertEqual("detached", detachedListing.HeadState, "Detached repository HEAD state (error=" + (detachedListing.Error ?? "<null>") + ")");
                     AssertTrue(detachedListing.HeadRef == null, "Detached repository has no symbolic HEAD ref");
@@ -793,15 +803,15 @@ using System.IO;
                     string unrelated = Path.Combine(root, "unrelated.git");
                     await RunGitAsync(root, "clone", "--bare", working, unrelated).ConfigureAwait(false);
                     string missingPath = Path.Combine(root, "missing");
-                    HttpResponseMessage missingCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    HttpResponseMessage traversalCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
                     {
                         Name = "../" + Path.GetFileName(unrelated),
-                        RepoUrl = "file:///branch-missing",
-                        LocalPath = missingPath,
+                        RepoUrl = "https://example.invalid/branch-missing.git",
                         DefaultBranch = "main"
                     })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, missingCreate.StatusCode, "Ordinary owner creates missing repository vessel");
-                    Vessel missingVessel = await JsonHelper.DeserializeAsync<Vessel>(missingCreate).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.BadRequest, traversalCreate.StatusCode, "A name that escapes its directory is refused");
+                    Vessel missingVessel = await CreateVesselWithServerPathsAsync(
+                        _ClientA, "xt-branch-missing-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "main", "file:///branch-missing", missingPath).ConfigureAwait(false);
                     BranchListResponse missingListing = await JsonHelper.DeserializeAsync<BranchListResponse>(await _ClientA.GetAsync("/api/v1/vessels/" + missingVessel.Id + "/branches").ConfigureAwait(false)).ConfigureAwait(false);
                     AssertEqual("unavailable", missingListing.Source, "Missing repository source");
                     AssertEqual("unknown", missingListing.HeadState, "Missing repository head state");
@@ -817,15 +827,8 @@ using System.IO;
                     await RunGitAsync(corrupt, "add", "corrupt.txt").ConfigureAwait(false);
                     await RunGitAsync(corrupt, "commit", "-m", "Corrupt HEAD base").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(corrupt, ".git", "HEAD"), "ref: refs/heads/no-such-branch\n").ConfigureAwait(false);
-                    HttpResponseMessage corruptCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
-                    {
-                        Name = "xt-branch-corrupt-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        RepoUrl = "file:///branch-corrupt",
-                        LocalPath = corrupt,
-                        DefaultBranch = "main"
-                    })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, corruptCreate.StatusCode, "Tenant admin creates corrupt HEAD vessel");
-                    Vessel corruptVessel = await JsonHelper.DeserializeAsync<Vessel>(corruptCreate).ConfigureAwait(false);
+                    Vessel corruptVessel = await CreateVesselWithServerPathsAsync(
+                        _ClientA, "xt-branch-corrupt-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "main", "file:///branch-corrupt", corrupt).ConfigureAwait(false);
                     HttpResponseMessage corruptResponse = await _ClientA.GetAsync("/api/v1/vessels/" + corruptVessel.Id + "/branches").ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, corruptResponse.StatusCode, "Corrupt HEAD inspection returns a response");
                     BranchListResponse corruptListing = await JsonHelper.DeserializeAsync<BranchListResponse>(corruptResponse).ConfigureAwait(false);
@@ -868,15 +871,8 @@ using System.IO;
                     await RunGitAsync(root, "clone", "--bare", origin, landing).ConfigureAwait(false);
                     await RunGitAsync(landing, "fetch", source, "feature/api-write:refs/heads/feature/api-write").ConfigureAwait(false);
 
-                    HttpResponseMessage create = await _ClientA!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
-                    {
-                        Name = "xt-branch-write-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        RepoUrl = origin,
-                        LocalPath = landing,
-                        DefaultBranch = "main"
-                    })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, create.StatusCode, "Tenant admin creates write vessel");
-                    string vesselId = (await JsonHelper.DeserializeAsync<Vessel>(create).ConfigureAwait(false)).Id;
+                    string vesselId = (await CreateVesselWithServerPathsAsync(
+                        _ClientA!, "xt-branch-write-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "main", origin, landing).ConfigureAwait(false)).Id;
                     string branchesPath = "/api/v1/vessels/" + vesselId + "/branches";
 
                     BranchListResponse listing = await JsonHelper.DeserializeAsync<BranchListResponse>(await _ClientA.GetAsync(branchesPath).ConfigureAwait(false)).ConfigureAwait(false);
@@ -913,6 +909,119 @@ using System.IO;
                 {
                     if (Directory.Exists(root)) Directory.Delete(root, true);
                 }
+            }).ConfigureAwait(false);
+
+            await RunTest("Vessel_ServerPaths_FromTenantAdmin_AreRefusedOnCreateAndKeptOnUpdate", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-vessel-paths-api-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                try
+                {
+                    string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                    HttpResponseMessage withWorkingDirectory = await _ClientA!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-paths-wd-" + suffix,
+                        RepoUrl = "https://example.invalid/paths.git",
+                        WorkingDirectory = root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, withWorkingDirectory.StatusCode, "Tenant admin cannot name a working directory");
+
+                    HttpResponseMessage withLocalPath = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-paths-lp-" + suffix,
+                        RepoUrl = "https://example.invalid/paths.git",
+                        LocalPath = root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, withLocalPath.StatusCode, "Tenant admin cannot name a local path");
+
+                    HttpResponseMessage withLocalRepoUrl = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-paths-url-" + suffix,
+                        RepoUrl = root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, withLocalRepoUrl.StatusCode, "Tenant admin cannot use a server path as the repository URL");
+
+                    HttpResponseMessage withFileUrl = await _ClientA3!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-paths-file-" + suffix,
+                        RepoUrl = "file://" + root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, withFileUrl.StatusCode, "Ordinary user is refused before the path rule is reached");
+
+                    HttpResponseMessage vessels = await _AdminClient.GetAsync("/api/v1/vessels?pageSize=1000").ConfigureAwait(false);
+                    EnumerationResult<Vessel> listed = await JsonHelper.DeserializeAsync<EnumerationResult<Vessel>>(vessels).ConfigureAwait(false);
+                    AssertFalse(listed.Objects.Any(v => v.Name.EndsWith(suffix, StringComparison.Ordinal)), "No refused vessel was stored");
+
+                    string serverOwned = Path.Combine(root, "server-owned");
+                    Vessel vessel = await CreateVesselWithServerPathsAsync(
+                        _ClientA, "xt-paths-kept-" + suffix, null, "main", "https://example.invalid/kept.git", serverOwned).ConfigureAwait(false);
+                    HttpResponseMessage update = await _ClientA.PutAsync("/api/v1/vessels/" + vessel.Id, JsonHelper.ToJsonContent(new
+                    {
+                        Name = vessel.Name,
+                        RepoUrl = vessel.RepoUrl,
+                        DefaultBranch = "main",
+                        LocalPath = root,
+                        WorkingDirectory = root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, update.StatusCode, "Tenant admin update succeeds");
+                    Vessel stored = await JsonHelper.DeserializeAsync<Vessel>(await _AdminClient.GetAsync("/api/v1/vessels/" + vessel.Id).ConfigureAwait(false)).ConfigureAwait(false);
+                    AssertEqual(serverOwned, stored.LocalPath, "Tenant admin update keeps the stored local path");
+                    AssertTrue(stored.WorkingDirectory == null, "Tenant admin update keeps the stored working directory");
+
+                    HttpResponseMessage localRepoUpdate = await _ClientA.PutAsync("/api/v1/vessels/" + vessel.Id, JsonHelper.ToJsonContent(new
+                    {
+                        Name = vessel.Name,
+                        RepoUrl = root,
+                        DefaultBranch = "main"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, localRepoUpdate.StatusCode, "Tenant admin cannot repoint the repository URL at a server path");
+
+                    HttpResponseMessage adminUpdate = await _AdminClient.PutAsync("/api/v1/vessels/" + vessel.Id, JsonHelper.ToJsonContent(new
+                    {
+                        Name = vessel.Name,
+                        RepoUrl = vessel.RepoUrl,
+                        DefaultBranch = "main",
+                        LocalPath = serverOwned,
+                        WorkingDirectory = root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, adminUpdate.StatusCode, "Global administrator sets server paths");
+                    AssertEqual(root, (await JsonHelper.DeserializeAsync<Vessel>(adminUpdate).ConfigureAwait(false)).WorkingDirectory, "Global administrator's working directory is stored");
+                }
+                finally
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Vessel_NameThatIsNotOneSafePathSegment_IsRefused", async () =>
+            {
+                foreach (string name in new[] { "../x", "a/b", "a\\b", ".hidden", "..", "x..y" })
+                {
+                    HttpResponseMessage tenantAdmin = await _ClientA!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = name,
+                        RepoUrl = "https://example.invalid/unsafe.git"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.BadRequest, tenantAdmin.StatusCode, "Tenant admin create with name '" + name + "' is refused");
+
+                    HttpResponseMessage admin = await _AdminClient.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = name,
+                        RepoUrl = "https://example.invalid/unsafe.git"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.BadRequest, admin.StatusCode, "Global administrator create with name '" + name + "' is refused");
+                }
+
+                HttpResponseMessage rename = await _ClientA!.PutAsync("/api/v1/vessels/" + vesselAId, JsonHelper.ToJsonContent(new
+                {
+                    Name = "../escaped",
+                    FleetId = fleetAId,
+                    RepoUrl = "https://example.invalid/unsafe.git",
+                    DefaultBranch = "main"
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, rename.StatusCode, "Renaming to an unsafe name is refused");
+                Vessel stored = await JsonHelper.DeserializeAsync<Vessel>(await _ClientA.GetAsync("/api/v1/vessels/" + vesselAId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertFalse(stored.Name.Contains("..", StringComparison.Ordinal), "The stored name is unchanged");
             }).ConfigureAwait(false);
 
             #endregion
@@ -1213,6 +1322,123 @@ using System.IO;
                 AssertEqual(voyageAId, detail.Voyage!.Id);
             }).ConfigureAwait(false);
 
+            await RunTest("Workspace_Exec_FromTenantAdmin_Returns403AndRunsNothing", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-exec-api-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                try
+                {
+                    Vessel vessel = await CreateVesselWithServerPathsAsync(
+                        _ClientA!, "xt-exec-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "main", "https://example.invalid/exec.git", null).ConfigureAwait(false);
+                    HttpResponseMessage setWorkingDirectory = await _AdminClient.PutAsync("/api/v1/vessels/" + vessel.Id, JsonHelper.ToJsonContent(new
+                    {
+                        Name = vessel.Name,
+                        RepoUrl = vessel.RepoUrl,
+                        DefaultBranch = "main",
+                        WorkingDirectory = root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, setWorkingDirectory.StatusCode, "Global administrator sets the working directory");
+
+                    string marker = Path.Combine(root, "exec-ran.txt");
+                    object exec = new { Command = "echo ran > exec-ran.txt", TimeoutSeconds = 30 };
+                    string execPath = "/api/v1/workspace/vessels/" + vessel.Id + "/exec";
+
+                    HttpResponseMessage tenantAdmin = await _ClientA.PostAsync(execPath, JsonHelper.ToJsonContent(exec)).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, tenantAdmin.StatusCode, "Tenant admin cannot run a workspace command");
+                    string body = await tenantAdmin.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    AssertTrue(body.Contains("global administrators", StringComparison.OrdinalIgnoreCase), "The refusal names the rule: " + body);
+                    AssertEqual(HttpStatusCode.Forbidden, (await _ClientA3!.PostAsync(execPath, JsonHelper.ToJsonContent(exec)).ConfigureAwait(false)).StatusCode, "Ordinary user cannot run a workspace command");
+                    AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.PostAsync(execPath, JsonHelper.ToJsonContent(exec)).ConfigureAwait(false)).StatusCode, "Anonymous cannot run a workspace command");
+                    AssertFalse(File.Exists(marker), "No refused command ran");
+
+                    HttpResponseMessage admin = await _AdminClient.PostAsync(execPath, JsonHelper.ToJsonContent(exec)).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, admin.StatusCode, "Global administrator runs a workspace command");
+                    AssertTrue(File.Exists(marker), "The global administrator's command ran");
+                }
+                finally
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("CheckRun_CommandOverride_FromNonGlobalAdmin_IsRefusedAndRunsNothing", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-check-override-api-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                try
+                {
+                    Vessel vessel = await CreateVesselWithServerPathsAsync(
+                        _ClientA!, "xt-override-" + Guid.NewGuid().ToString("N").Substring(0, 8), null, "main", "https://example.invalid/override.git", null).ConfigureAwait(false);
+                    HttpResponseMessage setWorkingDirectory = await _AdminClient.PutAsync("/api/v1/vessels/" + vessel.Id, JsonHelper.ToJsonContent(new
+                    {
+                        Name = vessel.Name,
+                        RepoUrl = vessel.RepoUrl,
+                        DefaultBranch = "main",
+                        WorkingDirectory = root
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, setWorkingDirectory.StatusCode, "Global administrator sets the working directory");
+
+                    string marker = Path.Combine(root, "override-ran.txt");
+                    object run = new { VesselId = vessel.Id, Type = "Build", CommandOverride = "echo ran > override-ran.txt" };
+
+                    HttpResponseMessage tenantAdmin = await _ClientA.PostAsync("/api/v1/check-runs", JsonHelper.ToJsonContent(run)).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, tenantAdmin.StatusCode, "Tenant admin cannot send a command override");
+                    string body = await tenantAdmin.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    AssertTrue(body.Contains("global administrator", StringComparison.OrdinalIgnoreCase), "The refusal names the rule: " + body);
+                    AssertEqual(HttpStatusCode.Forbidden, (await _ClientA3!.PostAsync("/api/v1/check-runs", JsonHelper.ToJsonContent(run)).ConfigureAwait(false)).StatusCode, "Ordinary user cannot run a check");
+                    AssertFalse(File.Exists(marker), "No refused override ran");
+
+                    HttpResponseMessage checks = await _AdminClient.GetAsync("/api/v1/check-runs?vesselId=" + vessel.Id).ConfigureAwait(false);
+                    AssertEqual(0L, (await JsonHelper.DeserializeAsync<EnumerationResult<CheckRun>>(checks).ConfigureAwait(false)).TotalRecords, "A refused override stores no check run");
+
+                    HttpResponseMessage deploy = await _ClientA.PostAsync("/api/v1/check-runs", JsonHelper.ToJsonContent(new { VesselId = vessel.Id, Type = "Deploy", EnvironmentName = "staging" })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.BadRequest, deploy.StatusCode, "A Deploy check outside the deployment workflow is refused");
+                    AssertTrue((await deploy.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("linked to a deployment", StringComparison.Ordinal), "The Deploy refusal names the rule");
+                }
+                finally
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("CheckRun_ImportNamingAnotherTenantsVoyage_IsRefused", async () =>
+            {
+                HttpResponseMessage vesselB = await _ClientB!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                {
+                    Name = "xt-import-B-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    RepoUrl = "https://example.invalid/import-b.git"
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, vesselB.StatusCode, "Tenant B creates its own vessel");
+                string vesselBId = (await JsonHelper.DeserializeAsync<Vessel>(vesselB).ConfigureAwait(false)).Id;
+
+                HttpResponseMessage forged = await _ClientB.PostAsync("/api/v1/check-runs/import", JsonHelper.ToJsonContent(new
+                {
+                    VesselId = vesselBId,
+                    VoyageId = voyageAId,
+                    Type = "Build",
+                    Status = "Failed",
+                    ExitCode = 1
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, forged.StatusCode, "Tenant B cannot link a check to tenant A's voyage");
+
+                HttpResponseMessage forgedMission = await _ClientB.PostAsync("/api/v1/check-runs/import", JsonHelper.ToJsonContent(new
+                {
+                    VesselId = vesselBId,
+                    MissionId = missionAId,
+                    Type = "Build",
+                    Status = "Passed",
+                    ExitCode = 0
+                })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, forgedMission.StatusCode, "Tenant B cannot link a check to tenant A's mission");
+
+                HttpResponseMessage attached = await _AdminClient.GetAsync("/api/v1/check-runs?voyageId=" + voyageAId).ConfigureAwait(false);
+                AssertEqual(0L, (await JsonHelper.DeserializeAsync<EnumerationResult<CheckRun>>(attached).ConfigureAwait(false)).TotalRecords, "No check is linked to tenant A's voyage");
+                HttpResponseMessage attachedMission = await _AdminClient.GetAsync("/api/v1/check-runs?missionId=" + missionAId).ConfigureAwait(false);
+                AssertEqual(0L, (await JsonHelper.DeserializeAsync<EnumerationResult<CheckRun>>(attachedMission).ConfigureAwait(false)).TotalRecords, "No check is linked to tenant A's mission");
+
+                await _AdminClient.DeleteAsync("/api/v1/vessels/" + vesselBId).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             #endregion
 
             #region Signal-Isolation
@@ -1400,6 +1626,8 @@ using System.IO;
                     new AuthRefusalProbe("CaptainRoutes", "GET", "/api/v1/captains", false),
                     new AuthRefusalProbe("CaptainRoutes", "POST", "/api/v1/captains", true),
                     new AuthRefusalProbe("CheckRunRoutes", "GET", "/api/v1/check-runs", false),
+                    new AuthRefusalProbe("CheckRunRoutes", "POST", "/api/v1/check-runs", true),
+                    new AuthRefusalProbe("CheckRunRoutes", "POST", "/api/v1/check-runs/import", true),
                     new AuthRefusalProbe("CodeIndexRoutes", "GET", "/api/v1/vessels/vsl_missing/code-index/status", false),
                     new AuthRefusalProbe("CoordinationRoutes", "GET", "/api/v1/coordination/rooms", false),
                     new AuthRefusalProbe("CoordinationRoutes", "GET", "/api/v1/coordination/rooms", true),
@@ -1467,6 +1695,7 @@ using System.IO;
                     new AuthRefusalProbe("WorkflowProfileRoutes", "GET", "/api/v1/workflow-profiles", false),
                     new AuthRefusalProbe("WorkflowProfileRoutes", "POST", "/api/v1/workflow-profiles", true),
                     new AuthRefusalProbe("WorkspaceRoutes", "GET", "/api/v1/workspace/vessels/vsl_missing/tree", false),
+                    new AuthRefusalProbe("WorkspaceRoutes", "POST", "/api/v1/workspace/vessels/vsl_missing/exec", true),
                 };
 
                 List<string> failures = new List<string>();

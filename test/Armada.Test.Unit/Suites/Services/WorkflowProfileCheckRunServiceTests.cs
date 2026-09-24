@@ -821,6 +821,269 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RunAsync refuses a command override from a caller that is not a global administrator and starts no process", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_override", "usr_override").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-override-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_override", "usr_override", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    string marker = Path.Combine(workingDirectory, "override-ran.txt");
+
+                    foreach (AuthContext caller in new[]
+                    {
+                        AuthContext.Authenticated("ten_override", "usr_override", false, true, "UnitTest"),
+                        AuthContext.Authenticated("ten_override", "usr_override", false, false, "UnitTest")
+                    })
+                    {
+                        UnauthorizedAccessException? refused = null;
+                        try
+                        {
+                            await checkRuns.RunAsync(caller, new CheckRunRequest
+                            {
+                                VesselId = vessel.Id,
+                                Type = CheckRunTypeEnum.Build,
+                                CommandOverride = BuildWriteMarkerCommand(marker)
+                            }).ConfigureAwait(false);
+                        }
+                        catch (UnauthorizedAccessException ex)
+                        {
+                            refused = ex;
+                        }
+
+                        AssertNotNull(refused, "A command override from a non-global-admin is refused (tenant admin=" + caller.IsTenantAdmin + ")");
+                        AssertContains("global administrator", refused!.Message);
+                        AssertFalse(File.Exists(marker), "No process ran for the refused override");
+                    }
+
+                    EnumerationResult<CheckRun> records = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { VesselId = vessel.Id }).ConfigureAwait(false);
+                    AssertEqual(0L, records.TotalRecords, "A refused override creates no check record");
+
+                    AuthContext admin = AuthContext.Authenticated("ten_override", "usr_override", true, false, "UnitTest");
+                    CheckRun adminRun = await checkRuns.RunAsync(admin, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        CommandOverride = BuildWriteMarkerCommand(marker)
+                    }).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, adminRun.Status, "A global administrator still runs an override");
+                    AssertTrue(File.Exists(marker), "The global administrator's override ran");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RunAsync refuses Deploy and Rollback checks outside the deployment workflow", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_run_deploy", "usr_run_deploy").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-run-deploy-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_run_deploy", "usr_run_deploy", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    string deployMarker = Path.Combine(workingDirectory, "deployed.txt");
+                    string rollbackMarker = Path.Combine(workingDirectory, "rolled-back.txt");
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_run_deploy",
+                        UserId = "usr_run_deploy",
+                        Name = "Deploy Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "dotnet --version",
+                        Environments = new List<WorkflowEnvironmentProfile>
+                        {
+                            new WorkflowEnvironmentProfile
+                            {
+                                EnvironmentName = "staging",
+                                DeployCommand = BuildWriteMarkerCommand(deployMarker),
+                                RollbackCommand = BuildWriteMarkerCommand(rollbackMarker)
+                            }
+                        }
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    Deployment deployment = new Deployment
+                    {
+                        TenantId = "ten_run_deploy",
+                        UserId = "usr_run_deploy",
+                        VesselId = vessel.Id,
+                        Title = "Approval-gated deployment",
+                        EnvironmentName = "staging",
+                        Status = DeploymentStatusEnum.PendingApproval,
+                        ApprovalRequired = true
+                    };
+                    await testDb.Driver.Deployments.CreateAsync(deployment).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_run_deploy", "usr_run_deploy", false, true, "UnitTest");
+                    foreach (CheckRunTypeEnum type in new[] { CheckRunTypeEnum.Deploy, CheckRunTypeEnum.Rollback })
+                    {
+                        InvalidOperationException? unlinked = await CaptureAsync<InvalidOperationException>(async () =>
+                        {
+                            await checkRuns.RunAsync(auth, new CheckRunRequest
+                            {
+                                VesselId = vessel.Id,
+                                Type = type,
+                                EnvironmentName = "staging"
+                            }).ConfigureAwait(false);
+                        }).ConfigureAwait(false);
+                        AssertNotNull(unlinked, type + " without a deployment is refused");
+                        AssertContains("must be linked to a deployment", unlinked!.Message);
+
+                        InvalidOperationException? linked = await CaptureAsync<InvalidOperationException>(async () =>
+                        {
+                            await checkRuns.RunAsync(auth, new CheckRunRequest
+                            {
+                                VesselId = vessel.Id,
+                                DeploymentId = deployment.Id,
+                                Type = type,
+                                EnvironmentName = "staging"
+                            }).ConfigureAwait(false);
+                        }).ConfigureAwait(false);
+                        AssertNotNull(linked, type + " linked to a deployment is refused outside the deployment workflow");
+                        AssertContains("deployment workflow", linked!.Message);
+                    }
+
+                    AssertFalse(File.Exists(deployMarker), "No deploy command ran outside the deployment workflow");
+                    AssertFalse(File.Exists(rollbackMarker), "No rollback command ran outside the deployment workflow");
+                    EnumerationResult<CheckRun> records = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { VesselId = vessel.Id }).ConfigureAwait(false);
+                    AssertEqual(0L, records.TotalRecords, "A refused deploy creates no check record");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RunAsync and ImportAsync refuse a mission, voyage or deployment from another tenant", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_links_own", "usr_links_own").ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_links_foreign", "usr_links_foreign").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-links-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_links_own", "usr_links_own", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_links_own",
+                        UserId = "usr_links_own",
+                        Name = "Links Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "dotnet --version"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    Voyage ownVoyage = new Voyage("own voyage") { TenantId = "ten_links_own", UserId = "usr_links_own" };
+                    ownVoyage = await testDb.Driver.Voyages.CreateAsync(ownVoyage).ConfigureAwait(false);
+                    Voyage foreignVoyage = new Voyage("foreign voyage") { TenantId = "ten_links_foreign", UserId = "usr_links_foreign" };
+                    foreignVoyage = await testDb.Driver.Voyages.CreateAsync(foreignVoyage).ConfigureAwait(false);
+                    Mission foreignMission = new Mission("foreign mission", "foreign") { TenantId = "ten_links_foreign", UserId = "usr_links_foreign", VoyageId = foreignVoyage.Id };
+                    foreignMission = await testDb.Driver.Missions.CreateAsync(foreignMission).ConfigureAwait(false);
+                    Vessel foreignVessel = CreateVessel("ten_links_foreign", "usr_links_foreign", workingDirectory);
+                    foreignVessel.Name = "Foreign Workflow Vessel";
+                    foreignVessel = await testDb.Driver.Vessels.CreateAsync(foreignVessel).ConfigureAwait(false);
+                    Deployment foreignDeployment = new Deployment
+                    {
+                        TenantId = "ten_links_foreign",
+                        UserId = "usr_links_foreign",
+                        VesselId = foreignVessel.Id,
+                        Title = "Foreign deployment",
+                        EnvironmentName = "staging",
+                        Status = DeploymentStatusEnum.PendingApproval
+                    };
+                    await testDb.Driver.Deployments.CreateAsync(foreignDeployment).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_links_own", "usr_links_own", false, true, "UnitTest");
+
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.ImportAsync(auth, new CheckRunImportRequest
+                        {
+                            VesselId = vessel.Id,
+                            VoyageId = foreignVoyage.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Status = CheckRunStatusEnum.Failed
+                        }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.ImportAsync(auth, new CheckRunImportRequest
+                        {
+                            VesselId = vessel.Id,
+                            MissionId = foreignMission.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Status = CheckRunStatusEnum.Passed
+                        }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.ImportOrUpdateAsync(auth, new CheckRunImportRequest
+                        {
+                            VesselId = vessel.Id,
+                            DeploymentId = foreignDeployment.Id,
+                            Type = CheckRunTypeEnum.SmokeTest,
+                            Status = CheckRunStatusEnum.Passed
+                        }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                    await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    {
+                        await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            VoyageId = foreignVoyage.Id,
+                            Type = CheckRunTypeEnum.Build
+                        }).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+
+                    EnumerationResult<CheckRun> foreignLinked = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { VoyageId = foreignVoyage.Id }).ConfigureAwait(false);
+                    AssertEqual(0L, foreignLinked.TotalRecords, "No record links the foreign voyage");
+                    EnumerationResult<CheckRun> foreignMissionLinked = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { MissionId = foreignMission.Id }).ConfigureAwait(false);
+                    AssertEqual(0L, foreignMissionLinked.TotalRecords, "No record links the foreign mission");
+
+                    CheckRun own = await checkRuns.ImportAsync(auth, new CheckRunImportRequest
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = ownVoyage.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Passed
+                    }).ConfigureAwait(false);
+                    AssertEqual(ownVoyage.Id, own.VoyageId, "A link inside the caller's tenant is accepted");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RecordCompletedAsync consumes matching pending run in-place", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1883,6 +2146,27 @@ namespace Armada.Test.Unit.Suites.Services
                 WorkingDirectory = workingDirectory,
                 DefaultBranch = "main"
             };
+        }
+
+        private static async Task<TException?> CaptureAsync<TException>(Func<Task> action) where TException : Exception
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+            }
+            catch (TException ex)
+            {
+                return ex;
+            }
+
+            return null;
+        }
+
+        private static string BuildWriteMarkerCommand(string markerPath)
+        {
+            return OperatingSystem.IsWindows()
+                ? "echo ran> \"" + markerPath + "\""
+                : "echo ran > '" + markerPath + "'";
         }
 
         private static string BuildEmitFileCommand(string relativePath)

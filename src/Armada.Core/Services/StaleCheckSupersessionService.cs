@@ -163,7 +163,7 @@ namespace Armada.Core.Services
             if (work == null) return 0;
 
             EnumerationResult<CheckRun> attached = await _Database.CheckRuns
-                .EnumerateAsync(new CheckRunQuery { VoyageId = voyage.Id, PageNumber = 1, PageSize = 200 }, token)
+                .EnumerateAsync(new CheckRunQuery { TenantId = voyage.TenantId, VoyageId = voyage.Id, PageNumber = 1, PageSize = 200 }, token)
                 .ConfigureAwait(false);
             List<CheckRun> records = attached.Objects.Where(run => run != null).ToList();
 

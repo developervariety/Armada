@@ -109,7 +109,8 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-                    AuthContext auth = AuthContext.Authenticated("ten_iso_norepo", "usr_iso_norepo", false, false, "UnitTest");
+                    // A command override runs as the server process, so only a global administrator may send one.
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_norepo", "usr_iso_norepo", true, false, "UnitTest");
                     CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
                     {
                         VesselId = vessel.Id,
@@ -377,7 +378,8 @@ namespace Armada.Test.Unit.Suites.Services
                     vessel.LocalPath = sourceRepo;
                     await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-                    AuthContext auth = AuthContext.Authenticated("ten_iso_lint", "usr_iso_lint", false, false, "UnitTest");
+                    // A command override runs as the server process, so only a global administrator may send one.
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_lint", "usr_iso_lint", true, false, "UnitTest");
                     CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
                     {
                         VesselId = vessel.Id,

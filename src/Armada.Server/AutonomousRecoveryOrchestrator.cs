@@ -1344,7 +1344,7 @@ namespace Armada.Server
             try
             {
                 EnumerationResult<CheckRun> page = await _Database.CheckRuns
-                    .EnumerateAsync(new CheckRunQuery { VoyageId = mission.VoyageId, PageNumber = 1, PageSize = 50 }, token)
+                    .EnumerateAsync(new CheckRunQuery { TenantId = mission.TenantId, VoyageId = mission.VoyageId, PageNumber = 1, PageSize = 50 }, token)
                     .ConfigureAwait(false);
 
                 foreach (CheckRun run in page.Objects)

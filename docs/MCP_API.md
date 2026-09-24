@@ -447,7 +447,11 @@ Dispatch creates follow the record they act on, the same way on REST and MCP.
 `armada_dispatch`, `armada_decompose_plan` and `dispatch_backlog_planning_session`
 create voyages and missions owned by the target vessel's owner. `run_check` and
 `retry_check_run` create a check run in the vessel's tenant for the calling
-user. `start_runbook_execution` creates an execution in the runbook's tenant for
+user. A linked mission, voyage or deployment must be in the caller's tenant.
+`commandOverride` runs a raw shell command as the server process, so only a
+global administrator may send it, and only a global administrator may retry an
+imported check; other callers retry with the workflow-profile command.
+`Deploy` and `Rollback` checks run only through the deployment workflow. `start_runbook_execution` creates an execution in the runbook's tenant for
 the calling user.
 
 What a caller may use:
@@ -944,6 +948,12 @@ relative path and a directory that is not a repository leave
 `WorkingDirectory` empty.
 `armada_update_vessel` returns `Vessel not found` for a vessel the caller may not
 change and writes nothing to it, the token override included.
+
+`localPath`, `workingDirectory` and a `repoUrl` that is a local path, a `file:`
+URL or a `<transport>::<address>` helper are server paths. Only a global
+administrator may set them; for any other caller both tools return an error and
+write nothing. A vessel name must be one path segment: no `/` or `\`, no `..`,
+no `:`, no control characters, and no leading `.`.
 
 ## Client Names
 

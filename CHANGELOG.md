@@ -85,6 +85,21 @@ upstream integrations and excludes changes already present at that baseline.
   launch paths apply caller ownership. Captains receive scoped credentials;
   administrative tools and cross-tenant events remain restricted. Server-owned
   captain fields and write-only secrets have consistent write contracts.
+- **Host command execution:** a check-run `commandOverride`, retrying an imported
+  check, and `POST /api/v1/workspace/vessels/{id}/exec` run as the server
+  process, so they are global-admin only and refused with `403` for every other
+  caller before any process starts. Check-run writes require a tenant
+  administrator, and `Deploy` and `Rollback` checks run only through the
+  deployment workflow.
+- **Check-run links and gates:** check-run run and import refuse a mission,
+  voyage or deployment outside the caller's tenant. The voyage, Judge, manual
+  completion, supersession and recovery readers count only Checks in the gated
+  record's tenant, so another tenant cannot write evidence into a gate.
+- **Vessel server paths:** `LocalPath`, `WorkingDirectory` and a local-path or
+  `file:` `RepoUrl` are set only by a global administrator on REST, MCP and
+  WebSocket; other callers are refused on create and keep the stored paths on
+  update. A vessel name must be one safe path segment, and vessel removal deletes
+  the dock directory only for such a name.
 - **Dispatch and pipelines:** operator and scheduler paths share objective defaults,
   admission, and Check arming. Root missions resolve and persist explicit or
   inherited start commits, return `MissionStartRefs`, and record resolution events.
