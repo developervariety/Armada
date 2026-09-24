@@ -320,19 +320,20 @@ namespace Armada.Server.Routes
                     Voyage? bareVoyage = null;
                     try
                     {
-                        // Bare voyage creation (missions added separately)
-                        bareVoyage = new Voyage(voyageReq.Title, voyageReq.Description);
-                        bareVoyage.TenantId = ctx.TenantId;
-                        bareVoyage.UserId = ctx.UserId;
-                        bareVoyage = await _database.Voyages.CreateAsync(bareVoyage).ConfigureAwait(false);
-                        bareVoyage.SelectedPlaybooks = voyageReq.SelectedPlaybooks ?? new List<SelectedPlaybook>();
-                        if (bareVoyage.SelectedPlaybooks.Count > 0)
+                        // Bare voyage creation (missions added separately) through the shared create WebSocket uses:
+                        // the playbook selections are resolved before anything is stored.
+                        BareVoyageResult bare = await _operations.CreateBareVoyageAsync(
+                            voyageReq.Title,
+                            voyageReq.Description,
+                            voyageReq.SelectedPlaybooks,
+                            ctx.TenantId,
+                            ctx.UserId).ConfigureAwait(false);
+                        if (!bare.Succeeded)
                         {
-                            PlaybookService playbookService = new PlaybookService(_database, _logging);
-                            await playbookService.ResolveSelectionsAsync(ctx.TenantId!, bareVoyage.SelectedPlaybooks).ConfigureAwait(false);
-                            await _database.Playbooks.SetVoyageSelectionsAsync(bareVoyage.Id, bareVoyage.SelectedPlaybooks).ConfigureAwait(false);
+                            req.Http.Response.StatusCode = 400;
+                            return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = bare.Message };
                         }
-                        _logging.Info(_Header + "created bare voyage " + bareVoyage.Id + ": " + voyageReq.Title);
+                        bareVoyage = bare.Voyage!;
 
                         if (linkedObjective != null)
                         {

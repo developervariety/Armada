@@ -182,6 +182,12 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One bare voyage create:** a voyage created with no vessel or missions goes
+  through one shared create on REST and WebSocket. WebSocket dropped the
+  selected playbooks; REST created the voyage before it checked the selections,
+  so an unknown playbook left a cancelled voyage behind. Both now resolve the
+  selections first and refuse an unknown playbook (REST `400`) without creating
+  anything, and the new voyage is broadcast.
 - **One mission metadata update:** REST `PUT /api/v1/missions/{id}`, WebSocket
   `update_mission` and MCP `armada_update_mission` change only the fields the
   request names. REST and WebSocket cleared an omitted title or description and

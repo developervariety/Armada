@@ -328,6 +328,51 @@ namespace Armada.Server
             return MissionUpdateResult.Updated(stored);
         }
 
+        /// <summary>
+        /// Create a voyage with no vessel or missions, owned by the caller, keeping the playbooks the request selected.
+        /// The selections are resolved in the owner's tenant before anything is stored, so a selection that names no
+        /// playbook refuses the create and leaves no voyage behind. The change is broadcast.
+        /// </summary>
+        /// <param name="title">Voyage title.</param>
+        /// <param name="description">Voyage description.</param>
+        /// <param name="selectedPlaybooks">Selected playbooks; null or empty selects none.</param>
+        /// <param name="tenantId">Owning tenant; a tenantless owner resolves playbooks in the default tenant.</param>
+        /// <param name="userId">Owning user.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The created voyage, or the refusal.</returns>
+        public async Task<BareVoyageResult> CreateBareVoyageAsync(
+            string? title,
+            string? description,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            string? tenantId,
+            string? userId,
+            CancellationToken token = default)
+        {
+            List<SelectedPlaybook> selections = selectedPlaybooks ?? new List<SelectedPlaybook>();
+            if (selections.Count > 0)
+            {
+                try
+                {
+                    await new PlaybookService(_Database, _Logging ?? new LoggingModule()).ResolveSelectionsAsync(String.IsNullOrWhiteSpace(tenantId) ? Armada.Core.Constants.DefaultTenantId : tenantId, selections, token).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return BareVoyageResult.Refused(BareVoyageResult.InvalidPlaybookCode, ex.Message);
+                }
+            }
+
+            Voyage voyage = new Voyage(title ?? "", description ?? "");
+            voyage.TenantId = tenantId;
+            voyage.UserId = userId;
+            voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
+            voyage.SelectedPlaybooks = selections;
+            if (selections.Count > 0)
+                await _Database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, selections, token).ConfigureAwait(false);
+            _Logging?.Info(_Header + "created bare voyage " + voyage.Id + ": " + voyage.Title);
+            Notifier.VoyageChanged(voyage);
+            return BareVoyageResult.Created(voyage);
+        }
+
         #endregion
 
         #region Private-Methods

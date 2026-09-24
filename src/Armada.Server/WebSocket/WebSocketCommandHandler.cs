@@ -601,11 +601,16 @@ namespace Armada.Server.WebSocket
                     };
                 }
 
-                Voyage bareVoyage = new Voyage(voyTitle, voyDesc);
-                bareVoyage.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
-                bareVoyage.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
-                bareVoyage = await _Database.Voyages.CreateAsync(bareVoyage).ConfigureAwait(false);
-                return new { type = "command.result", action = "create_voyage", data = (object)bareVoyage };
+                // The shared bare-voyage create REST uses: owned by the caller, keeping its playbook selections.
+                BareVoyageResult bare = await Operations.CreateBareVoyageAsync(
+                    voyTitle,
+                    voyDesc,
+                    voyageData.SelectedPlaybooks,
+                    Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller),
+                    Armada.Core.Authorization.OwnershipPolicy.UserOf(caller)).ConfigureAwait(false);
+                if (!bare.Succeeded)
+                    return new { type = "command.error", action = "create_voyage", error = bare.Message, code = bare.Code };
+                return new { type = "command.result", action = "create_voyage", data = (object)bare.Voyage! };
             }
 
             SharedVoyageDispatchRequest dispatchRequest = new SharedVoyageDispatchRequest

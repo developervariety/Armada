@@ -1627,7 +1627,9 @@ Get a voyage by ID. Returns the voyage object along with its missions.
 
 #### create_voyage
 
-Create a new voyage. Optionally include a `vesselId` and `missions[]` array for immediate dispatch.
+Create a new voyage. Optionally include a `vesselId` and `missions[]` array for immediate dispatch. Without them, the
+voyage is created bare through the same shared create as `POST /api/v1/voyages`: it belongs to the caller and keeps its
+`SelectedPlaybooks`; a selection that names no playbook returns `command.error` and creates nothing.
 
 **Request (basic):**
 
