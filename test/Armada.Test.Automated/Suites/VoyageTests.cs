@@ -275,6 +275,12 @@ namespace Armada.Test.Automated.Suites
                 _CreatedVoyageIds.Add(voyage.Id);
                 AssertStartsWith("vyg_", voyage.Id);
                 AssertEqual("Open", voyage.Status.ToString());
+
+                HttpResponseMessage eventsResp = await _AuthClient.GetAsync("/api/v1/events?type=voyage.dispatched&voyageId=" + voyage.Id);
+                AssertEqual(HttpStatusCode.OK, eventsResp.StatusCode);
+                EnumerationResult<ArmadaEvent> events = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(eventsResp);
+                AssertEqual(1, events.Objects.Count, "a voyage created without missions is announced once");
+                AssertEqual(voyage.Id, events.Objects[0].VoyageId);
             });
 
             await RunTest("CreateVoyage_BareVoyageWithEmptyMissions_Returns201", async () =>

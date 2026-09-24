@@ -1296,6 +1296,42 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A captain stop that stops the process records captain.stopped; a refused one records only the refusal", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StopRecordingRuntime runtime = new StopRecordingRuntime();
+                    List<string> events = new List<string>();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings _, null, new StubAdmiralService(),
+                        new StopRecordingRuntimeFactory(CreateLogging(), runtime), null, events);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("stopped-captain", AgentRuntimeEnum.ClaudeCode)).ConfigureAwait(false);
+                    captain.ProcessId = 939395;
+
+                    runtime.NextStopResult = AgentStopResult.Stopped();
+                    await handler.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                    lock (events)
+                    {
+                        AssertTrue(events.Contains("captain.stopped"), "A stopped process is recorded as captain.stopped.");
+                        AssertFalse(events.Contains("captain.stop_refused"), "A stopped process is not a refusal.");
+                        events.Clear();
+                    }
+
+                    runtime.NextStopResult = AgentStopResult.Refused(AgentStopResult.KillFailedReason, "kill failed");
+                    await handler.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                    lock (events)
+                    {
+                        AssertTrue(events.Contains("captain.stop_refused"), "A refused stop is recorded as captain.stop_refused.");
+                        AssertFalse(events.Contains("captain.stopped"), "A refused stop is never recorded as stopped.");
+                        events.Clear();
+                    }
+
+                    runtime.NextStopResult = AgentStopResult.NotRunning();
+                    await handler.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                    lock (events) AssertFalse(events.Contains("captain.stopped"), "A process that was already gone records no stop.");
+                    AssertEqual(3, runtime.StopCalls.Count, "Each captain stop reaches the runtime.");
+                }
+            });
+
             // ----------------------------------------------------------------
             // A superseded process's exit never clears the relaunched process's per-mission state
             // ----------------------------------------------------------------

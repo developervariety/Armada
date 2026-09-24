@@ -606,6 +606,8 @@ namespace Armada.Server
             VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, _Admiral.OnVoyageComplete, token).ConfigureAwait(false);
             if (result.HookException != null)
                 _Logging.Warn(_Header + "OnVoyageComplete failed for voyage " + voyage.Id + ": " + result.HookException.Message);
+            if (result.EventException != null)
+                _Logging.Warn(_Header + "could not record voyage.completed for voyage " + voyage.Id + ": " + result.EventException.Message);
             if (!result.Written) return result.Voyage ?? voyage;
             voyage = result.Voyage!;
 
@@ -2100,6 +2102,7 @@ namespace Armada.Server
                 await LinkRescueVoyageToObjectivesAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
 
                 string upstreamMissionId = dispatchedWorker.Id;
+                int missionCount = 1;
                 List<PipelineStage> downstreamStages = await ResolveRecoveryStagesAsync(
                     failedMission,
                     recoveryPipeline,
@@ -2121,6 +2124,7 @@ namespace Armada.Server
                             token).ConfigureAwait(false);
                         await PersistRescuePlaybookSnapshotsAsync(chainedStage, token).ConfigureAwait(false);
                         lastMissionInGroup = chainedStage.Id;
+                        missionCount++;
                     }
 
                     if (!String.IsNullOrWhiteSpace(lastMissionInGroup))
@@ -2130,6 +2134,9 @@ namespace Armada.Server
                 // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
                 // Build/UnitTest Checks, and a rescue voyage has none unless something creates them.
                 await ArmRescueChecksAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
+
+                // A rescue voyage is dispatched like any other, so it announces itself the same way.
+                await VoyageDispatchedEvent.EmitAsync(_Database, _Logging, rescueVoyage, failedMission.VesselId, missionCount).ConfigureAwait(false);
 
                 return dispatchedWorker;
             }

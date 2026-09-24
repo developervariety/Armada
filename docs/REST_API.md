@@ -4607,18 +4607,19 @@ A recorded event representing a state change in the system.
 | `CreatedUtc` | datetime | now | Event timestamp (UTC) |
 
 **Known Event Types:**
-- `mission.created` - Mission was created
 - `mission.status_changed` - Mission status transitioned
 - `mission.completed` - Mission completed successfully
 - `mission.failed` - Mission failed
 - `captain.launched` - Captain agent process started
-- `captain.stopped` - Captain agent process stopped
+- `captain.stopped` - A captain stop stopped the agent process. A process that was already gone records nothing
 - `captain.stop_refused` - A stop left the agent process running; the message names the reason (`process_identity_unverified`, `process_identifier_reused`, `kill_failed`)
-- `captain.stalled` - Captain detected as stalled
-- `voyage.created` - Voyage was created
-- `voyage.dispatched` - A dispatch created the voyage and all of its missions
-- `voyage.completed` - All missions in voyage completed
+- `captain.stall_confirmed` - The stall evaluator confirmed that a captain is stalled; the message names the evidence
+- `captain.stall_cleared` - The stall evaluator found a signal inside the window, so a quiet captain is not stalled
+- `voyage.dispatched` - A voyage was created: by a dispatch with all of its missions, by an autonomous rescue with its missions, or without missions (the message then counts 0 missions)
+- `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, and its Checks green or absent
 - `voyage.deleted` - Voyage permanently deleted
+
+Each type in this list has a code path that writes it; a unit test compares the list with the event types the source writes.
 
 ---
 

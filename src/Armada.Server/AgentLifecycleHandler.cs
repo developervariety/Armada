@@ -1806,6 +1806,25 @@ namespace Armada.Server
             AgentStopResult stop = await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
             if (stop.IsRefused)
                 await EmitStopRefusedAsync(captain.Id, captain.CurrentMissionId, captain.ProcessId.Value, "captain stop", stop).ConfigureAwait(false);
+            else if (stop.Outcome == AgentStopOutcomeEnum.Stopped)
+                await EmitStoppedAsync(captain.Id, captain.CurrentMissionId, captain.ProcessId.Value).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Record a captain stop that stopped its agent process as a <c>captain.stopped</c> event. A process that
+        /// was already gone records nothing, and a refused stop records <c>captain.stop_refused</c> instead.
+        /// </summary>
+        private async Task EmitStoppedAsync(string captainId, string? missionId, int processId)
+        {
+            try
+            {
+                await _EmitEventAsync("captain.stopped", "Captain " + captainId + " agent process " + processId + " stopped",
+                    "captain", captainId, captainId, missionId, null, null).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record captain.stopped for captain " + captainId + ": " + ex.Message);
+            }
         }
 
         /// <summary>

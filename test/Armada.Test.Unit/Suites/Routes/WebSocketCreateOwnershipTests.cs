@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.WebSocket;
     using Armada.Test.Common;
@@ -118,6 +119,11 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertNotNull(stored, "the voyage is created: " + json);
                     AssertEqual(caller.TenantId, stored!.TenantId, "the voyage belongs to the caller's tenant");
                     AssertEqual(caller.UserId, stored.UserId, "the voyage belongs to the calling user");
+
+                    List<ArmadaEvent> dispatched = (await testDb.Driver.Events.EnumerateByTypeAsync(VoyageDispatchedEvent.EventType).ConfigureAwait(false))
+                        .FindAll(evt => evt.VoyageId == stored.Id);
+                    AssertEqual(1, dispatched.Count, "a voyage created without missions is announced once");
+                    AssertEqual(caller.TenantId, dispatched[0].TenantId, "the announcement takes the voyage's owner");
                 }
             }).ConfigureAwait(false);
 

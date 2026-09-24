@@ -54,6 +54,8 @@ namespace Armada.Core.Services
                 VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, onVoyageComplete, token).ConfigureAwait(false);
                 if (result.HookException != null)
                     _Logging.Warn(_Header + "error in OnVoyageComplete callback for voyage " + voyage.Id + ": " + result.HookException.Message);
+                if (result.EventException != null)
+                    _Logging.Warn(_Header + "could not record voyage.completed for voyage " + voyage.Id + ": " + result.EventException.Message);
                 if (!result.Written) continue;
 
                 _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + result.Voyage!.Status + " (" + result.Verdict.Reason + ")");

@@ -808,20 +808,31 @@ Broadcast when a mission enters review and awaits an explicit approve or deny de
 
 ### Generic Events
 
-Broadcast for general system events (e.g., escalation triggers, merge queue updates, voyage completion).
+Broadcast for events the server writes through its own event path (for example `captain.launched`,
+`captain.stopped` and `voyage.deleted`) and for the landing outcomes `mission.completed`,
+`mission.failed`, `mission.landing_failed`, `mission.pull_request_open` and `mission.work_produced`. Events that services write only to the event store, such as
+`voyage.completed`, merge-queue events and scheduler events, are not broadcast; read them with
+[list_events](#list_events) or `GET /api/v1/events`.
 
 ```json
 {
-  "type": "voyage.completed",
-  "message": "Voyage 'Feature batch 1' completed successfully",
-  "data": { "voyageId": "vyg_abc123def456ghi789jk" },
+  "type": "mission.completed",
+  "message": "Mission completed: Add login form",
+  "data": {
+    "entityType": "mission",
+    "entityId": "msn_abc123def456ghi789jk",
+    "captainId": "cpt_abc123def456ghi789jk",
+    "missionId": "msn_abc123def456ghi789jk",
+    "vesselId": "vsl_abc123def456ghi789jk",
+    "voyageId": "vyg_abc123def456ghi789jk"
+  },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `type` | string | Event type string (e.g., `"voyage.completed"`, `"escalation.triggered"`) |
+| `type` | string | Event type string (e.g., `"mission.completed"`, `"captain.launched"`) |
 | `message` | string | Human-readable event description |
 | `data` | object \| null | Optional additional event data |
 | `timestamp` | string | ISO 8601 UTC timestamp |
@@ -2409,7 +2420,7 @@ List or enumerate events with optional pagination and filtering.
   "action": "list_events",
   "query": {
     "pageSize": 50,
-    "eventType": "escalation.triggered"
+    "eventType": "mission.failed"
   }
 }
 ```

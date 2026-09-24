@@ -574,6 +574,8 @@ namespace Armada.Server.WebSocket
                     Armada.Core.Authorization.OwnershipPolicy.UserOf(caller)).ConfigureAwait(false);
                 if (!bare.Succeeded)
                     return new { type = "command.error", action = "create_voyage", error = bare.Message, code = bare.Code };
+                // Every voyage creation records voyage.dispatched, as the REST bare create does after its objective link.
+                await VoyageDispatchedEvent.EmitAsync(_Database, null, bare.Voyage!, null, 0).ConfigureAwait(false);
                 return new { type = "command.result", action = "create_voyage", data = (object)bare.Voyage! };
             }
 

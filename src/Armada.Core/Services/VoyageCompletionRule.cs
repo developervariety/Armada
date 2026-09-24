@@ -11,8 +11,9 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// The single rule for when a voyage ends as Complete or Failed. Every writer of voyage
-    /// completion calls <see cref="ApplyAsync"/>, which writes the answer and raises the voyage
-    /// completion hook, so the writers cannot differ in either.
+    /// completion calls <see cref="ApplyAsync"/>, which writes the answer, records the
+    /// <c>voyage.completed</c> event for a Complete voyage, and raises the voyage completion hook,
+    /// so the writers cannot differ in any of them.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -45,6 +46,11 @@ namespace Armada.Core.Services
     public static class VoyageCompletionRule
     {
         #region Public-Members
+
+        /// <summary>
+        /// Event type recorded once when this rule writes a voyage Complete.
+        /// </summary>
+        public const string VoyageCompletedEventType = "voyage.completed";
 
         /// <summary>Kept: the voyage does not exist.</summary>
         public const string ReasonVoyageMissing = "voyage_missing";
@@ -161,7 +167,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Read the voyage and its missions, decide with <see cref="EvaluateAsync"/>, write the
-        /// terminal status when the verdict ends the voyage, and then raise
+        /// terminal status when the verdict ends the voyage, record <see cref="VoyageCompletedEventType"/>
+        /// when that status is Complete, and then raise
         /// <paramref name="onVoyageComplete"/> once for that write. The voyage is read immediately
         /// before the decision, so a voyage that another writer ended since the caller last looked is
         /// judged as it is now.
@@ -170,7 +177,7 @@ namespace Armada.Core.Services
         /// <param name="voyageId">Voyage identifier.</param>
         /// <param name="onVoyageComplete">Voyage completion hook, raised only when this call wrote a terminal status.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The verdict, the voyage as written or as read, and any exception the hook threw.</returns>
+        /// <returns>The verdict, the voyage as written or as read, and any exception the event write or the hook threw.</returns>
         public static async Task<VoyageCompletionResult> ApplyAsync(
             DatabaseDriver database,
             string? voyageId,
@@ -196,6 +203,20 @@ namespace Armada.Core.Services
             voyage.LastUpdateUtc = now;
             await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 
+            Exception? eventException = null;
+            if (voyage.Status == VoyageStatusEnum.Complete)
+            {
+                try
+                {
+                    await RecordCompletedEventAsync(database, voyage, verdict.Reason).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // The write stands; the caller logs the event failure with its own header.
+                    eventException = ex;
+                }
+            }
+
             Exception? hookException = null;
             if (onVoyageComplete != null)
             {
@@ -210,12 +231,24 @@ namespace Armada.Core.Services
                 }
             }
 
-            return new VoyageCompletionResult(voyage, verdict, hookException);
+            return new VoyageCompletionResult(voyage, verdict, hookException, eventException);
         }
 
         #endregion
 
         #region Private-Methods
+
+        private static async Task RecordCompletedEventAsync(DatabaseDriver database, Voyage voyage, string reason)
+        {
+            ArmadaEvent evt = new ArmadaEvent(VoyageCompletedEventType, "Voyage completed: " + voyage.Title + " (" + reason + ")");
+            evt.TenantId = voyage.TenantId;
+            evt.UserId = voyage.UserId;
+            evt.EntityType = "voyage";
+            evt.EntityId = voyage.Id;
+            evt.VoyageId = voyage.Id;
+            // The completion is already written, so its record is written even if the caller's request ends.
+            await database.Events.CreateAsync(evt, CancellationToken.None).ConfigureAwait(false);
+        }
 
         private static async Task<VoyageCompletionVerdict> EvaluateMissionsAndChecksAsync(
             DatabaseDriver database, string? tenantId, string voyageId, IReadOnlyList<Mission> missions, CancellationToken token)

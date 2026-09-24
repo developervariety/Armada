@@ -1104,6 +1104,39 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("human review", active[0].RecoveryNotes ?? "", "The existing incident receives the recovery note.");
             }).ConfigureAwait(false);
 
+            await RunTest("Rescue dispatch records voyage.dispatched for the rescue voyage once its missions exist", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_event", "usr_rescue_event").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_event", "usr_rescue_event").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, new RecordingAdmiralService(testDb.Driver), new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, logging), new ArmadaSettings(), logging);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertFalse(String.IsNullOrWhiteSpace(rescue!.VoyageId), "Rescue mission must belong to a rescue voyage");
+                int rescueMissionCount = vesselMissions.Count(item => item.VoyageId == rescue.VoyageId);
+
+                List<ArmadaEvent> dispatched = (await testDb.Driver.Events.EnumerateByTypeAsync(VoyageDispatchedEvent.EventType).ConfigureAwait(false))
+                    .Where(evt => evt.VoyageId == rescue.VoyageId)
+                    .ToList();
+                AssertEqual(1, dispatched.Count, "The rescue voyage is announced once");
+                AssertEqual(vessel.Id, dispatched[0].VesselId, "The event names the rescued vessel");
+                AssertEqual(vessel.TenantId, dispatched[0].TenantId, "The event takes the rescue voyage's owner");
+                AssertContains("(" + rescueMissionCount + " mission", dispatched[0].Message, "The event counts every mission the rescue created");
+            }).ConfigureAwait(false);
+
             await RunTest("Cancelled voyage closes every active incident of the failed mission beyond one page", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

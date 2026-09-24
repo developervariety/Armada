@@ -8,9 +8,11 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
 
     /// <summary>
-    /// Records the <c>voyage.dispatched</c> event once a dispatch has created a voyage and all of its
-    /// missions. Every voyage dispatch path calls it after its last write, so a dispatch that fails and
-    /// is rolled back never announces a voyage.
+    /// Records the <c>voyage.dispatched</c> event once a voyage exists: a dispatch with all of its
+    /// missions, an autonomous rescue with its revise, retest and rejudge missions, or a voyage created
+    /// without missions (the count is then zero and missions are added later). Every path that creates a
+    /// voyage calls it after its last write, so a create that fails and is rolled back never announces a
+    /// voyage.
     /// </summary>
     public static class VoyageDispatchedEvent
     {

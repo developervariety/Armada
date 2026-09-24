@@ -301,13 +301,18 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (VoyageCompletionCase row in BuildVoyageCompletionTable())
                 {
                     int expectedHooks = row.Expected != row.Start ? 1 : 0;
+                    int expectedCompletedEvents = row.Expected != row.Start && row.Expected == VoyageStatusEnum.Complete ? 1 : 0;
                     foreach (CompletionWriter writer in new[] { CompletionWriter.HealthCycleSweep, CompletionWriter.MissionCompletion, CompletionWriter.LandingDrain })
                     {
                         CompletionOutcome outcome = await RunCompletionWriterAsync(row, writer).ConfigureAwait(false);
-                        if (outcome.Status != row.Expected || outcome.HookCount != expectedHooks || (row.Expected == row.Start && !outcome.CompletedUtcKept))
+                        if (outcome.Status != row.Expected
+                            || outcome.HookCount != expectedHooks
+                            || outcome.CompletedEventCount != expectedCompletedEvents
+                            || (row.Expected == row.Start && !outcome.CompletedUtcKept))
                         {
                             mismatches.Add(row.Name + " via " + writer + ": expected " + row.Expected + " with " + expectedHooks
-                                + " completion hook(s), got " + outcome.Status + " with " + outcome.HookCount
+                                + " completion hook(s) and " + expectedCompletedEvents + " voyage.completed event(s), got " + outcome.Status
+                                + " with " + outcome.HookCount + " and " + outcome.CompletedEventCount
                                 + (outcome.CompletedUtcKept ? String.Empty : ", completion time rewritten"));
                         }
                     }
@@ -1468,6 +1473,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             public VoyageStatusEnum Status { get; set; }
             public int HookCount { get; set; }
+            public int CompletedEventCount { get; set; }
             public bool CompletedUtcKept { get; set; }
         }
 
@@ -1550,10 +1556,12 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+            List<ArmadaEvent> completedEvents = await testDb.Driver.Events.EnumerateByTypeAsync("voyage.completed").ConfigureAwait(false);
             return new CompletionOutcome
             {
                 Status = after!.Status,
                 HookCount = hookCount,
+                CompletedEventCount = completedEvents.Count(evt => evt.VoyageId == voyage.Id),
                 CompletedUtcKept = endedUtc == null || after.CompletedUtc == endedUtc
             };
         }

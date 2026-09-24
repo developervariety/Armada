@@ -33,7 +33,7 @@ namespace Armada.Core.Models
         public string? UserId { get; set; } = null;
 
         /// <summary>
-        /// Event type (e.g. "mission.created", "captain.stalled", "voyage.completed").
+        /// Event type (e.g. "mission.status_changed", "captain.stall_confirmed", "voyage.completed").
         /// </summary>
         public string EventType { get; set; } = "";
 

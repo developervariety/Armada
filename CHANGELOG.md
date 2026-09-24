@@ -128,6 +128,15 @@ upstream integrations and excludes changes already present at that baseline.
 - **Typed-decision status:** the operator status view reads the one no-key
   effective-mode rule the settings use.
 
+- **Event types match their emitters:** `voyage.completed` is recorded once when
+  the voyage completion rule writes a voyage Complete, `captain.stopped` when a
+  captain stop stops the agent process, and `voyage.dispatched` also for rescue
+  voyages and for voyages created without missions through REST or WebSocket.
+  The known event type list names the stall evaluator's `captain.stall_confirmed`
+  and `captain.stall_cleared` and drops `mission.created`, `captain.stalled` and
+  `voyage.created`, which nothing writes; a unit test compares the list with the
+  event types the source writes. The WebSocket generic-event example names types
+  that are broadcast.
 - **Regression objective links in the caller's scope:** a Check run, import or
   import-update and an incident create or update read `RegressionObjectiveId`
   with the caller's scope, like every other id in the body, and refuse an

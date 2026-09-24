@@ -343,6 +343,8 @@ namespace Armada.Server.Routes
                             await _objectives.LinkVoyageAsync(ctx, linkedObjective.Id, bareVoyage.Id, default, false, admission).ConfigureAwait(false);
                             admission?.MarkLinked();
                         }
+                        // Announced after the objective link, so a create that is rolled back never announces a voyage.
+                        await VoyageDispatchedEvent.EmitAsync(_database, _logging, bareVoyage, null, 0).ConfigureAwait(false);
                         voyage = bareVoyage;
                     }
                     catch
