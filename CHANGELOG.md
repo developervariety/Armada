@@ -119,7 +119,8 @@ upstream integrations and excludes changes already present at that baseline.
   no longer blocks the rescue.
 - **Merge-queue host faults:** a merge-queue test run that the definition-of-done
   classifier reads as host trouble is classified `InfraTestFailure` and surfaced,
-  not sent to a recovery captain.
+  not sent to a recovery captain. Every other post-merge test failure is surfaced to
+  the operator as well and is never routed to a rebase captain.
 - **Secret checks at landing:** the manifest-digest exemption covers only the
   digest, so a secret-shaped run beside a digest on a manifest line fails the
   landing scanner; the auto-land convention audit applies the same exemption and

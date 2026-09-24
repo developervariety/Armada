@@ -508,6 +508,60 @@ namespace Armada.Test.Unit
                 }
             });
 
+            // A post-merge test failure is surfaced to the operator, never routed to a rebase captain: the
+            // test context the queue records carries no git exit code, so it classifies as a surfaced test
+            // failure.
+            await RunTest("ProcessSingle_PostMergeTestFailure_IsSurfacedNeverRoutedToARebaseCaptain", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_testfail_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mq-testfail-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "echo '  Failed Api.Routes.DeleteVessel [3 ms]'; echo 'Failed: 1, Passed: 40'; exit 1";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "A failing post-merge test run fails the entry");
+                        AssertEqual(MergeFailureClassEnum.TestFailureBeforeMerge, afterProcess.MergeFailureClass,
+                            "The recorded test context carries no git exit code, so it classifies as a surfaced test failure");
+                        RecoveryAction action = new RecoveryRouter().Route(afterProcess.MergeFailureClass!.Value, false, 0);
+                        AssertTrue(action is RecoveryAction.Surface, "A post-merge test failure is surfaced to the operator, got " + action.GetType().Name);
+                        AssertFalse(action is RecoveryAction.RebaseCaptain, "A post-merge test failure is never routed to a rebase captain");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("ProcessSingle_TestCommandPastTimeout_StopsProcessTreeAndFailsEntry", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
