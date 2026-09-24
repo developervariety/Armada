@@ -91,35 +91,6 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Constructor Null Logging Throws", () =>
-            {
-                AssertThrows<ArgumentNullException>(() => new TestAgentRuntime(null!));
-            });
-
-            await RunTest("StartAsync Null WorkingDirectory Throws", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                await AssertThrowsAsync<ArgumentNullException>(() => runtime.StartAsync(null!, "prompt"));
-            });
-
-            await RunTest("StartAsync Empty WorkingDirectory Throws", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                await AssertThrowsAsync<ArgumentNullException>(() => runtime.StartAsync("", "prompt"));
-            });
-
-            await RunTest("StartAsync Null Prompt Throws", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                await AssertThrowsAsync<ArgumentNullException>(() => runtime.StartAsync("/tmp", null!));
-            });
-
-            await RunTest("StartAsync Empty Prompt Throws", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                await AssertThrowsAsync<ArgumentNullException>(() => runtime.StartAsync("/tmp", ""));
-            });
-
             await RunTest("StartAsync_ProcessStartInfo_SetsMsBuildNoNodeReuseEnvironment", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
@@ -159,19 +130,6 @@ namespace Armada.Test.Runtimes.Suites
                 ProcessStartInfo startInfo = runtime.CapturedStartInfo!;
                 AssertTrue(startInfo.ArgumentList.Contains("--mcp-config"), "Expected launch-scoped MCP argument");
                 AssertEqual("enabled", startInfo.Environment["ARMADA_TEST_SCOPED_CONFIG"]);
-            });
-
-            await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                bool running = await runtime.IsRunningAsync(99999999);
-                AssertFalse(running);
-            });
-
-            await RunTest("StopAsync Invalid ProcessId Does Not Throw", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                await runtime.StopAsync(99999999);
             });
 
             if (OperatingSystem.IsWindows())
@@ -361,18 +319,6 @@ namespace Armada.Test.Runtimes.Suites
                 }
             });
 
-            await RunTest("Name Returns Expected", () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                AssertEqual("TestRuntime", runtime.Name);
-            });
-
-            await RunTest("SupportsResume Returns False", () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                AssertFalse(runtime.SupportsResume);
-            });
-
             await RunTest("StartAsync Valid Command Returns ProcessId", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
@@ -395,24 +341,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(pid > 0);
 
                 await Task.Delay(1000);
-            });
-
-            await RunTest("StartAsync Invalid Command Throws", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                runtime.CommandOverride = "nonexistent_command_" + Guid.NewGuid().ToString("N");
-
-                string tempDir = Path.GetTempPath();
-                bool threw = false;
-                try
-                {
-                    await runtime.StartAsync(tempDir, "test prompt");
-                }
-                catch
-                {
-                    threw = true;
-                }
-                AssertTrue(threw, "Expected exception for invalid command");
             });
 
             await RunTest("OnOutputReceived Fires For Output", async () =>

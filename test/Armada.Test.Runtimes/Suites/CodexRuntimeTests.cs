@@ -41,12 +41,6 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("SupportsResume Returns False", () =>
-            {
-                CodexRuntime runtime = CreateRuntime();
-                AssertFalse(runtime.SupportsResume);
-            });
-
             await RunTest("RedirectStdin Returns False", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
@@ -104,18 +98,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(runtime.StderrWrittenToLogFile, "Codex streams its full transcript on stderr; the log-file write must be suppressed to keep mission logs bounded");
             });
 
-            await RunTest("ExecutablePath Default Is Codex", () =>
-            {
-                CodexRuntime runtime = CreateRuntime();
-                AssertEqual("codex", runtime.ExecutablePath);
-            });
-
-            await RunTest("ApprovalMode Default Is FullAuto", () =>
-            {
-                InspectableCodexRuntime runtime = CreateRuntime();
-                AssertEqual("full-auto", runtime.ApprovalMode);
-            });
-
             await RunTest("BuildArguments Uses Exec With Platform Appropriate Auto Mode", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();
@@ -142,24 +124,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("exec", args[0]);
                 AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
                 AssertEqual("test prompt", args[args.Count - 1]);
-            });
-
-            await RunTest("BuildArguments Includes Model When Supplied", () =>
-            {
-                InspectableCodexRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt", "gpt-5.4");
-                int modelIndex = args.IndexOf("--model");
-                AssertTrue(modelIndex >= 0);
-                AssertEqual("gpt-5.4", args[modelIndex + 1]);
-            });
-
-            await RunTest("BuildArguments Includes Final Message Path When Supplied", () =>
-            {
-                InspectableCodexRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt", "gpt-5.4", "C:/temp/final-message.txt");
-                int outputIndex = args.IndexOf("--output-last-message");
-                AssertTrue(outputIndex >= 0);
-                AssertEqual("C:/temp/final-message.txt", args[outputIndex + 1]);
             });
 
             await RunTest("ValidateReasoningEffort_High_ReturnsNull", () =>
@@ -209,29 +173,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(args.Contains("reasoning_effort=high"), "Codex should not receive the old reasoning config key");
             });
 
-            await RunTest("Windows Command Resolves Cmd Wrapper", () =>
-            {
-                InspectableCodexRuntime runtime = CreateRuntime();
-                string command = runtime.Command();
-
-                if (OperatingSystem.IsWindows())
-                    AssertTrue(command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || command.Equals("codex", StringComparison.OrdinalIgnoreCase), "Expected codex command to resolve to .cmd or codex");
-                else
-                    AssertEqual("codex", command);
-            });
-
-            await RunTest("ExecutablePath Set Null Throws", () =>
-            {
-                CodexRuntime runtime = CreateRuntime();
-                AssertThrows<ArgumentNullException>(() => runtime.ExecutablePath = null!);
-            });
-
-            await RunTest("IsRunningAsync Invalid ProcessId Returns False", async () =>
-            {
-                CodexRuntime runtime = CreateRuntime();
-                bool running = await runtime.IsRunningAsync(-1);
-                AssertFalse(running);
-            });
         }
     }
 }

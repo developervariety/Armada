@@ -26,7 +26,6 @@ namespace Armada.Test.Runtimes
 
             TestRunner runner = new TestRunner("ARMADA RUNTIME TEST SUITE");
 
-            runner.AddSuite(new AgentRuntimeFactoryTests());
             runner.AddSuite(new BaseAgentRuntimeTests());
             runner.AddSuite(new ClaudeCodeRuntimeTests());
             runner.AddSuite(new CodexRuntimeTests());

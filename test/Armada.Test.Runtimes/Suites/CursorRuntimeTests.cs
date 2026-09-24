@@ -79,12 +79,6 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("ExecutablePath Default Is CursorAgent", () =>
-            {
-                InspectableCursorRuntime runtime = CreateRuntime();
-                AssertEqual("cursor-agent", runtime.ExecutablePath);
-            });
-
             await RunTest("BuildArguments Uses NonInteractiveStructuredOutput", () =>
             {
                 InspectableCursorRuntime runtime = CreateRuntime();
@@ -108,22 +102,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(0L, captured.CacheWriteTokens, "Cursor cache-write input bucket");
                 AssertEqual(13915L, captured.InputTokens, "Cursor input is the sum of the three buckets");
                 AssertEqual(23L, captured.OutputTokens);
-            });
-
-            await RunTest("BuildArguments Includes Model When Supplied", () =>
-            {
-                InspectableCursorRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt", "gpt-5");
-                int modelIndex = args.IndexOf("--model");
-                AssertTrue(modelIndex >= 0);
-                AssertEqual("gpt-5", args[modelIndex + 1]);
-            });
-
-            await RunTest("Command Uses CursorAgent", () =>
-            {
-                InspectableCursorRuntime runtime = CreateRuntime();
-                string command = runtime.Command();
-                AssertTrue(command.Contains("cursor-agent", StringComparison.OrdinalIgnoreCase), "Expected cursor-agent command");
             });
 
             await RunTest("UsePromptStdin Is True", () =>

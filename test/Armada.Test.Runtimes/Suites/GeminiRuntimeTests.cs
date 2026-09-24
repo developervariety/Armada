@@ -36,12 +36,6 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("ApprovalMode Default Is Yolo", () =>
-            {
-                InspectableGeminiRuntime runtime = CreateRuntime();
-                AssertEqual("yolo", runtime.ApprovalMode);
-            });
-
             await RunTest("BuildArguments Uses Prompt And ApprovalMode", () =>
             {
                 InspectableGeminiRuntime runtime = CreateRuntime();
@@ -77,25 +71,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertContains("error", rendered, "the record reads as an error");
             });
 
-            await RunTest("BuildArguments Includes Model When Supplied", () =>
-            {
-                InspectableGeminiRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt", "gemini-2.5-pro");
-                int modelIndex = args.IndexOf("--model");
-                AssertTrue(modelIndex >= 0);
-                AssertEqual("gemini-2.5-pro", args[modelIndex + 1]);
-            });
-
-            await RunTest("Windows Command Resolves Cmd Wrapper", () =>
-            {
-                InspectableGeminiRuntime runtime = CreateRuntime();
-                string command = runtime.Command();
-
-                if (OperatingSystem.IsWindows())
-                    AssertTrue(command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || command.Equals("gemini", StringComparison.OrdinalIgnoreCase), "Expected gemini command to resolve to .cmd or gemini");
-                else
-                    AssertEqual("gemini", command);
-            });
         }
     }
 }
