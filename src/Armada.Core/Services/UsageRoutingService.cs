@@ -395,6 +395,34 @@ namespace Armada.Core.Services
             return window.Models;
         }
 
+        private static bool CursorPoolAppliesToModel(UsageAccountSettings account, ProviderUsageWindow window, string model)
+        {
+            if (!String.Equals(account.Collector, "Cursor", StringComparison.OrdinalIgnoreCase)) return true;
+            // Explicit operator mappings and collector-supplied model scopes remain authoritative.
+            if (account.WindowModels.Keys.Any(key => String.Equals(key, window.Name, StringComparison.OrdinalIgnoreCase)) || window.Models.Count > 0) return true;
+            bool cursorModel = model.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)
+                || model.StartsWith("cursor-grok-", StringComparison.OrdinalIgnoreCase);
+            if (String.Equals(window.Name, "cursor_models", StringComparison.OrdinalIgnoreCase)) return cursorModel;
+            if (String.Equals(window.Name, "third_party", StringComparison.OrdinalIgnoreCase)) return !cursorModel;
+            return true;
+        }
+
+        internal bool HasAvailableCursorApiPool(UsageAccountSettings account, string? model, DateTime now)
+        {
+            if (account == null || String.IsNullOrWhiteSpace(model)
+                || !String.Equals(account.Collector, "Cursor", StringComparison.OrdinalIgnoreCase)
+                || model.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)
+                || model.StartsWith("cursor-grok-", StringComparison.OrdinalIgnoreCase)) return false;
+            ProviderUsageStatus status = GetStatus(account, model, now);
+            if (status.State == "Exhausted" || status.State == "Unknown" || status.ObservedUtc == null
+                || status.ObservedUtc > now || status.ObservedUtc.Value.AddMinutes(account.MaxAgeMinutes) <= now) return false;
+            ProviderUsageWindow? apiPool = status.Windows.FirstOrDefault(w => String.Equals(w.Name, "third_party", StringComparison.OrdinalIgnoreCase));
+            return apiPool != null && GetWindowModels(account, apiPool).Count == 0
+                ? apiPool.RemainingPercent > 0 && apiPool.ResetsUtc > now
+                : apiPool != null && GetWindowModels(account, apiPool).Contains(model, StringComparer.OrdinalIgnoreCase)
+                    && apiPool.RemainingPercent > 0 && apiPool.ResetsUtc > now;
+        }
+
         /// <summary>
         /// Mark a whole account Exhausted until the provider's retry time, after one of its captains failed on a quota,
         /// billing, or authentication signal. Every captain on the account shares the same allowance and login, so the
@@ -505,6 +533,7 @@ namespace Armada.Core.Services
                     foreach (ProviderUsageWindow window in snapshot.Windows)
                     {
                         List<string> windowModels = GetWindowModels(account, window);
+                        if (model != null && !CursorPoolAppliesToModel(account, window, model)) continue;
                         if (model != null && windowModels.Count > 0 && !windowModels.Contains(model, StringComparer.OrdinalIgnoreCase)) continue;
                         any = true;
                         if (stale || window.ResetsUtc <= now || !window.RemainingPercent.HasValue) { unknown = true; continue; }
@@ -520,6 +549,21 @@ namespace Armada.Core.Services
                 }
                 unknown |= !any;
                 result.State = severity == 4 ? "Exhausted" : severity == 3 ? "Reserve" : severity == 2 ? "Low" : unknown ? "Unknown" : "Normal";
+                if (model == null && String.Equals(account.Collector, "Cursor", StringComparison.OrdinalIgnoreCase)
+                    && severity == 4 && snapshot != null
+                    && ((snapshot.Windows.Any(w => String.Equals(w.Name, "cursor_models", StringComparison.OrdinalIgnoreCase)
+                            && w.RemainingPercent > 0 && w.ResetsUtc > now)
+                        && snapshot.Windows.Any(w => String.Equals(w.Name, "third_party", StringComparison.OrdinalIgnoreCase)
+                            && w.RemainingPercent <= 0 && w.ResetsUtc > now))
+                        || (snapshot.Windows.Any(w => String.Equals(w.Name, "third_party", StringComparison.OrdinalIgnoreCase)
+                                && w.RemainingPercent > 0 && w.ResetsUtc > now)
+                            && snapshot.Windows.Any(w => String.Equals(w.Name, "cursor_models", StringComparison.OrdinalIgnoreCase)
+                                && w.RemainingPercent <= 0 && w.ResetsUtc > now))))
+                {
+                    result.State = "Partial";
+                    result.Reason = "one_cursor_usage_pool_exhausted";
+                    return result;
+                }
                 // An unknown window is also binding; a known low window must not hide an unknown-data block.
                 if (unknown && account.UnknownUsagePolicy == "Block" && severity < 4) result.State = "Unknown";
                 if (unknown && account.UnknownUsagePolicy == "Conserve" && severity < 2) result.State = "Unknown";

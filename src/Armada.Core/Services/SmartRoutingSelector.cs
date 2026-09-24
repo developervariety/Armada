@@ -96,6 +96,16 @@ namespace Armada.Core.Services
                 demoted = demoted.Where(c => !MissionService.IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, c.Id)).ToList();
             }
             List<Captain> filtered = kept.Concat(demoted).ToList();
+            HashSet<string> cursorApiAvailable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Captain captain in filtered)
+            {
+                UsageAccountSettings? account = policy.Accounts.FirstOrDefault(a => a != null
+                    && a.CaptainIds.Contains(captain.Id, StringComparer.OrdinalIgnoreCase));
+                if (account != null && request.Usage.HasAvailableCursorApiPool(account, captain.Model, request.NowUtc))
+                    cursorApiAvailable.Add(captain.Id);
+            }
+            if (cursorApiAvailable.Count > 0)
+                filtered = filtered.OrderByDescending(captain => cursorApiAvailable.Contains(captain.Id)).ToList();
 
             PersonaModelSettings? models = UsageRoutingService.FindPersonaModels(policy, mission.Persona);
             bool concretePin = !String.IsNullOrEmpty(mission.PreferredModel) && !PreferredModelTierSelector.IsTierSelector(mission.PreferredModel);
@@ -119,6 +129,19 @@ namespace Armada.Core.Services
 
                 HashSet<string> placed = new HashSet<string>(StringComparer.Ordinal);
                 List<Captain> grouped = new List<Captain>();
+                SmartRoutingModelGroup cursorApi = new SmartRoutingModelGroup { Name = "cursor_api" };
+                foreach (Captain captain in filtered)
+                {
+                    if (!cursorApiAvailable.Contains(captain.Id)) continue;
+                    placed.Add(captain.Id);
+                    cursorApi.CaptainIds.Add(captain.Id);
+                    grouped.Add(captain);
+                }
+                if (cursorApi.CaptainIds.Count > 0)
+                {
+                    decision.Groups.Add(cursorApi);
+                    groupReason = ReasonGroupPrefix + cursorApi.Name;
+                }
                 List<string> chosenModels = reading.Choice == CapacityChoiceEnum.Lighter ? models.Lighter
                     : reading.Choice == CapacityChoiceEnum.Stronger ? models.Stronger : models.Default;
                 if (chosenModels.Count > 0

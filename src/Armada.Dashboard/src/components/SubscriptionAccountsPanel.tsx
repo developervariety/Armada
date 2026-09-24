@@ -235,7 +235,7 @@ function AccountCard({ account, status, accounts, captains, disabled, expanded, 
       <div><dt>{t('Usage')}</dt><dd>{shown ? String(shown.state) : t('Unknown')}</dd></div>
       <div><dt>{t('Observed')}</dt><dd>{observed || t('Never')}</dd></div>
     </dl>
-    {runtime === 'Cursor' && <p className="text-muted">{t('Cursor usage cannot be measured with an API key. Unknown still routes under unknownUsagePolicy Allow.')}</p>}
+    {runtime === 'Cursor' && <p className="text-muted">{t('Cursor reports separate model and third-party API usage pools. Dispatch checks the pool for each captain model.')}</p>}
     <div className="account-inline account-refresh">
       <button type="button" className="btn btn-secondary" disabled={disabled || refreshing} aria-busy={refreshing}
         onClick={() => void refreshUsage()}>

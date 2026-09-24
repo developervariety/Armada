@@ -19,7 +19,7 @@ namespace Armada.Core.Settings
         /// <summary>Explicit runtime credential file or cookie-header file; never returned file contents.</summary>
         public string? CredentialFilePath { get; set; }
 
-        /// <summary>Exact collector window names mapped to model IDs. Unmapped windows conservatively apply to all models.</summary>
+        /// <summary>Exact collector window names mapped to model IDs. Unmapped windows apply to all models, except Cursor's named first-party and third-party pools, which follow their model families.</summary>
         public Dictionary<string, List<string>> WindowModels { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>

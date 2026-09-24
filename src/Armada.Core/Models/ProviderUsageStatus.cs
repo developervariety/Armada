@@ -12,7 +12,7 @@ namespace Armada.Core.Models
         /// <summary>Account identifier.</summary>
         public string AccountId { get; set; } = String.Empty;
 
-        /// <summary>Normal, Low, Reserve, Exhausted, or Unknown.</summary>
+        /// <summary>Normal, Low, Reserve, Exhausted, Partial, or Unknown. Partial means one Cursor pool is exhausted while another remains usable.</summary>
         public string State { get; set; } = "Unknown";
 
         /// <summary>Safe explanation of the evaluated state.</summary>

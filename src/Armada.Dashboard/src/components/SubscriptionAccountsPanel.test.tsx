@@ -84,7 +84,7 @@ describe('Subscription accounts panel', () => {
     renderPanel({ accounts: [account('cursor-a', 'Cursor')] }, undefined, undefined, [
       { accountId: 'cursor-a', state: 'Unknown', reason: 'account_launch_credential_unavailable' },
     ]);
-    expect(screen.getByText(/Cursor usage cannot be measured with an API key/)).toBeInTheDocument();
+    expect(screen.getByText(/Cursor reports separate model and third-party API usage pools/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('Manage'));
     expect(await screen.findByText(/Save a Cursor API key on this card/)).toBeInTheDocument();
   });

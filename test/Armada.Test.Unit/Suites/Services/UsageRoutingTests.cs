@@ -303,6 +303,86 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(99.5, snapshot.Windows[0].RemainingPercent!.Value);
                 AssertEqual(0.0, snapshot.Windows[1].RemainingPercent!.Value);
             });
+            await RunTest("Cursor API pool exhaustion leaves Composer and Grok captains available", async () =>
+            {
+                DateTime now = DateTime.UtcNow;
+                UsageAccountSettings account = new UsageAccountSettings
+                {
+                    Id = "cursor", Collector = "Cursor",
+                    ManualSnapshot = new ProviderUsageSnapshot
+                    {
+                        ObservedUtc = now, Source = "test",
+                        Windows = new List<ProviderUsageWindow>
+                        {
+                            new ProviderUsageWindow { Name = "cursor_models", RemainingPercent = 40, ResetsUtc = now.AddDays(1) },
+                            new ProviderUsageWindow { Name = "third_party", RemainingPercent = 0, ResetsUtc = now.AddDays(1) }
+                        }
+                    }
+                };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (_, _) => Task.FromResult(account.ManualSnapshot!) };
+                await service.RefreshAsync(policy);
+                AssertEqual("Partial", service.GetStatus(account, null, now).State);
+                AssertEqual("Normal", service.GetStatus(account, "composer-2.5", now).State);
+                AssertEqual("Normal", service.GetStatus(account, "cursor-grok-4.7-high", now).State);
+                AssertEqual("Exhausted", service.GetStatus(account, "gpt-5.6-luna", now).State);
+            });
+            await RunTest("Cursor API captains lead only while their measured pool has usage", async () =>
+            {
+                DateTime now = DateTime.UtcNow;
+                UsageAccountSettings account = new UsageAccountSettings
+                {
+                    Id = "cursor", Collector = "Cursor", CaptainIds = new List<string> { "api", "composer", "grok" },
+                    ManualSnapshot = new ProviderUsageSnapshot
+                    {
+                        ObservedUtc = now, Source = "test",
+                        Windows = new List<ProviderUsageWindow>
+                        {
+                            new ProviderUsageWindow { Name = "cursor_models", RemainingPercent = 40, ResetsUtc = now.AddDays(1) },
+                            new ProviderUsageWindow { Name = "third_party", RemainingPercent = 20, ResetsUtc = now.AddDays(1) }
+                        }
+                    }
+                };
+                UsageRoutingSettings policy = new UsageRoutingSettings
+                {
+                    Enabled = true, Accounts = new List<UsageAccountSettings> { account },
+                    PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>>
+                    {
+                        ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "cursor" } }
+                    },
+                    PersonaModels = new Dictionary<string, PersonaModelSettings>
+                    {
+                        ["Worker"] = new PersonaModelSettings
+                        {
+                            Default = new List<string> { "composer-2.5" },
+                            Stronger = new List<string> { "cursor-grok-4.7-high" }
+                        }
+                    }
+                };
+                List<Captain> captains = new List<Captain>
+                {
+                    new Captain("api") { Id = "api", Model = "gpt-6-luna" },
+                    new Captain("composer") { Id = "composer", Model = "composer-2.5" },
+                    new Captain("grok") { Id = "grok", Model = "cursor-grok-4.7-high" }
+                };
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (_, _) => Task.FromResult(account.ManualSnapshot!) };
+                await service.RefreshAsync(policy);
+                UsageRoutingDecision decision = SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = new ModelTierSettings(), Policy = policy, Usage = service,
+                    Mission = new Mission { Persona = "Worker" }, Pool = captains,
+                    BusyCaptainIds = Array.Empty<string>(), NowUtc = now, RandomPick = n => 0
+                }).GetAwaiter().GetResult();
+                AssertEqual("api", decision.Candidates[0].Id);
+                account.ManualSnapshot.Windows[1].RemainingPercent = 0;
+                decision = SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = new ModelTierSettings(), Policy = policy, Usage = service,
+                    Mission = new Mission { Persona = "Worker" }, Pool = captains,
+                    BusyCaptainIds = Array.Empty<string>(), NowUtc = now, RandomPick = n => 0
+                }).GetAwaiter().GetResult();
+                AssertEqual("composer", decision.Candidates[0].Id);
+            });
             await RunTest("OpenCode Go fractional percent and reset interval preserve units", () =>
             {
                 DateTime now = DateTime.UtcNow;
