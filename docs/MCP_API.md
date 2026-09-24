@@ -1002,6 +1002,26 @@ field left out keeps the value of the existing stage for the same persona, so an
 update that does not name `requiresReview` keeps the review gate; send `false`
 to turn it off, or `null` to clear a stage's `description` or `preferredModel`.
 
+### Objectives And Backlog Items
+
+`create_objective`, `create_backlog_item`, `update_objective` and
+`update_backlog_item` share one input schema and call the same service methods
+as `POST` and `PUT /api/v1/objectives` (and `/api/v1/backlog`). The update tools
+change only the supplied fields, including `autoDispatchEnabled`. The clearable
+text fields (`description`, `category`, `owner`, `targetVersion`,
+`parentObjectiveId`, `refinementSummary`, `suggestedPipelineId`,
+`startFromRef`) declare `emptyStringClears`, so an explicit `""` clears the
+stored value as it does on REST. A refusal carries `Outcome`: `NotFound` for an
+objective the caller cannot read, `Invalid` for a missing title, an unknown enum
+value, or a linked record outside the caller's scope. `delete_objective` and
+`delete_backlog_item` return the same refusal for an unknown id instead of a
+protocol error.
+
+`delete_backlog_refinement_session` deletes one refinement session and its
+transcript and removes it from the backlog item's links, as
+`DELETE /api/v1/objective-refinement-sessions/{id}` does. An active session is
+stopped first. A session outside the caller's scope returns `not_found`.
+
 ## Client Names
 
 MCP clients can add a transport prefix to tool names in their own UI or prompt

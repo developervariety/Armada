@@ -485,6 +485,32 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Delete a refinement session the caller has already read through its scope, then remove the
+        /// session from its objective's links. REST and MCP both delete through this method. An objective that
+        /// no longer exists has no link to remove.
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <param name="session">Session read within the caller's scope.</param>
+        /// <param name="objectives">Objective service.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task DeleteAndUnlinkAsync(AuthContext caller, ObjectiveRefinementSession session, ObjectiveService objectives, CancellationToken token = default)
+        {
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (objectives == null) throw new ArgumentNullException(nameof(objectives));
+
+            await DeleteAsync(session, token).ConfigureAwait(false);
+            try
+            {
+                await objectives.UnlinkRefinementSessionAsync(caller, session.ObjectiveId, session.Id, token).ConfigureAwait(false);
+            }
+            catch (ObjectiveNotFoundException)
+            {
+                _Logging.Debug(_Header + "refinement session " + session.Id + " deleted; its objective " + session.ObjectiveId + " no longer exists, so there is no link to remove");
+            }
+        }
+
+        /// <summary>
         /// Recover persisted refinement sessions on server start.
         /// </summary>
         public async Task RecoverSessionsAsync(CancellationToken token = default)

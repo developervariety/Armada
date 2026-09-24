@@ -458,6 +458,18 @@ upstream integrations and excludes changes already present at that baseline.
   fields, so an id, tenant, built-in flag or timestamp in the body is ignored. A
   global administrator's update or delete by name reaches its own tenant's record
   before another tenant's.
+- **Objective writes:** REST objective and backlog routes and the MCP objective
+  and backlog-item tools create, update and delete through the same objective
+  service methods. MCP `update_objective` and `update_backlog_item` pass every
+  field the service reads, so `autoDispatchEnabled` is no longer dropped, and the
+  clearable text fields declare `emptyStringClears`, so `""` clears them on MCP as
+  it does on REST. A missing title returns `400` on REST instead of a server
+  error; a missing objective is `404` and a linked record outside the caller's
+  scope is `400` (it read as `404`). MCP refusals carry `Outcome`, and
+  `delete_objective` and `delete_backlog_item` return a tool error for an unknown
+  id instead of a protocol error. New MCP tool `delete_backlog_refinement_session`
+  matches `DELETE /api/v1/objective-refinement-sessions/{id}`; both remove the
+  session from its objective's links through one method.
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.

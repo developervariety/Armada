@@ -189,20 +189,7 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
-
-                try
-                {
-                    Objective objective = await _Objectives.CreateAsync(ctx, request).ConfigureAwait(false);
-                    req.Http.Response.StatusCode = 201;
-                    return objective;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
-                }
+                return await CreateObjectiveAsync(req, ctx).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Objectives")
@@ -210,6 +197,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Creates an internal-first objective or intake record with linked repositories, planning, releases, deployments, and incidents.")
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveUpsertRequest>("Objective create request", true))
                 .WithResponse(201, OpenApiJson.For<Objective>("Created objective"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/objectives/import/github", async (ApiRequest req) =>
@@ -244,22 +232,7 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
-
-                try
-                {
-                    return await _Objectives.UpdateAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    req.Http.Response.StatusCode = ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ? 404 : 400;
-                    return new ApiErrorResponse
-                    {
-                        Error = req.Http.Response.StatusCode == 404 ? ApiResultEnum.NotFound : ApiResultEnum.BadRequest,
-                        Message = ex.Message
-                    };
-                }
+                return await UpdateObjectiveAsync(req, ctx).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Objectives")
@@ -268,6 +241,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveUpsertRequest>("Objective update request", true))
                 .WithResponse(200, OpenApiJson.For<Objective>("Updated objective"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
@@ -275,17 +249,8 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                try
-                {
-                    await _Objectives.DeleteAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
-                    req.Http.Response.StatusCode = 204;
-                    return null;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = ex.Message };
-                }
+                RecordWriteResult<Objective> result = await _Objectives.DeleteRecordAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 204);
             },
             api => api
                 .WithTag("Objectives")
@@ -437,20 +402,7 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
-
-                try
-                {
-                    Objective objective = await _Objectives.CreateAsync(ctx, request).ConfigureAwait(false);
-                    req.Http.Response.StatusCode = 201;
-                    return objective;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
-                }
+                return await CreateObjectiveAsync(req, ctx).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Objectives")
@@ -458,28 +410,14 @@ namespace Armada.Server.Routes
                 .WithDescription("Creates a backlog item using the user-facing backlog terminology.")
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveUpsertRequest>("Backlog create request", true))
                 .WithResponse(201, OpenApiJson.For<Objective>("Created backlog item"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
             app.Put("/api/v1/backlog/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(req.Http.Request.DataAsString, _JsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as ObjectiveUpsertRequest.");
-
-                try
-                {
-                    return await _Objectives.UpdateAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    req.Http.Response.StatusCode = ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ? 404 : 400;
-                    return new ApiErrorResponse
-                    {
-                        Error = req.Http.Response.StatusCode == 404 ? ApiResultEnum.NotFound : ApiResultEnum.BadRequest,
-                        Message = ex.Message
-                    };
-                }
+                return await UpdateObjectiveAsync(req, ctx).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Objectives")
@@ -488,6 +426,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Backlog item ID (obj_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveUpsertRequest>("Backlog update request", true))
                 .WithResponse(200, OpenApiJson.For<Objective>("Updated backlog item"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
@@ -495,17 +434,8 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                try
-                {
-                    await _Objectives.DeleteAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
-                    req.Http.Response.StatusCode = 204;
-                    return null;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = ex.Message };
-                }
+                RecordWriteResult<Objective> result = await _Objectives.DeleteRecordAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 204);
             },
             api => api
                 .WithTag("Objectives")
@@ -515,6 +445,28 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
+        }
+
+        /// <summary>
+        /// Create an objective through the shared write rule. A body that is not valid JSON for the request,
+        /// such as an unknown enum value, is refused with 400.
+        /// </summary>
+        private async Task<object?> CreateObjectiveAsync(ApiRequest req, AuthContext ctx)
+        {
+            if (!RecordWriteResponse.TryReadBody(req, _JsonOptions, out ObjectiveUpsertRequest? request, out object? refusal)) return refusal;
+            RecordWriteResult<Objective> result = await _Objectives.CreateRecordAsync(ctx, request).ConfigureAwait(false);
+            return RecordWriteResponse.From(req, result, 201);
+        }
+
+        /// <summary>
+        /// Update an objective through the shared write rule: 404 when the objective is not found, 400 for an
+        /// invalid field or a linked record outside the caller's scope.
+        /// </summary>
+        private async Task<object?> UpdateObjectiveAsync(ApiRequest req, AuthContext ctx)
+        {
+            if (!RecordWriteResponse.TryReadBody(req, _JsonOptions, out ObjectiveUpsertRequest? request, out object? refusal)) return refusal;
+            RecordWriteResult<Objective> result = await _Objectives.UpdateRecordAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
+            return RecordWriteResponse.From(req, result, 200);
         }
 
         private static ObjectiveQuery BuildQueryFromRequest(ApiRequest req)

@@ -760,7 +760,7 @@ namespace Armada.Core.Services
             await EnsureBackfilledAsync(token).ConfigureAwait(false);
 
             Objective objective = await ReadAsync(auth, id, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
+                ?? throw new ObjectiveNotFoundException();
 
             ObjectivePreparationAnchor? priorSourceAnchor = CopyAnchor(objective.Preparation?.Source);
             ObjectivePreparationAnchor? priorTargetAnchor = CopyAnchor(objective.Preparation?.Target);
@@ -886,7 +886,7 @@ namespace Armada.Core.Services
                     throw new InvalidOperationException("Duplicate rank in reorder request: " + item.Rank);
 
                 Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Objective not found.");
+                    ?? throw new ObjectiveNotFoundException();
 
                 objective.Rank = item.Rank;
                 objective.LastUpdateUtc = now;
@@ -939,7 +939,7 @@ namespace Armada.Core.Services
             // behind even when the caller is a tenant-admin that cannot see them through scoped reads.
             List<ArmadaEvent> snapshots = await ReadObjectiveSnapshotEventsUnscopedAsync(id, token).ConfigureAwait(false);
             if (existing == null && snapshots.Count == 0)
-                throw new InvalidOperationException("Objective not found.");
+                throw new ObjectiveNotFoundException();
 
             // The unscoped snapshot read must never turn another tenant's backlog item into a
             // deletable target: without this, a caller who cannot see the row still purged the
@@ -947,7 +947,7 @@ namespace Armada.Core.Services
             // invisible row that belongs to some other tenant is simply not found. Orphan
             // snapshots with no row anywhere stay purgeable, which is what this path is for.
             if (existing == null && await ObjectiveRowExistsUnscopedAsync(id, token).ConfigureAwait(false))
-                throw new InvalidOperationException("Objective not found.");
+                throw new ObjectiveNotFoundException();
 
             // With no row, only the caller's own tenant's orphan snapshots are purgeable; a snapshot without a
             // tenant belongs to the default tenant. Another tenant's orphan chain reads as not found.
@@ -979,6 +979,74 @@ namespace Armada.Core.Services
                 UserId = snapshots[0].UserId
             };
             OnObjectiveDeleted?.Invoke(deleted);
+        }
+
+        /// <summary>
+        /// Create an objective and report the outcome instead of throwing. REST and MCP both call this, so a
+        /// missing title, an invalid field or a link outside the caller's scope is refused the same way.
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="request">Requested fields; null is refused.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Write result.</returns>
+        public async Task<RecordWriteResult<Objective>> CreateRecordAsync(AuthContext auth, ObjectiveUpsertRequest? request, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (request == null) return RecordWriteResult<Objective>.Invalid("title is required");
+            if (String.IsNullOrWhiteSpace(request.Title)) return RecordWriteResult<Objective>.Invalid("title is required");
+            try
+            {
+                return RecordWriteResult<Objective>.Success(await CreateAsync(auth, request, token).ConfigureAwait(false));
+            }
+            catch (Exception ex) when (IsWriteRefusal(ex))
+            {
+                return RefusalFor(ex);
+            }
+        }
+
+        /// <summary>
+        /// Update an objective and report the outcome instead of throwing. Only supplied fields change; an
+        /// empty string clears a clearable text field.
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="id">Objective identifier.</param>
+        /// <param name="request">Requested fields; null changes nothing.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Write result.</returns>
+        public async Task<RecordWriteResult<Objective>> UpdateRecordAsync(AuthContext auth, string? id, ObjectiveUpsertRequest? request, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(id)) return RecordWriteResult<Objective>.Invalid("objectiveId is required");
+            try
+            {
+                return RecordWriteResult<Objective>.Success(await UpdateAsync(auth, id!.Trim(), request ?? new ObjectiveUpsertRequest(), token).ConfigureAwait(false));
+            }
+            catch (Exception ex) when (IsWriteRefusal(ex))
+            {
+                return RefusalFor(ex);
+            }
+        }
+
+        /// <summary>
+        /// Delete an objective and its snapshots and report the outcome instead of throwing.
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="id">Objective identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Write result carrying the deleted objective's identifier.</returns>
+        public async Task<RecordWriteResult<Objective>> DeleteRecordAsync(AuthContext auth, string? id, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(id)) return RecordWriteResult<Objective>.Invalid("objectiveId is required");
+            try
+            {
+                await DeleteAsync(auth, id!.Trim(), token).ConfigureAwait(false);
+                return RecordWriteResult<Objective>.Success(new Objective { Id = id!.Trim() });
+            }
+            catch (Exception ex) when (IsWriteRefusal(ex))
+            {
+                return RefusalFor(ex);
+            }
         }
 
         /// <summary>
@@ -1016,7 +1084,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(refinementSessionId)) throw new ArgumentNullException(nameof(refinementSessionId));
 
             Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
+                ?? throw new ObjectiveNotFoundException();
             ObjectiveRefinementSession? session = await ReadObjectiveRefinementSessionEntityAsync(auth, refinementSessionId, token).ConfigureAwait(false);
             if (session == null)
                 throw new InvalidOperationException("Objective refinement session not found or not accessible: " + refinementSessionId);
@@ -1043,7 +1111,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(refinementSessionId)) throw new ArgumentNullException(nameof(refinementSessionId));
 
             Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
+                ?? throw new ObjectiveNotFoundException();
 
             objective.RefinementSessionIds = objective.RefinementSessionIds
                 .Where(id => !String.Equals(id, refinementSessionId, StringComparison.OrdinalIgnoreCase))
@@ -1073,7 +1141,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(planningSessionId)) throw new ArgumentNullException(nameof(planningSessionId));
 
             Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
+                ?? throw new ObjectiveNotFoundException();
             PlanningSession? session = await ReadPlanningSessionEntityAsync(auth, planningSessionId, token).ConfigureAwait(false);
             if (session == null)
                 throw new InvalidOperationException("Planning session not found or not accessible: " + planningSessionId);
@@ -1114,7 +1182,7 @@ namespace Armada.Core.Services
             using (await _VoyageLinkLocks.AcquireAsync(objectiveId, token).ConfigureAwait(false))
             {
                 Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Objective not found.");
+                    ?? throw new ObjectiveNotFoundException();
                 Voyage? voyage = await ReadVoyageEntityAsync(auth, voyageId, token).ConfigureAwait(false);
                 if (voyage == null)
                     throw new InvalidOperationException("Voyage not found or not accessible: " + voyageId);
@@ -1194,7 +1262,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(releaseId)) throw new ArgumentNullException(nameof(releaseId));
 
             Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
+                ?? throw new ObjectiveNotFoundException();
             Release? release = await ReadReleaseEntityAsync(auth, releaseId, token).ConfigureAwait(false);
             if (release == null)
                 throw new InvalidOperationException("Release not found or not accessible: " + releaseId);
@@ -1228,7 +1296,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(deploymentId)) throw new ArgumentNullException(nameof(deploymentId));
 
             Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
+                ?? throw new ObjectiveNotFoundException();
             Deployment? deployment = await ReadDeploymentEntityAsync(auth, deploymentId, token).ConfigureAwait(false);
             if (deployment == null)
                 throw new InvalidOperationException("Deployment not found or not accessible: " + deploymentId);
@@ -1264,7 +1332,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(incidentId)) throw new ArgumentNullException(nameof(incidentId));
 
             Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
+                ?? throw new ObjectiveNotFoundException();
             Incident? incident = await ReadIncidentEntityAsync(auth, incidentId, token).ConfigureAwait(false);
             if (incident == null)
                 throw new InvalidOperationException("Incident not found or not accessible: " + incidentId);
@@ -2400,6 +2468,19 @@ namespace Armada.Core.Services
                 .GroupBy(item => item.PlaybookId + "|" + item.DeliveryMode, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .ToList();
+        }
+
+        private static bool IsWriteRefusal(Exception ex)
+        {
+            return ex is InvalidOperationException || ex is ArgumentException;
+        }
+
+        private static RecordWriteResult<Objective> RefusalFor(Exception ex)
+        {
+            if (ex is ObjectiveNotFoundException) return RecordWriteResult<Objective>.NotFound(ex.Message);
+            if (ex is ArgumentNullException missing && !String.IsNullOrEmpty(missing.ParamName))
+                return RecordWriteResult<Objective>.Invalid(JsonNamingPolicy.CamelCase.ConvertName(missing.ParamName!) + " is required");
+            return RecordWriteResult<Objective>.Invalid(ex.Message);
         }
 
         private static string NormalizeRequired(string? value, string paramName)

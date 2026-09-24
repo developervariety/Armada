@@ -212,250 +212,26 @@ namespace Armada.Server.Mcp.Tools
             register(
                 "create_objective",
                 "Create an internal-first objective or intake-style record that can link vessels, planning sessions, voyages, checks, releases, deployments, and incidents.",
-                new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        title = new { type = "string", description = "Objective title" },
-                        description = new { type = "string", description = "Optional long-form description" },
-                        status = new { type = "string", description = "Optional objective status such as Draft, Scoped, Planned, or InProgress" },
-                        kind = new { type = "string", description = "Optional backlog kind such as Feature, Bug, Refactor, or Research" },
-                        category = new { type = "string", description = "Optional category such as Frontend, Backend, DevEx, or Ops" },
-                        priority = new { type = "string", description = "Optional priority such as P0, P1, P2, or P3" },
-                        rank = new { type = "integer", description = "Optional deterministic backlog rank" },
-                        backlogState = new { type = "string", description = "Optional backlog state such as Inbox or ReadyForDispatch" },
-                        effort = new { type = "string", description = "Optional effort such as XS, S, M, L, or XL" },
-                        owner = new { type = "string", description = "Optional owner display label" },
-                        targetVersion = new { type = "string", description = "Optional target release version" },
-                        dueUtc = new { type = "string", description = "Optional due timestamp in UTC" },
-                        parentObjectiveId = new { type = "string", description = "Optional parent objective identifier" },
-                        blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking objective identifiers" },
-                        refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
-                        preparation = BuildPreparationSchema(),
-                        suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
-                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
-                        startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
-                        refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
-                        tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
-                        acceptanceCriteria = new { type = "array", items = new { type = "string" }, description = "Acceptance criteria" },
-                        nonGoals = new { type = "array", items = new { type = "string" }, description = "Explicit non-goals" },
-                        rolloutConstraints = new { type = "array", items = new { type = "string" }, description = "Rollout constraints" },
-                        evidenceLinks = new { type = "array", items = new { type = "string" }, description = "Evidence or source links" },
-                        fleetIds = new { type = "array", items = new { type = "string" }, description = "Linked fleet IDs" },
-                        vesselIds = new { type = "array", items = new { type = "string" }, description = "Linked vessel IDs" },
-                        planningSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked planning-session IDs" },
-                        voyageIds = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" },
-                        missionIds = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" },
-                        checkRunIds = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" },
-                        releaseIds = new { type = "array", items = new { type = "string" }, description = "Linked release IDs" },
-                        deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
-                        incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
-                    },
-                    required = new[] { "title" }
-                },
-                async (args) =>
-                {
-                    try
-                    {
-                        ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(args!.Value, _JsonOptions)
-                            ?? throw new InvalidOperationException("Could not deserialize ObjectiveUpsertRequest.");
-                        AuthContext auth = McpCallerContext.Require();
-                        return (object)await objectiveService.CreateAsync(auth, request).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
-                    {
-                        return (object)new { Error = ex.Message, Code = "objective_create_failed", ValidEnums = BuildValidEnumMap() };
-                    }
-                });
+                ObjectiveWriteSchema("objective", false),
+                async (args) => await CreateAsync(objectiveService, args, "objective_create_failed").ConfigureAwait(false));
 
             register(
                 "create_backlog_item",
                 "Create a backlog item that can link vessels, planning sessions, voyages, checks, releases, deployments, and incidents.",
-                new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        title = new { type = "string", description = "Backlog item title" },
-                        description = new { type = "string", description = "Optional long-form description" },
-                        status = new { type = "string", description = "Optional backlog lifecycle status such as Draft, Scoped, Planned, or InProgress" },
-                        kind = new { type = "string", description = "Optional backlog kind such as Feature, Bug, Refactor, or Research" },
-                        category = new { type = "string", description = "Optional category such as Frontend, Backend, DevEx, or Ops" },
-                        priority = new { type = "string", description = "Optional priority such as P0, P1, P2, or P3" },
-                        rank = new { type = "integer", description = "Optional deterministic backlog rank" },
-                        backlogState = new { type = "string", description = "Optional backlog state such as Inbox or ReadyForDispatch" },
-                        effort = new { type = "string", description = "Optional effort such as XS, S, M, L, or XL" },
-                        owner = new { type = "string", description = "Optional owner display label" },
-                        targetVersion = new { type = "string", description = "Optional target release version" },
-                        dueUtc = new { type = "string", description = "Optional due timestamp in UTC" },
-                        parentObjectiveId = new { type = "string", description = "Optional parent backlog item identifier" },
-                        blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking backlog item identifiers" },
-                        refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
-                        preparation = BuildPreparationSchema(),
-                        suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
-                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
-                        startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
-                        refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
-                        tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
-                        acceptanceCriteria = new { type = "array", items = new { type = "string" }, description = "Acceptance criteria" },
-                        nonGoals = new { type = "array", items = new { type = "string" }, description = "Explicit non-goals" },
-                        rolloutConstraints = new { type = "array", items = new { type = "string" }, description = "Rollout constraints" },
-                        evidenceLinks = new { type = "array", items = new { type = "string" }, description = "Evidence or source links" },
-                        fleetIds = new { type = "array", items = new { type = "string" }, description = "Linked fleet IDs" },
-                        vesselIds = new { type = "array", items = new { type = "string" }, description = "Linked vessel IDs" },
-                        planningSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked planning-session IDs" },
-                        voyageIds = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" },
-                        missionIds = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" },
-                        checkRunIds = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" },
-                        releaseIds = new { type = "array", items = new { type = "string" }, description = "Linked release IDs" },
-                        deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
-                        incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
-                    },
-                    required = new[] { "title" }
-                },
-                async (args) =>
-                {
-                    try
-                    {
-                        ObjectiveUpsertRequest request = JsonSerializer.Deserialize<ObjectiveUpsertRequest>(args!.Value, _JsonOptions)
-                            ?? throw new InvalidOperationException("Could not deserialize ObjectiveUpsertRequest.");
-                        AuthContext auth = McpCallerContext.Require();
-                        return (object)await objectiveService.CreateAsync(auth, request).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
-                    {
-                        return (object)new { Error = ex.Message, Code = "backlog_create_failed", ValidEnums = BuildValidEnumMap() };
-                    }
-                });
+                ObjectiveWriteSchema("backlog item", false),
+                async (args) => await CreateAsync(objectiveService, args, "backlog_create_failed").ConfigureAwait(false));
 
             register(
                 "update_objective",
-                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id.",
-                new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        objectiveId = new { type = "string", description = "Objective ID (obj_ prefix)" },
-                        backlogItemId = new { type = "string", description = "Alias for objectiveId when using backlog terminology" },
-                        id = new { type = "string", description = "Alias for objectiveId" },
-                        title = new { type = "string", description = "Optional title override" },
-                        description = new { type = "string", description = "Optional long-form description" },
-                        status = new { type = "string", description = "Optional lifecycle status" },
-                        kind = new { type = "string", description = "Optional backlog kind" },
-                        category = new { type = "string", description = "Optional category" },
-                        priority = new { type = "string", description = "Optional priority" },
-                        rank = new { type = "integer", description = "Optional deterministic backlog rank" },
-                        backlogState = new { type = "string", description = "Optional backlog state" },
-                        effort = new { type = "string", description = "Optional effort" },
-                        owner = new { type = "string", description = "Optional owner display label" },
-                        targetVersion = new { type = "string", description = "Optional target release version" },
-                        dueUtc = new { type = "string", description = "Optional due timestamp in UTC" },
-                        parentObjectiveId = new { type = "string", description = "Optional parent objective identifier" },
-                        blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking objective identifiers" },
-                        refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
-                        preparation = BuildPreparationSchema(),
-                        suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
-                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
-                        startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
-                        refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
-                        tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
-                        acceptanceCriteria = new { type = "array", items = new { type = "string" }, description = "Acceptance criteria" },
-                        nonGoals = new { type = "array", items = new { type = "string" }, description = "Explicit non-goals" },
-                        rolloutConstraints = new { type = "array", items = new { type = "string" }, description = "Rollout constraints" },
-                        evidenceLinks = new { type = "array", items = new { type = "string" }, description = "Evidence or source links" },
-                        fleetIds = new { type = "array", items = new { type = "string" }, description = "Linked fleet IDs" },
-                        vesselIds = new { type = "array", items = new { type = "string" }, description = "Linked vessel IDs" },
-                        planningSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked planning-session IDs" },
-                        voyageIds = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" },
-                        missionIds = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" },
-                        checkRunIds = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" },
-                        releaseIds = new { type = "array", items = new { type = "string" }, description = "Linked release IDs" },
-                        deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
-                        incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
-                    }
-                },
-                async (args) =>
-                {
-                    UpdateObjectiveArgs request = JsonSerializer.Deserialize<UpdateObjectiveArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize UpdateObjectiveArgs.");
-                    AuthContext auth = McpCallerContext.Require();
-                    string objectiveId = request.ResolveObjectiveId();
-                    if (String.IsNullOrWhiteSpace(objectiveId)) return (object)new { Error = "objectiveId is required" };
-                    try
-                    {
-                        return (object)await objectiveService.UpdateAsync(auth, objectiveId, request.ToUpsertRequest()).ConfigureAwait(false);
-                    }
-                    catch (InvalidOperationException ex)
-                    {
-                        return (object)new { Error = ex.Message, Code = "objective_update_failed", ObjectiveId = objectiveId };
-                    }
-                });
+                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied fields change; an empty string clears a clearable text field.",
+                ObjectiveWriteSchema("objective", true),
+                async (args) => await UpdateAsync(objectiveService, args, "objective_update_failed", "objectiveId is required", null).ConfigureAwait(false));
 
             register(
                 "update_backlog_item",
-                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id.",
-                new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        objectiveId = new { type = "string", description = "Backlog item ID (obj_ prefix)" },
-                        backlogItemId = new { type = "string", description = "Alias for objectiveId" },
-                        id = new { type = "string", description = "Alias for objectiveId" },
-                        title = new { type = "string", description = "Optional title override" },
-                        description = new { type = "string", description = "Optional long-form description" },
-                        status = new { type = "string", description = "Optional lifecycle status" },
-                        kind = new { type = "string", description = "Optional backlog kind" },
-                        category = new { type = "string", description = "Optional category" },
-                        priority = new { type = "string", description = "Optional priority" },
-                        rank = new { type = "integer", description = "Optional deterministic backlog rank" },
-                        backlogState = new { type = "string", description = "Optional backlog state" },
-                        effort = new { type = "string", description = "Optional effort" },
-                        owner = new { type = "string", description = "Optional owner display label" },
-                        targetVersion = new { type = "string", description = "Optional target release version" },
-                        dueUtc = new { type = "string", description = "Optional due timestamp in UTC" },
-                        parentObjectiveId = new { type = "string", description = "Optional parent backlog item identifier" },
-                        blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking backlog item identifiers" },
-                        refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
-                        preparation = BuildPreparationSchema(),
-                        suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
-                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
-                        startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
-                        refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
-                        tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
-                        acceptanceCriteria = new { type = "array", items = new { type = "string" }, description = "Acceptance criteria" },
-                        nonGoals = new { type = "array", items = new { type = "string" }, description = "Explicit non-goals" },
-                        rolloutConstraints = new { type = "array", items = new { type = "string" }, description = "Rollout constraints" },
-                        evidenceLinks = new { type = "array", items = new { type = "string" }, description = "Evidence or source links" },
-                        fleetIds = new { type = "array", items = new { type = "string" }, description = "Linked fleet IDs" },
-                        vesselIds = new { type = "array", items = new { type = "string" }, description = "Linked vessel IDs" },
-                        planningSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked planning-session IDs" },
-                        voyageIds = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" },
-                        missionIds = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" },
-                        checkRunIds = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" },
-                        releaseIds = new { type = "array", items = new { type = "string" }, description = "Linked release IDs" },
-                        deploymentIds = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" },
-                        incidentIds = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" }
-                    }
-                },
-                async (args) =>
-                {
-                    UpdateObjectiveArgs request = JsonSerializer.Deserialize<UpdateObjectiveArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize UpdateObjectiveArgs.");
-                    AuthContext auth = McpCallerContext.Require();
-                    string objectiveId = request.ResolveObjectiveId();
-                    if (String.IsNullOrWhiteSpace(objectiveId)) return (object)new { Error = "objectiveId is required", Code = "backlog_item_id_required" };
-                    try
-                    {
-                        return (object)await objectiveService.UpdateAsync(auth, objectiveId, request.ToUpsertRequest()).ConfigureAwait(false);
-                    }
-                    catch (InvalidOperationException ex)
-                    {
-                        return (object)new { Error = ex.Message, Code = "backlog_update_failed", ObjectiveId = objectiveId };
-                    }
-                });
+                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied fields change; an empty string clears a clearable text field.",
+                ObjectiveWriteSchema("backlog item", true),
+                async (args) => await UpdateAsync(objectiveService, args, "backlog_update_failed", "objectiveId is required", "backlog_item_id_required").ConfigureAwait(false));
 
             register(
                 "reorder_objectives",
@@ -718,6 +494,39 @@ namespace Armada.Server.Mcp.Tools
                         ObjectiveRefinementSession stopping = await objectiveRefinementCoordinator.RequestStopAsync(session).ConfigureAwait(false);
                         return (object)await BuildObjectiveRefinementSessionDetailAsync(database, objectiveService, auth, stopping).ConfigureAwait(false);
                     });
+
+                register(
+                    "delete_backlog_refinement_session",
+                    "Delete one backlog refinement session and its transcript, and remove it from the backlog item's links. An active session is stopped first.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            sessionId = new { type = "string", description = "Objective refinement session ID (ors_ prefix)" }
+                        },
+                        required = new[] { "sessionId" }
+                    },
+                    async (args) =>
+                    {
+                        ObjectiveRefinementSessionIdArgs request = JsonSerializer.Deserialize<ObjectiveRefinementSessionIdArgs>(args!.Value, _JsonOptions)
+                            ?? new ObjectiveRefinementSessionIdArgs();
+                        AuthContext auth = McpCallerContext.Require();
+                        ObjectiveRefinementSession? session = String.IsNullOrWhiteSpace(request.SessionId)
+                            ? null
+                            : await ReadObjectiveRefinementSessionForContextAsync(database, auth, request.SessionId).ConfigureAwait(false);
+                        if (session == null) return (object)new { Error = "Objective refinement session not found", Code = "not_found" };
+                        try
+                        {
+                            await objectiveRefinementCoordinator.DeleteAndUnlinkAsync(auth, session, objectiveService).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            return (object)new { Error = ex.Message, Code = "conflict" };
+                        }
+
+                        return (object)new { Status = "deleted", SessionId = session.Id, ObjectiveId = session.ObjectiveId };
+                    });
             }
 
             if (planningSessionCoordinator != null)
@@ -838,11 +647,10 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    ObjectiveIdArgs request = JsonSerializer.Deserialize<ObjectiveIdArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize ObjectiveIdArgs.");
-                    AuthContext auth = McpCallerContext.Require();
-                    await objectiveService.DeleteAsync(auth, request.ObjectiveId).ConfigureAwait(false);
-                    return (object)new { Success = true, ObjectiveId = request.ObjectiveId };
+                    ObjectiveIdArgs request = JsonSerializer.Deserialize<ObjectiveIdArgs>(args!.Value, _JsonOptions) ?? new ObjectiveIdArgs();
+                    RecordWriteResult<Objective> result = await objectiveService.DeleteRecordAsync(McpCallerContext.Require(), request.ObjectiveId).ConfigureAwait(false);
+                    if (!result.Succeeded) return WriteError(result, "objective_delete_failed", request.ObjectiveId, false);
+                    return (object)new { Success = true, ObjectiveId = result.Record!.Id };
                 });
 
             register(
@@ -859,11 +667,10 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    ObjectiveIdArgs request = JsonSerializer.Deserialize<ObjectiveIdArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize ObjectiveIdArgs.");
-                    AuthContext auth = McpCallerContext.Require();
-                    await objectiveService.DeleteAsync(auth, request.ObjectiveId).ConfigureAwait(false);
-                    return (object)new { Success = true, ObjectiveId = request.ObjectiveId };
+                    ObjectiveIdArgs request = JsonSerializer.Deserialize<ObjectiveIdArgs>(args!.Value, _JsonOptions) ?? new ObjectiveIdArgs();
+                    RecordWriteResult<Objective> result = await objectiveService.DeleteRecordAsync(McpCallerContext.Require(), request.ObjectiveId).ConfigureAwait(false);
+                    if (!result.Succeeded) return WriteError(result, "backlog_delete_failed", request.ObjectiveId, false);
+                    return (object)new { Success = true, ObjectiveId = result.Record!.Id };
                 });
         }
 
@@ -1102,47 +909,114 @@ namespace Armada.Server.Mcp.Tools
                 if (!String.IsNullOrWhiteSpace(Id)) return Id.Trim();
                 return String.Empty;
             }
+        }
 
-            public ObjectiveUpsertRequest ToUpsertRequest()
+        /// <summary>
+        /// The one input schema for objective and backlog-item create and update. A clearable text field
+        /// declares emptyStringClears, so an explicit empty string reaches the service and clears the stored
+        /// value as it does on REST instead of being dropped as omitted.
+        /// </summary>
+        private static Dictionary<string, object> ObjectiveWriteSchema(string noun, bool update)
+        {
+            Dictionary<string, object> properties = new Dictionary<string, object>();
+            if (update)
             {
-                return new ObjectiveUpsertRequest
-                {
-                    Title = Title,
-                    Description = Description,
-                    Status = Status,
-                    Kind = Kind,
-                    Category = Category,
-                    Priority = Priority,
-                    Rank = Rank,
-                    BacklogState = BacklogState,
-                    Effort = Effort,
-                    Owner = Owner,
-                    TargetVersion = TargetVersion,
-                    DueUtc = DueUtc,
-                    ParentObjectiveId = ParentObjectiveId,
-                    BlockedByObjectiveIds = BlockedByObjectiveIds,
-                    RefinementSummary = RefinementSummary,
-                    Preparation = Preparation,
-                    SuggestedPipelineId = SuggestedPipelineId,
-                    StartFromRef = StartFromRef,
-                    SuggestedPlaybooks = SuggestedPlaybooks,
-                    Tags = Tags,
-                    AcceptanceCriteria = AcceptanceCriteria,
-                    NonGoals = NonGoals,
-                    RolloutConstraints = RolloutConstraints,
-                    EvidenceLinks = EvidenceLinks,
-                    FleetIds = FleetIds,
-                    VesselIds = VesselIds,
-                    PlanningSessionIds = PlanningSessionIds,
-                    RefinementSessionIds = RefinementSessionIds,
-                    VoyageIds = VoyageIds,
-                    MissionIds = MissionIds,
-                    CheckRunIds = CheckRunIds,
-                    ReleaseIds = ReleaseIds,
-                    DeploymentIds = DeploymentIds,
-                    IncidentIds = IncidentIds
-                };
+                properties["objectiveId"] = new { type = "string", description = "ID of the " + noun + " (obj_ prefix)" };
+                properties["backlogItemId"] = new { type = "string", description = "Alias for objectiveId" };
+                properties["id"] = new { type = "string", description = "Alias for objectiveId" };
             }
+
+            properties["title"] = new { type = "string", description = update ? "New title" : "Title of the " + noun };
+            properties["description"] = ClearableText("Long-form description");
+            properties["status"] = new { type = "string", description = "Lifecycle status such as Draft, Scoped, Planned, or InProgress" };
+            properties["kind"] = new { type = "string", description = "Backlog kind such as Feature, Bug, Refactor, or Research" };
+            properties["category"] = ClearableText("Category such as Frontend, Backend, DevEx, or Ops");
+            properties["priority"] = new { type = "string", description = "Priority such as P0, P1, P2, or P3" };
+            properties["rank"] = new { type = "integer", description = "Deterministic backlog rank" };
+            properties["autoDispatchEnabled"] = new { type = "boolean", description = "Whether the autonomous scheduler may dispatch this " + noun + " (default false on create)" };
+            properties["backlogState"] = new { type = "string", description = "Backlog state such as Inbox or ReadyForDispatch" };
+            properties["effort"] = new { type = "string", description = "Effort such as XS, S, M, L, or XL" };
+            properties["owner"] = ClearableText("Owner display label");
+            properties["targetVersion"] = ClearableText("Target release version");
+            properties["dueUtc"] = new { type = "string", description = "Due timestamp in UTC" };
+            properties["parentObjectiveId"] = ClearableText("Parent " + noun + " identifier");
+            properties["blockedByObjectiveIds"] = new { type = "array", items = new { type = "string" }, description = "Blocking " + noun + " identifiers" };
+            properties["refinementSummary"] = ClearableText("Captain-generated refinement summary");
+            properties["preparation"] = BuildPreparationSchema();
+            properties["suggestedPipelineId"] = ClearableText("Suggested pipeline identifier");
+            properties["suggestedPlaybooks"] = BuildPlaybookSelectionSchema();
+            properties["startFromRef"] = ClearableText("Commit or ref in the vessel repository that the next dispatched voyage starts from; dispatch refuses an unresolvable ref");
+            properties["refinementSessionIds"] = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" };
+            properties["tags"] = new { type = "array", items = new { type = "string" }, description = "Tags" };
+            properties["acceptanceCriteria"] = new { type = "array", items = new { type = "string" }, description = "Acceptance criteria" };
+            properties["nonGoals"] = new { type = "array", items = new { type = "string" }, description = "Explicit non-goals" };
+            properties["rolloutConstraints"] = new { type = "array", items = new { type = "string" }, description = "Rollout constraints" };
+            properties["evidenceLinks"] = new { type = "array", items = new { type = "string" }, description = "Evidence or source links" };
+            properties["fleetIds"] = new { type = "array", items = new { type = "string" }, description = "Linked fleet IDs" };
+            properties["vesselIds"] = new { type = "array", items = new { type = "string" }, description = "Linked vessel IDs" };
+            properties["planningSessionIds"] = new { type = "array", items = new { type = "string" }, description = "Linked planning-session IDs" };
+            properties["voyageIds"] = new { type = "array", items = new { type = "string" }, description = "Linked voyage IDs" };
+            properties["missionIds"] = new { type = "array", items = new { type = "string" }, description = "Linked mission IDs" };
+            properties["checkRunIds"] = new { type = "array", items = new { type = "string" }, description = "Linked check-run IDs" };
+            properties["releaseIds"] = new { type = "array", items = new { type = "string" }, description = "Linked release IDs" };
+            properties["deploymentIds"] = new { type = "array", items = new { type = "string" }, description = "Linked deployment IDs" };
+            properties["incidentIds"] = new { type = "array", items = new { type = "string" }, description = "Linked incident IDs" };
+
+            Dictionary<string, object> schema = new Dictionary<string, object>();
+            schema["type"] = "object";
+            schema["properties"] = properties;
+            if (!update) schema["required"] = new[] { "title" };
+            return schema;
+        }
+
+        private static object ClearableText(string description)
+        {
+            return new { type = "string", description = description + ". An empty string clears it.", emptyStringClears = true };
+        }
+
+        private static async Task<object> CreateAsync(ObjectiveService objectiveService, JsonElement? args, string code)
+        {
+            ObjectiveUpsertRequest? request;
+            try
+            {
+                request = args.HasValue ? JsonSerializer.Deserialize<ObjectiveUpsertRequest>(args.Value, _JsonOptions) : null;
+            }
+            catch (JsonException ex)
+            {
+                return new { Error = ex.Message, Code = code, Outcome = RecordWriteOutcomeEnum.Invalid, ValidEnums = BuildValidEnumMap() };
+            }
+
+            RecordWriteResult<Objective> result = await objectiveService.CreateRecordAsync(McpCallerContext.Require(), request).ConfigureAwait(false);
+            return result.Succeeded ? result.Record! : WriteError(result, code, null, true);
+        }
+
+        private static async Task<object> UpdateAsync(ObjectiveService objectiveService, JsonElement? args, string code, string missingIdMessage, string? missingIdCode)
+        {
+            UpdateObjectiveArgs? request;
+            try
+            {
+                request = args.HasValue ? JsonSerializer.Deserialize<UpdateObjectiveArgs>(args.Value, _JsonOptions) : null;
+            }
+            catch (JsonException ex)
+            {
+                return new { Error = ex.Message, Code = code, Outcome = RecordWriteOutcomeEnum.Invalid, ValidEnums = BuildValidEnumMap() };
+            }
+
+            string objectiveId = request?.ResolveObjectiveId() ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(objectiveId))
+                return missingIdCode == null ? (object)new { Error = missingIdMessage } : new { Error = missingIdMessage, Code = missingIdCode };
+
+            // The deserialized arguments are the upsert request itself, so every field the service reads,
+            // autoDispatchEnabled included, reaches it without a hand-copied field list.
+            RecordWriteResult<Objective> result = await objectiveService.UpdateRecordAsync(McpCallerContext.Require(), objectiveId, request).ConfigureAwait(false);
+            return result.Succeeded ? result.Record! : WriteError(result, code, objectiveId, false);
+        }
+
+        private static object WriteError(RecordWriteResult<Objective> result, string code, string? objectiveId, bool includeEnums)
+        {
+            if (includeEnums)
+                return new { Error = result.Message, Code = code, Outcome = result.Outcome, ObjectiveId = objectiveId, ValidEnums = BuildValidEnumMap() };
+            return new { Error = result.Message, Code = code, Outcome = result.Outcome, ObjectiveId = objectiveId };
         }
 
         private static object BuildPreparationSchema()

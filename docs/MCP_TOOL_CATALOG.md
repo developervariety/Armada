@@ -164,14 +164,22 @@ evidence gap.
 | Risk | Tools |
 | --- | --- |
 | Read | `list_objectives`, `list_backlog`, `get_objective`, `get_backlog_item`, `preview_objective_dispatch`, `list_backlog_refinement_sessions`, `get_backlog_refinement_session`, `get_backlog_planning_session` |
-| Write | `create_objective`, `create_backlog_item`, `update_objective`, `update_backlog_item`, `reorder_objectives`, `reorder_backlog_items`, `create_backlog_refinement_session`, `send_backlog_refinement_message`, `summarize_backlog_refinement_session`, `apply_backlog_refinement_summary`, `stop_backlog_refinement_session`, `create_backlog_planning_session`, `delete_objective`, `delete_backlog_item` |
+| Write | `create_objective`, `create_backlog_item`, `update_objective`, `update_backlog_item`, `reorder_objectives`, `reorder_backlog_items`, `create_backlog_refinement_session`, `send_backlog_refinement_message`, `summarize_backlog_refinement_session`, `apply_backlog_refinement_summary`, `stop_backlog_refinement_session`, `create_backlog_planning_session` |
+| Destructive | `delete_objective`, `delete_backlog_item`, `delete_backlog_refinement_session` |
 | Execute | `dispatch_backlog_planning_session`, `armada_decompose_plan`, `armada_parse_architect_output` |
 
 An objective and a backlog item are the same record. Each objective tool has a
 backlog-named twin that calls the same service operation with the same
 arguments and returns the same result. Only the not-found text and the error
 `Code` values use the twin's own term (`objective_create_failed` or
-`backlog_create_failed`, for example).
+`backlog_create_failed`, for example). A refused write also carries `Outcome`
+(`Invalid` or `NotFound`), so a caller can tell a missing objective from an
+invalid field. Create and update run through the same service methods as the
+REST routes; the update tools pass every argument the service reads, including
+`autoDispatchEnabled`, and the clearable text fields (`description`,
+`category`, `owner`, `targetVersion`, `parentObjectiveId`, `refinementSummary`,
+`suggestedPipelineId`, `startFromRef`) declare `emptyStringClears`, so `""`
+clears the stored value as it does on REST.
 
 | Objective name | Backlog name |
 | --- | --- |

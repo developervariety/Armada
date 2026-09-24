@@ -93,6 +93,14 @@ Compatibility objective routes:
 - `POST /api/v1/objectives/reorder`
 - `POST /api/v1/objectives/import/github`
 
+Create, update and delete on both route families, and the matching MCP tools,
+run through one set of objective service methods. A missing title, an unknown
+enum value, or a linked record outside the caller's scope returns `400`; an
+objective the caller cannot read returns `404`. An update changes only the
+supplied fields, and an empty string clears a clearable text field
+(`Description`, `Category`, `Owner`, `TargetVersion`, `ParentObjectiveId`,
+`RefinementSummary`, `SuggestedPipelineId`, `StartFromRef`).
+
 A GitHub import maps a closed issue to `Completed`, a merged pull request to
 `Released`, and a closed unmerged pull request to `Cancelled`. On a refresh of
 an existing objective, an imported `Released`, `Completed` or `Cancelled`
@@ -159,6 +167,7 @@ Refinement tools:
 - `summarize_backlog_refinement_session`
 - `apply_backlog_refinement_summary`
 - `stop_backlog_refinement_session`
+- `delete_backlog_refinement_session` (the MCP form of `DELETE /api/v1/objective-refinement-sessions/{id}`)
 
 Planning handoff tools:
 

@@ -471,8 +471,7 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective refinement session not found" };
                     }
 
-                    await _refinementSessions.DeleteAsync(session).ConfigureAwait(false);
-                    await _objectives.UnlinkRefinementSessionAsync(ctx, session.ObjectiveId, session.Id).ConfigureAwait(false);
+                    await _refinementSessions.DeleteAndUnlinkAsync(ctx, session, _objectives).ConfigureAwait(false);
                     req.Http.Response.StatusCode = 204;
                     return null!;
                 }
