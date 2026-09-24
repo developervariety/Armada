@@ -1867,7 +1867,15 @@ curl -X PUT http://localhost:7890/api/v1/missions/msn_abc123/status \
 
 #### DELETE /api/v1/missions/{id}
 
-Cancel a mission by setting its status to `Cancelled`. Returns the full updated mission.
+Cancel a mission. Returns the full updated mission. REST, WebSocket `cancel_mission` and MCP `armada_cancel_mission`
+run one shared cancel:
+
+- A `Complete`, `Failed` or `Cancelled` mission keeps its outcome; the cancel is refused.
+- When the mission's captain is working it and holds no other active mission, the captain is recalled first, which
+  stops its agent process and releases it. If the recall fails, the cancel is refused and the mission stays live.
+- Every stage of the voyage that waits on the mission, directly or through other stages, is cancelled with it.
+- The mission gets a `mission.cancelled` event and each cancelled stage a `mission.cancelled_dependency` event, and
+  each change is broadcast to WebSocket sessions.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -1876,7 +1884,7 @@ Cancel a mission by setting its status to `Cancelled`. Returns the full updated 
 
 **Response:** `200 OK` - [Mission](#mission) (with `Status: "Cancelled"`)
 
-**Error:** `404` - Mission not found
+**Error:** `404` - Mission not found; `409` - the mission is finished, or its captain could not be recalled
 
 ---
 

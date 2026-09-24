@@ -101,6 +101,16 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
+        /// Use the shared mission and voyage operations REST and MCP use, so cancel, purge and restart apply the
+        /// same rules and report the same events on WebSocket.
+        /// </summary>
+        /// <param name="operations">Shared mission and voyage operations.</param>
+        public void SetMissionOperations(MissionOperations operations)
+        {
+            _CommandHandler.Operations = operations ?? throw new ArgumentNullException(nameof(operations));
+        }
+
+        /// <summary>
         /// Use the shared voyage dispatch service REST and MCP use for <c>create_voyage</c>, built per command with
         /// the server's code-index service, objective service and dispatch preview.
         /// </summary>

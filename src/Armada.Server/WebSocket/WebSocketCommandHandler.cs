@@ -35,6 +35,7 @@ namespace Armada.Server.WebSocket
         private readonly Dictionary<string, Func<WebSocketCommand, string, AuthContext, Task<object>>> _Commands;
         private CaptainAdministrationService? _CaptainAdministration;
         private Func<VoyageDispatchService>? _VoyageDispatchFactory;
+        private MissionOperations? _Operations;
         private static readonly JsonSerializerOptions _FieldNameOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         #endregion
@@ -161,6 +162,22 @@ namespace Armada.Server.WebSocket
         {
             get => _CaptainAdministration ??= new CaptainAdministrationService(_Database, (captainId, token) => _Admiral.RecallCaptainAsync(captainId, token));
             set => _CaptainAdministration = value ?? throw new ArgumentNullException(nameof(CaptainAdministration));
+        }
+
+        /// <summary>
+        /// Shared mission and voyage operations (cancel, purge, restart). The server sets the instance REST and MCP
+        /// use, which writes events and broadcasts; when unset, one is built that recalls through the admiral,
+        /// broadcasts through this handler, writes no events, and removes docks only when settings and git are set.
+        /// </summary>
+        public MissionOperations Operations
+        {
+            get => _Operations ??= new MissionOperations(
+                _Database,
+                _Settings ?? new ArmadaSettings(),
+                _Settings != null && _Git != null ? new DockService(new SyslogLogging.LoggingModule(), _Database, _Settings, _Git) : null,
+                (captainId, token) => _Admiral.RecallCaptainAsync(captainId, token),
+                new OperationNotifier(null, _BroadcastMissionChange, _BroadcastVoyageChange));
+            set => _Operations = value ?? throw new ArgumentNullException(nameof(Operations));
         }
 
         /// <summary>
@@ -874,43 +891,18 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>cancel_mission</c> command.
+        /// Run the <c>cancel_mission</c> command through the shared mission cancel REST and MCP use.
         /// </summary>
         private async Task<object> CancelMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             string cmId = command.Id ?? "";
             Mission? cmMission = await _Database.Missions.ReadAsync(cmId).ConfigureAwait(false);
             if (cmMission == null)
-                return new { type = "command.error", action = "cancel_mission", error = "Mission not found" };
-            else
-            {
-                if (!String.IsNullOrEmpty(cmMission.CaptainId))
-                {
-                    Captain? cmCaptain = await _Database.Captains.ReadAsync(cmMission.CaptainId).ConfigureAwait(false);
-                    if (cmCaptain != null && cmCaptain.CurrentMissionId == cmMission.Id)
-                    {
-                        List<Mission> cmOther = (await _Database.Missions.EnumerateByCaptainAsync(cmCaptain.Id).ConfigureAwait(false))
-                            .Where(om => om.Id != cmMission.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                        if (cmOther.Count == 0)
-                        {
-                            cmCaptain.State = CaptainStateEnum.Idle;
-                            cmCaptain.CurrentMissionId = null;
-                            cmCaptain.CurrentDockId = null;
-                            cmCaptain.ProcessId = null;
-                            cmCaptain.RecoveryAttempts = 0;
-                            cmCaptain.LastUpdateUtc = DateTime.UtcNow;
-                            await _Database.Captains.UpdateAsync(cmCaptain).ConfigureAwait(false);
-                        }
-                    }
-                }
-
-                cmMission.Status = MissionStatusEnum.Cancelled;
-                cmMission.CompletedUtc = DateTime.UtcNow;
-                cmMission.LastUpdateUtc = DateTime.UtcNow;
-                cmMission = await _Database.Missions.UpdateAsync(cmMission).ConfigureAwait(false);
-                _BroadcastMissionChange(cmMission);
-                return new { type = "command.result", action = "cancel_mission", data = (object)cmMission };
-            }
+                return NotFound("cancel_mission", "Mission not found");
+            MissionCancellationResult cancellation = await Operations.CancelMissionAsync(cmMission).ConfigureAwait(false);
+            if (!cancellation.Succeeded)
+                return new { type = "command.error", action = "cancel_mission", error = cancellation.Message, code = cancellation.Code };
+            return new { type = "command.result", action = "cancel_mission", data = (object)cancellation.Mission };
         }
 
         /// <summary>

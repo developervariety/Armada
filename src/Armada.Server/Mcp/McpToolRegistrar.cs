@@ -61,6 +61,7 @@ namespace Armada.Server.Mcp
         /// <param name="objectiveDispatchPreviewService">Optional read-only objective dispatch preview service.</param>
         /// <param name="missionService">Optional mission service enabling armada_review_hold.</param>
         /// <param name="captainAdministration">Shared captain stop-all and deletion service. When null, one is built from <paramref name="admiral"/> and the supplied session coordinators.</param>
+        /// <param name="missionOperations">Shared mission and voyage operations (cancel, purge, restart). When null, one is built from <paramref name="admiral"/>, <paramref name="settings"/> and <paramref name="dockService"/> that writes no events.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -111,9 +112,17 @@ namespace Armada.Server.Mcp
             Armada.Core.Context.ContextRetrievalService? contextRetrieval = null,
             Func<string?>? contextParticipantKeyProvider = null,
             Armada.Core.Services.Interfaces.IMissionService? missionService = null,
-            CaptainAdministrationService? captainAdministration = null)
+            CaptainAdministrationService? captainAdministration = null,
+            MissionOperations? missionOperations = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
+            missionOperations = missionOperations ?? new MissionOperations(
+                database,
+                effectiveSettings,
+                dockService,
+                (captainId, token) => admiral.RecallCaptainAsync(captainId, token),
+                OperationNotifier.None,
+                logging);
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
 
             McpStatusTools.Register(register, admiral, onStop);
@@ -122,7 +131,7 @@ namespace Armada.Server.Mcp
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
             McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService, dispatchStalenessAdapter);
-            McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain, statusTransitions);
+            McpMissionTools.Register(register, database, admiral, settings, git, landingService, statusTransitions, missionOperations);
             if (captainAdministration == null)
             {
                 captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);

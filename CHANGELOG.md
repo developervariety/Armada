@@ -182,6 +182,13 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One mission cancel:** REST `DELETE /api/v1/missions/{id}`, WebSocket
+  `cancel_mission` and MCP `armada_cancel_mission` run one shared cancel. A
+  Complete, Failed or Cancelled mission is refused and keeps its outcome (all
+  three rewrote it to Cancelled). A running mission's captain is recalled, which
+  stops its agent process (REST left it running; WebSocket released the captain
+  in the database only). Stages waiting on the cancelled mission are cancelled
+  with it, and every surface writes `mission.cancelled` and broadcasts the change.
 - **One session log reader:** mission and captain log pages read the same way on
   REST, WebSocket and MCP. Every surface resolves a mission's newest non-empty
   sidecar log when its canonical log is empty, filters runtime noise, clamps the

@@ -101,6 +101,7 @@ namespace Armada.Server
         private Armada.Core.Services.HarborJobService? _HarborJobService = null;
         private ArmadaWebSocketHub _WebSocketHub = null!;
         private MissionStatusTransitionService _StatusTransitions = null!;
+        private MissionOperations _MissionOperations = null!;
 
         private IMergeQueueService _MergeQueue = null!;
         private IMergeRecoveryHandler _MergeRecoveryHandler = null!;
@@ -725,6 +726,17 @@ namespace Armada.Server
             _CaptainAdministration.StopProcess = _AgentLifecycle.HandleStopAgentAsync;
             _CaptainAdministration.AttachSessionCoordinators(_PlanningSessions, _ObjectiveRefinementSessions);
             _WebSocketHub.SetCaptainAdministration(_CaptainAdministration);
+
+            // REST, MCP and WebSocket share one set of mission and voyage operations (cancel, purge, restart), each
+            // writing its own events and broadcasts.
+            _MissionOperations = new MissionOperations(
+                _Database,
+                _Settings,
+                _Docks,
+                _Admiral.RecallCaptainAsync,
+                new OperationNotifier(EmitEventAsync, _WebSocketHub.BroadcastMissionChange, _WebSocketHub.BroadcastVoyageChange),
+                _Logging);
+            _WebSocketHub.SetMissionOperations(_MissionOperations);
 
             // WebSocket create_voyage dispatches through the same shared service as REST and MCP. The factory
             // reads the fields when a command runs, so services wired later in startup are included.
@@ -1547,7 +1559,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions
-            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, _GitHubIntegrationService, EmitEventAsync, _WebSocketHub, _Logging, _JsonOptions, _StatusTransitions)
+            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, _GitHubIntegrationService, EmitEventAsync, _WebSocketHub, _Logging, _JsonOptions, _StatusTransitions, _MissionOperations)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
@@ -2044,7 +2056,8 @@ namespace Armada.Server
                 changeQualityFollowUpRouter: _FollowUpRouter,
                 contextRetrieval: _ContextRetrieval,
                 contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
-                missionService: _MissionService);
+                missionService: _MissionService,
+                missionOperations: _MissionOperations);
 
         }
 

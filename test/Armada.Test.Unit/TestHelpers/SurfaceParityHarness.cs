@@ -64,6 +64,8 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>Admiral double that records captain recalls.</summary>
         public ParityAdmiral Admiral { get; }
 
+        /// <summary>The shared mission and voyage operations every surface is given.</summary>
+        public MissionOperations Operations { get; }
 
         /// <summary>Events the surfaces emitted, in order.</summary>
         public ConcurrentQueue<ArmadaEvent> Events { get; } = new ConcurrentQueue<ArmadaEvent>();
@@ -134,6 +136,11 @@ namespace Armada.Test.Unit.TestHelpers
             Admiral = ParityAdmiral.Create(Driver);
 
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent = EmitEventAsync;
+            OperationNotifier notifier = new OperationNotifier(
+                emitEvent,
+                mission => Broadcasts.Enqueue("mission:" + mission.Id + ":" + mission.Status),
+                voyage => Broadcasts.Enqueue("voyage:" + voyage.Id + ":" + voyage.Status));
+            Operations = new MissionOperations(Driver, Settings, Docks, Admiral.Service.RecallCaptainAsync, notifier, logging);
 
             ICaptainService captains = new CaptainService(logging, Driver, Settings, Git, Docks);
             MissionService missionService = new MissionService(logging, Driver, Settings, Docks, captains,
@@ -150,6 +157,7 @@ namespace Armada.Test.Unit.TestHelpers
                 mission => Broadcasts.Enqueue("mission:" + mission.Id + ":" + mission.Status),
                 voyage => Broadcasts.Enqueue("voyage:" + voyage.Id + ":" + voyage.Status),
                 transitions);
+            WebSocket.Operations = Operations;
 
             AgentRuntimeFactory runtimeFactory = new AgentRuntimeFactory(logging);
             AgentLifecycleHandler lifecycle = new AgentLifecycleHandler(
@@ -171,7 +179,8 @@ namespace Armada.Test.Unit.TestHelpers
                 null,
                 logging,
                 missionService: missionService,
-                statusTransitions: transitions);
+                statusTransitions: transitions,
+                missionOperations: Operations);
 
             WorkflowProfileService workflowProfiles = new WorkflowProfileService(Driver, logging);
             VesselReadinessService readiness = new VesselReadinessService(Driver, workflowProfiles, logging);
@@ -200,7 +209,7 @@ namespace Armada.Test.Unit.TestHelpers
             AuthorizationService authz = new AuthorizationService();
 
             new MissionRoutes(Driver, Admiral.Service, missionService, Settings, Git, landing, landingPreview, gitHub,
-                emitEvent, null, logging, _RestJsonOptions, transitions).Register(_Server, authenticate, authz);
+                emitEvent, null, logging, _RestJsonOptions, transitions, Operations).Register(_Server, authenticate, authz);
             new VoyageRoutes(Driver, Admiral.Service, emitEvent, null, logging, objectives, null, Settings, _RestJsonOptions).Register(_Server, authenticate, authz);
             new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new CaptainRoutes(Driver, Admiral.Service, Settings, runtimeFactory, lifecycle, new CaptainToolService(logging, Driver, Settings),

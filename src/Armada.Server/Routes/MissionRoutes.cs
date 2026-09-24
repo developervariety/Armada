@@ -44,6 +44,7 @@ namespace Armada.Server.Routes
         private readonly ArmadaWebSocketHub? _webSocketHub;
         private readonly LoggingModule _logging;
         private readonly JsonSerializerOptions _jsonOptions;
+        private readonly MissionOperations _operations;
 
         private sealed class MissionInstructionsPath
         {
@@ -67,6 +68,8 @@ namespace Armada.Server.Routes
         /// <param name="logging">Logging module.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="statusTransitions">Shared operator status transition path.</param>
+        /// <param name="operations">Shared mission and voyage operations. When null, one is built from these
+        /// dependencies that writes events through <paramref name="emitEvent"/> and broadcasts through the hub.</param>
         public MissionRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -80,7 +83,8 @@ namespace Armada.Server.Routes
             ArmadaWebSocketHub? webSocketHub,
             LoggingModule logging,
             JsonSerializerOptions jsonOptions,
-            MissionStatusTransitionService statusTransitions)
+            MissionStatusTransitionService statusTransitions,
+            MissionOperations? operations = null)
         {
             _database = database;
             _admiral = admiral;
@@ -101,6 +105,13 @@ namespace Armada.Server.Routes
             _webSocketHub = webSocketHub;
             _logging = logging;
             _jsonOptions = jsonOptions;
+            _operations = operations ?? new MissionOperations(
+                database,
+                settings,
+                new DockService(logging, database, settings, git),
+                (captainId, token) => admiral.RecallCaptainAsync(captainId, token),
+                new OperationNotifier(emitEvent, mission => webSocketHub?.BroadcastMissionChange(mission), voyage => webSocketHub?.BroadcastVoyageChange(voyage)),
+                logging);
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -888,19 +899,25 @@ namespace Armada.Server.Routes
                         ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
-                mission.Status = MissionStatusEnum.Cancelled;
-                mission.CompletedUtc = DateTime.UtcNow;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                mission = await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                return (object)mission;
+
+                // REST, WebSocket and MCP share one mission cancel: the finished-mission refusal, the captain
+                // recall, the dependent-stage cascade, the event and the broadcast.
+                MissionCancellationResult cancellation = await _operations.CancelMissionAsync(mission).ConfigureAwait(false);
+                if (!cancellation.Succeeded)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = cancellation.Message };
+                }
+                return (object)cancellation.Mission;
             },
             api => api
                 .WithTag("Missions")
                 .WithSummary("Cancel a mission")
-                .WithDescription("Cancels a mission by setting its status to Cancelled. Returns the full updated mission.")
+                .WithDescription("Cancels a mission. A running mission's captain is recalled first, which stops its agent process, and every stage waiting on the mission is cancelled with it. A Complete, Failed or Cancelled mission keeps its outcome: the cancel is refused with 409. Returns the full updated mission.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Mission>("Cancelled mission"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The mission is Complete, Failed or Cancelled, or its captain could not be recalled"))
                 .WithSecurity("ApiKey"));
 
             app.Delete("/api/v1/missions/{id}/purge", async (ApiRequest req) =>

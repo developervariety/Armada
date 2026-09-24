@@ -18,7 +18,7 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Verifies armada_cancel_voyage and armada_cancel_mission terminate the running
-    /// captain agent process via the onStopCaptain callback. Without this, in-flight
+    /// captain agent process by recalling the captain. Without this, in-flight
     /// cancels left the captain stuck Working forever and the dispatcher refused to
     /// assign new missions to that captain or single-captain pool.
     /// </summary>
@@ -188,7 +188,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("CancelMission_InProgress_InvokesOnStopCaptain", async () =>
+            await RunTest("CancelMission_InProgress_RecallsTheRunningCaptain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -208,13 +208,6 @@ namespace Armada.Test.Unit.Suites.Services
                     captain.CurrentMissionId = mission.Id;
                     await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
 
-                    HashSet<string> stopped = new HashSet<string>();
-                    Func<string, Task> onStopCaptain = async (cid) =>
-                    {
-                        stopped.Add(cid);
-                        await Task.CompletedTask;
-                    };
-
                     RecordingRecallAdmiralDouble admiralDouble = new RecordingRecallAdmiralDouble(testDb.Driver);
 
                     Func<JsonElement?, Task<object>>? cancelHandler = null;
@@ -224,17 +217,16 @@ namespace Armada.Test.Unit.Suites.Services
                         admiralDouble,
                         null,
                         null,
-                        null,
-                        onStopCaptain);
+                        null);
                     AssertNotNull(cancelHandler, "armada_cancel_mission handler must be registered");
 
                     JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id });
                     await cancelHandler!(args).ConfigureAwait(false);
 
-                    AssertTrue(stopped.Contains(captain.Id),
-                        "onStopCaptain must be invoked for the in-flight captain");
                     AssertTrue(admiralDouble.RecalledCaptainIds.Contains(captain.Id),
-                        "RecallCaptainAsync must be invoked to reset captain DB state");
+                        "The running mission's captain must be recalled, which stops its agent process");
+                    Mission? storedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Cancelled, storedMission!.Status, "the mission is cancelled");
                 }
             });
         }

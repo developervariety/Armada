@@ -1971,7 +1971,10 @@ mission.
 
 #### cancel_mission
 
-Cancel a mission.
+Cancel a mission through the same shared cancel as `DELETE /api/v1/missions/{id}` and `armada_cancel_mission`: a
+finished mission is refused with `code: "mission_not_cancellable"`, a running mission's captain is recalled (which stops
+its agent process), waiting dependent stages are cancelled with it, and the change is written as an event and
+broadcast.
 
 **Request:**
 
