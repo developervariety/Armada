@@ -81,7 +81,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return RecordFromReader(reader);
+                            return TokenUsageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -122,7 +122,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(RecordFromReader(reader));
+                            results.Add(TokenUsageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -154,7 +154,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(RecordFromReader(reader));
+                            results.Add(TokenUsageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -211,47 +211,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@created_utc", ToIso8601(record.CreatedUtc));
         }
 
-        private static TokenUsageRecord RecordFromReader(NpgsqlDataReader reader)
-        {
-            return new TokenUsageRecord
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Model = reader["model"].ToString() ?? string.Empty,
-                Runtime = NullableString(reader["runtime"]),
-                Source = reader["source"].ToString() ?? string.Empty,
-                SourceId = NullableString(reader["source_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                CaptainId = NullableString(reader["captain_id"]),
-                InputTokens = Convert.ToInt64(reader["input_tokens"]),
-                OutputTokens = Convert.ToInt64(reader["output_tokens"]),
-                CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
-                UncachedInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["uncached_input_tokens"]),
-                CacheReadInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_read_input_tokens"]),
-                CacheWriteInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_write_input_tokens"]),
-                UsageRule = TokenUsageBucketColumns.RuleFromColumn(reader["usage_rule"]),
-                TotalTokens = Convert.ToInt64(reader["total_tokens"]),
-                Estimated = Convert.ToBoolean(reader["estimated"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"])
-            };
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
         private static string ToIso8601(DateTime dt)
         {
             return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
         }
 
         private static void ApplyQueryFilters(TokenUsageQuery? query, List<string> conditions, List<NpgsqlParameter> parameters)

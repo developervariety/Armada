@@ -35,17 +35,6 @@ namespace Armada.Core.Database
             "WHERE id = @id AND tenant_id = @tenant_id AND version = @expected_version;";
 
         /// <summary>
-        /// Parse a stored enum name, falling back when the value is absent or unknown.
-        /// </summary>
-        internal static TEnum ParseEnum<TEnum>(object? value, TEnum fallback) where TEnum : struct
-        {
-            if (value == null || value == DBNull.Value) return fallback;
-            string? raw = value.ToString();
-            if (String.IsNullOrWhiteSpace(raw)) return fallback;
-            return Enum.TryParse<TEnum>(raw, true, out TEnum parsed) ? parsed : fallback;
-        }
-
-        /// <summary>
         /// The distinct, non-empty tags to persist, in stable order.
         /// </summary>
         internal static List<string> TagsToWrite(Memory memory)

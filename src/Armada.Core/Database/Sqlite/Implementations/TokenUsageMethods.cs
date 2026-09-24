@@ -89,7 +89,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return RecordFromReader(reader);
+                            return TokenUsageColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -130,7 +130,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(RecordFromReader(reader));
+                            results.Add(TokenUsageColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -163,7 +163,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(RecordFromReader(reader));
+                            results.Add(TokenUsageColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -219,39 +219,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
             cmd.Parameters.AddWithValue("@estimated", record.Estimated ? 1 : 0);
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(record.CreatedUtc));
-        }
-
-        private static TokenUsageRecord RecordFromReader(SqliteDataReader reader)
-        {
-            return new TokenUsageRecord
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Model = reader["model"].ToString() ?? string.Empty,
-                Runtime = NullableString(reader["runtime"]),
-                Source = reader["source"].ToString() ?? string.Empty,
-                SourceId = NullableString(reader["source_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                CaptainId = NullableString(reader["captain_id"]),
-                InputTokens = Convert.ToInt64(reader["input_tokens"]),
-                OutputTokens = Convert.ToInt64(reader["output_tokens"]),
-                CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
-                UncachedInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["uncached_input_tokens"]),
-                CacheReadInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_read_input_tokens"]),
-                CacheWriteInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_write_input_tokens"]),
-                UsageRule = TokenUsageBucketColumns.RuleFromColumn(reader["usage_rule"]),
-                TotalTokens = Convert.ToInt64(reader["total_tokens"]),
-                Estimated = Convert.ToInt32(reader["estimated"]) == 1,
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!)
-            };
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
         }
 
         private static SqliteParameter CloneParameter(SqliteParameter parameter)

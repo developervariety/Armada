@@ -113,7 +113,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            entry = EntryFromReader(reader);
+                            entry = RequestHistoryColumns.ReadEntry(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -127,7 +127,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            detail = DetailFromReader(reader);
+                            detail = RequestHistoryColumns.ReadDetail(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -169,7 +169,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EntryFromReader(reader));
+                            results.Add(RequestHistoryColumns.ReadEntry(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -202,7 +202,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EntryFromReader(reader));
+                            results.Add(RequestHistoryColumns.ReadEntry(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -293,56 +293,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@response_body_text", (object?)detail.ResponseBodyText ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@request_body_truncated", detail.RequestBodyTruncated ? 1 : 0);
             cmd.Parameters.AddWithValue("@response_body_truncated", detail.ResponseBodyTruncated ? 1 : 0);
-        }
-
-        private static RequestHistoryEntry EntryFromReader(SqliteDataReader reader)
-        {
-            return new RequestHistoryEntry
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                CredentialId = NullableString(reader["credential_id"]),
-                PrincipalDisplay = NullableString(reader["principal_display"]),
-                AuthMethod = NullableString(reader["auth_method"]),
-                Method = reader["method"].ToString()!,
-                Route = reader["route"].ToString()!,
-                RouteTemplate = NullableString(reader["route_template"]),
-                QueryString = NullableString(reader["query_string"]),
-                StatusCode = Convert.ToInt32(reader["status_code"]),
-                DurationMs = Convert.ToDouble(reader["duration_ms"]),
-                RequestSizeBytes = Convert.ToInt64(reader["request_size_bytes"]),
-                ResponseSizeBytes = Convert.ToInt64(reader["response_size_bytes"]),
-                RequestContentType = NullableString(reader["request_content_type"]),
-                ResponseContentType = NullableString(reader["response_content_type"]),
-                IsSuccess = Convert.ToInt32(reader["is_success"]) == 1,
-                ClientIp = NullableString(reader["client_ip"]),
-                CorrelationId = NullableString(reader["correlation_id"]),
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!)
-            };
-        }
-
-        private static RequestHistoryDetail DetailFromReader(SqliteDataReader reader)
-        {
-            return new RequestHistoryDetail
-            {
-                RequestHistoryId = reader["request_history_id"].ToString()!,
-                PathParamsJson = NullableString(reader["path_params_json"]),
-                QueryParamsJson = NullableString(reader["query_params_json"]),
-                RequestHeadersJson = NullableString(reader["request_headers_json"]),
-                ResponseHeadersJson = NullableString(reader["response_headers_json"]),
-                RequestBodyText = NullableString(reader["request_body_text"]),
-                ResponseBodyText = NullableString(reader["response_body_text"]),
-                RequestBodyTruncated = Convert.ToInt32(reader["request_body_truncated"]) == 1,
-                ResponseBodyTruncated = Convert.ToInt32(reader["response_body_truncated"]) == 1
-            };
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
         }
 
         private static SqliteParameter CloneParameter(SqliteParameter parameter)

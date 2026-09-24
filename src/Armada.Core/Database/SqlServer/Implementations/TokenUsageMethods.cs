@@ -80,7 +80,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return RecordFromReader(reader);
+                            return TokenUsageColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -122,7 +122,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(RecordFromReader(reader));
+                            results.Add(TokenUsageColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -155,7 +155,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(RecordFromReader(reader));
+                            results.Add(TokenUsageColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -211,32 +211,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
             cmd.Parameters.AddWithValue("@estimated", record.Estimated);
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(record.CreatedUtc));
-        }
-
-        private static TokenUsageRecord RecordFromReader(SqlDataReader reader)
-        {
-            return new TokenUsageRecord
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                Model = reader["model"].ToString() ?? string.Empty,
-                Runtime = SqlServerDatabaseDriver.NullableString(reader["runtime"]),
-                Source = reader["source"].ToString() ?? string.Empty,
-                SourceId = SqlServerDatabaseDriver.NullableString(reader["source_id"]),
-                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
-                CaptainId = SqlServerDatabaseDriver.NullableString(reader["captain_id"]),
-                InputTokens = Convert.ToInt64(reader["input_tokens"]),
-                OutputTokens = Convert.ToInt64(reader["output_tokens"]),
-                CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
-                UncachedInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["uncached_input_tokens"]),
-                CacheReadInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_read_input_tokens"]),
-                CacheWriteInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_write_input_tokens"]),
-                UsageRule = TokenUsageBucketColumns.RuleFromColumn(reader["usage_rule"]),
-                TotalTokens = Convert.ToInt64(reader["total_tokens"]),
-                Estimated = Convert.ToBoolean(reader["estimated"]),
-                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc)
-            };
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

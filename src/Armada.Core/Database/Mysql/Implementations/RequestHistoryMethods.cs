@@ -94,7 +94,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            entry = EntryFromReader(reader);
+                            entry = RequestHistoryColumns.ReadEntry(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -108,7 +108,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            detail = DetailFromReader(reader);
+                            detail = RequestHistoryColumns.ReadDetail(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
 
@@ -148,7 +148,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EntryFromReader(reader));
+                            results.Add(RequestHistoryColumns.ReadEntry(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -181,7 +181,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EntryFromReader(reader));
+                            results.Add(RequestHistoryColumns.ReadEntry(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -269,49 +269,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@response_body_text", (object?)detail.ResponseBodyText ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@request_body_truncated", detail.RequestBodyTruncated ? 1 : 0);
             cmd.Parameters.AddWithValue("@response_body_truncated", detail.ResponseBodyTruncated ? 1 : 0);
-        }
-
-        private static RequestHistoryEntry EntryFromReader(MySqlDataReader reader)
-        {
-            return new RequestHistoryEntry
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                CredentialId = MysqlDatabaseDriver.NullableString(reader["credential_id"]),
-                PrincipalDisplay = MysqlDatabaseDriver.NullableString(reader["principal_display"]),
-                AuthMethod = MysqlDatabaseDriver.NullableString(reader["auth_method"]),
-                Method = reader["method"].ToString()!,
-                Route = reader["route"].ToString()!,
-                RouteTemplate = MysqlDatabaseDriver.NullableString(reader["route_template"]),
-                QueryString = MysqlDatabaseDriver.NullableString(reader["query_string"]),
-                StatusCode = Convert.ToInt32(reader["status_code"]),
-                DurationMs = Convert.ToDouble(reader["duration_ms"]),
-                RequestSizeBytes = Convert.ToInt64(reader["request_size_bytes"]),
-                ResponseSizeBytes = Convert.ToInt64(reader["response_size_bytes"]),
-                RequestContentType = MysqlDatabaseDriver.NullableString(reader["request_content_type"]),
-                ResponseContentType = MysqlDatabaseDriver.NullableString(reader["response_content_type"]),
-                IsSuccess = Convert.ToInt64(reader["is_success"]) == 1,
-                ClientIp = MysqlDatabaseDriver.NullableString(reader["client_ip"]),
-                CorrelationId = MysqlDatabaseDriver.NullableString(reader["correlation_id"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"])
-            };
-        }
-
-        private static RequestHistoryDetail DetailFromReader(MySqlDataReader reader)
-        {
-            return new RequestHistoryDetail
-            {
-                RequestHistoryId = reader["request_history_id"].ToString()!,
-                PathParamsJson = MysqlDatabaseDriver.NullableString(reader["path_params_json"]),
-                QueryParamsJson = MysqlDatabaseDriver.NullableString(reader["query_params_json"]),
-                RequestHeadersJson = MysqlDatabaseDriver.NullableString(reader["request_headers_json"]),
-                ResponseHeadersJson = MysqlDatabaseDriver.NullableString(reader["response_headers_json"]),
-                RequestBodyText = MysqlDatabaseDriver.NullableString(reader["request_body_text"]),
-                ResponseBodyText = MysqlDatabaseDriver.NullableString(reader["response_body_text"]),
-                RequestBodyTruncated = Convert.ToInt64(reader["request_body_truncated"]) == 1,
-                ResponseBodyTruncated = Convert.ToInt64(reader["response_body_truncated"]) == 1
-            };
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)
