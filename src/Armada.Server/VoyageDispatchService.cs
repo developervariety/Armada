@@ -343,7 +343,8 @@ namespace Armada.Server
                         mergedPlaybooks,
                         pipelineId,
                         request.Settings ?? _Settings,
-                        stageSkip).ConfigureAwait(false);
+                        stageSkip,
+                        request.CaptainAssignments).ConfigureAwait(false);
                 }
                 else
                 {
@@ -355,6 +356,7 @@ namespace Armada.Server
                         pipelineId,
                         mergedPlaybooks,
                         stageSkip,
+                        request.CaptainAssignments,
                         token).ConfigureAwait(false);
                 }
 
@@ -421,16 +423,6 @@ namespace Armada.Server
 
             if (voyage == null)
                 throw new InvalidOperationException("Dispatch did not return a voyage.");
-
-            // Persist per-persona captain overrides so assignment resolves the preferred captain and
-            // fallback tier for every mission of a step, including fan-out missions created later. Both
-            // the REST and MCP dispatch paths reach this one seam, so the overrides cannot be stored by
-            // one caller and silently dropped by the other.
-            if (request.CaptainAssignments != null && request.CaptainAssignments.Count > 0)
-            {
-                voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(request.CaptainAssignments);
-                voyage = await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
-            }
 
             // Arm the voyage's own Checks here, in the same action as the dispatch, so the voyage
             // carries a standing record of which gates it wants. A record is armed Pending with no
@@ -1472,7 +1464,8 @@ namespace Armada.Server
             List<SelectedPlaybook> selectedPlaybooks,
             string? pipelineId,
             ArmadaSettings? settings = null,
-            StageSkipRequest? stageSkip = null)
+            StageSkipRequest? stageSkip = null,
+            List<CaptainAssignmentOverride>? captainOverrides = null)
         {
             if (vessel == null)
                 return new { Error = "Vessel not found: " + vesselId };
@@ -1493,11 +1486,8 @@ namespace Armada.Server
             bool isMultiStage = pipeline != null
                 && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
 
-            Voyage voyage = new Voyage(title, description);
-            voyage.TenantId = vessel.TenantId;
-            voyage.UserId = vessel.UserId;
-            voyage.Status = VoyageStatusEnum.Open;
-            voyage = await _Database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+            Voyage voyage = await _Database.Voyages.CreateAsync(
+                AdmiralService.NewDispatchVoyage(title, description, vessel, captainOverrides)).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelectionsLocal(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
             {
@@ -1528,6 +1518,7 @@ namespace Armada.Server
                     mission.UserId = vessel.UserId;
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
+                    mission.Persona = AdmiralService.SingleStagePersona(pipeline);
                     mission.PrestagedFiles = ClonePrestagedFilesLocal(md.PrestagedFiles);
                     mission.PreferredModel = md.PreferredModel;
                     mission.CapabilityHint = md.CapabilityHint;

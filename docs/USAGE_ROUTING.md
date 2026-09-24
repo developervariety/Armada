@@ -718,7 +718,11 @@ provider's terms. See [Account logins](#account-logins).
 A mission can store a requested captain (`RequestedCaptainId`) and a
 fallback tier (`Tier`). They come from the mission itself, a voyage captain
 override (`captainAssignments` with `captainId` and `fallbackTier`), or a
-persona `DefaultCaptainId`. Every assignment path applies one rule:
+persona `DefaultCaptainId`. A voyage stores its captain overrides when it is
+created, so the first assignment of every mission on it already reads them. The
+override and the persona default apply to a mission that names its persona; a
+single-stage dispatch stamps its stage persona (`Worker` when no pipeline
+resolves) for that reason. Every assignment path applies one rule:
 
 1. The captain pool keeps only captains that are Idle, in the mission's
    tenant, not quarantined, not excluded after a policy refusal, and not

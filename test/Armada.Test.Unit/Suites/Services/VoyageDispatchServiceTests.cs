@@ -913,6 +913,111 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            foreach (bool useAlias in new[] { false, true })
+            {
+                string pathLabel = useAlias ? "alias dispatch" : "dispatch";
+                await RunTest("A captain assignment on a pipeline dispatch assigns the root Worker stage to the named captain (" + pathLabel + ")", async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
+                        Captain named = await harness.CreateNamedCaptainAsync("[\"Worker\", \"Recorder\", \"Linter\"]").ConfigureAwait(false);
+                        Pipeline pipeline = await harness.CreatePipelineAsync("OverrideWorkerJudge", "Worker", "Judge").ConfigureAwait(false);
+                        List<CaptainAssignmentOverride> assignments = new List<CaptainAssignmentOverride>
+                        {
+                            new CaptainAssignmentOverride("Worker", named.Id, null)
+                        };
+
+                        VoyageDispatchResult result = await harness.DispatchAsync(pipeline, assignments, useAlias).ConfigureAwait(false);
+                        AssertTrue(result.Succeeded, "dispatch with a captain assignment should succeed");
+
+                        List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 2).ConfigureAwait(false);
+                        Mission root = missions.Single(m => m.Persona == "Worker");
+                        Mission assigned = await harness.WaitForCaptainAsync(root.Id).ConfigureAwait(false);
+                        AssertEqual(named.Id, assigned.RequestedCaptainId,
+                            "the root Worker stage must carry the named captain before its first assignment");
+                        AssertEqual(named.Id, assigned.CaptainId,
+                            "the root Worker stage must be assigned to the named captain, not the competing Worker captain");
+
+                        ObjectiveDispatchPreview preview = await harness.PreviewAsync(pipeline, assignments).ConfigureAwait(false);
+                        AssertFalse(preview.Issues.Any(issue => issue.Code == "assigned_captain_ineligible"),
+                            "the dispatch preview agrees the named captain is eligible for the Worker role");
+                        AssertTrue(preview.RequiredRoles.Any(role => role.Persona == "Worker"
+                            && role.EligibleConfiguredCaptainIds.Contains(named.Id)),
+                            "the dispatch preview names the same captain for the Worker role");
+                    }
+                });
+            }
+
+            await RunTest("A captain assignment on a single-stage Worker pipeline stamps the persona and assigns the named captain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Captain named = await harness.CreateNamedCaptainAsync("[\"Worker\", \"Recorder\", \"Linter\"]").ConfigureAwait(false);
+                    Pipeline pipeline = await harness.CreatePipelineAsync("OverrideWorkerOnly", "Worker").ConfigureAwait(false);
+                    List<CaptainAssignmentOverride> assignments = new List<CaptainAssignmentOverride>
+                    {
+                        new CaptainAssignmentOverride("Worker", named.Id, null)
+                    };
+
+                    VoyageDispatchResult result = await harness.DispatchAsync(pipeline, assignments, false).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "single-stage dispatch with a captain assignment should succeed");
+
+                    List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 1).ConfigureAwait(false);
+                    AssertEqual(1, missions.Count, "a single-stage pipeline creates one mission");
+                    AssertEqual("Worker", missions[0].Persona, "a single-stage pipeline dispatch stamps its stage persona on the mission");
+                    Mission assigned = await harness.WaitForCaptainAsync(missions[0].Id).ConfigureAwait(false);
+                    AssertEqual(named.Id, assigned.RequestedCaptainId,
+                        "the single Worker stage must carry the named captain before its first assignment");
+                    AssertEqual(named.Id, assigned.CaptainId,
+                        "the single Worker stage must be assigned to the named captain");
+
+                    ObjectiveDispatchPreview preview = await harness.PreviewAsync(pipeline, assignments).ConfigureAwait(false);
+                    AssertTrue(preview.RequiredRoles.Any(role => role.Persona == "Worker"
+                        && role.EligibleConfiguredCaptainIds.Contains(named.Id)),
+                        "the dispatch preview reads the single stage as the Worker role with the same captain");
+                }
+            });
+
+            await RunTest("A captain assignment naming an ineligible captain is refused by name and never silently reassigned", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Captain ineligible = await harness.CreateNamedCaptainAsync("[\"Judge\"]").ConfigureAwait(false);
+                    Pipeline pipeline = await harness.CreatePipelineAsync("OverrideIneligible", "Worker", "Judge").ConfigureAwait(false);
+                    List<CaptainAssignmentOverride> assignments = new List<CaptainAssignmentOverride>
+                    {
+                        new CaptainAssignmentOverride("Worker", ineligible.Id, null)
+                    };
+
+                    VoyageDispatchResult result = await harness.DispatchAsync(pipeline, assignments, false).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "dispatch with an ineligible captain assignment is accepted and refused at assignment");
+
+                    List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 2).ConfigureAwait(false);
+                    Mission root = missions.Single(m => m.Persona == "Worker");
+                    ArmadaEvent? refusal = await harness.WaitForRequestedCaptainEventAsync(root.Id).ConfigureAwait(false);
+                    Mission? current = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(refusal, "an ineligible captain assignment must record a named requested-captain event; root mission state: "
+                        + current?.Status + " captain=" + (current?.CaptainId ?? "(none)") + " requested=" + (current?.RequestedCaptainId ?? "(none)"));
+                    AssertContains("Requested captain " + ineligible.Id + " is not eligible for persona Worker", refusal!.Message,
+                        "the event names the captain and the rule that refuses it");
+                    AssertEqual(ineligible.Id, current!.RequestedCaptainId, "the mission keeps the named captain as its request");
+                    AssertNotEqual(ineligible.Id, current.CaptainId ?? String.Empty, "an ineligible captain never takes the mission");
+                    AssertNotEqual(harness.Competing.Id, current.CaptainId ?? String.Empty,
+                        "the mission is not handed to a lower-tier captain in place of the named one");
+
+                    ObjectiveDispatchPreview preview = await harness.PreviewAsync(pipeline, assignments).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue? previewIssue = preview.Issues.FirstOrDefault(issue => issue.Code == "assigned_captain_ineligible");
+                    AssertNotNull(previewIssue, "the dispatch preview refuses the same captain assignment");
+                    AssertContains("not eligible for persona Worker (its persona allow-list or runtime capability excludes it)", previewIssue!.Message,
+                        "the preview names the same rule");
+                    AssertContains("not eligible for persona Worker (its persona allow-list or runtime capability excludes it)", refusal.Message,
+                        "assignment names the same rule as the preview");
+                }
+            });
+
             await RunTest("WebSocketCreateVoyage_ObjectiveWithoutMissions_IsRefusedByNameAndWritesNothing", async () =>
             {
                 using (TestDatabase wsDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2408,6 +2513,205 @@ namespace Armada.Test.Unit.Suites.Services
             return await testDb.Driver.Captains.CreateAsync(preferred).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// A real admiral whose queued dispatch returns only after its queued first assignments have run. The
+        /// production admiral returns while that work is still queued, so this fixes the order in which the
+        /// first assignment and the rest of the dispatch meet the database instead of leaving it to timing.
+        /// </summary>
+        private sealed class SettlingAdmiralService : IAdmiralService
+        {
+            private readonly AdmiralService _Inner;
+
+            public SettlingAdmiralService(AdmiralService inner)
+            {
+                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            }
+
+            public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get => _Inner.OnLaunchAgent; set => _Inner.OnLaunchAgent = value; }
+            public Func<Captain, Task>? OnStopAgent { get => _Inner.OnStopAgent; set => _Inner.OnStopAgent = value; }
+            public Func<Mission, Dock, Task>? OnCaptureDiff { get => _Inner.OnCaptureDiff; set => _Inner.OnCaptureDiff = value; }
+            public Func<Mission, Dock, Task>? OnMissionComplete { get => _Inner.OnMissionComplete; set => _Inner.OnMissionComplete = value; }
+            public Func<Voyage, Task>? OnVoyageComplete { get => _Inner.OnVoyageComplete; set => _Inner.OnVoyageComplete = value; }
+            public Func<Mission, Task<bool>>? OnReconcilePullRequest { get => _Inner.OnReconcilePullRequest; set => _Inner.OnReconcilePullRequest = value; }
+            public Func<Task<int>>? OnReconcileMergeEntries { get => _Inner.OnReconcileMergeEntries; set => _Inner.OnReconcileMergeEntries = value; }
+            public Func<int, bool>? OnIsProcessExitHandled { get => _Inner.OnIsProcessExitHandled; set => _Inner.OnIsProcessExitHandled = value; }
+
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, CancellationToken token = default)
+                => _Inner.DispatchVoyageAsync(title, description, vesselId, missionDescriptions, token);
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, List<SelectedPlaybook>? selectedPlaybooks, CancellationToken token = default)
+                => _Inner.DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token);
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, CancellationToken token = default)
+                => _Inner.DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, token);
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, CancellationToken token = default)
+                => _Inner.DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, token);
+
+            public async Task<Voyage> DispatchVoyageQueuedAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, StageSkipRequest? stageSkip, CancellationToken token = default)
+            {
+                Voyage voyage = await _Inner.DispatchVoyageQueuedAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, token).ConfigureAwait(false);
+                await _Inner.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+                return voyage;
+            }
+
+            public async Task<Voyage> DispatchVoyageQueuedAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, StageSkipRequest? stageSkip, List<CaptainAssignmentOverride>? captainOverrides, CancellationToken token = default)
+            {
+                Voyage voyage = await _Inner.DispatchVoyageQueuedAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, captainOverrides, token).ConfigureAwait(false);
+                await _Inner.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+                return voyage;
+            }
+
+            public async Task<Mission> DispatchMissionQueuedAsync(Mission mission, CancellationToken token = default)
+            {
+                Mission queued = await _Inner.DispatchMissionQueuedAsync(mission, token).ConfigureAwait(false);
+                await _Inner.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+                return queued;
+            }
+
+            public Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default) => _Inner.DispatchMissionAsync(mission, token);
+            public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default) => _Inner.ResolvePipelineAsync(pipelineIdOrName, vessel, token);
+            public Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default) => _Inner.GetStatusAsync(token);
+            public Task RecallCaptainAsync(string captainId, CancellationToken token = default) => _Inner.RecallCaptainAsync(captainId, token);
+            public Task RecallAllAsync(CancellationToken token = default) => _Inner.RecallAllAsync(token);
+            public Task StopAllAgentProcessesAsync(CancellationToken token = default) => _Inner.StopAllAgentProcessesAsync(token);
+            public Task HealthCheckAsync(CancellationToken token = default) => _Inner.HealthCheckAsync(token);
+            public Task CleanupStaleCaptainsAsync(CancellationToken token = default) => _Inner.CleanupStaleCaptainsAsync(token);
+            public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
+                => _Inner.HandleProcessExitAsync(processId, exitCode, captainId, missionId, token);
+        }
+
+        /// <summary>
+        /// A real admiral, mission service and dispatch service over one database, with one idle Standard
+        /// Worker captain that normal routing prefers. A named captain is Premium, so routing never picks it
+        /// unless the captain assignment reaches the mission before its first assignment.
+        /// </summary>
+        private sealed class OverrideDispatchHarness
+        {
+            public DatabaseDriver Database { get; private set; } = null!;
+            public ArmadaSettings Settings { get; private set; } = null!;
+            public VoyageDispatchService Service { get; private set; } = null!;
+            public ObjectiveDispatchPreviewService Preview { get; private set; } = null!;
+            public Vessel Vessel { get; private set; } = null!;
+            public Captain Competing { get; private set; } = null!;
+
+            public static async Task<OverrideDispatchHarness> CreateAsync(TestDatabase testDb)
+            {
+                OverrideDispatchHarness harness = new OverrideDispatchHarness();
+                harness.Database = testDb.Driver;
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                harness.Settings = CreateRoutingSettings();
+                StubGitService git = new StubGitService();
+                IDockService dockService = new DockService(logging, testDb.Driver, harness.Settings, git);
+                ICaptainService captainService = new CaptainService(logging, testDb.Driver, harness.Settings, git, dockService);
+                captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                IMissionService missionService = new MissionService(logging, testDb.Driver, harness.Settings, dockService, captainService,
+                    resourcePressureAdmission: TestResourcePressure.Unconstrained(harness.Settings));
+                IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                AdmiralService admiral = new AdmiralService(logging, testDb.Driver, harness.Settings, captainService, missionService, voyageService, dockService);
+                admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                harness.Service = new VoyageDispatchService(testDb.Driver, new SettlingAdmiralService(admiral), logging, null, null, harness.Settings);
+                WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, profiles, logging);
+                harness.Preview = new ObjectiveDispatchPreviewService(testDb.Driver, profiles, readiness, git, harness.Settings);
+
+                Vessel vessel = new Vessel("override-dispatch-vessel", "https://github.com/test/repo.git")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    DefaultBranch = "main"
+                };
+                harness.Vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                Captain competing = new Captain("override-competing-worker");
+                competing.TenantId = Constants.DefaultTenantId;
+                competing.State = CaptainStateEnum.Idle;
+                competing.AllowedPersonas = "[\"Worker\"]";
+                competing.PreferredPersona = "Worker";
+                competing.Tier = CaptainTierEnum.Standard;
+                harness.Competing = await testDb.Driver.Captains.CreateAsync(competing).ConfigureAwait(false);
+                return harness;
+            }
+
+            public async Task<Captain> CreateNamedCaptainAsync(string allowedPersonas)
+            {
+                Captain named = new Captain("override-named-mux");
+                named.TenantId = Constants.DefaultTenantId;
+                named.Runtime = AgentRuntimeEnum.Mux;
+                named.State = CaptainStateEnum.Idle;
+                named.AllowedPersonas = allowedPersonas;
+                named.Tier = CaptainTierEnum.Premium;
+                return await Database.Captains.CreateAsync(named).ConfigureAwait(false);
+            }
+
+            public async Task<Pipeline> CreatePipelineAsync(string name, params string[] personas)
+            {
+                Pipeline pipeline = new Pipeline(name);
+                pipeline.Stages = personas.Select((persona, index) => new PipelineStage(index + 1, persona)).ToList();
+                return await Database.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+            }
+
+            public async Task<VoyageDispatchResult> DispatchAsync(Pipeline pipeline, List<CaptainAssignmentOverride> assignments, bool useAlias)
+            {
+                MissionDescription mission = new MissionDescription("Report the tools", "Read-only report of the captain's tools")
+                {
+                    Mode = "Research"
+                };
+                if (useAlias) mission.Alias = "report";
+                return await Service.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Captain assignment voyage",
+                    VesselId = Vessel.Id,
+                    PipelineId = pipeline.Id,
+                    CodeContextMode = "off",
+                    CaptainAssignments = assignments,
+                    Missions = new List<MissionDescription> { mission }
+                }).ConfigureAwait(false);
+            }
+
+            public async Task<ObjectiveDispatchPreview> PreviewAsync(Pipeline pipeline, List<CaptainAssignmentOverride> assignments)
+            {
+                Objective objective = new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Captain assignment preview",
+                    VesselIds = new List<string> { Vessel.Id }
+                };
+                return await Preview.PreviewAsync(
+                    AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "UnitTest"),
+                    objective,
+                    Vessel.Id,
+                    pipeline.Id,
+                    assignments,
+                    new List<MissionDescription> { new MissionDescription("Report the tools", "Read-only report") { Mode = "Research" } }).ConfigureAwait(false);
+            }
+
+            public async Task<Mission> WaitForCaptainAsync(string missionId)
+            {
+                DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                Mission? mission = null;
+                while (DateTime.UtcNow < deadline)
+                {
+                    mission = await Database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    if (mission != null && !String.IsNullOrEmpty(mission.CaptainId)) return mission;
+                    await Task.Delay(25).ConfigureAwait(false);
+                }
+                return mission ?? throw new TimeoutException("Mission " + missionId + " disappeared");
+            }
+
+            public async Task<ArmadaEvent?> WaitForRequestedCaptainEventAsync(string missionId)
+            {
+                DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                while (DateTime.UtcNow < deadline)
+                {
+                    List<ArmadaEvent> events = await Database.Events.EnumerateByMissionAsync(missionId).ConfigureAwait(false);
+                    ArmadaEvent? found = events.FirstOrDefault(evt => evt.EventType == RequestedCaptainAssignmentRule.EventType);
+                    if (found != null) return found;
+                    await Task.Delay(25).ConfigureAwait(false);
+                }
+                return null;
+            }
+        }
+
         private async Task AssertStoredOverrideRoutesWorkerAsync(
             TestDatabase testDb,
             ArmadaSettings settings,
@@ -2568,6 +2872,31 @@ namespace Armada.Test.Unit.Suites.Services
 
             public DispatchHold? DispatchHold { get; set; }
 
+            private string? _NextCaptainOverridesJson;
+
+            public async Task<Voyage> DispatchVoyageQueuedAsync(
+                string title,
+                string description,
+                string vesselId,
+                List<MissionDescription> missionDescriptions,
+                string? pipelineId,
+                List<SelectedPlaybook>? selectedPlaybooks,
+                StageSkipRequest? stageSkip,
+                List<CaptainAssignmentOverride>? captainOverrides,
+                CancellationToken token = default)
+            {
+                _NextCaptainOverridesJson = MissionService.SerializeCaptainOverrides(captainOverrides);
+                try
+                {
+                    return await ((IAdmiralService)this).DispatchVoyageQueuedAsync(
+                        title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _NextCaptainOverridesJson = null;
+                }
+            }
+
             public Task<Voyage> DispatchVoyageAsync(
                 string title,
                 string description,
@@ -2615,7 +2944,8 @@ namespace Armada.Test.Unit.Suites.Services
                 Voyage voyage = await _Database.Voyages.CreateAsync(new Voyage(title, description)
                 {
                     TenantId = Constants.DefaultTenantId,
-                    UserId = Constants.DefaultUserId
+                    UserId = Constants.DefaultUserId,
+                    CaptainOverridesJson = _NextCaptainOverridesJson
                 }, token).ConfigureAwait(false);
 
                 foreach (MissionDescription md in missionDescriptions)

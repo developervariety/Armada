@@ -222,6 +222,38 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Queued dispatch with stage skips and per-persona captain assignments. The assignments are stored on
+        /// the voyage when it is created, before any mission exists, so the first assignment of every mission
+        /// resolves its requested captain from them.
+        /// </summary>
+        /// <param name="title">Voyage title.</param>
+        /// <param name="description">Voyage description.</param>
+        /// <param name="vesselId">Target vessel identifier.</param>
+        /// <param name="missionDescriptions">List of mission title/description pairs.</param>
+        /// <param name="pipelineId">Optional pipeline ID. Resolved using the standard dispatch precedence.</param>
+        /// <param name="selectedPlaybooks">Ordered playbooks to apply to every mission in the voyage.</param>
+        /// <param name="stageSkip">Operator-confirmed stage skips, or null.</param>
+        /// <param name="captainOverrides">Per-persona captain assignments, or null.</param>
+        /// <param name="token">Cancellation token for durable creation only.</param>
+        /// <returns>The created voyage, usually still Open until queued assignment starts.</returns>
+        /// <exception cref="NotSupportedException">When assignments are supplied to an admiral that cannot store them.</exception>
+        Task<Voyage> DispatchVoyageQueuedAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            StageSkipRequest? stageSkip,
+            List<CaptainAssignmentOverride>? captainOverrides,
+            CancellationToken token = default)
+        {
+            if (captainOverrides != null && captainOverrides.Count > 0)
+                throw new NotSupportedException("This admiral does not support captain assignments.");
+            return DispatchVoyageQueuedAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, token);
+        }
+
+        /// <summary>
         /// Dispatch a single mission and return after the mission record has been
         /// persisted. Assignment/provisioning is queued in the background.
         /// </summary>

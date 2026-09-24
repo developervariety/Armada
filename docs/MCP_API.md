@@ -348,6 +348,23 @@ stored skip is confirmed, and surfaces the named refusal a stored skip would hit
 voyage. Captain coverage in the preview follows the effective stages, so preview
 and dispatch agree.
 
+`armada_dispatch` accepts `captainAssignments`, an array of `persona`,
+`captainId` and optional `fallbackTier` entries (`persona` `*` applies to every
+stage without its own entry). The voyage row stores them when it is created,
+before any mission exists, so every mission of the named persona resolves the
+captain as its requested captain before its first assignment: the root stage,
+later stages, and fan-out missions alike. A single-stage dispatch (the
+`WorkerOnly` pipeline, or no pipeline) stamps its stage persona on each mission,
+so an assignment for `Worker` applies to it too. The same rule applies to REST
+`POST /api/v1/voyages`, WebSocket `create_voyage` and alias dispatch. A named
+captain that does not exist, or that its `AllowedPersonas`, its runtime's
+capability or the persona's `minimumTier` excludes, is never assigned in its
+place without a record: assignment writes a `mission.requested_captain` event
+naming the captain and the reason, then falls back or waits at the fallback tier
+([USAGE_ROUTING.md](USAGE_ROUTING.md#requested-captain-and-fallback-tier)).
+`preview_objective_dispatch` reports the same captain as
+`assigned_captain_ineligible` with the same reason.
+
 After the deterministic preflight the preview also consults the `preflight`
 typed decision when it is enabled (`typedDecisions`, ships `Gate`). It reads the
 title, description, acceptance criteria, non-goals, refinement summary, Kind,

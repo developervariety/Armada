@@ -83,6 +83,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Dispatch captain assignments reach the first stage:** a voyage stores its
+  `captainAssignments` when it is created, before any mission exists, so the
+  root stage's first assignment resolves the named captain as its requested
+  captain on plain, alias, REST and WebSocket dispatch. A single-stage dispatch
+  stamps its stage persona (`Worker` when no pipeline resolves) on each mission,
+  so a `Worker` assignment and the persona's default captain and default
+  playbooks apply to it. A named captain that cannot take the role records a
+  `mission.requested_captain` event with the reason, as the dispatch preview
+  reports it. An admiral without captain-assignment support refuses them instead
+  of dropping them.
 - **Code-index status reads are side-effect free:** the code-index status route
   and tool never clone a missing repository or update the vessel record. The
   status names the case with `RepositoryState` (`Available` or `Missing`), and the

@@ -261,6 +261,18 @@ namespace Armada.Core.Services
             List<SelectedPlaybook>? selectedPlaybooks,
             CancellationToken token = default)
         {
+            return await DispatchSingleStageVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, token).ConfigureAwait(false);
+        }
+
+        private async Task<Voyage> DispatchSingleStageVoyageAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            string? stagePersona,
+            CancellationToken token)
+        {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
@@ -288,11 +300,7 @@ namespace Armada.Core.Services
             try
             {
             // Create voyage
-            voyage = new Voyage(title, description);
-            voyage.TenantId = vessel.TenantId;
-            voyage.UserId = vessel.UserId;
-            voyage.Status = VoyageStatusEnum.Open;
-            voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
+            voyage = await _Database.Voyages.CreateAsync(NewDispatchVoyage(title, description, vessel, null), token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
             {
@@ -308,6 +316,7 @@ namespace Armada.Core.Services
                 mission.UserId = vessel.UserId;
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
+                mission.Persona = stagePersona;
                 mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                 mission.PreferredModel = md.PreferredModel;
                 mission.Mode = MissionModes.Parse(md.Mode);
@@ -409,7 +418,8 @@ namespace Armada.Core.Services
             // If pipeline is single-stage Worker (or null), use the standard dispatch path
             if (pipeline == null || (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker" && !pipeline.Stages[0].RequiresReview))
             {
-                Voyage workerVoyage = await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token).ConfigureAwait(false);
+                Voyage workerVoyage = await DispatchSingleStageVoyageAsync(
+                    title, description, vesselId, missionDescriptions, selectedPlaybooks, SingleStagePersona(pipeline), token).ConfigureAwait(false);
                 await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, workerVoyage, skipResult, stageSkip, token).ConfigureAwait(false);
                 return workerVoyage;
             }
@@ -429,11 +439,7 @@ namespace Armada.Core.Services
             try
             {
             // Multi-stage pipeline: create voyage, then for each mission create a chain of persona stages
-            voyage = new Voyage(title, description);
-            voyage.TenantId = vessel.TenantId;
-            voyage.UserId = vessel.UserId;
-            voyage.Status = VoyageStatusEnum.Open;
-            voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
+            voyage = await _Database.Voyages.CreateAsync(NewDispatchVoyage(title, description, vessel, null), token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
             {
@@ -561,6 +567,21 @@ namespace Armada.Core.Services
             StageSkipRequest? stageSkip,
             CancellationToken token = default)
         {
+            return await DispatchVoyageQueuedAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, null, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<Voyage> DispatchVoyageQueuedAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            StageSkipRequest? stageSkip,
+            List<CaptainAssignmentOverride>? captainOverrides,
+            CancellationToken token = default)
+        {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
@@ -591,11 +612,7 @@ namespace Armada.Core.Services
             Voyage? voyage = null;
             try
             {
-            voyage = new Voyage(title, description);
-            voyage.TenantId = vessel.TenantId;
-            voyage.UserId = vessel.UserId;
-            voyage.Status = VoyageStatusEnum.Open;
-            voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
+            voyage = await _Database.Voyages.CreateAsync(NewDispatchVoyage(title, description, vessel, captainOverrides), token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
             {
@@ -616,6 +633,7 @@ namespace Armada.Core.Services
                     mission.UserId = vessel.UserId;
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
+                    mission.Persona = SingleStagePersona(pipeline);
                     mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                     mission.PreferredModel = md.PreferredModel;
                     mission.Mode = MissionModes.Parse(md.Mode);
@@ -1742,6 +1760,43 @@ namespace Armada.Core.Services
         }
 
         #region Private-Methods
+
+        /// <summary>
+        /// Build the voyage row a dispatch creates. The per-persona captain assignments are part of the row
+        /// from its first write: assignment of a voyage's first missions is queued the moment they exist and
+        /// resolves each mission's requested captain from this row, so an assignment written after the
+        /// missions would miss their first assignment. Every dispatch path builds its voyage here.
+        /// </summary>
+        /// <param name="title">Voyage title.</param>
+        /// <param name="description">Voyage description.</param>
+        /// <param name="vessel">Target vessel; the voyage takes its owner.</param>
+        /// <param name="captainOverrides">Per-persona captain assignments, or null.</param>
+        /// <returns>The unsaved voyage.</returns>
+        public static Voyage NewDispatchVoyage(string title, string description, Vessel vessel, List<CaptainAssignmentOverride>? captainOverrides)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            Voyage voyage = new Voyage(title, description);
+            voyage.TenantId = vessel.TenantId;
+            voyage.UserId = vessel.UserId;
+            voyage.Status = VoyageStatusEnum.Open;
+            voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(captainOverrides);
+            return voyage;
+        }
+
+        /// <summary>
+        /// The persona a single-stage dispatch stamps on each mission: the one stage's persona, or Worker when
+        /// no pipeline resolves. Captain assignment and a persona's default captain resolve only for a mission
+        /// that names its persona, and the dispatch preview reads the same dispatch as that role.
+        /// </summary>
+        /// <param name="pipeline">The resolved pipeline, or null.</param>
+        /// <returns>The persona name.</returns>
+        public static string SingleStagePersona(Pipeline? pipeline)
+        {
+            if (pipeline != null && pipeline.Stages != null && pipeline.Stages.Count == 1
+                && !String.IsNullOrWhiteSpace(pipeline.Stages[0].PersonaName))
+                return pipeline.Stages[0].PersonaName;
+            return PersonaCatalog.Worker;
+        }
 
         /// <summary>
         /// Resolve which pipeline to use for a dispatch.
