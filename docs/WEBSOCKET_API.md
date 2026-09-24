@@ -2208,7 +2208,9 @@ Get a captain by ID.
 
 #### create_captain
 
-Create a new captain. `data` accepts configuration fields only: `Name`, `Runtime`,
+Create a new captain through the same shared create as `POST /api/v1/captains`: the name rule, Mux-only runtime
+options, and runtime and model validation (a rejected model returns `command.error` with
+`code: "captain_model_invalid"`). `data` accepts configuration fields only: `Name`, `Runtime`,
 `Model`, `ModelEndpointId`, `ApiKey`, `ApiBaseUrl`, `SystemInstructions`,
 `AllowedPersonas`, `PreferredPersona`, `RuntimeOptionsJson`, `Tier` and
 `DefaultPlaybooks`. The captain starts `Idle`, unassigned and not quarantined. A
@@ -2243,7 +2245,8 @@ and creates nothing.
 #### update_captain
 
 Replace an existing captain's configuration fields (the same fields `create_captain`
-accepts). Server-owned fields always keep their stored values, including the
+accepts). A change of runtime, model, model endpoint or credentials is validated by the shared rule REST and MCP use;
+a rejected model returns `command.error` with `code: "captain_model_invalid"` and changes nothing. Server-owned fields always keep their stored values, including the
 quarantine, tenant and process liveness. A `data` field that sets a server-owned
 field to a different value returns `command.error` starting with
 `captain_server_owned_field:` and naming the field; nothing is written.

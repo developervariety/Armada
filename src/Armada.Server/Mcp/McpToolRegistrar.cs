@@ -136,7 +136,10 @@ namespace Armada.Server.Mcp
             {
                 captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
                 if (agentLifecycle != null)
+                {
                     captainAdministration.StopProcess = agentLifecycle.HandleStopAgentAsync;
+                    captainAdministration.ValidateModel = agentLifecycle.ValidateCaptainModelAsync;
+                }
                 captainAdministration.AttachSessionCoordinators(planningSessionCoordinator, objectiveRefinementCoordinator);
             }
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration);

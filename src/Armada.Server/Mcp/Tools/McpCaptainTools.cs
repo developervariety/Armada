@@ -52,6 +52,8 @@ namespace Armada.Server.Mcp.Tools
                 ?? new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
             if (captainAdministration == null && onStopCaptain != null)
                 administration.StopProcess = captain => onStopCaptain(captain.Id);
+            if (captainAdministration == null && agentLifecycle != null)
+                administration.ValidateModel = agentLifecycle.ValidateCaptainModelAsync;
 
             register(
                 "armada_get_captain",
@@ -111,8 +113,6 @@ namespace Armada.Server.Mcp.Tools
                     string? ownedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
                         JsonSerializer.Deserialize<CaptainServerOwnedFields>(args.Value, _JsonOptions), null);
                     if (ownedFieldError != null) return CreateToolErrorResponse(ownedFieldError);
-                    string? nameConflict = await CaptainNameRule.FindCreateConflictAsync(database.Captains, request.Name).ConfigureAwait(false);
-                    if (nameConflict != null) return CreateToolErrorResponse(nameConflict);
                     Captain captain = new Captain();
                     captain.Name = request.Name;
                     if (!String.IsNullOrEmpty(request.Runtime) && Enum.TryParse<AgentRuntimeEnum>(request.Runtime, true, out AgentRuntimeEnum rt))
@@ -130,28 +130,17 @@ namespace Armada.Server.Mcp.Tools
                     string? reasoningValidationError = CaptainRuntimeOptions.ValidateReasoningEffort(captain.Runtime, request.ReasoningEffort);
                     if (reasoningValidationError != null) return CreateToolErrorResponse(reasoningValidationError);
                     ApplyCaptainOptions(captain, request);
-                    captain = CaptainInputMapping.ForCreate(captain);
-                    // The captain is owned by the authenticated caller, exactly as a REST create is.
+                    // The shared captain create REST and WebSocket use: the name rule and model validation. The runtime
+                    // options were built from the typed arguments above, so they are not normalized again. The captain is
+                    // owned by the authenticated caller, exactly as a REST create is.
                     AuthContext createCaller = McpCallerContext.Require();
-                    captain.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller);
-                    captain.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller);
-
-                    if (agentLifecycle != null)
-                    {
-                        string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-                        if (validationError != null)
-                        {
-                            bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(validationError) ||
-                                ProviderQuotaLimitDetector.IsQuotaLimitSignal(validationError);
-                            if (!isSoftFailure)
-                                return CreateToolErrorResponse(validationError);
-
-                            logging?.Warn("[McpCaptainTools] model validation cannot be verified for new captain; creation persisted. Error: " + validationError);
-                        }
-                    }
-
-                    captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
-                    return (object)MaskCaptain(captain);
+                    CaptainWriteResult created = await administration.CreateAsync(
+                        captain,
+                        Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller),
+                        Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller),
+                        normalizeRuntimeOptions: false).ConfigureAwait(false);
+                    if (!created.Succeeded) return CreateToolErrorResponse(created.Message ?? "Captain was not created");
+                    return (object)MaskCaptain(created.Captain!);
                 });
 
             register(
@@ -231,39 +220,20 @@ namespace Armada.Server.Mcp.Tools
                         return CreateToolErrorResponse(ex.Message);
                     }
 
-                    if (agentLifecycle != null)
+                    // The shared captain update REST and WebSocket use: model validation when the runtime, model, endpoint
+                    // or credentials change. The runtime options were built from the typed arguments above.
+                    CaptainWriteResult updated = await administration.UpdateAsync(stored, captain, normalizeRuntimeOptions: false).ConfigureAwait(false);
+                    if (!updated.Succeeded) return CreateToolErrorResponse(updated.Message ?? "Captain was not updated");
+                    if (updated.CannotVerifyReason != null)
                     {
-                        bool modelOrRuntimeChanged =
-                            !String.Equals(captain.Model, existingCaptain.Model, StringComparison.OrdinalIgnoreCase) ||
-                            captain.Runtime != existingCaptain.Runtime ||
-                            !String.Equals(captain.ApiKey, existingCaptain.ApiKey, StringComparison.Ordinal) ||
-                            !String.Equals(captain.ApiBaseUrl, existingCaptain.ApiBaseUrl, StringComparison.Ordinal);
-                        if (modelOrRuntimeChanged)
+                        return (object)new
                         {
-                            string? validationError = await agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-                            if (validationError != null)
-                            {
-                                bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(validationError) ||
-                                    ProviderQuotaLimitDetector.IsQuotaLimitSignal(validationError);
-                                if (isSoftFailure)
-                                {
-                                    logging?.Warn("[McpCaptainTools] model validation cannot be verified for captain " + captainId + "; edit persisted. Error: " + validationError);
-                                    captain = await database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(stored, captain)).ConfigureAwait(false);
-                                    return (object)new
-                                    {
-                                        Captain = MaskCaptain(captain),
-                                        CannotVerifyNow = true,
-                                        ValidationWarning = "Model validation cannot be verified: provider credit or authentication failure. Edit persisted; captain may be benched at dispatch."
-                                    };
-                                }
-
-                                return CreateToolErrorResponse(validationError);
-                            }
-                        }
+                            Captain = MaskCaptain(updated.Captain!),
+                            CannotVerifyNow = true,
+                            ValidationWarning = "Model validation cannot be verified: provider credit or authentication failure. Edit persisted; captain may be benched at dispatch."
+                        };
                     }
-
-                    captain = await database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(stored, captain)).ConfigureAwait(false);
-                    return (object)MaskCaptain(captain);
+                    return (object)MaskCaptain(updated.Captain!);
                 });
 
             register(

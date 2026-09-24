@@ -182,6 +182,13 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One captain create and update:** REST, WebSocket and MCP create and update
+  captains through `CaptainAdministrationService`, which owns the name rule,
+  runtime-option normalization for whole-body writes, and model validation
+  (including an endpoint change on MCP updates). WebSocket skipped validation and
+  normalization, so it created an API-endpoint captain with no model endpoint
+  that REST and MCP refuse. The route tests that asserted on the handler source
+  text are replaced by behavioural tests of the shared rule.
 - **A halted voyage stops its running captains:** when a mission fails without
   recoverable work, its voyage is halted through the one voyage cancel, so the
   captain of every parallel mission still running is recalled (its agent process

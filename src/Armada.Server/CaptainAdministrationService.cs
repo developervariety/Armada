@@ -13,8 +13,9 @@ namespace Armada.Server
 
     /// <summary>
     /// The one definition of the captain administration rules that REST, MCP, WebSocket and the dashboard share:
-    /// stopping one captain, emergency stop of every captain and session, whether a captain may be deleted or
-    /// restarted, the dependent cleanup that follows a deletion, and an in-place restart that keeps the captain record.
+    /// creating and updating a captain (the name rule, runtime-option normalization and model validation), stopping
+    /// one captain, emergency stop of every captain and session, whether a captain may be deleted or restarted, the
+    /// dependent cleanup that follows a deletion, and an in-place restart that keeps the captain record.
     /// </summary>
     public class CaptainAdministrationService
     {
@@ -36,6 +37,14 @@ namespace Armada.Server
         /// Stops one objective refinement session. When null, every active refinement session is reported as a failed stop.
         /// </summary>
         public Func<ObjectiveRefinementSession, CancellationToken, Task>? StopRefinementSession { get; set; } = null;
+
+        /// <summary>
+        /// Validates a captain's runtime and model before a create, and before an update that changes them. It returns
+        /// null when the captain can serve, otherwise the reason. A reason that names a provider credit,
+        /// authentication or quota failure cannot be verified now, so the write is kept with a warning; any other
+        /// reason refuses the write. When null, no model validation runs.
+        /// </summary>
+        public Func<Captain, CancellationToken, Task<string?>>? ValidateModel { get; set; } = null;
 
         #endregion
 
@@ -399,9 +408,143 @@ namespace Armada.Server
             return new CaptainRestartResult(CaptainAdministrationOutcomeEnum.Completed, restarted, "Captain restarted");
         }
 
+
+        /// <summary>
+        /// Create a captain from its configuration fields. A name another captain already has is refused; the
+        /// server-owned fields are reset; the owner is the one supplied; runtime options are normalized when
+        /// requested; and the runtime and model are validated. Nothing is stored when the create is refused.
+        /// </summary>
+        /// <param name="configuration">Configuration fields, with server-owned fields already checked by the surface.</param>
+        /// <param name="tenantId">Owning tenant.</param>
+        /// <param name="userId">Owning user.</param>
+        /// <param name="normalizeRuntimeOptions">Normalize runtime options by <see cref="NormalizeRuntimeOptions"/>; a
+        /// surface that builds the options itself from typed arguments passes false.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stored captain, or the refusal.</returns>
+        public async Task<CaptainWriteResult> CreateAsync(
+            Captain configuration,
+            string? tenantId,
+            string? userId,
+            bool normalizeRuntimeOptions = true,
+            CancellationToken token = default)
+        {
+            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            string? nameConflict = await CaptainNameRule.FindCreateConflictAsync(_Database.Captains, configuration.Name, token).ConfigureAwait(false);
+            if (nameConflict != null)
+                return CaptainWriteResult.Refused(CaptainAdministrationOutcomeEnum.Busy, CaptainWriteResult.NameConflictCode, nameConflict);
+
+            Captain captain = CaptainInputMapping.ForCreate(configuration);
+            captain.TenantId = tenantId;
+            captain.UserId = userId;
+            if (normalizeRuntimeOptions) NormalizeRuntimeOptions(captain, null);
+
+            ModelCheck check = await CheckModelAsync(captain, null, token).ConfigureAwait(false);
+            if (check.Error != null)
+                return CaptainWriteResult.Refused(CaptainAdministrationOutcomeEnum.Failed, CaptainWriteResult.InvalidModelCode, check.Error);
+
+            captain = await _Database.Captains.CreateAsync(captain, token).ConfigureAwait(false);
+            return CaptainWriteResult.Written(captain, check.CannotVerifyReason);
+        }
+
+        /// <summary>
+        /// Update a captain's configuration fields. Server-owned fields keep their stored values; runtime options are
+        /// normalized when requested; and when the runtime, model, model endpoint or credentials change, the result is
+        /// validated. Nothing is stored when the update is refused.
+        /// </summary>
+        /// <param name="existing">Stored captain, already read under the caller's scope.</param>
+        /// <param name="configuration">The configuration the captain should have.</param>
+        /// <param name="normalizeRuntimeOptions">Normalize runtime options by <see cref="NormalizeRuntimeOptions"/>; a
+        /// surface that builds the options itself from typed arguments passes false.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stored captain, or the refusal.</returns>
+        public async Task<CaptainWriteResult> UpdateAsync(
+            Captain existing,
+            Captain configuration,
+            bool normalizeRuntimeOptions = true,
+            CancellationToken token = default)
+        {
+            if (existing == null) throw new ArgumentNullException(nameof(existing));
+            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+
+            Captain updated = CaptainInputMapping.ForUpdate(existing, configuration);
+            if (normalizeRuntimeOptions) NormalizeRuntimeOptions(updated, existing);
+
+            ModelCheck check = await CheckModelAsync(updated, existing, token).ConfigureAwait(false);
+            if (check.Error != null)
+                return CaptainWriteResult.Refused(CaptainAdministrationOutcomeEnum.Failed, CaptainWriteResult.InvalidModelCode, check.Error);
+
+            updated = await _Database.Captains.UpdateAsync(updated, token).ConfigureAwait(false);
+            return CaptainWriteResult.Written(updated, check.CannotVerifyReason);
+        }
+
+        /// <summary>
+        /// The runtime-option rule for a captain written from a whole body: only a Mux captain keeps runtime options,
+        /// and a Mux update that sends none keeps the options the captain already had.
+        /// </summary>
+        /// <param name="captain">Captain being written.</param>
+        /// <param name="existing">Stored captain on an update; null on a create.</param>
+        public static void NormalizeRuntimeOptions(Captain captain, Captain? existing)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+
+            if (captain.Runtime != AgentRuntimeEnum.Mux)
+            {
+                captain.RuntimeOptionsJson = null;
+                return;
+            }
+
+            if (String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson)
+                && existing != null
+                && existing.Runtime == AgentRuntimeEnum.Mux
+                && !String.IsNullOrWhiteSpace(existing.RuntimeOptionsJson))
+            {
+                captain.RuntimeOptionsJson = existing.RuntimeOptionsJson;
+                return;
+            }
+
+            if (String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson))
+                captain.RuntimeOptionsJson = null;
+        }
+
+        /// <summary>
+        /// Whether an update changes what model validation checks: the runtime, the model, the model endpoint, or the
+        /// captain's own credentials.
+        /// </summary>
+        /// <param name="updated">Captain as it will be stored.</param>
+        /// <param name="existing">Captain as stored.</param>
+        /// <returns>True when the update must be validated.</returns>
+        public static bool ChangesValidatedFields(Captain updated, Captain existing)
+        {
+            if (updated == null) throw new ArgumentNullException(nameof(updated));
+            if (existing == null) throw new ArgumentNullException(nameof(existing));
+            return !String.Equals(updated.Model, existing.Model, StringComparison.OrdinalIgnoreCase)
+                || updated.Runtime != existing.Runtime
+                || !String.Equals(updated.ModelEndpointId, existing.ModelEndpointId, StringComparison.Ordinal)
+                || !String.Equals(updated.ApiKey, existing.ApiKey, StringComparison.Ordinal)
+                || !String.Equals(updated.ApiBaseUrl, existing.ApiBaseUrl, StringComparison.Ordinal);
+        }
         #endregion
 
         #region Private-Methods
+
+        private async Task<ModelCheck> CheckModelAsync(Captain captain, Captain? existing, CancellationToken token)
+        {
+            ModelCheck check = new ModelCheck();
+            if (ValidateModel == null) return check;
+            if (existing != null && !ChangesValidatedFields(captain, existing)) return check;
+
+            string? error = await ValidateModel(captain, token).ConfigureAwait(false);
+            if (error == null) return check;
+            bool cannotVerifyNow = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(error) || ProviderQuotaLimitDetector.IsQuotaLimitSignal(error);
+            if (cannotVerifyNow)
+            {
+                _Logging?.Warn(_Header + "model validation cannot be verified for captain " + (existing?.Id ?? captain.Name) + "; the write is kept. Error: " + error);
+                check.CannotVerifyReason = error;
+                return check;
+            }
+            check.Error = error;
+            return check;
+        }
 
         private static bool IsActive(PlanningSession session)
         {
@@ -447,6 +590,16 @@ namespace Armada.Server
                 result.Failures.Add(new CaptainStopFailure(kind, "*", "Could not read active sessions: " + ex.Message));
                 return new List<T>();
             }
+        }
+
+        #endregion
+
+        #region Private-Types
+
+        private sealed class ModelCheck
+        {
+            public string? Error { get; set; }
+            public string? CannotVerifyReason { get; set; }
         }
 
         #endregion

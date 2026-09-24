@@ -175,6 +175,10 @@ namespace Armada.Test.Unit.TestHelpers
             AgentLifecycleHandler lifecycle = new AgentLifecycleHandler(
                 logging, Driver, Settings, runtimeFactory, Admiral.Service, new MessageTemplateService(logging),
                 null, null, emitEvent);
+            CaptainAdministrationService captainAdministration = new CaptainAdministrationService(Driver, Admiral.Service.RecallCaptainAsync, logging);
+            captainAdministration.StopProcess = lifecycle.HandleStopAgentAsync;
+            captainAdministration.ValidateModel = lifecycle.ValidateCaptainModelAsync;
+            WebSocket.CaptainAdministration = captainAdministration;
 
             McpToolRegistrar.RegisterAll(
                 (name, _, _, handler) => { Mcp[name] = McpTestCaller.Wrap(handler); },
@@ -192,6 +196,7 @@ namespace Armada.Test.Unit.TestHelpers
                 logging,
                 missionService: missionService,
                 statusTransitions: transitions,
+                captainAdministration: captainAdministration,
                 missionOperations: Operations);
 
             WorkflowProfileService workflowProfiles = new WorkflowProfileService(Driver, logging);
@@ -226,7 +231,7 @@ namespace Armada.Test.Unit.TestHelpers
                 operations: Operations).Register(_Server, authenticate, authz);
             new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new CaptainRoutes(Driver, Admiral.Service, Settings, runtimeFactory, lifecycle, new CaptainToolService(logging, Driver, Settings),
-                emitEvent, _RestJsonOptions, null, null, logging).Register(_Server, authenticate, authz);
+                emitEvent, _RestJsonOptions, null, null, logging, null, captainAdministration).Register(_Server, authenticate, authz);
             new VesselRoutes(Driver, readiness, landingPreview, emitEvent, _RestJsonOptions, Docks)
                 .Register(_Server, authenticate, authz);
 
@@ -292,7 +297,8 @@ namespace Armada.Test.Unit.TestHelpers
                 throw new InvalidOperationException("MCP tool not registered: " + tool);
             object result = await handler(JsonSerializer.SerializeToElement(args)).ConfigureAwait(false);
             string text = JsonSerializer.Serialize(result, _WebSocketJsonOptions);
-            bool error = text.Contains("\"error\":", StringComparison.OrdinalIgnoreCase) && !text.Contains("\"error\":null", StringComparison.OrdinalIgnoreCase);
+            bool error = (text.Contains("\"error\":", StringComparison.OrdinalIgnoreCase) && !text.Contains("\"error\":null", StringComparison.OrdinalIgnoreCase))
+                || text.Contains("\"isError\":true", StringComparison.Ordinal);
             return new SurfaceReply("MCP", error ? 409 : 200, text);
         }
 

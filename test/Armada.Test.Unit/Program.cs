@@ -232,6 +232,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MergeCancelParityTests());
             runner.AddSuite(new RetryLandingParityTests());
             runner.AddSuite(new VoyageHaltRecallTests());
+            runner.AddSuite(new CaptainWriteParityTests());
             runner.AddSuite(new WebSocketMissionSummaryTests());
             runner.AddSuite(new WebSocketCommandAuthorizationTests());
             runner.AddSuite(new WebSocketCommandRegistryTests());

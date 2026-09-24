@@ -84,6 +84,7 @@ namespace Armada.Server.Routes
             {
                 captainAdministration = new CaptainAdministrationService(database, admiral.RecallCaptainAsync, logging);
                 captainAdministration.StopProcess = agentLifecycle.HandleStopAgentAsync;
+                captainAdministration.ValidateModel = agentLifecycle.ValidateCaptainModelAsync;
                 captainAdministration.AttachSessionCoordinators(planningSessions, objectiveRefinementSessions);
             }
             _captainAdministration = captainAdministration;
@@ -188,32 +189,17 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createOwnedFieldError };
                 }
-                string? nameConflict = await CaptainNameRule.FindCreateConflictAsync(_database.Captains, input.Name).ConfigureAwait(false);
-                if (nameConflict != null)
+                // REST, WebSocket and MCP share one captain create: the name rule, runtime-option normalization and
+                // model validation (a credit or quota failure keeps the captain with a warning).
+                CaptainWriteResult created = await _captainAdministration.CreateAsync(input, ctx.TenantId, ctx.UserId).ConfigureAwait(false);
+                if (!created.Succeeded)
                 {
-                    req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = nameConflict };
+                    bool conflict = created.Outcome == CaptainAdministrationOutcomeEnum.Busy;
+                    req.Http.Response.StatusCode = conflict ? 409 : 400;
+                    return new ApiErrorResponse { Error = conflict ? ApiResultEnum.Conflict : ApiResultEnum.BadRequest, Message = created.Message };
                 }
-                Captain captain = CaptainInputMapping.ForCreate(input);
-                captain.TenantId = ctx.TenantId;
-                captain.UserId = ctx.UserId;
-                NormalizeCaptainRuntimeOptions(captain);
-                string? createValidationError = await _agentLifecycle.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-                if (createValidationError != null)
-                {
-                    bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(createValidationError) ||
-                        ProviderQuotaLimitDetector.IsQuotaLimitSignal(createValidationError);
-                    if (!isSoftFailure)
-                    {
-                        req.Http.Response.StatusCode = 400;
-                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createValidationError };
-                    }
-
-                    _Logging?.Warn(_Header + "model validation cannot be verified for new captain; creation persisted. Error: " + createValidationError);
-                }
-                captain = await _database.Captains.CreateAsync(captain).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
-                return captain;
+                return created.Captain!;
             },
             api => api
                 .WithTag("Captains")
@@ -304,32 +290,15 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updateOwnedFieldError };
                 }
-                Captain updated = CaptainInputMapping.ForUpdate(existing, input);
-                NormalizeCaptainRuntimeOptions(updated, existing);
-                bool modelOrRuntimeChanged =
-                    !String.Equals(updated.Model, existing.Model, StringComparison.OrdinalIgnoreCase) ||
-                    updated.Runtime != existing.Runtime ||
-                    !String.Equals(updated.ModelEndpointId, existing.ModelEndpointId, StringComparison.Ordinal) ||
-                    !String.Equals(updated.ApiKey, existing.ApiKey, StringComparison.Ordinal) ||
-                    !String.Equals(updated.ApiBaseUrl, existing.ApiBaseUrl, StringComparison.Ordinal);
-                if (modelOrRuntimeChanged)
+                // REST, WebSocket and MCP share one captain update: runtime-option normalization and, when the runtime,
+                // model, endpoint or credentials change, model validation.
+                CaptainWriteResult updated = await _captainAdministration.UpdateAsync(existing, input).ConfigureAwait(false);
+                if (!updated.Succeeded)
                 {
-                    string? updateValidationError = await _agentLifecycle.ValidateCaptainModelAsync(updated).ConfigureAwait(false);
-                    if (updateValidationError != null)
-                    {
-                        bool isSoftFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(updateValidationError) ||
-                            ProviderQuotaLimitDetector.IsQuotaLimitSignal(updateValidationError);
-                        if (!isSoftFailure)
-                        {
-                            req.Http.Response.StatusCode = 400;
-                            return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updateValidationError };
-                        }
-
-                        _Logging?.Warn(_Header + "model validation cannot be verified for captain " + id + "; edit persisted. Error: " + updateValidationError);
-                    }
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updated.Message };
                 }
-                updated = await _database.Captains.UpdateAsync(updated).ConfigureAwait(false);
-                return (object)updated;
+                return (object)updated.Captain!;
             },
             api => api
                 .WithTag("Captains")
@@ -581,31 +550,6 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of captain IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
-        }
-
-        private static void NormalizeCaptainRuntimeOptions(Captain captain, Captain? existing = null)
-        {
-            if (captain == null) throw new ArgumentNullException(nameof(captain));
-
-            if (captain.Runtime != AgentRuntimeEnum.Mux)
-            {
-                captain.RuntimeOptionsJson = null;
-                return;
-            }
-
-            if (String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson) &&
-                existing != null &&
-                existing.Runtime == AgentRuntimeEnum.Mux &&
-                !String.IsNullOrWhiteSpace(existing.RuntimeOptionsJson))
-            {
-                captain.RuntimeOptionsJson = existing.RuntimeOptionsJson;
-                return;
-            }
-
-            if (String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson))
-            {
-                captain.RuntimeOptionsJson = null;
-            }
         }
     }
 }

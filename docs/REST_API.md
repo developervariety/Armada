@@ -2177,7 +2177,11 @@ Paginated enumeration of captains with optional filtering and sorting.
 
 #### POST /api/v1/captains
 
-Register a new captain (AI agent).
+Register a new captain (AI agent). REST, WebSocket `create_captain` and MCP `armada_create_captain` run one shared
+create: a name another captain has is refused (`409`), runtime options are kept only for a Mux captain, and the runtime
+and model are validated first. A validation failure refuses the create (`400`, for example an `ApiEndpoint` captain with
+no `ModelEndpointId`); a provider credit, authentication or quota failure cannot be verified now, so the captain is kept
+and a warning is logged.
 
 **Request Body:** [Captain](#captain)
 
@@ -2242,7 +2246,9 @@ Get a single captain by ID.
 #### PUT /api/v1/captains/{id}
 
 Replace a captain's configuration fields: the same fields that
-[POST /api/v1/captains](#post-apiv1captains) accepts. A configuration field left out
+[POST /api/v1/captains](#post-apiv1captains) accepts. When the runtime, model, model endpoint or credentials change,
+the result is validated by the same shared rule as a create (WebSocket `update_captain` and MCP
+`armada_update_captain` run it too); a rejected model returns `400` and changes nothing. A configuration field left out
 of the body is cleared, except `RuntimeOptionsJson` on a Mux captain, which is kept.
 Server-owned fields always keep their stored values, so an update never changes
 state, assignment, process, heartbeat or quarantine. A body may repeat a stored

@@ -725,6 +725,7 @@ namespace Armada.Server
             // REST, MCP and WebSocket share one captain stop-all, deletion and restart service.
             _CaptainAdministration = new CaptainAdministrationService(_Database, _Admiral.RecallCaptainAsync, _Logging);
             _CaptainAdministration.StopProcess = _AgentLifecycle.HandleStopAgentAsync;
+            _CaptainAdministration.ValidateModel = _AgentLifecycle.ValidateCaptainModelAsync;
             _CaptainAdministration.AttachSessionCoordinators(_PlanningSessions, _ObjectiveRefinementSessions);
             _WebSocketHub.SetCaptainAdministration(_CaptainAdministration);
 

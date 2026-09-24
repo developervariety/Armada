@@ -20,9 +20,9 @@ namespace Armada.Test.Unit.Suites.Routes
     using SyslogLogging;
 
     /// <summary>
-    /// Tests for armada_update_captain model-validation gating: metadata-only edits skip live validation,
-    /// model/runtime changes invoke validation, credit/auth failures are soft with "cannot verify now" note,
-    /// and genuine model errors reject.
+    /// Tests for captain model-validation gating in the shared captain create and update that REST, WebSocket and MCP
+    /// call: metadata-only edits skip live validation, model/runtime changes invoke validation, credit/auth failures
+    /// are soft with a "cannot verify now" note, and genuine model errors reject.
     /// </summary>
     public sealed class CaptainUpdateValidationTests : TestSuite
     {
@@ -174,32 +174,36 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
-            await RunTest("PostHandler_SoftFailure_UsesQuotaAndCreditDetectors", () =>
+            await RunTest("CreateAsync_CreditOrQuotaValidationFailure_KeepsTheCaptainWithAWarning", async () =>
             {
-                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
-                AssertContains("ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(createValidationError)", routes,
-                    "POST soft-failure branch must classify credit/auth bench signals");
-                AssertContains("ProviderQuotaLimitDetector.IsQuotaLimitSignal(createValidationError)", routes,
-                    "POST soft-failure branch must classify quota limit signals");
-                return Task.CompletedTask;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    foreach (string error in new[] { "insufficient credit balance", "rate limit: usage quota exceeded" })
+                    {
+                        CaptainAdministrationService administration = CreateAdministration(testDb.Driver, error);
+                        string name = "soft-create-" + Guid.NewGuid().ToString("N");
+                        CaptainWriteResult result = await administration.CreateAsync(
+                            new Captain(name, AgentRuntimeEnum.Codex) { Model = "any-model" }, "default", "default").ConfigureAwait(false);
+
+                        AssertTrue(result.Succeeded, "a provider credit or quota failure cannot be verified now, so the create is kept: " + error);
+                        AssertEqual(error, result.CannotVerifyReason, "the reason the model could not be verified is reported");
+                        AssertNotNull(await testDb.Driver.Captains.ReadByNameAsync(name).ConfigureAwait(false), "the captain is stored");
+                    }
+                }
             });
 
-            await RunTest("PostHandler_HardFailure_Returns400", () =>
+            await RunTest("CreateAsync_OtherValidationFailure_IsRefusedAndStoresNothing", async () =>
             {
-                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
-                AssertContains("if (!isSoftFailure)", routes, "POST handler must branch hard vs soft validation failures");
-                AssertContains("req.Http.Response.StatusCode = 400", routes, "Hard validation failures must return HTTP 400");
-                return Task.CompletedTask;
-            });
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    CaptainAdministrationService administration = CreateAdministration(testDb.Driver, "model 'bad-model' is not available");
+                    CaptainWriteResult result = await administration.CreateAsync(
+                        new Captain("hard-create", AgentRuntimeEnum.Codex) { Model = "bad-model" }, "default", "default").ConfigureAwait(false);
 
-            await RunTest("PostHandler_SoftFailure_LogsWarningAndPersists", () =>
-            {
-                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
-                AssertContains("_Logging?.Warn(_Header + \"model validation cannot be verified for new captain", routes,
-                    "POST soft-failure path must emit structured warning logging");
-                AssertContains("captain = await _database.Captains.CreateAsync(captain)", routes,
-                    "POST handler must persist captain after soft validation failure");
-                return Task.CompletedTask;
+                    AssertFalse(result.Succeeded, "a model the runtime rejects refuses the create");
+                    AssertEqual(CaptainWriteResult.InvalidModelCode, result.Code, "the refusal is a model refusal");
+                    AssertNull(await testDb.Driver.Captains.ReadByNameAsync("hard-create").ConfigureAwait(false), "nothing is stored");
+                }
             });
 
             await RunTest("GetCaptain_ApiKey_IsMasked", async () =>
@@ -281,39 +285,50 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
-            await RunTest("PutHandler_UsesCaseInsensitiveModelComparison", () =>
+            await RunTest("UpdateAsync_SameModelInAnotherCase_SkipsValidation", async () =>
             {
-                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
-                AssertContains("StringComparison.OrdinalIgnoreCase", routes, "PUT handler should compare models without case sensitivity");
-                return Task.CompletedTask;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    int calls = 0;
+                    CaptainAdministrationService administration = CreateAdministration(testDb.Driver, "model is not available", () => calls++);
+                    Captain stored = await testDb.Driver.Captains.CreateAsync(new Captain("case-model", AgentRuntimeEnum.Codex) { Model = "Claude-Sonnet-4" }).ConfigureAwait(false);
+                    CaptainWriteResult result = await administration.UpdateAsync(
+                        stored, new Captain("case-model", AgentRuntimeEnum.Codex) { Model = "claude-sonnet-4" }).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "an update that changes only the model's case is kept");
+                    AssertEqual(0, calls, "a model that differs only in case is not validated again");
+                }
             });
 
-            await RunTest("PutHandler_SoftFailure_UsesQuotaAndCreditDetectors", () =>
+            await RunTest("UpdateAsync_CreditOrQuotaValidationFailure_KeepsTheEditWithAWarning", async () =>
             {
-                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
-                AssertContains("ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(updateValidationError)", routes,
-                    "PUT soft-failure branch must classify credit/auth bench signals");
-                AssertContains("ProviderQuotaLimitDetector.IsQuotaLimitSignal(updateValidationError)", routes,
-                    "PUT soft-failure branch must classify quota limit signals");
-                return Task.CompletedTask;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    CaptainAdministrationService administration = CreateAdministration(testDb.Driver, "authentication failed: invalid_api_key");
+                    Captain stored = await testDb.Driver.Captains.CreateAsync(new Captain("soft-update", AgentRuntimeEnum.Codex) { Model = "old-model" }).ConfigureAwait(false);
+                    CaptainWriteResult result = await administration.UpdateAsync(
+                        stored, new Captain("soft-update", AgentRuntimeEnum.Codex) { Model = "new-model" }).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "a provider authentication failure cannot be verified now, so the edit is kept");
+                    AssertNotNull(result.CannotVerifyReason, "the reason is reported");
+                    Captain? reloaded = await testDb.Driver.Captains.ReadAsync(stored.Id).ConfigureAwait(false);
+                    AssertEqual("new-model", reloaded!.Model, "the edit is stored");
+                }
             });
 
-            await RunTest("PutHandler_HardFailure_Returns400", () =>
+            await RunTest("UpdateAsync_OtherValidationFailure_IsRefusedAndKeepsTheStoredCaptain", async () =>
             {
-                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
-                AssertContains("if (!isSoftFailure)", routes, "PUT handler must branch hard vs soft validation failures");
-                AssertContains("req.Http.Response.StatusCode = 400", routes, "Hard validation failures must return HTTP 400");
-                return Task.CompletedTask;
-            });
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    CaptainAdministrationService administration = CreateAdministration(testDb.Driver, "model 'bad-model' is not available");
+                    Captain stored = await testDb.Driver.Captains.CreateAsync(new Captain("hard-update", AgentRuntimeEnum.Codex) { Model = "good-model" }).ConfigureAwait(false);
+                    CaptainWriteResult result = await administration.UpdateAsync(
+                        stored, new Captain("hard-update", AgentRuntimeEnum.Codex) { Model = "bad-model" }).ConfigureAwait(false);
 
-            await RunTest("PutHandler_SoftFailure_LogsWarningAndPersists", () =>
-            {
-                string routes = ReadRepositoryFile("src", "Armada.Server", "Routes", "CaptainRoutes.cs");
-                AssertContains("_Logging?.Warn(_Header + \"model validation cannot be verified for captain \"", routes,
-                    "PUT soft-failure path must emit structured warning logging");
-                AssertContains("updated = await _database.Captains.UpdateAsync(updated)", routes,
-                    "PUT handler must persist captain after soft validation failure");
-                return Task.CompletedTask;
+                    AssertFalse(result.Succeeded, "a model the runtime rejects refuses the update");
+                    Captain? reloaded = await testDb.Driver.Captains.ReadAsync(stored.Id).ConfigureAwait(false);
+                    AssertEqual("good-model", reloaded!.Model, "the stored captain is unchanged");
+                }
             });
 
             await RunTest("McpHandler_CloneForOptionsBaseline_IncludesModel", () =>
@@ -497,6 +512,17 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertFalse(resultJson.Contains("\"content\"", StringComparison.Ordinal), "Same-model case-insensitive update should not error");
                 }
             });
+        }
+
+        private static CaptainAdministrationService CreateAdministration(DatabaseDriver database, string validationError, Action? onValidate = null)
+        {
+            CaptainAdministrationService administration = new CaptainAdministrationService(database, (_, _) => Task.CompletedTask);
+            administration.ValidateModel = (_, _) =>
+            {
+                onValidate?.Invoke();
+                return Task.FromResult<string?>(validationError);
+            };
+            return administration;
         }
 
         private static async Task<Captain> CreateCaptainAsync(DatabaseDriver database, AgentRuntimeEnum runtime, string? model)

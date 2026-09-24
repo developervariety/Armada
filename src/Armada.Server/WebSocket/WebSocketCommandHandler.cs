@@ -1030,14 +1030,14 @@ namespace Armada.Server.WebSocket
                 JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, null);
             if (createOwnedFieldError != null)
                 return new { type = "command.error", action = "create_captain", error = createOwnedFieldError };
-            string? nameConflict = await CaptainNameRule.FindCreateConflictAsync(_Database.Captains, newCaptainInput.Name).ConfigureAwait(false);
-            if (nameConflict != null)
-                return new { type = "command.error", action = "create_captain", error = nameConflict };
-            Captain captainToCreate = CaptainInputMapping.ForCreate(newCaptainInput);
-            captainToCreate.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
-            captainToCreate.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
-            Captain newCaptain = await _Database.Captains.CreateAsync(captainToCreate).ConfigureAwait(false);
-            return new { type = "command.result", action = "create_captain", data = (object)newCaptain };
+            // The shared captain create REST and MCP use: the name rule, runtime-option normalization and model validation.
+            CaptainWriteResult created = await CaptainAdministration.CreateAsync(
+                newCaptainInput,
+                Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller),
+                Armada.Core.Authorization.OwnershipPolicy.UserOf(caller)).ConfigureAwait(false);
+            if (!created.Succeeded)
+                return new { type = "command.error", action = "create_captain", error = created.Message, code = created.Code };
+            return new { type = "command.result", action = "create_captain", data = (object)created.Captain! };
         }
 
         /// <summary>
@@ -1058,8 +1058,11 @@ namespace Armada.Server.WebSocket
                     JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, existCpt);
                 if (updateOwnedFieldError != null)
                     return new { type = "command.error", action = "update_captain", error = updateOwnedFieldError };
-                Captain updCpt = await _Database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(existCpt, updCptInput)).ConfigureAwait(false);
-                return new { type = "command.result", action = "update_captain", data = (object)updCpt };
+                // The shared captain update REST and MCP use: runtime-option normalization and model validation.
+                CaptainWriteResult updated = await CaptainAdministration.UpdateAsync(existCpt, updCptInput).ConfigureAwait(false);
+                if (!updated.Succeeded)
+                    return new { type = "command.error", action = "update_captain", error = updated.Message, code = updated.Code };
+                return new { type = "command.result", action = "update_captain", data = (object)updated.Captain! };
             }
         }
 
