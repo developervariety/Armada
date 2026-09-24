@@ -237,8 +237,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             item.VoyageId = NullableString(reader["voyage_id"]); item.VesselId = NullableString(reader["vessel_id"]); item.MergeEntryId = NullableString(reader["merge_entry_id"]);
             item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = NullableString(reader["suggested_follow_ups"]);
             item.AuditVerdict = reader["audit_verdict"].ToString()!; item.AuditNotes = NullableString(reader["audit_notes"]); item.AuditRecommendedAction = NullableString(reader["audit_recommended_action"]);
-            item.AuditCompletedUtc = reader["audit_completed_utc"] == DBNull.Value ? null : Convert.ToDateTime(reader["audit_completed_utc"]);
-            item.CreatedUtc = Convert.ToDateTime(reader["created_utc"]); item.LastUpdateUtc = Convert.ToDateTime(reader["last_update_utc"]);
+            item.AuditCompletedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["audit_completed_utc"]);
+            item.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]); item.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return item;
         }
 

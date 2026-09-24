@@ -85,6 +85,12 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **PostgreSQL timestamps read as UTC:** objective `CreatedUtc` and
+  `LastUpdateUtc`, model endpoint timestamps and Judge follow-up timestamps read
+  through the shared PostgreSQL UTC reader, so they carry `DateTimeKind.Utc` as
+  on the other providers and serialize with a `Z`. The database runner checks
+  the kind and value of the objective and model endpoint timestamps after a
+  reopen.
 - **Tenant scope for ids in request bodies:** voyage and mission create, mission
   update, vessel create and update, vessel build-context, merge-queue enqueue,
   incident create and update, and planning-session create read every record their

@@ -350,8 +350,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 LastHealthCheckUtc = NullableDateTime(reader["last_health_check_utc"]),
                 LastHealthError = NullableString(reader["last_health_error"]),
                 LastLatencyMs = NullableLong(reader["last_latency_ms"]),
-                CreatedUtc = (DateTime)reader["created_utc"],
-                LastUpdateUtc = (DateTime)reader["last_update_utc"]
+                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
 
             endpoint.ApiKey = NullableString(reader["api_key"]);
@@ -389,8 +389,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         private static DateTime? NullableDateTime(object value)
         {
-            if (value == null || value == DBNull.Value) return null;
-            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
+            return PostgresqlDatabaseDriver.ReadUtcNullable(value);
         }
 
         private static int? NullableInt(object value)

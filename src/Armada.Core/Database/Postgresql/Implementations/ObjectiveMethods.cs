@@ -383,8 +383,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 SourceId = NullableString(reader["source_id"]),
                 SourceUrl = NullableString(reader["source_url"]),
                 SourceUpdatedUtc = NullableDateTime(reader["source_updated_utc"]),
-                CreatedUtc = (DateTime)reader["created_utc"],
-                LastUpdateUtc = (DateTime)reader["last_update_utc"],
+                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]),
                 CompletedUtc = NullableDateTime(reader["completed_utc"])
             };
 

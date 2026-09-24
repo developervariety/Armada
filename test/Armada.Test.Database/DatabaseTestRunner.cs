@@ -227,6 +227,7 @@ namespace Armada.Test.Database
             DatabaseAssert.Equal(ScopeEnum.TenantWide, reopened.Scope, "Updated scope survives reopen");
             DatabaseAssert.True(reopened.LastHealthError == null, "Nullable health error clears");
             DatabaseAssert.Equal(0, reopened.HealthHistory.Count, "Health history clears");
+            DatabaseAssert.UtcInstant(created.CreatedUtc, reopened.CreatedUtc, "Reopened ModelEndpoint.CreatedUtc");
                 ModelEndpoint other = new ModelEndpoint { Id = secondLongId, TenantId = endpoint.TenantId, UserId = "other-user", Name = "Other", Scope = ScopeEnum.UserSpecific, BaseUrl = "http://localhost:9998" };
                 await reopenedDriver.ModelEndpoints.CreateAsync(other, token).ConfigureAwait(false);
                 ModelEndpoint otherStored = DatabaseAssert.NotNull(await reopenedDriver.ModelEndpoints.ReadAsync(other.Id, token).ConfigureAwait(false), "Second model endpoint survives create");
@@ -2939,7 +2940,10 @@ namespace Armada.Test.Database
                     DatabaseAssert.Equal(ObjectivePreparationClaimStateEnum.NeedsRecheck, persisted.Preparation.Claims[0].State, "Objective preparation invalidation persists");
                     DatabaseAssert.Equal("Fixture anchor changed.", persisted.Preparation.Claims[0].InvalidationReason, "Objective invalidation evidence persists");
                     DatabaseAssert.Equal(parent.Id, persisted.BlockedByObjectiveIds[0], "Objective blocker persists");
+                    DatabaseAssert.UtcInstant(updated.CreatedUtc, persisted.CreatedUtc, "Reopened Objective.CreatedUtc");
+                    DatabaseAssert.UtcInstant(updated.LastUpdateUtc, persisted.LastUpdateUtc, "Reopened Objective.LastUpdateUtc");
                 }
+                DatabaseAssert.UtcInstant(objectiveA.CreatedUtc, read.CreatedUtc, "Objective.CreatedUtc");
 
                 List<Objective> tenantObjectives = await _Driver.Objectives.EnumerateAsync(tenant.Id, token).ConfigureAwait(false);
                 DatabaseAssert.ContainsIds(tenantObjectives, item => item.Id, parent.Id, objectiveA.Id, objectiveB.Id);

@@ -25,6 +25,30 @@ namespace Armada.Test.Database
             }
         }
 
+        /// <summary>
+        /// A stored timestamp reads back as the same instant, tagged UTC. An unspecified kind is
+        /// treated as local time by serializers and ToUniversalTime, so it fails even when the digits match.
+        /// </summary>
+        public static void UtcInstant(DateTime expected, DateTime actual, string fieldName)
+        {
+            if (actual.Kind != DateTimeKind.Utc)
+                throw new Exception(fieldName + " kind mismatch: expected 'Utc' got '" + actual.Kind + "'");
+            TimeSpan difference = expected.ToUniversalTime() - actual;
+            if (difference.Duration() > TimeSpan.FromMilliseconds(1))
+                throw new Exception(fieldName + " mismatch: expected '" + expected.ToUniversalTime().ToString("O") + "' got '" + actual.ToString("O") + "'");
+        }
+
+        public static void UtcInstant(DateTime? expected, DateTime? actual, string fieldName)
+        {
+            if (expected == null || actual == null)
+            {
+                if (expected != null || actual != null)
+                    throw new Exception(fieldName + " mismatch: expected '" + expected + "' got '" + actual + "'");
+                return;
+            }
+            UtcInstant(expected.Value, actual.Value, fieldName);
+        }
+
         public static void HasPrefix(string value, string prefix, string fieldName)
         {
             if (String.IsNullOrEmpty(value) || !value.StartsWith(prefix))
