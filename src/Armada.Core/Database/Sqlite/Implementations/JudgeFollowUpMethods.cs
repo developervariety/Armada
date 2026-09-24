@@ -242,27 +242,22 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             JudgeFollowUp item = new JudgeFollowUp();
             item.Id = reader["id"].ToString()!;
-            item.TenantId = NullableString(reader["tenant_id"]);
-            item.UserId = NullableString(reader["user_id"]);
+            item.TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]);
+            item.UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]);
             item.JudgeMissionId = reader["judge_mission_id"].ToString()!;
             item.ReviewedMissionId = reader["reviewed_mission_id"].ToString()!;
-            item.VoyageId = NullableString(reader["voyage_id"]);
-            item.VesselId = NullableString(reader["vessel_id"]);
-            item.MergeEntryId = NullableString(reader["merge_entry_id"]);
+            item.VoyageId = SqliteDatabaseDriver.NullableString(reader["voyage_id"]);
+            item.VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]);
+            item.MergeEntryId = SqliteDatabaseDriver.NullableString(reader["merge_entry_id"]);
             item.JudgeVerdict = reader["judge_verdict"].ToString()!;
-            item.SuggestedFollowUps = NullableString(reader["suggested_follow_ups"]);
+            item.SuggestedFollowUps = SqliteDatabaseDriver.NullableString(reader["suggested_follow_ups"]);
             item.AuditVerdict = reader["audit_verdict"].ToString()!;
-            item.AuditNotes = NullableString(reader["audit_notes"]);
-            item.AuditRecommendedAction = NullableString(reader["audit_recommended_action"]);
+            item.AuditNotes = SqliteDatabaseDriver.NullableString(reader["audit_notes"]);
+            item.AuditRecommendedAction = SqliteDatabaseDriver.NullableString(reader["audit_recommended_action"]);
             item.AuditCompletedUtc = reader["audit_completed_utc"] == DBNull.Value ? null : SqliteDatabaseDriver.FromIso8601(reader["audit_completed_utc"].ToString()!);
             item.CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
             item.LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
             return item;
-        }
-
-        private static string? NullableString(object value)
-        {
-            return value == DBNull.Value ? null : value.ToString();
         }
     }
 }

@@ -219,16 +219,14 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static JudgeFollowUp FromReader(MySqlDataReader reader)
         {
             JudgeFollowUp item = new JudgeFollowUp();
-            item.Id = reader["id"].ToString()!; item.TenantId = NullableString(reader["tenant_id"]); item.UserId = NullableString(reader["user_id"]);
+            item.Id = reader["id"].ToString()!; item.TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]); item.UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]);
             item.JudgeMissionId = reader["judge_mission_id"].ToString()!; item.ReviewedMissionId = reader["reviewed_mission_id"].ToString()!;
-            item.VoyageId = NullableString(reader["voyage_id"]); item.VesselId = NullableString(reader["vessel_id"]); item.MergeEntryId = NullableString(reader["merge_entry_id"]);
-            item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = NullableString(reader["suggested_follow_ups"]); item.AuditVerdict = reader["audit_verdict"].ToString()!;
-            item.AuditNotes = NullableString(reader["audit_notes"]); item.AuditRecommendedAction = NullableString(reader["audit_recommended_action"]);
+            item.VoyageId = MysqlDatabaseDriver.NullableString(reader["voyage_id"]); item.VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]); item.MergeEntryId = MysqlDatabaseDriver.NullableString(reader["merge_entry_id"]);
+            item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = MysqlDatabaseDriver.NullableString(reader["suggested_follow_ups"]); item.AuditVerdict = reader["audit_verdict"].ToString()!;
+            item.AuditNotes = MysqlDatabaseDriver.NullableString(reader["audit_notes"]); item.AuditRecommendedAction = MysqlDatabaseDriver.NullableString(reader["audit_recommended_action"]);
             item.AuditCompletedUtc = reader["audit_completed_utc"] == DBNull.Value ? null : MysqlDatabaseDriver.ReadUtc(reader["audit_completed_utc"]);
             item.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]); item.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
             return item;
         }
-
-        private static string? NullableString(object value) => value == DBNull.Value ? null : value.ToString();
     }
 }

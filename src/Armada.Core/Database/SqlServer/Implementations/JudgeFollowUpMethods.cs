@@ -223,16 +223,14 @@ namespace Armada.Core.Database.SqlServer.Implementations
         private static JudgeFollowUp FromReader(SqlDataReader reader)
         {
             JudgeFollowUp item = new JudgeFollowUp();
-            item.Id = reader["id"].ToString()!; item.TenantId = NullableString(reader["tenant_id"]); item.UserId = NullableString(reader["user_id"]);
+            item.Id = reader["id"].ToString()!; item.TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]); item.UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]);
             item.JudgeMissionId = reader["judge_mission_id"].ToString()!; item.ReviewedMissionId = reader["reviewed_mission_id"].ToString()!;
-            item.VoyageId = NullableString(reader["voyage_id"]); item.VesselId = NullableString(reader["vessel_id"]); item.MergeEntryId = NullableString(reader["merge_entry_id"]);
-            item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = NullableString(reader["suggested_follow_ups"]); item.AuditVerdict = reader["audit_verdict"].ToString()!;
-            item.AuditNotes = NullableString(reader["audit_notes"]); item.AuditRecommendedAction = NullableString(reader["audit_recommended_action"]);
+            item.VoyageId = SqlServerDatabaseDriver.NullableString(reader["voyage_id"]); item.VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]); item.MergeEntryId = SqlServerDatabaseDriver.NullableString(reader["merge_entry_id"]);
+            item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = SqlServerDatabaseDriver.NullableString(reader["suggested_follow_ups"]); item.AuditVerdict = reader["audit_verdict"].ToString()!;
+            item.AuditNotes = SqlServerDatabaseDriver.NullableString(reader["audit_notes"]); item.AuditRecommendedAction = SqlServerDatabaseDriver.NullableString(reader["audit_recommended_action"]);
             item.AuditCompletedUtc = reader["audit_completed_utc"] == DBNull.Value ? null : SqlServerDatabaseDriver.FromIso8601(reader["audit_completed_utc"].ToString()!);
             item.CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!); item.LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
             return item;
         }
-
-        private static string? NullableString(object value) => value == DBNull.Value ? null : value.ToString();
     }
 }

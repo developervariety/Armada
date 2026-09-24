@@ -352,6 +352,18 @@ namespace Armada.Test.Database
                 {
                     DatabaseAssert.AllProperties(updated, await reopened.JudgeFollowUps.ReadAsync(stored.Id, token).ConfigureAwait(false), "Reopened JudgeFollowUp");
                 }
+
+                // Every provider reads an empty optional text column as null, as it does for every other record.
+                updated.SuggestedFollowUps = "";
+                updated.AuditNotes = "";
+                updated.AuditRecommendedAction = "";
+                updated.VoyageId = "";
+                await _Driver.JudgeFollowUps.UpdateAsync(updated, token).ConfigureAwait(false);
+                JudgeFollowUp emptied = DatabaseAssert.NotNull(await _Driver.JudgeFollowUps.ReadAsync(stored.Id, token).ConfigureAwait(false), "Follow-up with empty text");
+                DatabaseAssert.True(emptied.SuggestedFollowUps == null, "Empty suggested follow-ups read as null");
+                DatabaseAssert.True(emptied.AuditNotes == null, "Empty audit notes read as null");
+                DatabaseAssert.True(emptied.AuditRecommendedAction == null, "Empty recommended action reads as null");
+                DatabaseAssert.True(emptied.VoyageId == null, "Empty voyage id reads as null");
             }
             finally
             {

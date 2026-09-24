@@ -85,6 +85,10 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **Judge follow-up empty text:** every provider reads an empty optional Judge
+  follow-up text column (tenant, user, voyage, vessel, merge entry, suggested
+  follow-ups, audit notes, recommended action) as null, as it does for other
+  records. The database runner's follow-up case checks this on every provider.
 - **Scoped mission lists apply every filter:** tenant- and user-scoped mission
   lists apply the status, voyage, vessel, captain and mission filters on every
   provider; they applied only the creation-time filters and returned the rest
