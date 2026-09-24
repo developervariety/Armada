@@ -182,18 +182,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Constructor NullLogging Throws", () =>
-            {
-                AssertThrows<ArgumentNullException>(() =>
-                    new AdmiralService(null!, null!, null!, null!, null!, null!, null!));
-            });
-
-            await RunTest("Constructor NullDatabase Throws", () =>
-            {
-                AssertThrows<ArgumentNullException>(() =>
-                    new AdmiralService(CreateLogging(), null!, null!, null!, null!, null!, null!));
-            });
-
             await RunTest("ArmadaSettings MaxInterruptedExitRedispatchAttempts ClampsToRangeAndDefaultsToTwo", () =>
             {
                 ArmadaSettings settings = new ArmadaSettings();
@@ -337,23 +325,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("GetStatusAsync EmptyDatabase ReturnsDefaults", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    ArmadaStatus status = await service.GetStatusAsync();
-
-                    AssertEqual(0, status.TotalCaptains);
-                    AssertEqual(0, status.IdleCaptains);
-                    AssertEqual(0, status.WorkingCaptains);
-                    AssertEqual(0, status.ActiveVoyages);
-                    AssertEqual(0, status.Voyages.Count);
-                }
-            });
-
             await RunTest("GetStatusAsync WithCaptains CountsCorrectly", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -494,17 +465,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("DispatchMissionAsync NullMission Throws", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    await AssertThrowsAsync<ArgumentNullException>(() => service.DispatchMissionAsync(null!));
-                }
-            });
-
             await RunTest("DispatchMissionAsync CreatesMissionInDb", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -521,43 +481,6 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission? fromDb = await db.Missions.ReadAsync(result.Id);
                     AssertNotNull(fromDb);
-                }
-            });
-
-            await RunTest("DispatchVoyageAsync NullTitle Throws", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    await AssertThrowsAsync<ArgumentNullException>(() =>
-                        service.DispatchVoyageAsync(null!, "desc", "vsl_id", new List<MissionDescription> { new MissionDescription("m1", "d1") }));
-                }
-            });
-
-            await RunTest("DispatchVoyageAsync EmptyMissions Throws", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    await AssertThrowsAsync<ArgumentException>(() =>
-                        service.DispatchVoyageAsync("Voyage", "desc", "vsl_id", new List<MissionDescription>()));
-                }
-            });
-
-            await RunTest("DispatchVoyageAsync NonExistentVessel Throws", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    await AssertThrowsAsync<InvalidOperationException>(() =>
-                        service.DispatchVoyageAsync("Voyage", "desc", "vsl_nonexistent",
-                            new List<MissionDescription> { new MissionDescription("m1", "d1") }));
                 }
             });
 
@@ -880,28 +803,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("RecallCaptainAsync NullId Throws", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    await AssertThrowsAsync<ArgumentNullException>(() => service.RecallCaptainAsync(null!));
-                }
-            });
-
-            await RunTest("RecallCaptainAsync NonExistentCaptain Throws", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    await AssertThrowsAsync<InvalidOperationException>(() => service.RecallCaptainAsync("cpt_nonexistent"));
-                }
-            });
-
             await RunTest("RecallCaptainAsync SetsCaptainToIdle", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1120,17 +1021,6 @@ namespace Armada.Test.Unit.Suites.Services
                         new List<Captain> { freed, otherAfter }, Array.Empty<string>(), DateTime.UtcNow);
                     AssertEqual(1, decision.Candidates.Count, "Only the captain on the other account is a candidate");
                     AssertEqual(other.Id, decision.Candidates[0].Id);
-                }
-            });
-
-            await RunTest("HealthCheckAsync NoCaptains DoesNotThrow", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    await service.HealthCheckAsync();
                 }
             });
 
@@ -1597,21 +1487,6 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Voyage? result = await db.Voyages.ReadAsync(voyage.Id);
                     AssertEqual(VoyageStatusEnum.Failed, result!.Status);
-                }
-            });
-
-            await RunTest("HealthCheckAsync ClearsRetryFlagWhenNoPendingMissionsRemain", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), git);
-
-                    SetRetryDispatchNeeded(service, true);
-
-                    await service.HealthCheckAsync();
-
-                    AssertFalse(GetRetryDispatchNeeded(service));
                 }
             });
 

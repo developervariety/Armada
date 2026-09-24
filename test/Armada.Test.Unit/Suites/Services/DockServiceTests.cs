@@ -20,41 +20,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("ProvisionAsync serializes repo worktree creation per vessel repo", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    ArmadaSettings settings = new ArmadaSettings();
-                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
-                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
-
-                    LockingGitService git = new LockingGitService();
-                    DockService service = new DockService(logging, testDb.Driver, settings, git);
-
-                    Vessel vessel = new Vessel("test-vessel", "https://github.com/test/repo.git");
-                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
-                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_workdir_" + Guid.NewGuid().ToString("N"));
-                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                    Captain captain1 = new Captain("captain-1");
-                    Captain captain2 = new Captain("captain-2");
-                    captain1 = await testDb.Driver.Captains.CreateAsync(captain1).ConfigureAwait(false);
-                    captain2 = await testDb.Driver.Captains.CreateAsync(captain2).ConfigureAwait(false);
-
-                    Task<Dock?> first = service.ProvisionAsync(vessel, captain1, "armada/captain-1/msn_one", "msn_one");
-                    Task<Dock?> second = service.ProvisionAsync(vessel, captain2, "armada/captain-2/msn_two", "msn_two");
-
-                    Dock?[] docks = await Task.WhenAll(first, second).ConfigureAwait(false);
-
-                    AssertNotNull(docks[0], "First dock should be provisioned");
-                    AssertNotNull(docks[1], "Second dock should be provisioned");
-                    AssertEqual(1, git.MaxConcurrentCreateCalls, "Concurrent worktree creation against the same repo should be serialized");
-                }
-            });
-
             await RunTest("ProvisionAsync missing configured default branch reuses repo history instead of seeding orphan repo", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

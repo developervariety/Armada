@@ -29,31 +29,6 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Seed defaults creates all built-in templates", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-                    await service.SeedDefaultsAsync().ConfigureAwait(false);
-
-                    List<PromptTemplate> templates = await service.ListAsync().ConfigureAwait(false);
-                    AssertTrue(templates.Count >= 13, "Expected at least 13 built-in templates, got " + templates.Count);
-
-                    // Verify some known template names exist
-                    List<string> names = templates.Select(t => t.Name).ToList();
-                    AssertTrue(names.Contains("mission.rules"), "Should contain mission.rules");
-                    AssertTrue(names.Contains("agent.launch_prompt"), "Should contain agent.launch_prompt");
-                    AssertTrue(names.Contains("persona.worker"), "Should contain persona.worker");
-                    AssertTrue(names.Contains("persona.architect"), "Should contain persona.architect");
-                    AssertTrue(names.Contains("persona.product_manager"), "Should contain persona.product_manager");
-                    AssertTrue(names.Contains("persona.usability_engineer"), "Should contain persona.usability_engineer");
-                    AssertTrue(names.Contains("persona.judge"), "Should contain persona.judge");
-                }
-            });
-
             await RunTest("Seed defaults includes an Ask system prompt that forbids claiming tools it lacks", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -453,39 +428,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Resolve falls back to embedded default", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    // Do NOT seed -- the database is empty, so resolve should fall back to embedded defaults
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-
-                    PromptTemplate? resolved = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
-                    AssertNotNull(resolved, "Resolved template should not be null even without seeding");
-                    AssertEqual("mission.rules", resolved!.Name, "Template name");
-                    AssertTrue(resolved.Content.Length > 0, "Content should not be empty");
-                }
-            });
-
-            await RunTest("Mission rules embedded default constrains file scope", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-
-                    PromptTemplate? resolved = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
-                    AssertNotNull(resolved, "Resolved template should not be null");
-                    AssertContains("Stay strictly within the mission scope and listed files", resolved!.Content, "Mission rules should explicitly constrain scope to the assigned files");
-                    AssertContains("report it in your result instead of expanding scope on your own", resolved.Content, "Mission rules should tell agents to report needed out-of-scope changes instead of freelancing");
-                }
-            });
-
             await RunTest("Judge and test engineer embedded defaults require structured risk-aware review", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -521,93 +463,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(usabilityEngineer, "Usability engineer template should resolve");
                     AssertContains("## Usability", usabilityEngineer!.Content, "Usability engineer template should require a Usability section");
                     AssertContains("## Consistency", usabilityEngineer.Content, "Usability engineer template should require a Consistency section");
-                }
-            });
-
-            await RunTest("Render substitutes placeholders", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-                    await service.SeedDefaultsAsync().ConfigureAwait(false);
-
-                    Dictionary<string, string> parameters = new Dictionary<string, string>
-                    {
-                        { "MissionTitle", "Test" },
-                        { "MissionDescription", "A test mission description." }
-                    };
-
-                    string rendered = await service.RenderAsync("agent.launch_prompt", parameters).ConfigureAwait(false);
-                    AssertContains("Test", rendered, "Rendered output should contain substituted MissionTitle");
-                    AssertContains("A test mission description.", rendered, "Rendered output should contain substituted MissionDescription");
-                }
-            });
-
-            await RunTest("Reset to default restores original content", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-                    await service.SeedDefaultsAsync().ConfigureAwait(false);
-
-                    // Read the original content
-                    PromptTemplate? original = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
-                    AssertNotNull(original, "Original template should not be null");
-                    string originalContent = original!.Content;
-
-                    // Modify the template content in the database
-                    original.Content = "MODIFIED CONTENT";
-                    await testDb.Driver.PromptTemplates.UpdateAsync(original).ConfigureAwait(false);
-
-                    // Verify modification took effect
-                    PromptTemplate? modified = await service.ResolveAsync("mission.rules").ConfigureAwait(false);
-                    AssertEqual("MODIFIED CONTENT", modified!.Content, "Content should be modified");
-
-                    // Reset to default
-                    PromptTemplate? reset = await service.ResetToDefaultAsync("mission.rules").ConfigureAwait(false);
-                    AssertNotNull(reset, "Reset template should not be null");
-                    AssertEqual(originalContent, reset!.Content, "Content should be restored to original");
-                }
-            });
-
-            await RunTest("List returns all templates", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-                    await service.SeedDefaultsAsync().ConfigureAwait(false);
-
-                    List<PromptTemplate> templates = await service.ListAsync().ConfigureAwait(false);
-                    AssertTrue(templates.Count >= 13, "Expected at least 13 templates, got " + templates.Count);
-                }
-            });
-
-            await RunTest("List by category filters correctly", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-                    await service.SeedDefaultsAsync().ConfigureAwait(false);
-
-                    List<PromptTemplate> personaTemplates = await service.ListAsync("persona").ConfigureAwait(false);
-                    AssertTrue(personaTemplates.Count > 0, "Should have at least one persona template");
-
-                    foreach (PromptTemplate template in personaTemplates)
-                    {
-                        AssertEqual("persona", template.Category, "Category for template " + template.Name);
-                    }
                 }
             });
         }

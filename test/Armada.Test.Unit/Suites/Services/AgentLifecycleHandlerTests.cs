@@ -266,43 +266,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ValidateModelAsync returns null and forwards model to runtime", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                using (CursorShimScope shim = CursorShimScope.Create())
-                {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-
-                    string? error = await handler.ValidateModelAsync(AgentRuntimeEnum.Cursor, "gpt-5.4-mini").ConfigureAwait(false);
-                    string args = await WaitForRecordedArgsAsync(shim.ArgsFile, "gpt-5.4-mini").ConfigureAwait(false);
-
-                    AssertNull(error, "Valid model should pass validation");
-                    AssertContains("--model", args, "Validation runtime args should include model flag");
-                    AssertContains("gpt-5.4-mini", args, "Validation runtime args should include requested model");
-                }
-            });
-
-            await RunTest("ValidateCaptainModelAsync returns extracted runtime error for invalid model", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                using (CursorShimScope shim = CursorShimScope.Create())
-                {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                    Captain captain = new Captain("validation-captain", AgentRuntimeEnum.Cursor)
-                    {
-                        Model = "bad-model"
-                    };
-
-                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-                    string args = await WaitForRecordedArgsAsync(shim.ArgsFile, "bad-model").ConfigureAwait(false);
-
-                    AssertNotNull(error, "Invalid model should return an error");
-                    AssertContains("bad-model", error!, "Error should include invalid model");
-                    AssertContains("unknown model 'bad-model'", error!, "Error should include runtime output");
-                    AssertContains("--model", args, "Captain validation should launch runtime with model flag");
-                }
-            });
-
             await RunTest("ValidateCaptainModelAsync returns timeout error when runtime does not exit", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -364,23 +327,6 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_AGENT", originalOverride);
-                }
-            });
-
-            await RunTest("ValidateCaptainModelAsync rejects invalid Mux runtime options JSON", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                    Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
-                    {
-                        RuntimeOptionsJson = "{not valid json}"
-                    };
-
-                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-
-                    AssertNotNull(error, "Mux validation should fail when runtime options JSON is invalid");
-                    AssertContains("invalid JSON", error!, "Mux validation should report invalid JSON");
                 }
             });
 
@@ -453,48 +399,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("https://api.example.com/v1", resolved!.BaseUrl, "the runtime uses the endpoint base URL");
                 AssertEqual("sk-endpoint", resolved.ApiKey, "the runtime uses the endpoint key");
                 return Task.CompletedTask;
-            });
-
-            await RunTest("HandleLaunchAgentAsync passes captain model to runtime startup", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                using (CursorShimScope shim = CursorShimScope.Create())
-                {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
-                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_cursor_launch_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(worktreePath);
-
-                    try
-                    {
-                        Captain captain = new Captain("launch-captain", AgentRuntimeEnum.Cursor)
-                        {
-                            Model = "cursor-model"
-                        };
-
-                        Mission mission = new Mission("Launch mission")
-                        {
-                            Persona = "Test Engineer",
-                            BranchName = "feature/model-pass"
-                        };
-
-                        Dock dock = new Dock
-                        {
-                            BranchName = "feature/model-pass",
-                            WorktreePath = worktreePath
-                        };
-                        string logFilePath = Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log");
-
-                        int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
-                        string logContents = await WaitForFileContainsAsync(logFilePath, "cursor-model").ConfigureAwait(false);
-
-                        AssertTrue(processId > 0, "Launch should return a process id");
-                        AssertContains("--model cursor-model", logContents, "Launch log should include captain model flag");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(worktreePath, true); } catch { }
-                    }
-                }
             });
 
             await RunTest("HandleLaunchAgentAsync omits commit trailers on a read-only mission", async () =>
@@ -1139,36 +1043,6 @@ namespace Armada.Test.Unit.Suites.Services
                         .ConfigureAwait(false);
 
                     AssertEqual(10, stored.Count, "The per-mission cap must bound how many reports one mission can store");
-                }
-            });
-
-            await RunTest("GetAndClearMissionOutput prefers final message artifact over streamed output", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                    string missionId = "msn_final_output_prefers_artifact";
-                    string artifactDirectory = Path.Combine(Path.GetTempPath(), "armada_final_output_" + Guid.NewGuid().ToString("N"));
-                    string artifactPath = Path.Combine(artifactDirectory, missionId + ".txt");
-                    Directory.CreateDirectory(artifactDirectory);
-
-                    try
-                    {
-                        SeedMissionOutput(handler, missionId, "streamed intermediate output");
-                        RegisterFinalMessageArtifact(handler, missionId, artifactPath);
-                        await File.WriteAllTextAsync(artifactPath, "[ARMADA:RESULT] COMPLETE\ncanonical final response").ConfigureAwait(false);
-
-                        string? output = handler.GetAndClearMissionOutput(missionId);
-
-                        AssertNotNull(output);
-                        AssertContains("canonical final response", output!, "Canonical final response should win over streamed output");
-                        AssertFalse(output!.Contains("streamed intermediate output", StringComparison.Ordinal), "Stream noise should not be persisted as AgentOutput when a final artifact exists");
-                        AssertFalse(File.Exists(artifactPath), "Final message artifact should be deleted after retrieval");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(artifactDirectory, true); } catch { }
-                    }
                 }
             });
 

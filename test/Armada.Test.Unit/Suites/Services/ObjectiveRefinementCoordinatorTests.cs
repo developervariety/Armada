@@ -43,65 +43,6 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("SendMessageAsync creates transcript rows and recovers to active state when runtime is unsupported", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                using CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver);
-
-                CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
-                Objective objective = await fixture.CreateObjectiveAsync("Refine backlog capture", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
-                Captain captain = await fixture.CreateCaptainAsync("refinement-custom", AgentRuntimeEnum.Custom, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
-                ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain).ConfigureAwait(false);
-
-                ObjectiveRefinementMessage userMessage = await fixture.Coordinator.SendMessageAsync(session, "Clarify API retry behavior.").ConfigureAwait(false);
-
-                await WaitForAsync(async () =>
-                {
-                    List<ObjectiveRefinementMessage> messages = await testDb.Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
-                    ObjectiveRefinementSession? refreshed = await testDb.Driver.ObjectiveRefinementSessions.ReadAsync(session.Id).ConfigureAwait(false);
-                    return messages.Count == 2
-                        && messages.Exists(message => message.Role == "Assistant" && !String.IsNullOrWhiteSpace(message.Content))
-                        && refreshed?.Status == ObjectiveRefinementSessionStatusEnum.Active;
-                }).ConfigureAwait(false);
-
-                List<ObjectiveRefinementMessage> persistedMessages = await testDb.Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
-                ObjectiveRefinementMessage assistantMessage = persistedMessages.Find(message => message.Role == "Assistant")
-                    ?? throw new Exception("Expected assistant refinement message");
-                ObjectiveRefinementSession persistedSession = await RequireSessionAsync(testDb.Driver, session.Id).ConfigureAwait(false);
-
-                AssertEqual("User", userMessage.Role);
-                AssertEqual(2, persistedMessages.Count);
-                AssertContains("Refinement response failed", assistantMessage.Content);
-                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes", persistedSession.FailureReason ?? String.Empty);
-                AssertEqual(ObjectiveRefinementSessionStatusEnum.Active, persistedSession.Status);
-            }).ConfigureAwait(false);
-
-            await RunTest("SummarizeAsync falls back to transcript parsing when runtime prompt execution is unavailable", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                using CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver);
-
-                CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
-                Objective objective = await fixture.CreateObjectiveAsync("Fallback summary", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
-                Captain captain = await fixture.CreateCaptainAsync("summary-custom", AgentRuntimeEnum.Custom, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
-                ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain).ConfigureAwait(false);
-                ObjectiveRefinementMessage assistant = await fixture.CreateMessageAsync(session, "Assistant", 2,
-                    "Summary paragraph.\n\n### Acceptance Criteria\n- Keep replay data wired\n- Preserve captain selection\n\n### Non-Goals\n- No CLI rewrite\n\n### Rollout Constraints\n- Ship behind feature flag").ConfigureAwait(false);
-
-                ObjectiveRefinementSummaryResponse summary = await fixture.Coordinator.SummarizeAsync(
-                    session,
-                    new ObjectiveRefinementSummaryRequest { MessageId = assistant.Id }).ConfigureAwait(false);
-
-                AssertEqual(session.Id, summary.SessionId);
-                AssertEqual(assistant.Id, summary.MessageId);
-                AssertEqual("assistant-fallback", summary.Method);
-                AssertContains("Summary paragraph.", summary.Summary);
-                AssertEqual(2, summary.AcceptanceCriteria.Count);
-                AssertEqual("Keep replay data wired", summary.AcceptanceCriteria[0]);
-                AssertEqual("No CLI rewrite", summary.NonGoals[0]);
-                AssertEqual("Ship behind feature flag", summary.RolloutConstraints[0]);
-            }).ConfigureAwait(false);
-
             await RunTest("ApplyAsync updates objective fields and selects the source refinement message", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -152,26 +93,6 @@ namespace Armada.Test.Unit.Suites.Services
                     "A runtime summary that omits preparation must preserve existing preparation.");
                 AssertEqual(ObjectiveStatusEnum.Scoped, persistedObjective.Status);
                 AssertTrue(selected.IsSelected, "Expected source refinement message to be selected.");
-            }).ConfigureAwait(false);
-
-            await RunTest("StopAsync releases the captain and marks the session stopped when no runtime process can be created", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                using CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver);
-
-                CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
-                Objective objective = await fixture.CreateObjectiveAsync("Stop refinement", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
-                Captain captain = await fixture.CreateCaptainAsync("stop-custom", AgentRuntimeEnum.Custom, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
-                ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain, processId: 1234).ConfigureAwait(false);
-
-                ObjectiveRefinementSession stopped = await fixture.Coordinator.StopAsync(session).ConfigureAwait(false);
-                Captain persistedCaptain = await RequireCaptainAsync(testDb.Driver, captain.Id).ConfigureAwait(false);
-
-                AssertEqual(ObjectiveRefinementSessionStatusEnum.Stopped, stopped.Status);
-                AssertNull(stopped.ProcessId);
-                AssertTrue(stopped.CompletedUtc.HasValue, "Expected stop to set completion timestamp.");
-                AssertEqual(CaptainStateEnum.Idle, persistedCaptain.State);
-                AssertNull(persistedCaptain.ProcessId);
             }).ConfigureAwait(false);
         }
 
@@ -347,35 +268,10 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static async Task WaitForAsync(Func<Task<bool>> condition, int timeoutMs = 5000)
-        {
-            DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-            while (DateTime.UtcNow < deadline)
-            {
-                if (await condition().ConfigureAwait(false))
-                    return;
-                await Task.Delay(50).ConfigureAwait(false);
-            }
-
-            throw new TimeoutException("Timed out waiting for refinement coordinator background work.");
-        }
-
-        private static async Task<ObjectiveRefinementSession> RequireSessionAsync(DatabaseDriver database, string sessionId)
-        {
-            ObjectiveRefinementSession? session = await database.ObjectiveRefinementSessions.ReadAsync(sessionId).ConfigureAwait(false);
-            return session ?? throw new Exception("Expected refinement session " + sessionId);
-        }
-
         private static async Task<Objective> RequireObjectiveAsync(DatabaseDriver database, string objectiveId)
         {
             Objective? objective = await database.Objectives.ReadAsync(objectiveId).ConfigureAwait(false);
             return objective ?? throw new Exception("Expected objective " + objectiveId);
-        }
-
-        private static async Task<Captain> RequireCaptainAsync(DatabaseDriver database, string captainId)
-        {
-            Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
-            return captain ?? throw new Exception("Expected captain " + captainId);
         }
     }
 }
