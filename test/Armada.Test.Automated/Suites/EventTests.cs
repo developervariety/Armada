@@ -369,11 +369,20 @@ namespace Armada.Test.Automated.Suites
                 string missionId = mission.Id;
                 await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
 
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?pageSize=10&pageNumber=100").ConfigureAwait(false);
+                // The page is chosen from the current total, so the case holds however many events earlier
+                // cases wrote, and the margin keeps it past the end if a background writer adds a few more.
+                const int pageSize = 10;
+                HttpResponseMessage countResponse = await _AuthClient.GetAsync("/api/v1/events?pageSize=" + pageSize + "&pageNumber=1").ConfigureAwait(false);
+                EnumerationResult<ArmadaEvent> countResult = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(countResponse).ConfigureAwait(false);
+                int beyondPage = countResult.TotalPages + 10;
+
+                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?pageSize=" + pageSize + "&pageNumber=" + beyondPage).ConfigureAwait(false);
                 EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
 
-                AssertEqual(0, result.Objects.Count);
                 AssertTrue(result.TotalRecords >= 1);
+                AssertTrue((long)(beyondPage - 1) * pageSize >= result.TotalRecords,
+                    "Page " + beyondPage + " is not past the last page of " + result.TotalRecords + " events.");
+                AssertEqual(0, result.Objects.Count);
             }).ConfigureAwait(false);
 
             await RunTest("ListEvents_Pagination_FirstPageHasCorrectEventIds", async () =>
