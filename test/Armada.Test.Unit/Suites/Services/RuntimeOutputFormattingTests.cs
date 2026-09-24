@@ -191,6 +191,46 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Mux_StreamedTextBecomesWholeLinesAndKeepsSplitMarkers", () =>
+            {
+                // A `mux print --output-format jsonl` stream: assistant text arrives one token per event, split
+                // mid-word, and the result marker is split across three events.
+                TestMuxRuntime runtime = new TestMuxRuntime();
+                List<string> records = new List<string>();
+                foreach (string line in MuxStreamFixture)
+                    records.AddRange(runtime.FormatRecords(line));
+                records.AddRange(runtime.ExitRecords());
+
+                List<string> text = records.Where(r => !r.StartsWith("[ARMADA:ACTIVITY]", StringComparison.Ordinal)).ToList();
+                AssertEqual(
+                    "I'll list the directory now.|The directory is empty.|[ARMADA:RESULT] COMPLETE|Nothing to report.",
+                    String.Join("|", text),
+                    "Each whole line of streamed text is one record");
+
+                int firstTool = records.FindIndex(r => r.StartsWith("[ARMADA:ACTIVITY]", StringComparison.Ordinal));
+                AssertTrue(firstTool == 1, "The line before the tool call is written before the tool record: " + String.Join("|", records));
+                AssertTrue(records.IndexOf("The directory is empty.") > firstTool, "Text after the tool call follows its record");
+
+                // The tool records are activity signals; the result marker must be detected exactly once.
+                List<ProgressParser.ProgressSignal> results = ProgressParser.ParseAll(String.Join("\n", records))
+                    .Where(signal => signal.Type == "result").ToList();
+                AssertEqual(1, results.Count, "The split marker is detected once");
+                AssertEqual("COMPLETE", results[0].Value);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Mux_UnfinishedStreamedLineIsWrittenAtExit", () =>
+            {
+                TestMuxRuntime runtime = new TestMuxRuntime();
+                AssertEqual(0, runtime.FormatRecords("{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"[ARMADA:RESULT] COMP\"}").Length, "An unfinished line is held");
+                AssertEqual(0, runtime.FormatRecords("{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"LETE\"}").Length, "Still no line break");
+                string[] exit = runtime.ExitRecords();
+                AssertEqual(1, exit.Length, "The held line is written when the process exits");
+                AssertEqual("[ARMADA:RESULT] COMPLETE", exit[0]);
+                AssertEqual(0, runtime.ExitRecords().Length, "A flushed line is not written twice");
+                return Task.CompletedTask;
+            });
+
             // Claude Code reports a call and its outcome as two events. The call is held until
             // the result arrives so the rendered line carries a status, like every other runtime.
             await RunTest("Claude_CorrelatesToolCallWithItsResult", () =>
@@ -607,6 +647,42 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 return TransformOutputLine(line);
             }
+
+            public string[] FormatRecords(string line)
+            {
+                return TransformOutputRecords(line).ToArray();
+            }
+
+            public string[] ExitRecords()
+            {
+                return BuildProcessExitRecords().ToArray();
+            }
         }
+
+        // Recorded from `mux print --output-format jsonl` against a scripted model that streams its reply in
+        // pieces and calls one tool; timestamps and run ids are shortened.
+        private static readonly string[] MuxStreamFixture = new[]
+        {
+            "{\"contractVersion\":2,\"eventType\":\"run_started\",\"runId\":\"r1\",\"model\":\"fake\",\"commandName\":\"print\",\"toolsEnabled\":true,\"builtInToolCount\":14,\"effectiveToolCount\":14,\"mcp\":{\"supported\":false,\"configured\":false,\"serverCount\":0}}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"I\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"\\u0027ll\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\" list\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\" the dir\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"ectory\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\" now\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\".\"}",
+            "{\"contractVersion\":2,\"eventType\":\"tool_call_proposed\",\"toolCall\":{\"id\":\"call_1\",\"name\":\"list_directory\",\"arguments\":{\"path\":\".\"}}}",
+            "{\"contractVersion\":2,\"eventType\":\"tool_call_approved\",\"toolCallId\":\"call_1\"}",
+            "{\"contractVersion\":2,\"eventType\":\"tool_call_completed\",\"toolCallId\":\"call_1\",\"toolName\":\"list_directory\",\"elapsedMs\":2,\"result\":{\"toolCallId\":\"call_1\",\"success\":true,\"content\":\"\"}}",
+            "{\"contractVersion\":2,\"eventType\":\"heartbeat\",\"stepNumber\":1}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"The dir\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"ectory is\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\" empty.\\n[ARMADA:RES\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"ULT] COM\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"PLETE\\nNo\"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"thing \"}",
+            "{\"contractVersion\":2,\"eventType\":\"assistant_text\",\"text\":\"to report.\"}",
+            "{\"contractVersion\":2,\"eventType\":\"run_completed\",\"runId\":\"r1\",\"status\":\"completed\",\"iterationsCompleted\":2,\"toolCallCount\":1,\"errorCount\":0,\"usage\":{\"inputTokens\":0,\"outputTokens\":0,\"totalTokens\":0,\"estimatedTokens\":4138}}",
+        };
     }
 }

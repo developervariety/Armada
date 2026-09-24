@@ -47,6 +47,15 @@ namespace Armada.Runtimes
 
         private string _ExecutablePath = "mux";
 
+        /// <summary>
+        /// Mux JSONL event type of one streamed piece of assistant text.
+        /// </summary>
+        private const string AssistantTextEventType = "assistant_text";
+
+        // Mux streams assistant text as one event per token, so the pieces are joined into whole lines
+        // before they become records; a protocol marker split across pieces then still starts a line.
+        private readonly StreamingTextLineAssembler _AssistantText = new StreamingTextLineAssembler();
+
         #endregion
 
         #region Constructors-and-Factories
@@ -122,23 +131,82 @@ namespace Armada.Runtimes
         /// </summary>
         protected override string TransformOutputLine(string line)
         {
+            return String.Join(Environment.NewLine, BuildRecords(line));
+        }
+
+        /// <summary>
+        /// Render one Mux JSONL event as zero or more mission-log records.
+        /// </summary>
+        protected override IEnumerable<string> TransformOutputRecords(string line)
+        {
+            return BuildRecords(line);
+        }
+
+        /// <summary>
+        /// Write the unfinished streamed line when the process exits without a later event.
+        /// </summary>
+        protected override IEnumerable<string> BuildProcessExitRecords()
+        {
+            List<string> records = new List<string>();
+            AppendFlushed(records);
+            return records;
+        }
+
+        /// <summary>
+        /// Build the records for one event. Streamed assistant text is emitted one whole line at a time; any
+        /// other event (a tool call, an error, the terminal run_completed) first writes the unfinished streamed
+        /// line so the text keeps its order.
+        /// </summary>
+        private List<string> BuildRecords(string line)
+        {
+            List<string> records = new List<string>();
             MuxEvent? evt = Deserialize(line);
             if (evt == null)
-                return line;
+            {
+                AppendFlushed(records);
+                records.Add(line);
+                return records;
+            }
+
+            if (String.Equals(evt.EventType, AssistantTextEventType, StringComparison.Ordinal))
+            {
+                foreach (string completed in _AssistantText.Append(evt.Text))
+                {
+                    if (completed.Length > 0) records.Add(completed);
+                }
+                return records;
+            }
+
+            AppendFlushed(records);
 
             if (!String.IsNullOrEmpty(evt.Text))
-                return evt.Text;
+            {
+                records.Add(evt.Text);
+                return records;
+            }
             if (!String.IsNullOrEmpty(evt.Content))
-                return evt.Content;
+            {
+                records.Add(evt.Content);
+                return records;
+            }
 
             if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, WorkingDirectory, out string activity))
-                return activity;
+            {
+                records.Add(activity);
+                return records;
+            }
 
             // An error event carries no assistant or tool field, and suppressing it would hide the failure.
             if (StructuredRuntimeLogFormatter.TryBuildErrorRecord(line, RuntimeLabel, out string error))
-                return error;
+                records.Add(error);
 
-            return String.Empty;
+            return records;
+        }
+
+        private void AppendFlushed(List<string> records)
+        {
+            string rest = _AssistantText.Flush();
+            if (rest.Length > 0) records.Add(rest);
         }
 
         private static MuxEvent? Deserialize(string line)

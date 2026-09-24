@@ -330,10 +330,11 @@ upstream integrations and excludes changes already present at that baseline.
 - **Runtime event parsing:** a tool argument whose value is not text reads as
   absent, so one mistyped argument no longer turns a Claude Code, Cursor or
   OpenCode event into its raw JSON line (tool output included) and no longer hides
-  a protocol marker in the same event. Gemini streamed assistant text is joined
-  into whole lines before it becomes a record, so a marker split across two
-  stream events still starts its own line; an unfinished line is written at the
-  terminal event or at process exit.
+  a protocol marker in the same event. Gemini and Mux streamed assistant text is
+  joined into whole lines before it becomes a record, so the mission log holds
+  one record per line instead of one per token, and a marker split across stream
+  events still starts its own line; an unfinished line is written at the next
+  tool, error or terminal event, or at process exit.
 
 - **Voyage cancel reports alike on every surface:** REST, WebSocket and MCP
   cancel a voyage through one shared operation that writes one
