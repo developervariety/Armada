@@ -26,9 +26,11 @@ namespace Armada.Core.Services
         /// under different rules are never mixed in one training set: redacted text cannot be
         /// re-redacted later, because the original is never kept. Version 1 erased every dotted name
         /// and every 7-40 character hex run; version 2 keeps code symbols, file names and plain
-        /// numbers.
+        /// numbers; version 3 also removes every key shape the display redactor removes (labelled
+        /// secrets, Bearer tokens, provider tokens by prefix) and the string value of a property the
+        /// display redactor names as secret.
         /// </summary>
-        public const int Version = 2;
+        public const int Version = 3;
 
         #endregion
 
@@ -138,7 +140,9 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(text)) return String.Empty;
             if (maxChars < 1) maxChars = 1;
 
-            string working = text;
+            // Key shapes first, with the display redactor's own rules: a token carries dots, dashes and
+            // underscores that the host and id rules below would otherwise split before it is recognised.
+            string working = SecretRedactor.RedactKeyShapes(text);
             working = _ArmadaIds.Replace(working, "#id");
             working = _AbsolutePaths.Replace(working, "<path>");
             working = _Urls.Replace(working, "<host>");
@@ -260,7 +264,9 @@ namespace Armada.Core.Services
                         string unique = key;
                         for (int suffix = 2; redactedObject.ContainsKey(unique); suffix++)
                             unique = key + "_" + suffix.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                        redactedObject[unique] = RedactNode(property.Value);
+                        bool secretValue = SecretRedactor.IsRedactedPropertyName(property.Key)
+                            && property.Value is JsonValue leaf && leaf.GetValueKind() == JsonValueKind.String;
+                        redactedObject[unique] = secretValue ? JsonValue.Create("[REDACTED]") : RedactNode(property.Value);
                     }
                     return redactedObject;
                 case JsonArray array:

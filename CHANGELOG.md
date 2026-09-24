@@ -532,6 +532,12 @@ upstream integrations and excludes changes already present at that baseline.
   carries an `(?i)` prefix in `.armada/boundary.patterns`, and the hook matches it
   with `grep -i`, so `Bearer` and `Password` are caught at commit time. The hook
   entropy gate strips `=` padding before measuring, as the server does.
+- **Typed-decision redaction:** decision state loses every key shape the display
+  redactor removes before it leaves the host: labelled secrets, Bearer tokens,
+  provider tokens by prefix (now also `github_pat_`, `xox*-` and `glpat-`, which
+  the display redactor removes too), and the string value of a property named as
+  a secret. Both redactors apply one rule set. `DecisionStateRedactor.Version` is
+  3, so samples redacted under earlier rules form their own cohort.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

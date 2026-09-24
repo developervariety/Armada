@@ -4,15 +4,24 @@ namespace Armada.Core.Services
     using System.Text.RegularExpressions;
     using System.Text.Json;
 
-    /// <summary>Shared secret-shaped value redaction for stored and displayed runtime output.</summary>
+    /// <summary>
+    /// Shared secret-shaped value redaction for stored and displayed runtime output. Its key shapes are the one
+    /// definition of a credential by shape: the typed-decision egress redactor applies the same rules, so a key the
+    /// display removes never reaches a provider either.
+    /// </summary>
     public static class SecretRedactor
     {
+        // Labelled secrets, Bearer tokens, and provider tokens by prefix. A token joined by an underscore or a dash
+        // (github_pat_, xox*-, glpat-) is named here because a word-boundary blob rule never starts inside it.
         private static readonly RedactionRule[] _Redactions = new RedactionRule[]
         {
             new RedactionRule(new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[""']?\s*[=:]\s*)(?<q>[""'])(?:\\[\s\S]|(?!\k<q>)[^\\])*(?:\k<q>|$)", RegexOptions.Compiled), "$1$2${q}[REDACTED]${q}"),
             new RedactionRule(new Regex(@"(?i)\bBearer\s+[A-Za-z0-9._\-]{8,}", RegexOptions.Compiled), "Bearer [REDACTED]"),
             new RedactionRule(new Regex(@"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_\-]{16,}", RegexOptions.Compiled), "sk-[REDACTED]"),
             new RedactionRule(new Regex(@"\bgh[pousr]_[A-Za-z0-9]{20,}", RegexOptions.Compiled), "gh_[REDACTED]"),
+            new RedactionRule(new Regex(@"\bgithub_pat_[A-Za-z0-9_]{20,}", RegexOptions.Compiled), "github_pat_[REDACTED]"),
+            new RedactionRule(new Regex(@"\bxox[abposr]-[A-Za-z0-9\-]{10,}", RegexOptions.Compiled), "xox-[REDACTED]"),
+            new RedactionRule(new Regex(@"\bglpat-[A-Za-z0-9_\-]{16,}", RegexOptions.Compiled), "glpat-[REDACTED]"),
             new RedactionRule(new Regex(@"\bAKIA[0-9A-Z]{16}\b", RegexOptions.Compiled), "AKIA[REDACTED]"),
             new RedactionRule(new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[=:]\s*)([""']?)[^\s""']{6,}", RegexOptions.Compiled), "$1$2$3[REDACTED]"),
         };
@@ -66,13 +75,34 @@ namespace Armada.Core.Services
         /// <summary>Redact protected values without applying a display size limit.</summary>
         public static string Redact(string? text) => RedactCore(text ?? String.Empty, 0);
 
+        /// <summary>
+        /// Remove every key shape (labelled secrets, Bearer tokens, provider tokens by prefix) from plain text. Unlike
+        /// <see cref="Redact(string?)"/> it does not parse quoted strings as JSON, so source text keeps its string
+        /// literals; the key shapes removed are the same.
+        /// </summary>
+        /// <param name="text">Text; null is treated as empty.</param>
+        /// <returns>The text without key shapes.</returns>
+        public static string RedactKeyShapes(string? text)
+        {
+            string safe = text ?? String.Empty;
+            foreach (RedactionRule rule in _Redactions) safe = rule.Pattern.Replace(safe, rule.Replacement);
+            return safe;
+        }
+
+        /// <summary>
+        /// Whether a JSON property of this exact name has its string value removed for display (password, token,
+        /// api key, authorization, client secret and their common spellings).
+        /// </summary>
+        /// <param name="name">Property name.</param>
+        /// <returns>True when the value is removed.</returns>
+        public static bool IsRedactedPropertyName(string? name) => !String.IsNullOrEmpty(name) && _SensitiveProperty.IsMatch(name);
+
         private static string RedactCore(string text, int depth)
         {
             if (depth > 8) return "[REDACTED: nested value]";
             string safe = _JsonStringProperty.Replace(text, match => RedactProperty(match, depth));
             safe = _JsonStringToken.Replace(safe, match => RedactStringToken(match, depth));
-            foreach (RedactionRule rule in _Redactions) safe = rule.Pattern.Replace(safe, rule.Replacement);
-            return safe;
+            return RedactKeyShapes(safe);
         }
 
         private static string RedactProperty(Match match, int depth)

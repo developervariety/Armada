@@ -66,7 +66,14 @@ The safety contract holds whenever it is enabled:
   unavailable, not late.
 - Nothing egresses unredacted. `DecisionStateRedactor` removes Armada ids,
   absolute paths, hosts, URLs, commit hashes, and key-shaped tokens, then
-  truncates to the state cap. The Bearer key is never logged, recorded, stored
+  truncates to the state cap. Key shapes come first and are the display
+  redactor's own rules (`SecretRedactor`): labelled secrets (`password = ...`,
+  `api_key: ...`, `token=...`), Bearer tokens, provider tokens by prefix (`sk-`,
+  `gh*_`, `github_pat_`, `AKIA`, `xox*-`, `glpat-`), and the string value of a
+  property named as a secret. So egress removes at least every key the display
+  removes. A labelled rule can take a code assignment such as
+  `token = GetToken();` with it; that loss is accepted, because an
+  under-redaction is a leak. The Bearer key is never logged, recorded, stored
   in settings, or returned by any response. The host, hash, and key rules match
   by shape, not by any dot, hex run, or long token: a dotted name is a host only
   when its final label is a known public or internal TLD (a single-dotted source

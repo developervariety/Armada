@@ -51,6 +51,63 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("<secret>", redacted);
             });
 
+            await RunTest("Redact_EveryKeyShapeTheDisplayRedactorRemoves_IsRemovedBeforeEgress", () =>
+            {
+                // (line, secret bytes that must not survive). Egress must remove at least what display removes.
+                string[][] fixtures =
+                {
+                    new[] { "Authorization: Bearer AbCdEfGhIjKlMnOpQrStUv12", "AbCdEfGhIjKlMnOpQrStUv12" },
+                    new[] { "Password = \"hunter2hunter2\"", "hunter2hunter2" },
+                    new[] { "api_key: \"ABCDEFGH1234\"", "ABCDEFGH1234" },
+                    new[] { "token=abc123def456", "abc123def456" },
+                    new[] { "{\"client_secret\": \"shh-very-secret\"}", "shh-very-secret" },
+                    new[] { "export GH=gho_16C7e42F292c6912E7710c838347Ae178B4a", "16C7e42F292c6912E7710c838347Ae178B4a" },
+                    new[] { "ghs_AbCdEfGhIjKlMnOpQrStUvWxYz0123 in the log", "AbCdEfGhIjKlMnOpQrStUvWxYz0123" },
+                    new[] { "aws AKIAIOSFODNN7EXAMPLE was read", "IOSFODNN7EXAMPLE" },
+                    new[] { "sk-" + "proj-abcdefghijklmnop0123", "abcdefghijklmnop0123" }
+                };
+                foreach (string[] fixture in fixtures)
+                {
+                    string line = fixture[0];
+                    string secret = fixture[1];
+                    AssertFalse(SecretRedactor.Redact(line).Contains(secret, StringComparison.Ordinal), "the display redactor removes it: " + line);
+                    string redacted = DecisionStateRedactor.Redact(line, 8000);
+                    AssertFalse(redacted.Contains(secret, StringComparison.Ordinal), "egress keeps a key the display redactor removes: " + redacted);
+                }
+            });
+
+            await RunTest("Redact_TokenShapesWithAnUnderscoreOrDashJoin_AreRemoved", () =>
+            {
+                // A word character before the body means a word-boundary blob rule never starts inside it.
+                // The prefixes are joined at run time so no committed line has a real token's shape.
+                string[][] fixtures =
+                {
+                    new[] { "github" + "_pat_" + "11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNO", "abcdefghijklmnopqrstuvwxyz0123456789" },
+                    new[] { "slack " + "xox" + "b-" + "123456789012-abcdefghijklmnop", "abcdefghijklmnop" },
+                    new[] { "gl" + "pat-" + "AbCdEfGhIjKlMnOpQrSt", "AbCdEfGhIjKlMnOpQrSt" }
+                };
+                foreach (string[] fixture in fixtures)
+                {
+                    string line = fixture[0];
+                    string secret = fixture[1];
+                    string redacted = DecisionStateRedactor.Redact(line, 8000);
+                    AssertFalse(redacted.Contains(secret, StringComparison.Ordinal), "a joined token survived egress: " + redacted);
+                    AssertFalse(SecretRedactor.Redact(line).Contains(secret, StringComparison.Ordinal), "and display: " + line);
+                }
+            });
+
+            await RunTest("RedactState_KeyInAnObjectLeaf_IsRemoved", () =>
+            {
+                Dictionary<string, object?> state = new Dictionary<string, object?>
+                {
+                    ["log_tail"] = "curl -H 'Authorization: Bearer AbCdEfGhIjKlMnOpQrStUv12' failed",
+                    ["diff"] = "+ var aws = \"AKIAIOSFODNN7EXAMPLE\";"
+                };
+                string text = DecisionStateRedactor.RedactState(state, 8000).Text;
+                AssertFalse(text.Contains("AbCdEfGhIjKlMnOpQrStUv12", StringComparison.Ordinal), "bearer token survived: " + text);
+                AssertFalse(text.Contains("IOSFODNN7EXAMPLE", StringComparison.Ordinal), "access key id survived: " + text);
+            });
+
             await RunTest("Redact_ProductIdentifier_Survives", () =>
             {
                 // A decoder class name and a frame name are product identifiers, not secrets: they
