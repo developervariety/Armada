@@ -150,6 +150,11 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard controls for global administrators:** the workspace terminal and the
+  check-run Command Override field show only to a global administrator, since the
+  server runs either for no one else. The Credentials page offers no copy for a
+  masked token (another user's credential) and does not send the mask back as the
+  token when that credential is saved.
 - **Dashboard check run page:** opening another run (the "Compared to" link, Retry)
   clears the previous run and shows the loading state; only the newest load writes,
   a failure to read the new run is reported, and a change event for another run no

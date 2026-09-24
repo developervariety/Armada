@@ -10,6 +10,7 @@ import RefreshButton from '../../components/shared/RefreshButton';
 import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../../lib/useAutoRefresh';
 import { useResourceTable } from '../../lib/useResourceTable';
+import { isMaskedSecret } from '../../lib/format';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
@@ -125,7 +126,8 @@ export default function Credentials() {
           tenantId: editing.tenantId,
           name: form.name || null,
           active: form.active,
-          bearerToken: editing.bearerToken,
+          // A masked token is not the real value; sending it back would replace the token with the mask.
+          ...(isMaskedSecret(editing.bearerToken) ? {} : { bearerToken: editing.bearerToken }),
         });
       } else {
         await createCredential({
@@ -320,7 +322,7 @@ export default function Credentials() {
                      <td className="mono text-dim table-url-cell">
                        <span className="id-display">
                          <span className="url-value" title={c.bearerToken}>{c.bearerToken}</span>
-                         <CopyButton text={c.bearerToken} title="Copy token" onClick={e => e.stopPropagation()} />
+                         {!isMaskedSecret(c.bearerToken) && <CopyButton text={c.bearerToken} title="Copy token" onClick={e => e.stopPropagation()} />}
                        </span>
                      </td>
                     <td>{c.active ? t('Yes') : t('No')}</td>
@@ -328,7 +330,8 @@ export default function Credentials() {
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={c.id} items={[
                         ...(remoteProxyMode ? [] : [{ label: 'Edit', onClick: () => openEdit(c) }]),
-                        { label: 'Copy Token', onClick: () => { copyToClipboard(c.bearerToken).catch(() => {}); } },
+                        // Another user's token arrives masked; only a readable token can be copied.
+                        ...(isMaskedSecret(c.bearerToken) ? [] : [{ label: 'Copy Token', onClick: () => { copyToClipboard(c.bearerToken).catch(() => {}); } }]),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Credential: ${c.name || c.id}`, data: c }) },
                         ...(remoteProxyMode ? [] : [{ label: 'Delete', danger: true, onClick: () => handleDelete(c.id, c.name ?? '') }]),
                       ]} />

@@ -10,6 +10,7 @@ import {
 } from '../api/client';
 import type { CheckRun, CheckRunRequest, CheckRunType, Vessel, VesselReadinessResult, WorkflowProfile, WorkflowProfileResolutionPreviewResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
+import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import ActionMenu from '../components/shared/ActionMenu';
 import PageHeader from '../components/shared/PageHeader';
@@ -118,6 +119,8 @@ export default function CheckRuns() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  // A command override runs as the server process, so the server accepts one from a global administrator only.
+  const { isAdmin } = useAuth();
   const { pushToast } = useNotifications();
 
   const [runs, setRuns] = useState<CheckRun[]>([]);
@@ -295,7 +298,7 @@ export default function CheckRuns() {
     setDeploymentId(prefill?.deploymentId || '');
     setBranchName(prefill?.branchName || '');
     setCommitHash(prefill?.commitHash || '');
-    setCommandOverride(prefill?.commandOverride || '');
+    setCommandOverride(isAdmin ? prefill?.commandOverride || '' : '');
   }
 
   function openRunModal(prefill?: Partial<CheckRunRequest>) {
@@ -327,7 +330,7 @@ export default function CheckRuns() {
         deploymentId: deploymentId || null,
         branchName: branchName || null,
         commitHash: commitHash || null,
-        commandOverride: commandOverride || null,
+        commandOverride: isAdmin ? commandOverride || null : null,
       });
       pushToast(run.status === 'Passed' ? 'success' : run.status === 'Failed' ? 'warning' : 'info', t('Check run "{{id}}" completed with status {{status}}.', { id: run.id, status: run.status }));
       setShowRunModal(false);
@@ -443,6 +446,7 @@ export default function CheckRuns() {
               </label>
             </div>
 
+            {isAdmin && (
             <label className="playbook-editor-field" style={{ marginBottom: '1rem' }}>
               <span>{t('Command Override')}</span>
               <textarea
@@ -452,6 +456,7 @@ export default function CheckRuns() {
                 placeholder={t('Optional ad-hoc command. Leave blank to use the selected or resolved workflow profile command.')}
               />
             </label>
+            )}
 
             <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
               <strong>{t('Resolved Profile')}</strong>

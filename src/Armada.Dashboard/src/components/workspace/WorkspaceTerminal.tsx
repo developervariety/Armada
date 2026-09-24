@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { execWorkspaceCommand } from '../../api/client';
 import { useLocale } from '../../context/LocaleContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface TerminalLine {
   kind: 'command' | 'stdout' | 'stderr' | 'meta';
@@ -9,11 +10,13 @@ interface TerminalLine {
 
 /**
  * In-browser dock terminal: runs a shell command in the vessel's working tree and shows the
- * captured output. Non-interactive (one command per run), bounded by a server-side timeout, and
- * restricted to tenant administrators by the backend.
+ * captured output. Non-interactive (one command per run) and bounded by a server-side timeout. A command runs
+ * as the server process, so the server runs one for a global administrator only and the terminal is offered
+ * to nobody else.
  */
 export default function WorkspaceTerminal({ vesselId }: { vesselId: string }) {
   const { t } = useLocale();
+  const { isAdmin } = useAuth();
   const [command, setCommand] = useState('');
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const [busy, setBusy] = useState(false);
@@ -66,6 +69,8 @@ export default function WorkspaceTerminal({ vesselId }: { vesselId: string }) {
       : kind === 'stderr' ? 'var(--danger, #ff6b6b)'
         : kind === 'meta' ? 'var(--text-dim)'
           : undefined;
+
+  if (!isAdmin) return null;
 
   return (
     <div className="card" style={{ padding: '0.75rem', marginTop: '1rem' }}>

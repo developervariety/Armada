@@ -36,6 +36,9 @@ vi.mock('../context/LocaleContext', () => {
   return { useLocale: () => locale };
 });
 
+const auth = vi.hoisted(() => ({ current: { isAdmin: true, isTenantAdmin: true } }));
+vi.mock('../context/AuthContext', () => ({ useAuth: () => auth.current }));
+
 vi.mock('../context/NotificationContext', () => ({
   useNotifications: () => ({
     pushToast: vi.fn(),
@@ -273,5 +276,20 @@ describe('CheckRuns', () => {
     await waitFor(() => expect(listCheckRuns).toHaveBeenLastCalledWith(
       expect.objectContaining({ filters: expect.objectContaining({ status: 'Failed', type: 'UnitTest' }) }),
     ));
+  });
+
+  it('shows the command override only to a global administrator, because the server refuses it for anyone else', async () => {
+    auth.current = { isAdmin: false, isTenantAdmin: true };
+    const { unmount } = render(<MemoryRouter><CheckRuns /></MemoryRouter>);
+    expect(await screen.findByText('Nightly Build')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Run Check/ }));
+    expect(screen.queryByText('Command Override')).not.toBeInTheDocument();
+    unmount();
+
+    auth.current = { isAdmin: true, isTenantAdmin: true };
+    render(<MemoryRouter><CheckRuns /></MemoryRouter>);
+    expect(await screen.findByText('Nightly Build')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Run Check/ }));
+    expect(screen.getByText('Command Override')).toBeInTheDocument();
   });
 });

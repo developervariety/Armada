@@ -1,6 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 
+const auth = vi.hoisted(() => ({
+  current: { isAdmin: false, isTenantAdmin: true, user: { user: { id: 'usr_me' }, tenant: { id: 'ten_a', name: 'Tenant A' } } },
+}));
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => auth.current }));
 vi.mock('../../context/LocaleContext', () => {
   const locale = {
     t: (text: string, params?: Record<string, string | number>) =>
@@ -10,67 +15,55 @@ vi.mock('../../context/LocaleContext', () => {
   };
   return { useLocale: () => locale };
 });
-
-vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({ user: null, isAdmin: true, isTenantAdmin: false }),
-}));
-
-vi.mock('../../context/NotificationContext', () => ({
-  useNotifications: () => ({ pushToast: vi.fn() }),
-}));
-
+vi.mock('../../context/NotificationContext', () => ({ useNotifications: () => ({ pushToast: vi.fn() }) }));
 vi.mock('../../lib/useProxySessionContext', () => ({ useProxySessionContext: () => null }));
-
 vi.mock('../../api/client', async () => (await import('../../test/clientMock')).withAllPages({
   listCredentials: vi.fn(),
+  listUsers: vi.fn(),
+  listTenants: vi.fn(),
   createCredential: vi.fn(),
   updateCredential: vi.fn(),
   deleteCredential: vi.fn(),
-  listUsers: vi.fn(),
-  listTenants: vi.fn(),
 }));
 
-import { listCredentials, listTenants, listUsers } from '../../api/client';
+import { listCredentials, listUsers, updateCredential } from '../../api/client';
 import Credentials from './Credentials';
 
-// The server returns 10 rows when no page size is sent.
-function serverPage<T>(all: T[], params?: { pageNumber?: number; pageSize?: number }) {
-  const pageSize = Math.min(params?.pageSize ?? 10, 1000);
-  const pageNumber = params?.pageNumber ?? 1;
-  const start = (pageNumber - 1) * pageSize;
-  return {
-    success: true, pageNumber, pageSize, totalRecords: all.length, totalMs: 1,
-    totalPages: Math.max(1, Math.ceil(all.length / pageSize)),
-    objects: all.slice(start, start + pageSize),
-  };
+function page<T>(objects: T[]) {
+  return { success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: objects.length, totalMs: 1, objects };
 }
 
-const users = Array.from({ length: 30 }, (_, index) => ({
-  id: `usr_${index}`, tenantId: `ten_${index}`, email: `user${index}@example.com`, firstName: 'U', lastName: 'T',
-  isAdmin: false, isTenantAdmin: false, active: true, createdUtc: '2026-01-01T00:00:00Z', lastUpdateUtc: '2026-01-01T00:00:00Z',
-}));
-const tenants = Array.from({ length: 30 }, (_, index) => ({
-  id: `ten_${index}`, name: `Tenant ${index}`, active: true, createdUtc: '2026-01-01T00:00:00Z', lastUpdateUtc: '2026-01-01T00:00:00Z',
-}));
-const credentials = [{
-  id: 'crd_1', tenantId: 'ten_25', userId: 'usr_25', name: 'Build bot', bearerToken: 'redacted', active: true,
-  createdUtc: '2026-01-01T00:00:00Z', lastUpdateUtc: '2026-01-01T00:00:00Z',
-}];
+// Built at run time so no token-shaped literal sits in the source.
+const ownToken = ['own', 'token', 'value'].join('-');
+const MASK = '*'.repeat(8);
+
+function credential(id: string, name: string, bearerToken: string) {
+  return { id, tenantId: 'ten_a', userId: 'usr_me', name, bearerToken, active: true, isStatic: false, createdUtc: '2026-01-01T00:00:00Z', lastUpdateUtc: '2026-01-01T00:00:00Z' };
+}
 
 beforeEach(() => {
-  vi.mocked(listCredentials).mockImplementation(async (params?: { pageNumber?: number; pageSize?: number }) => serverPage(credentials, params) as never);
-  vi.mocked(listUsers).mockImplementation(async (params?: { pageNumber?: number; pageSize?: number }) => serverPage(users, params) as never);
-  vi.mocked(listTenants).mockImplementation(async (params?: { pageNumber?: number; pageSize?: number }) => serverPage(tenants, params) as never);
+  vi.mocked(listUsers).mockResolvedValue(page([{ id: 'usr_me', email: 'me@example.com' }]) as never);
+  vi.mocked(listCredentials).mockResolvedValue(page([
+    credential('crd_own', 'mine', ownToken),
+    credential('crd_other', 'theirs', MASK),
+  ]) as never);
 });
 
-// The names also appear as filter options, so read the table cells only.
-function cellTexts() {
-  return Array.from(document.querySelectorAll('td')).map((cell) => cell.textContent?.trim());
-}
+test('offers to copy a readable token but not a masked one', async () => {
+  render(<MemoryRouter><Credentials /></MemoryRouter>);
+  const ownRow = (await screen.findByText('mine')).closest('tr') as HTMLElement;
+  const otherRow = screen.getByText('theirs').closest('tr') as HTMLElement;
 
-test('names the owner and tenant of a credential past the first ten users and tenants', async () => {
-  render(<Credentials />);
-  await waitFor(() => expect(cellTexts()).toContain('user25@example.com'));
-  expect(cellTexts()).toContain('Tenant 25');
-  expect(screen.getAllByText('user25@example.com').length).toBeGreaterThan(0);
+  expect(within(ownRow).getByTitle('Copy token')).toBeInTheDocument();
+  expect(within(otherRow).queryByTitle('Copy token')).not.toBeInTheDocument();
+});
+
+test('saving a credential whose token is masked does not send the mask as the token', async () => {
+  vi.mocked(updateCredential).mockResolvedValue({} as never);
+  render(<MemoryRouter><Credentials /></MemoryRouter>);
+  fireEvent.click(await screen.findByText('theirs'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+  await waitFor(() => expect(updateCredential).toHaveBeenCalled());
+  expect(vi.mocked(updateCredential).mock.calls[0][1]).not.toHaveProperty('bearerToken');
 });

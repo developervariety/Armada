@@ -30,3 +30,8 @@ export function parseJsonString<T>(value: string | null | undefined, fallback: T
 export function methodClass(method: string): string {
   return `request-method-pill request-method-${method.toLowerCase()}`;
 }
+
+/** True when the server returned a secret masked (only `*` characters), so the value cannot be used or copied. */
+export function isMaskedSecret(value: string | null | undefined): boolean {
+  return !!value && /^\*+$/.test(value);
+}
