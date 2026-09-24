@@ -55,6 +55,7 @@ namespace Armada.Core.Services
             nameof(Captain.CurrentMissionId),
             nameof(Captain.CurrentDockId),
             nameof(Captain.ProcessId),
+            nameof(Captain.ProcessStartedUtc),
             nameof(Captain.RecoveryAttempts),
             nameof(Captain.LastHeartbeatUtc),
             nameof(Captain.LastProcessAliveUtc),
@@ -103,6 +104,7 @@ namespace Armada.Core.Services
             captain.CurrentMissionId = existing.CurrentMissionId;
             captain.CurrentDockId = existing.CurrentDockId;
             captain.ProcessId = existing.ProcessId;
+            captain.ProcessStartedUtc = existing.ProcessStartedUtc;
             captain.RecoveryAttempts = existing.RecoveryAttempts;
             captain.LastHeartbeatUtc = existing.LastHeartbeatUtc;
             captain.LastProcessAliveUtc = existing.LastProcessAliveUtc;
@@ -170,6 +172,7 @@ namespace Armada.Core.Services
             AddIfStringWrite(refused, nameof(Captain.CurrentDockId), submitted.CurrentDockId, existing?.CurrentDockId);
             if (submitted.ProcessId.HasValue && submitted.ProcessId != existing?.ProcessId)
                 refused.Add(nameof(Captain.ProcessId));
+            AddIfTimeWrite(refused, nameof(Captain.ProcessStartedUtc), submitted.ProcessStartedUtc, existing?.ProcessStartedUtc);
             if (submitted.RecoveryAttempts.HasValue && submitted.RecoveryAttempts.Value != (existing?.RecoveryAttempts ?? 0))
                 refused.Add(nameof(Captain.RecoveryAttempts));
             AddIfTimeWrite(refused, nameof(Captain.LastHeartbeatUtc), submitted.LastHeartbeatUtc, existing?.LastHeartbeatUtc);

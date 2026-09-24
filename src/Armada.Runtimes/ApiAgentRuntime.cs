@@ -248,14 +248,25 @@ namespace Armada.Runtimes
         }
 
         /// <inheritdoc />
-        public Task StopAsync(int processId, CancellationToken token = default)
+        public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default)
         {
-            if (_Running.TryGetValue(processId, out CancellationTokenSource? cts))
-            {
-                try { cts.Cancel(); } catch { }
-            }
+            if (!_Running.TryGetValue(processId, out CancellationTokenSource? cts))
+                return Task.FromResult(AgentStopResult.NotRunning());
 
-            return Task.CompletedTask;
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The loop finished and disposed its source between the lookup and the cancel.
+                return Task.FromResult(AgentStopResult.NotRunning());
+            }
+            catch (AggregateException)
+            {
+                // A cancellation callback threw after the cancellation was requested; the loop is still stopping.
+            }
+            return Task.FromResult(AgentStopResult.Stopped());
         }
 
         /// <inheritdoc />

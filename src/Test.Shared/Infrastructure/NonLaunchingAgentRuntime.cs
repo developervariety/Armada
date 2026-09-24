@@ -164,10 +164,10 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <inheritdoc />
-        public Task StopAsync(int processId, CancellationToken token = default)
+        public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default)
         {
             Exit(processId, StoppedExitCode);
-            return Task.CompletedTask;
+            return Task.FromResult(AgentStopResult.Stopped());
         }
 
         /// <inheritdoc />

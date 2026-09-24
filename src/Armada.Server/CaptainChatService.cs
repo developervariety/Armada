@@ -434,8 +434,15 @@ namespace Armada.Server
 
                     if (finished != exitSource.Task)
                     {
-                        try { await runtime.StopAsync(processId, CancellationToken.None).ConfigureAwait(false); }
-                        catch { }
+                        try
+                        {
+                            AgentStopResult stop = await runtime.StopAsync(processId, CancellationToken.None).ConfigureAwait(false);
+                            if (stop.IsRefused) _Logging.Warn(_Header + "timed-out chat process " + processId + " was not stopped: " + stop);
+                        }
+                        catch (Exception stopEx)
+                        {
+                            _Logging.Warn(_Header + "error stopping timed-out chat process " + processId + ": " + stopEx.Message);
+                        }
 
                         if (token.IsCancellationRequested) throw new OperationCanceledException(token);
                         return Fail("The captain did not respond within the time limit.");

@@ -342,8 +342,15 @@ upstream integrations and excludes changes already present at that baseline.
   mission's launch, is a reused PID: it reads as gone and is never killed
   (`process_identifier_reused`). A live process with no recorded launch in the
   current admiral process, or an unreadable start time, reads as running but is
-  never killed (`process_identity_unverified`). Stop sends no shutdown request: a
-  3-second grace period, then a tree kill. A cancelled launch starts nothing, and a launch that fails after start
+  never killed (`process_identity_unverified`). Each agent's start time is stored
+  next to its process ID on the captain and mission records
+  (`process_started_utc`, migrations SQLite 108, PostgreSQL 111, SQL Server 103,
+  MySQL 100) and restored at startup, so an agent launched before a restart is
+  still verified and stopped; a row stored without a start time stays unverified.
+  Runtime stop returns a result (stopped, not running, or refused with a named
+  reason); a refused stop is logged and recorded as `captain.stop_refused`, and the
+  terminal-marker stop no longer reports it as a stop. Stop sends no shutdown
+  request: a 3-second grace period, then a tree kill. A cancelled launch starts nothing, and a launch that fails after start
   kills its child. Gemini, Cursor, and Mux keep JSON error events in the mission log.
 - **Launch and test races:** the liveness heartbeat reads its cancellation token
   before it registers the loop, so a process exit that stops the heartbeat while a

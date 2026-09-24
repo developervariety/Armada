@@ -920,6 +920,15 @@ namespace Armada.Server
                 _Logging.Warn(_Header + lostJobs + " background job" + (lostJobs == 1 ? " was" : "s were")
                     + " accepted by the previous process and never finished; recorded as Lost");
 
+            // An agent launched by the previous admiral process can still be running. Its stored start time makes
+            // it verifiable again, so a stop reaches it; a stored identifier without a start time stays unverified.
+            ProcessLaunchIdentityRestoreResult launchIdentities = await ProcessLaunchIdentityRestore.RestoreAsync(_Database, _TokenSource.Token).ConfigureAwait(false);
+            if (launchIdentities.Restored > 0)
+                _Logging.Info(_Header + "restored the launch identity of " + launchIdentities.Restored + " agent process(es) from stored records");
+            if (launchIdentities.UnverifiedProcessIds.Count > 0)
+                _Logging.Warn(_Header + "stored agent process(es) " + String.Join(", ", launchIdentities.UnverifiedProcessIds)
+                    + " have no stored start time (process_identity_unverified); they are not killed by identifier alone");
+
             RegisterHarbor();
 
             // Watson 7 StartAsync is long-running; Start() binds and returns after

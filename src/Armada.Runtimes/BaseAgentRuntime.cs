@@ -421,14 +421,15 @@ namespace Armada.Runtimes
         /// </summary>
         /// <param name="processId">Process ID to stop.</param>
         /// <param name="token">Cancellation token.</param>
-        public virtual async Task StopAsync(int processId, CancellationToken token = default)
+        /// <returns>Whether the process was stopped, was not running, or the stop was refused and why.</returns>
+        public virtual async Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default)
         {
             try
             {
                 if (await ProcessSupervisor.TryStopSyntheticProcessAsync(processId, token).ConfigureAwait(false))
                 {
                     _Logging.Info(_Header + "stop requested for synthetic process " + processId);
-                    return;
+                    return AgentStopResult.Stopped();
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -437,8 +438,8 @@ namespace Armada.Runtimes
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "error stopping synthetic process " + processId + ": " + ex.Message);
-                return;
+                _Logging.Warn(_Header + "stop refused for synthetic process " + processId + ": " + AgentStopResult.SyntheticStopFailedReason + " (" + ex.Message + ")");
+                return AgentStopResult.Refused(AgentStopResult.SyntheticStopFailedReason, ex.Message);
             }
 
             try
@@ -447,55 +448,65 @@ namespace Armada.Runtimes
                 {
                     if (identity == LaunchedProcessIdentityEnum.Reused)
                     {
-                        _Logging.Warn(_Header + "stop refused for process " + processId + ": process_identifier_reused"
-                            + " (a live process holds the identifier but started at a different time from the recorded launch)");
-                        return;
+                        AgentStopResult reused = AgentStopResult.Refused(AgentStopResult.IdentifierReusedReason,
+                            "a live process holds the identifier but started at a different time from the recorded launch");
+                        _Logging.Warn(_Header + "stop refused for process " + processId + ": " + reused);
+                        return reused;
                     }
 
                     if (process == null)
                     {
                         _Logging.Debug(_Header + "process " + processId + " is not running; nothing to stop");
-                        return;
+                        return AgentStopResult.NotRunning();
                     }
 
                     if (identity != LaunchedProcessIdentityEnum.Verified)
                     {
-                        _Logging.Warn(_Header + "stop refused for process " + processId + ": process_identity_unverified"
-                            + " (no launch is recorded for the identifier in this admiral process, or its start time is unreadable,"
-                            + " so it cannot be told from an unrelated process that reused the identifier)");
-                        return;
+                        AgentStopResult unverified = AgentStopResult.Refused(AgentStopResult.IdentityUnverifiedReason,
+                            "no launch start time is recorded or stored for the identifier, or the live process's start time is unreadable,"
+                            + " so it cannot be told from an unrelated process that reused the identifier");
+                        _Logging.Warn(_Header + "stop refused for process " + processId + ": " + unverified);
+                        return unverified;
                     }
 
                     // A handle from Process.GetProcessById does not own the agent's redirected streams, so no
                     // shutdown request can be delivered through it. The stop is an exit wait followed by a kill.
-                    using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                    linkedCts.CancelAfter(StopGracePeriodMs);
-
-                    try
+                    using (CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token))
                     {
-                        await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        _Logging.Warn(_Header + "process " + processId + " did not exit within " + StopGracePeriodMs + "ms, killing");
+                        linkedCts.CancelAfter(StopGracePeriodMs);
                         try
                         {
-                            process.Kill(entireProcessTree: true);
+                            await process.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
                         }
-                        catch (Exception killEx)
+                        catch (OperationCanceledException)
                         {
-                            // The process may exit between the timeout and the kill attempt; surface
-                            // the kill failure but do not propagate -- the stop attempt is over.
-                            _Logging.Warn(_Header + "kill of process " + processId + " after grace timeout failed: " + killEx.Message);
+                            _Logging.Warn(_Header + "process " + processId + " did not exit within " + StopGracePeriodMs + "ms, killing");
+                            try
+                            {
+                                process.Kill(entireProcessTree: true);
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                // Exited between the timeout and the kill, which is the state the stop wants.
+                            }
+                            catch (Exception killEx)
+                            {
+                                AgentStopResult failed = AgentStopResult.Refused(AgentStopResult.KillFailedReason, killEx.Message);
+                                _Logging.Warn(_Header + "stop of process " + processId + " failed: " + failed);
+                                return failed;
+                            }
                         }
                     }
 
                     _Logging.Info(_Header + "stopped process " + processId);
+                    return AgentStopResult.Stopped();
                 }
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "error stopping process " + processId + ": " + ex.Message);
+                AgentStopResult failed = AgentStopResult.Refused(AgentStopResult.KillFailedReason, ex.Message);
+                _Logging.Warn(_Header + "error stopping process " + processId + ": " + failed);
+                return failed;
             }
         }
 

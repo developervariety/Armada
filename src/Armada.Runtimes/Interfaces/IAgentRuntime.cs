@@ -100,11 +100,14 @@ namespace Armada.Runtimes.Interfaces
 
         /// <summary>
         /// Stop an agent process. No shutdown request is sent: the agent gets a short grace period to exit on its
-        /// own, and its process tree is then killed.
+        /// own, and its process tree is then killed. Only a process verified as the launched agent is killed; any other
+        /// live process under the identifier is left running and the result is <see cref="Armada.Core.Enums.AgentStopOutcomeEnum.Refused"/>
+        /// with a named reason.
         /// </summary>
         /// <param name="processId">Process ID to stop.</param>
         /// <param name="token">Cancellation token.</param>
-        Task StopAsync(int processId, CancellationToken token = default);
+        /// <returns>Whether the process was stopped, was not running, or the stop was refused and why.</returns>
+        Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default);
 
         /// <summary>
         /// Check if an agent process is still running.

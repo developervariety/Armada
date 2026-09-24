@@ -150,9 +150,9 @@ namespace Armada.Test.Unit.TestHelpers
         }
 
         /// <inheritdoc />
-        public Task StopAsync(int processId, CancellationToken token = default)
+        public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default)
         {
-            return Task.CompletedTask;
+            return Task.FromResult(AgentStopResult.Stopped());
         }
 
         /// <inheritdoc />

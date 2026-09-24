@@ -300,6 +300,7 @@ namespace Armada.Core.Services
                     if (conflict == null && current != null)
                     {
                         current.ProcessId = processId;
+                        current.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
                         current.Status = MissionStatusEnum.InProgress;
                         current.LastUpdateUtc = DateTime.UtcNow;
                         written = await _Database.Missions.TryUpdateIfStatusAsync(current, decidedStatus, token).ConfigureAwait(false);
@@ -313,6 +314,8 @@ namespace Armada.Core.Services
                     }
 
                     captain.ProcessId = processId;
+
+                    captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
                     await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
 
                     await MissionAttemptFactRecorder.RecordAsync(_Database, current!, MissionAttemptFactTypeEnum.Retried, "captain_recovery_relaunch", _Logging, token).ConfigureAwait(false);
@@ -403,6 +406,7 @@ namespace Armada.Core.Services
             {
                 Captain stopTarget = current ?? captain;
                 stopTarget.ProcessId = startedProcessId.Value;
+                stopTarget.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(startedProcessId.Value);
                 try
                 {
                     await OnStopAgent.Invoke(stopTarget).ConfigureAwait(false);

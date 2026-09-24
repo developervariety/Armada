@@ -106,9 +106,26 @@ namespace Armada.Core.Models
         public string? DockId { get; set; } = null;
 
         /// <summary>
-        /// Operating system process identifier for the agent working this mission.
+        /// Operating system process identifier for the agent working this mission. A change of identifier clears <see cref="ProcessStartedUtc"/>, so a start time never outlives the
+        /// process it describes.
         /// </summary>
-        public int? ProcessId { get; set; } = null;
+        public int? ProcessId
+        {
+            get => _ProcessId;
+            set
+            {
+                if (_ProcessId != value) ProcessStartedUtc = null;
+                _ProcessId = value;
+            }
+        }
+
+        /// <summary>
+        /// Start time, in UTC, of the process named by <see cref="ProcessId"/>: its launch identity. After the admiral
+        /// process restarts, it tells that process from an unrelated one that reuses the identifier. Null when the
+        /// process was launched before start times were stored, or its start time could not be read; such a process
+        /// is never killed by identifier alone.
+        /// </summary>
+        public DateTime? ProcessStartedUtc { get; set; } = null;
 
         /// <summary>
         /// Pull request URL if created.
@@ -386,6 +403,7 @@ namespace Armada.Core.Models
         private DateTime? _StartedUtc = null;
         private DateTime? _CompletedUtc = null;
         private long? _TotalRuntimeMs = null;
+        private int? _ProcessId = null;
 
         #endregion
 

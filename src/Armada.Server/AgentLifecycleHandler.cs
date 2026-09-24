@@ -305,7 +305,15 @@ namespace Armada.Server
                     "mission", missionId, captainId, missionId, null, null).ConfigureAwait(false);
 
                 Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
-                await runtime.StopAsync(processId, token).ConfigureAwait(false);
+                AgentStopResult stop = await runtime.StopAsync(processId, token).ConfigureAwait(false);
+                if (stop.IsRefused)
+                {
+                    // The process may still be running, so its eventual exit is not this stop's completion.
+                    _IntentionalStops.Forget(processId);
+                    await EmitStopRefusedAsync(captainId, missionId, processId, "terminal marker grace", stop).ConfigureAwait(false);
+                    return false;
+                }
+
                 return true;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -706,7 +714,9 @@ namespace Armada.Server
                 {
                     try
                     {
-                        await runtime.StopAsync(processId.Value, token).ConfigureAwait(false);
+                        AgentStopResult stop = await runtime.StopAsync(processId.Value, token).ConfigureAwait(false);
+                        if (stop.IsRefused)
+                            _Logging.Warn(_Header + "model-validation process " + processId.Value + " for " + runtimeType + " was not stopped: " + stop);
                     }
                     catch (Exception stopEx)
                     {
@@ -1156,9 +1166,13 @@ namespace Armada.Server
                     return;
 
                 captain!.ProcessId = processId;
+
+                captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
                 await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
 
                 mission!.ProcessId = processId;
+
+                mission.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
                 if (!mission.StartedUtc.HasValue)
                     mission.StartedUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
@@ -1778,7 +1792,28 @@ namespace Armada.Server
             }
 
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
-            await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
+            AgentStopResult stop = await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
+            if (stop.IsRefused)
+                await EmitStopRefusedAsync(captain.Id, captain.CurrentMissionId, captain.ProcessId.Value, "captain stop", stop).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Record a stop that did not stop its process: a warning and a <c>captain.stop_refused</c> event naming the
+        /// reason, so the process is never reported as stopped while it may still be running.
+        /// </summary>
+        private async Task EmitStopRefusedAsync(string captainId, string? missionId, int processId, string context, AgentStopResult stop)
+        {
+            string detail = context + ": process " + processId + " was not stopped: " + stop;
+            _Logging.Warn(_Header + "captain " + captainId + " " + detail);
+            try
+            {
+                await _EmitEventAsync("captain.stop_refused", "Captain " + captainId + " " + detail,
+                    "captain", captainId, captainId, missionId, null, null).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record captain.stop_refused for captain " + captainId + ": " + ex.Message);
+            }
         }
 
         #endregion

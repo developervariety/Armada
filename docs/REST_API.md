@@ -2120,7 +2120,7 @@ The request accepts configuration fields only:
 | `DefaultPlaybooks` | string | no | JSON list of playbooks merged into every mission this captain runs |
 
 All other captain fields are server-owned: `Id`, `TenantId`, `UserId`, `State`,
-`CurrentMissionId`, `CurrentDockId`, `ProcessId`, `RecoveryAttempts`,
+`CurrentMissionId`, `CurrentDockId`, `ProcessId`, `ProcessStartedUtc`, `RecoveryAttempts`,
 `LastHeartbeatUtc`, `LastProcessAliveUtc`, `QuarantineUntilUtc`,
 `QuarantineReason`, `CreatedUtc` and `LastUpdateUtc`. A new captain always starts
 `Idle`, unassigned and not quarantined, with the tenant and user of the caller. A
@@ -2211,11 +2211,14 @@ mission. No shutdown request is sent: the agent process gets a 3-second grace
 period to exit, then its process tree is killed. Only a process verified as the
 one the admiral launched is killed: a live process whose start time differs from
 the recorded launch holds a reused process ID and is left running
-(`process_identifier_reused` in the admiral log). A live process with no launch
-recorded in the current admiral process (one launched before the admiral
-restarted), or whose start time cannot be read, cannot be told from an unrelated
-process that reused the ID, so it is also left running and the refusal is logged
-as `process_identity_unverified`.
+(`process_identifier_reused`). The admiral stores each agent's start time
+(`ProcessStartedUtc`) next to its process ID and restores it at startup, so an
+agent launched before a restart is still verified and stopped. A live process
+with no stored start time (one launched before start times were stored), or
+whose start time cannot be read, cannot be told from an unrelated process that
+reused the ID, so it is also left running (`process_identity_unverified`). A
+refused stop is logged and recorded as a `captain.stop_refused` event; it is
+never reported as a stop.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -4286,6 +4289,7 @@ An atomic unit of work assigned to a captain.
   "BranchName": "armada/msn_abc123",
   "DockId": null,
   "ProcessId": null,
+  "ProcessStartedUtc": null,
   "PrUrl": null,
   "CommitHash": null,
   "DiffSnapshot": null,
@@ -4312,6 +4316,7 @@ An atomic unit of work assigned to a captain.
 | `BranchName` | string? | null | Git branch name |
 | `DockId` | string? | null | Dock identifier for the mission's worktree |
 | `ProcessId` | int? | null | OS process ID of the agent working on the mission |
+| `ProcessStartedUtc` | datetime? | null | Start time of that process (UTC), stored at launch. It identifies the process after an admiral restart; null for a process launched before start times were stored, which is never killed by ID alone |
 | `PrUrl` | string? | null | Pull request URL if created |
 | `CommitHash` | string? | null | Git commit hash captured on completion |
 | `DiffSnapshot` | string? | null | Always `null` in list/status responses to keep payloads compact. Use `GET /api/v1/missions/{id}/diff` to retrieve the full diff. |
@@ -4338,6 +4343,7 @@ A worker AI agent instance executing missions.
   "CurrentMissionId": null,
   "CurrentDockId": null,
   "ProcessId": null,
+  "ProcessStartedUtc": null,
   "RecoveryAttempts": 0,
   "LastHeartbeatUtc": null,
   "CreatedUtc": "2026-03-07T12:00:00Z",
@@ -4358,6 +4364,7 @@ A worker AI agent instance executing missions.
 | `CurrentMissionId` | string? | null | Currently assigned mission ID |
 | `CurrentDockId` | string? | null | Currently assigned dock (worktree) ID |
 | `ProcessId` | int? | null | OS process ID |
+| `ProcessStartedUtc` | datetime? | null | Start time of that process (UTC), stored at launch. It identifies the process after an admiral restart; null for a process launched before start times were stored, which is never killed by ID alone |
 | `RecoveryAttempts` | int | 0 | Auto-recovery attempts for current mission |
 | `LastHeartbeatUtc` | datetime? | null | Last heartbeat timestamp (UTC) |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
@@ -4434,6 +4441,7 @@ A recorded event representing a state change in the system.
 - `mission.failed` - Mission failed
 - `captain.launched` - Captain agent process started
 - `captain.stopped` - Captain agent process stopped
+- `captain.stop_refused` - A stop left the agent process running; the message names the reason (`process_identity_unverified`, `process_identifier_reused`, `kill_failed`)
 - `captain.stalled` - Captain detected as stalled
 - `voyage.created` - Voyage was created
 - `voyage.dispatched` - A dispatch created the voyage and all of its missions

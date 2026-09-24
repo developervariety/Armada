@@ -918,7 +918,7 @@ error that starts with `default_captain_not_found:`, and a captain whose
 Both tools apply the same rule as the REST and WebSocket captain writes. Captain
 state, assignment, process, recovery, heartbeat, quarantine, identity and
 timestamps are server-owned: `id`, `tenantId`, `userId`, `state`,
-`currentMissionId`, `currentDockId`, `processId`, `recoveryAttempts`,
+`currentMissionId`, `currentDockId`, `processId`, `processStartedUtc`, `recoveryAttempts`,
 `lastHeartbeatUtc`, `lastProcessAliveUtc`, `quarantineUntilUtc`,
 `quarantineReason`, `createdUtc` and `lastUpdateUtc`. A call that sends one with a
 value other than its default (create) or its stored value (update) returns a tool

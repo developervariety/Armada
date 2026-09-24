@@ -192,14 +192,17 @@ namespace Armada.Test.Runtimes.Suites
 
                         AssertFalse(await runtime.IsRunningAsync(stranger.Id), "a reused identifier does not read as the launched agent");
                         AssertFalse(Armada.Core.ProcessSupervisor.IsTrackedProcessAlive(stranger.Id), "the health checks' liveness lookup does not read a reused identifier as alive");
-                        await runtime.StopAsync(stranger.Id);
+                        Armada.Core.Models.AgentStopResult refused = await runtime.StopAsync(stranger.Id);
                         AssertFalse(stranger.WaitForExit(500), "stop must not kill a process that is not the recorded launch");
+                        AssertEqual(Armada.Core.Enums.AgentStopOutcomeEnum.Refused, refused.Outcome, "a stop that left the process running reports a refusal");
+                        AssertEqual(Armada.Core.Models.AgentStopResult.IdentifierReusedReason, refused.Reason, "the refusal names the reused identifier");
 
                         Armada.Core.ProcessSupervisor.RecordLaunchedProcess(stranger.Id, actualStartUtc);
                         AssertTrue(await runtime.IsRunningAsync(stranger.Id), "the recorded launch reads as running");
                         AssertTrue(Armada.Core.ProcessSupervisor.IsTrackedProcessAlive(stranger.Id), "the health checks read the recorded launch as alive");
-                        await runtime.StopAsync(stranger.Id);
+                        Armada.Core.Models.AgentStopResult stopped = await runtime.StopAsync(stranger.Id);
                         AssertTrue(stranger.WaitForExit(5000), "stop kills the process whose start time matches the recorded launch");
+                        AssertEqual(Armada.Core.Enums.AgentStopOutcomeEnum.Stopped, stopped.Outcome, "a verified stop reports stopped");
                     }
                     finally
                     {
@@ -223,13 +226,69 @@ namespace Armada.Test.Runtimes.Suites
                     {
                         AssertEqual(Armada.Core.Enums.LaunchedProcessIdentityEnum.Unverified, Armada.Core.ProcessSupervisor.ProbeLaunchedProcess(stranger.Id), "a live process with no recorded launch is unverified");
                         AssertTrue(await runtime.IsRunningAsync(stranger.Id), "an unverified process reads as running");
-                        await runtime.StopAsync(stranger.Id);
+                        Armada.Core.Models.AgentStopResult refused = await runtime.StopAsync(stranger.Id);
                         AssertFalse(stranger.WaitForExit(500), "stop must not kill a process whose launch identity is unknown");
+                        AssertEqual(Armada.Core.Enums.AgentStopOutcomeEnum.Refused, refused.Outcome, "the stop is reported as refused, not stopped");
+                        AssertEqual(Armada.Core.Models.AgentStopResult.IdentityUnverifiedReason, refused.Reason, "the refusal names the unverified identity");
                     }
                     finally
                     {
                         try { stranger.Kill(); } catch (InvalidOperationException) { }
                     }
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("Stop After An Admiral Restart Kills The Agent Verified By Its Stored Start Time", "the stand-in agent is a POSIX sleep");
+            }
+            else await RunTest("Stop After An Admiral Restart Kills The Agent Verified By Its Stored Start Time", async () =>
+            {
+                string databasePath = Path.Combine(Path.GetTempPath(), "armada_launch_identity_" + Guid.NewGuid().ToString("N") + ".db");
+                string connectionString = "Data Source=" + databasePath + ";Pooling=False";
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CommandOverride = "sleep";
+                runtime.ArgsOverride = new List<string> { "30" };
+                int pid = 0;
+                try
+                {
+                    pid = await runtime.StartAsync(Path.GetTempPath(), "test prompt");
+                    DateTime? recordedStartUtc = Armada.Core.ProcessSupervisor.GetRecordedLaunchStartUtc(pid);
+                    AssertTrue(recordedStartUtc.HasValue, "the launch records the agent's start time");
+
+                    // The admiral stores the launch identity next to the process identifier on the captain record.
+                    using (Armada.Core.Database.Sqlite.SqliteDatabaseDriver database = new Armada.Core.Database.Sqlite.SqliteDatabaseDriver(connectionString, CreateLogging()))
+                    {
+                        await database.InitializeAsync();
+                        Armada.Core.Models.Captain captain = new Armada.Core.Models.Captain("restart-captain", Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode);
+                        captain.ProcessId = pid;
+                        captain.ProcessStartedUtc = recordedStartUtc;
+                        await database.Captains.CreateAsync(captain);
+                    }
+
+                    // A restart leaves no in-memory launch record: the agent is unverified and a stop refuses it.
+                    Armada.Core.ProcessSupervisor.ForgetLaunchedProcess(pid);
+                    Armada.Core.Models.AgentStopResult beforeRestore = await runtime.StopAsync(pid);
+                    AssertEqual(Armada.Core.Enums.AgentStopOutcomeEnum.Refused, beforeRestore.Outcome, "without its stored identity the agent is not stopped");
+                    AssertFalse(WaitForProcessExit(pid, TimeSpan.FromMilliseconds(300)), "the refused stop leaves the agent running");
+
+                    // The new admiral process restores the stored identity from a freshly opened database.
+                    using (Armada.Core.Database.Sqlite.SqliteDatabaseDriver reopened = new Armada.Core.Database.Sqlite.SqliteDatabaseDriver(connectionString, CreateLogging()))
+                    {
+                        await reopened.InitializeAsync();
+                        Armada.Core.Services.ProcessLaunchIdentityRestoreResult restored = await Armada.Core.Services.ProcessLaunchIdentityRestore.RestoreAsync(reopened);
+                        AssertEqual(1, restored.Restored, "the stored captain identity is restored");
+                    }
+
+                    AssertEqual(Armada.Core.Enums.LaunchedProcessIdentityEnum.Verified, Armada.Core.ProcessSupervisor.ProbeLaunchedProcess(pid), "the pre-restart agent is verified by its stored start time");
+                    Armada.Core.Models.AgentStopResult afterRestore = await runtime.StopAsync(pid);
+                    AssertEqual(Armada.Core.Enums.AgentStopOutcomeEnum.Stopped, afterRestore.Outcome, "the verified agent is stopped");
+                    AssertTrue(WaitForProcessExit(pid, TimeSpan.FromSeconds(5)), "the pre-restart agent is gone after the stop");
+                }
+                finally
+                {
+                    if (pid > 0) KillQuietly(pid);
+                    try { File.Delete(databasePath); } catch (IOException) { }
                 }
             });
 

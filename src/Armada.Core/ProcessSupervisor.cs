@@ -143,6 +143,41 @@ namespace Armada.Core
         }
 
         /// <summary>
+        /// The recorded start time of the process a runtime launched with this identifier, for storing next to the
+        /// identifier on a captain or mission record.
+        /// </summary>
+        /// <param name="processId">OS process identifier.</param>
+        /// <returns>The recorded start time in UTC, or null when no launch was recorded for the identifier.</returns>
+        public static DateTime? GetRecordedLaunchStartUtc(int processId)
+        {
+            if (processId <= 0) return null;
+            return _LaunchedProcesses.TryGetValue(processId, out DateTime startedUtc) ? startedUtc : null;
+        }
+
+        /// <summary>
+        /// Restore a launch identity read from a persisted record, so a process launched before the admiral process
+        /// restarted is verified by its stored start time. A launch recorded in this admiral process is newer than any
+        /// stored record and is never replaced.
+        /// </summary>
+        /// <param name="processId">OS process identifier.</param>
+        /// <param name="startedUtc">Stored start time of the launched process, in UTC.</param>
+        /// <returns>True when the identity was restored; false when this admiral process already holds one for the identifier.</returns>
+        public static bool RestoreLaunchedProcess(int processId, DateTime startedUtc)
+        {
+            if (processId <= 0 || processId >= SyntheticProcessIdFloor) return false;
+            return _LaunchedProcesses.TryAdd(processId, startedUtc);
+        }
+
+        /// <summary>
+        /// Drop the in-memory launch identity for an identifier, which is the state an admiral process restart leaves.
+        /// </summary>
+        /// <param name="processId">OS process identifier.</param>
+        public static void ForgetLaunchedProcess(int processId)
+        {
+            _LaunchedProcesses.TryRemove(processId, out _);
+        }
+
+        /// <summary>
         /// The one identity-checked lookup of a recorded agent process identifier; every stop, kill and liveness path
         /// for a local agent process goes through it. A live process is returned only when it is not provably a
         /// different process: when a launch was recorded for the identifier, its start time must match the recorded

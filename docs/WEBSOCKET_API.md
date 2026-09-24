@@ -2199,7 +2199,7 @@ Create a new captain. `data` accepts configuration fields only: `Name`, `Runtime
 `AllowedPersonas`, `PreferredPersona`, `RuntimeOptionsJson`, `Tier` and
 `DefaultPlaybooks`. The captain starts `Idle`, unassigned and not quarantined. A
 server-owned field (`Id`, `TenantId`, `UserId`, `State`, `CurrentMissionId`,
-`CurrentDockId`, `ProcessId`, `RecoveryAttempts`, `LastHeartbeatUtc`,
+`CurrentDockId`, `ProcessId`, `ProcessStartedUtc`, `RecoveryAttempts`, `LastHeartbeatUtc`,
 `LastProcessAliveUtc`, `QuarantineUntilUtc`, `QuarantineReason`, `CreatedUtc`,
 `LastUpdateUtc`) with a non-default value returns `command.error` starting with
 `captain_server_owned_field:` and naming the field. A `Name` another captain
@@ -2956,6 +2956,7 @@ If a message is sent without a route:
 | `branchName` | string \| null | Git branch created for this mission |
 | `dockId` | string \| null | Assigned dock ID for this mission's worktree |
 | `processId` | int \| null | OS process ID for the agent working this mission |
+| `processStartedUtc` | string \| null | Start time of that process (UTC), stored at launch |
 | `prUrl` | string \| null | Pull request URL |
 | `commitHash` | string \| null | Git commit hash (HEAD) captured at mission completion |
 | `diffSnapshot` | string \| null | Saved git diff snapshot captured at mission completion |
@@ -2975,6 +2976,7 @@ If a message is sent without a route:
 | `currentMissionId` | string \| null | Currently assigned mission |
 | `currentDockId` | string \| null | Currently assigned dock (worktree) |
 | `processId` | int \| null | OS process ID |
+| `processStartedUtc` | string \| null | Start time of that process (UTC), stored at launch |
 | `recoveryAttempts` | int | Number of recovery attempts |
 | `lastHeartbeatUtc` | string \| null | ISO 8601 last heartbeat timestamp |
 | `createdUtc` | string | ISO 8601 creation timestamp |

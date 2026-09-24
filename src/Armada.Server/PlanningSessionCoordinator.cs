@@ -329,7 +329,8 @@ namespace Armada.Server
                     try
                     {
                         Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
-                        await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
+                        AgentStopResult stop = await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
+                        if (stop.IsRefused) _Logging.Warn(_Header + "planning session " + session.Id + " process " + session.ProcessId.Value + " was not stopped: " + stop);
                     }
                     catch (Exception ex)
                     {
@@ -711,7 +712,8 @@ namespace Armada.Server
                             try
                             {
                                 Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
-                                await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
+                                AgentStopResult stop = await runtime.StopAsync(session.ProcessId.Value, token).ConfigureAwait(false);
+                                if (stop.IsRefused) _Logging.Warn(_Header + "planning session " + session.Id + " process " + session.ProcessId.Value + " was not stopped: " + stop);
                             }
                             catch
                             {
@@ -852,6 +854,8 @@ namespace Armada.Server
                 BroadcastSessionChanged(session);
 
                 captain.ProcessId = processId;
+
+                captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
                 captain.LastHeartbeatUtc = DateTime.UtcNow;
                 captain.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
@@ -1191,6 +1195,8 @@ namespace Armada.Server
                 BroadcastSessionChanged(session);
 
                 captain.ProcessId = processId;
+
+                captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId.Value);
                 captain.LastHeartbeatUtc = DateTime.UtcNow;
                 captain.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
@@ -1400,7 +1406,8 @@ namespace Armada.Server
                     try
                     {
                         Armada.Runtimes.Interfaces.IAgentRuntime runtime = CreatePlanningRuntime(captain);
-                        await runtime.StopAsync(session.ProcessId.Value, CancellationToken.None).ConfigureAwait(false);
+                        AgentStopResult stop = await runtime.StopAsync(session.ProcessId.Value, CancellationToken.None).ConfigureAwait(false);
+                        if (stop.IsRefused) _Logging.Warn(_Header + "planning session " + session.Id + " process " + session.ProcessId.Value + " was not stopped: " + stop);
                     }
                     catch (Exception ex)
                     {

@@ -418,6 +418,7 @@ namespace Armada.Core.Database.Sqlite
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);
             captain.ProcessId = NullableInt(reader["process_id"]);
+            captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
             // Read defensively: the column arrives with a migration, and a reader built
@@ -465,6 +466,7 @@ namespace Armada.Core.Database.Sqlite
             mission.BranchName = NullableString(reader["branch_name"]);
             mission.DockId = NullableString(reader["dock_id"]);
             mission.ProcessId = NullableInt(reader["process_id"]);
+            mission.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]);
             mission.PrUrl = NullableString(reader["pr_url"]);
             mission.CommitHash = NullableString(reader["commit_hash"]);
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);

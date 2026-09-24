@@ -144,6 +144,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     CurrentMissionId = "msn_other",
                     CurrentDockId = "dck_other",
                     ProcessId = 999,
+                    ProcessStartedUtc = later,
                     RecoveryAttempts = 9,
                     LastHeartbeatUtc = later,
                     LastProcessAliveUtc = later,

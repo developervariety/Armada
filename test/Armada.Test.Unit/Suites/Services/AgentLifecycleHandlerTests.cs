@@ -1262,6 +1262,40 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A refused stop after the terminal marker grace is reported as refused, not stopped", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StopRecordingRuntime runtime = new StopRecordingRuntime();
+                    runtime.NextStopResult = AgentStopResult.Refused(AgentStopResult.IdentityUnverifiedReason, "no stored start time");
+                    List<string> events = new List<string>();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, new StubAdmiralService(),
+                        new StopRecordingRuntimeFactory(CreateLogging(), runtime), null, events);
+                    settings.AutonomousRecovery.TerminalMarkerGraceSeconds = 60;
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("refused-captain", AgentRuntimeEnum.ClaudeCode)).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Judge mission") { Persona = "Judge", CaptainId = captain.Id }).ConfigureAwait(false);
+                    int processId = 939394;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(processId, "[ARMADA:VERDICT] PASS");
+                    AssertTrue(markers.TryGet(mission.Id, out TerminalMarkerRecord? marker), "The verdict line is recorded.");
+
+                    bool stopped = await handler.EnforceTerminalMarkerGraceAsync(
+                        processId, captain.Id, mission.Id, marker!.FirstSeenUtc.AddSeconds(61)).ConfigureAwait(false);
+                    AssertFalse(stopped, "A refused stop is not reported as a stop.");
+                    AssertEqual(1, runtime.StopCalls.Count);
+                    lock (events) AssertTrue(events.Contains("captain.stop_refused"), "The refusal is recorded as captain.stop_refused.");
+
+                    // The refused stop released its intentional-stop registration, so the next tick tries again.
+                    bool retried = await handler.EnforceTerminalMarkerGraceAsync(
+                        processId, captain.Id, mission.Id, marker.FirstSeenUtc.AddSeconds(62)).ConfigureAwait(false);
+                    AssertFalse(retried, "The retry is refused the same way.");
+                    AssertEqual(2, runtime.StopCalls.Count, "A refused stop does not leave the process marked as intentionally stopped.");
+                }
+            });
+
             // ----------------------------------------------------------------
             // A superseded process's exit never clears the relaunched process's per-mission state
             // ----------------------------------------------------------------
@@ -1748,7 +1782,7 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null, AgentRuntimeFactory? runtimeFactoryOverride = null, ISessionTokenService? sessionTokens = null)
+        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null, AgentRuntimeFactory? runtimeFactoryOverride = null, ISessionTokenService? sessionTokens = null, List<string>? emittedEventTypes = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
@@ -1765,7 +1799,11 @@ namespace Armada.Test.Unit.Suites.Services
                 templateService,
                 null,
                 null,
-                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask,
+                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) =>
+                {
+                    if (emittedEventTypes != null) lock (emittedEventTypes) emittedEventTypes.Add(eventType);
+                    return Task.CompletedTask;
+                },
                 modelValidationTimeout,
                 sessionTokens);
         }
@@ -1839,7 +1877,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CaptainLaunchIsolationPlan? isolationPlan = null)
                 => Task.FromResult(NextProcessId);
 
-            public Task StopAsync(int processId, CancellationToken token = default) => Task.CompletedTask;
+            public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default) => Task.FromResult(AgentStopResult.Stopped());
 
             public Task<bool> IsRunningAsync(int processId, CancellationToken token = default) => Task.FromResult(true);
         }
@@ -1847,6 +1885,8 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class StopRecordingRuntime : Armada.Runtimes.Interfaces.IAgentRuntime
         {
             public List<int> StopCalls { get; } = new List<int>();
+
+            public AgentStopResult NextStopResult { get; set; } = AgentStopResult.Stopped();
 
             public string Name => "StopRecording";
 
@@ -1879,10 +1919,10 @@ namespace Armada.Test.Unit.Suites.Services
                 CaptainLaunchIsolationPlan? isolationPlan = null)
                 => throw new NotSupportedException("This runtime only records stops.");
 
-            public Task StopAsync(int processId, CancellationToken token = default)
+            public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default)
             {
                 lock (StopCalls) StopCalls.Add(processId);
-                return Task.CompletedTask;
+                return Task.FromResult(NextStopResult);
             }
 
             public Task<bool> IsRunningAsync(int processId, CancellationToken token = default) => Task.FromResult(true);

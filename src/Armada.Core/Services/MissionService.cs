@@ -1074,9 +1074,12 @@ namespace Armada.Core.Services
                 {
                     int processId = await _Captains.OnLaunchAgent.Invoke(captain, mission, dock).ConfigureAwait(false);
                     captain.ProcessId = processId;
+                    captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
                     await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
 
                     mission.ProcessId = processId;
+
+                    mission.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
                     mission.Status = MissionStatusEnum.InProgress;
                     mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
                     mission.StartedUtc = DateTime.UtcNow;

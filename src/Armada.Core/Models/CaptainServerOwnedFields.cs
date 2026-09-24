@@ -48,6 +48,11 @@ namespace Armada.Core.Models
         public int? ProcessId { get; set; } = null;
 
         /// <summary>
+        /// Start time of the operating system process, in UTC.
+        /// </summary>
+        public DateTime? ProcessStartedUtc { get; set; } = null;
+
+        /// <summary>
         /// Auto-recovery attempts for the current mission.
         /// </summary>
         public int? RecoveryAttempts { get; set; } = null;

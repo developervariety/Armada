@@ -1187,7 +1187,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_session_messages_session_sequence ON planning_session_messages(planning_session_id, sequence);"
                 ),
                 new SchemaMigration(109, "Drop the unused jobs table", JobsTableDropSchema.PostgresqlStatements),
-                new SchemaMigration(110, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.PostgresqlStatements)
+                new SchemaMigration(110, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.PostgresqlStatements),
+                new SchemaMigration(111, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.PostgresqlStatements)
             };
         }
 
