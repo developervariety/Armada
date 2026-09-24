@@ -211,6 +211,24 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Added line whose content starts with ++ is scanned, under its quoted file's real name", () =>
+            {
+                // "++ <key header>" is shown as "+++ <key header>", the same prefix as a file header.
+                string keyHeader = "-----BEGIN " + "RSA PRIVATE" + " KEY-----";
+                string diff = "diff --git \"a/src/Caf\\303\\251.cs\" \"b/src/Caf\\303\\251.cs\"\n" +
+                              "index 0000000..1111111 100644\n" +
+                              "--- \"a/src/Caf\\303\\251.cs\"\n" +
+                              "+++ \"b/src/Caf\\303\\251.cs\"\n" +
+                              "@@ -0,0 +1 @@\n" +
+                              "+++ " + keyHeader + "\n";
+                DockBoundaryScanResult result = scanner.Scan(
+                    diff, null, null, null, null, null, DefaultSettings());
+                AssertFalse(result.Passed, "the ++ line must be scanned");
+                AssertEqual(DockBoundaryFindingKindEnum.Secret, result.Findings[0].Kind);
+                AssertEqual("src/Caf\u00e9.cs", result.Findings[0].Path);
+                return Task.CompletedTask;
+            });
+
             await RunTest("EC private key header in added line triggers Secret finding", () =>
             {
                 string diff = MakeDiff("src/Keys.cs", "-----BEGIN EC PRIVATE KEY-----");

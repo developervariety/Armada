@@ -82,6 +82,43 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("BuildReviewDiff_QuotedAndSpacedDataFileNames_AreElided", () =>
+            {
+                // A non-ASCII name is C-quoted in the header; a name holding " b/" is not quoted at all.
+                string quoted = HugeDataFile("PLACEHOLDER", "QUOTED_ROW_", 3000)
+                    .Replace("a/PLACEHOLDER", "\"a/tools/output/donn\\303\\251es.json\"")
+                    .Replace("b/PLACEHOLDER", "\"b/tools/output/donn\\303\\251es.json\"");
+                string spaced = HugeDataFile("Plan b/output/data.json", "SPACED_ROW_", 3000);
+                string diff = CodeFile("src/A.cs", "CODE_A") + quoted + spaced;
+
+                string scoped = MissionService.BuildReviewDiff(diff, 4000);
+
+                AssertTrue(scoped.Contains("CODE_A"), "the code diff is kept whole");
+                AssertTrue(!scoped.Contains("QUOTED_ROW_10"), "the quoted data file's rows are elided");
+                AssertTrue(!scoped.Contains("SPACED_ROW_10"), "the spaced data file's rows are elided");
+                AssertTrue(scoped.Contains("2 of them are bulk generated data files"),
+                    "both data files are recognized as generated data: " + scoped);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("SummarizeDiffStat_CountsPlusPlusAndMinusMinusContentLines", () =>
+            {
+                string diff =
+                    "diff --git a/docs/hugo.md b/docs/hugo.md\n" +
+                    "index 1111111..2222222 100644\n" +
+                    "--- a/docs/hugo.md\n" +
+                    "+++ b/docs/hugo.md\n" +
+                    "@@ -1,2 +1,4 @@\n" +
+                    "--- a SQL comment\n" +
+                    " keep\n" +
+                    "++++\n" +
+                    "+title = 1\n" +
+                    "++++\n";
+
+                AssertEqual("1 files, +3/-1", MissionService.SummarizeDiffStat(diff));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("BuildReviewDiff_UnderBudget_ReturnedUnchanged", () =>
             {
                 string diff = CodeFile("src/A.cs", "CODE_A") + CodeFile("src/B.cs", "CODE_B");

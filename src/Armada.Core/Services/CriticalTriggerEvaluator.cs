@@ -115,24 +115,16 @@ namespace Armada.Core.Services
             paths = new HashSet<string>(StringComparer.Ordinal);
             addedLines = 0;
 
+            // Added lines are counted per hunk, so an added line whose content starts with "++" counts.
             HashSet<string> files = new HashSet<string>(StringComparer.Ordinal);
             foreach (GitDiffFileChange change in GitDiffPaths.ParseFiles(diff))
             {
-                files.Add(change.NewPath ?? change.OldPath ?? String.Empty);
+                files.Add(change.DisplayPath ?? String.Empty);
                 foreach (string path in GitDiffPaths.PathsOf(change)) paths.Add(path);
+                addedLines += change.AddedLineCount;
             }
 
             fileCount = files.Count;
-
-            foreach (string rawLine in diff.Split('\n'))
-            {
-                string line = rawLine.TrimEnd('\r');
-                if (line.Length > 0 && line[0] == '+'
-                    && !line.StartsWith("+++", StringComparison.Ordinal))
-                {
-                    addedLines++;
-                }
-            }
         }
     }
 }

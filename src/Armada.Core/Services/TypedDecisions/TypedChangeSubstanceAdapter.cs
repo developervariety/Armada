@@ -334,39 +334,29 @@ namespace Armada.Core.Services
 
         private static List<Dictionary<string, object?>> ExtractAddedHunks(string? unifiedDiff)
         {
+            // Files and hunks come from the shared diff reader, so each hunk is labelled with its own
+            // decoded file name, and an added line whose content starts with "++" stays in its hunk.
             List<Dictionary<string, object?>> hunks = new List<Dictionary<string, object?>>();
             if (String.IsNullOrEmpty(unifiedDiff)) return hunks;
 
-            string currentFile = String.Empty;
-            List<string>? added = null;
-
-            foreach (string rawLine in unifiedDiff.Split('\n'))
+            foreach (GitDiffFileChange file in GitDiffPaths.ParseFiles(unifiedDiff, true))
             {
-                string line = rawLine.TrimEnd('\r');
-
-                if (line.StartsWith("+++ b/", StringComparison.Ordinal))
+                string currentFile = file.DisplayPath ?? String.Empty;
+                foreach (GitDiffHunk hunk in file.Hunks)
                 {
-                    currentFile = line.Substring("+++ b/".Length);
-                    continue;
-                }
+                    if (hunks.Count >= _MaxHunks) return hunks;
+                    List<string> added = new List<string>();
+                    foreach (GitDiffLine line in hunk.Lines)
+                    {
+                        if (line.Kind != GitDiffLineKindEnum.Added) continue;
+                        if (added.Count >= _MaxHunkLines) break;
+                        added.Add(line.Text);
+                    }
 
-                if (line.StartsWith("@@", StringComparison.Ordinal))
-                {
                     FlushHunk(hunks, currentFile, added);
-                    added = hunks.Count < _MaxHunks ? new List<string>() : null;
-                    continue;
-                }
-
-                if (added != null
-                    && line.Length > 0 && line[0] == '+'
-                    && !line.StartsWith("+++", StringComparison.Ordinal)
-                    && added.Count < _MaxHunkLines)
-                {
-                    added.Add(line.Substring(1));
                 }
             }
 
-            FlushHunk(hunks, currentFile, added);
             return hunks;
         }
 

@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -374,42 +375,30 @@ namespace Armada.Core.Services
 
         private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission)
         {
+            // Files and hunks come from the shared diff reader: each file is named once by its decoded
+            // path, and an added line whose content starts with "++" belongs to its hunk.
             List<LeakHunkDecisionInput> hunks = new List<LeakHunkDecisionInput>();
             if (String.IsNullOrEmpty(unifiedDiff)) return hunks;
 
-            string currentFile = "";
-            int hunksInFile = 0;
             List<string> added = new List<string>();
-
-            string[] rawLines = unifiedDiff!.Split('\n');
-            foreach (string rawLine in rawLines)
+            foreach (GitDiffFileChange file in GitDiffPaths.ParseFiles(unifiedDiff, true))
             {
-                string line = rawLine.TrimEnd('\r');
-
-                if (line.StartsWith("diff --git ", StringComparison.Ordinal))
+                string currentFile = file.DisplayPath ?? "";
+                int hunksInFile = 0;
+                foreach (GitDiffHunk hunk in file.Hunks)
                 {
-                    Flush(hunks, currentFile, added, vesselName, mission, ref hunksInFile);
-                    IReadOnlyList<string> parsedPaths = ProtectedPathsValidator.ExtractChangedFilesFromDiff(line + "\n");
-                    currentFile = parsedPaths.Count > 0 ? parsedPaths[parsedPaths.Count - 1] : "";
-                    hunksInFile = 0;
-                    continue;
-                }
+                    if (hunks.Count >= _MaxHunksPerScan) return hunks;
+                    foreach (GitDiffLine line in hunk.Lines)
+                    {
+                        if (line.Kind != GitDiffLineKindEnum.Added) continue;
+                        if (added.Count >= _MaxLinesPerHunk) break;
+                        added.Add(line.Text);
+                    }
 
-                if (line.StartsWith("@@", StringComparison.Ordinal))
-                {
                     Flush(hunks, currentFile, added, vesselName, mission, ref hunksInFile);
-                    continue;
                 }
-
-                if (hunks.Count >= _MaxHunksPerScan) break;
-                if (String.IsNullOrEmpty(currentFile)) continue;
-                if (line.Length == 0 || line[0] != '+') continue;
-                if (line.StartsWith("+++", StringComparison.Ordinal)) continue;
-                if (added.Count >= _MaxLinesPerHunk) continue;
-                added.Add(line.Substring(1));
             }
 
-            Flush(hunks, currentFile, added, vesselName, mission, ref hunksInFile);
             return hunks;
         }
 

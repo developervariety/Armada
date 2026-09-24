@@ -250,6 +250,53 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(changed.Contains("docs/notes.md"), "Rename target is reported");
             });
 
+            await RunTest("GitDiffPaths reads NUL-separated name-status records with rename sources", () =>
+            {
+                string output = "M\0src/Café.cs\0R087\0src/Old.cs\0src/New name.cs\0D\0docs/gone.md\0A\0 lead space.txt\0";
+                IReadOnlyList<GitNameStatusEntry> entries = GitDiffPaths.ParseNameStatusZ(output);
+                AssertEqual(4, entries.Count);
+                AssertEqual("M", entries[0].Status);
+                AssertEqual("src/Café.cs", entries[0].Path, "a raw non-ASCII name is kept as is");
+                AssertEqual(null, entries[0].OldPath);
+                AssertEqual("R087", entries[1].Status);
+                AssertEqual("src/Old.cs", entries[1].OldPath, "a rename keeps its source");
+                AssertEqual("src/New name.cs", entries[1].Path);
+                AssertEqual("docs/gone.md", entries[2].Path);
+                AssertEqual(" lead space.txt", entries[3].Path, "names are not trimmed");
+                AssertEqual(0, GitDiffPaths.ParseNameStatusZ(null).Count);
+                AssertEqual(0, GitDiffPaths.ParseNameStatusZ("").Count);
+            });
+
+            await RunTest("GitDiffPaths reads hunk lines by count, with line numbers", () =>
+            {
+                string diff =
+                    "diff --git a/f.txt b/f.txt\n" +
+                    "--- a/f.txt\n" +
+                    "+++ b/f.txt\n" +
+                    "@@ -1 +1,4 @@\n" +
+                    "-a\n" +
+                    "\\ No newline at end of file\n" +
+                    "+a\n" +
+                    "++++\n" +
+                    "+--- b\n" +
+                    "+b\n";
+                IReadOnlyList<GitDiffFileChange> files = GitDiffPaths.ParseFiles(diff, true);
+                AssertEqual(1, files.Count, "a body line that looks like a header is not a file");
+                GitDiffFileChange file = files[0];
+                AssertEqual("f.txt", file.DisplayPath);
+                AssertEqual(4, file.AddedLineCount);
+                AssertEqual(1, file.RemovedLineCount);
+                List<GitDiffLine> lines = file.Hunks[0].Lines;
+                AssertEqual(5, lines.Count, "the no-newline marker is not a line");
+                AssertEqual(1, lines[0].OldNumber);
+                AssertEqual(1, lines[1].NewNumber);
+                AssertEqual("+++", lines[2].Text);
+                AssertEqual(2, lines[2].NewNumber);
+                AssertEqual("--- b", lines[3].Text);
+                AssertEqual(4, lines[4].NewNumber);
+                AssertEqual(0, GitDiffPaths.ParseFiles(diff).SelectMany(f => f.Hunks).Count(), "hunk bodies are kept only on request");
+            });
+
             await RunTest("BuiltInProtectedPaths includes all five runtime instruction file patterns", () =>
             {
                 IReadOnlyList<string> builtIn = ProtectedPathsValidator.BuiltInProtectedPaths;

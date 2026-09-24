@@ -133,6 +133,50 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
+            await RunTest("State_LabelsEachHunkWithItsOwnQuotedFile_AndKeepsPlusPlusLines", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(SubstanceResult("behaviour", 0.95, 0.1));
+                TypedChangeSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                ChangeSubstanceDecisionInput input = new ChangeSubstanceDecisionInput
+                {
+                    Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "rescue a decoder fix" },
+                    ChangedPaths = new List<string> { "docs/notes.md", "src/Café.cs" },
+                    UnifiedDiff = string.Join("\n", new[]
+                    {
+                        "diff --git a/docs/notes.md b/docs/notes.md",
+                        "index 1111111..2222222 100644",
+                        "--- a/docs/notes.md",
+                        "+++ b/docs/notes.md",
+                        "@@ -1 +1,2 @@",
+                        " prose",
+                        "+more prose",
+                        "diff --git \"a/src/Caf\\303\\251.cs\" \"b/src/Caf\\303\\251.cs\"",
+                        "index 7898192..422c2b7 100644",
+                        "--- \"a/src/Caf\\303\\251.cs\"",
+                        "+++ \"b/src/Caf\\303\\251.cs\"",
+                        "@@ -1 +1,3 @@",
+                        " a",
+                        "+b",
+                        "+++counter;",
+                        ""
+                    }),
+                    VesselPublicName = "ExampleVessel"
+                };
+
+                await adapter.DecideAsync(input, ChangeSubstanceVerdict.Rule(ChangeSubstanceEnum.Substantive), CancellationToken.None).ConfigureAwait(false);
+
+                AssertNotNull(client.LastRequest, "the model was asked");
+                System.Text.Json.Nodes.JsonObject state = (System.Text.Json.Nodes.JsonObject)client.LastRequest!.State;
+                System.Text.Json.Nodes.JsonArray hunks = state["hunks"]!.AsArray();
+                AssertEqual(2, hunks.Count, "one hunk per file");
+                AssertEqual("docs/notes.md", hunks[0]!["file"]!.GetValue<string>());
+                AssertEqual("more prose", hunks[0]!["added"]!.GetValue<string>());
+                AssertEqual("src/Caf\u00e9.cs", hunks[1]!["file"]!.GetValue<string>(), "the code hunk is labelled with its own file");
+                AssertEqual("b\n++counter;", hunks[1]!["added"]!.GetValue<string>(), "an added line starting with ++ stays in its hunk");
+            }).ConfigureAwait(false);
+
             await RunTest("NeverLowers_SubstantiveRule_ModelDocsOnly_StaysSubstantive", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

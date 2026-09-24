@@ -198,6 +198,61 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("A C-quoted non-ASCII file name is read and decoded", () =>
+            {
+                string diff = string.Join("\n", new[]
+                {
+                    "diff --git \"a/src/Caf\\303\\251.cs\" \"b/src/Caf\\303\\251.cs\"",
+                    "index 7898192..422c2b7 100644",
+                    "--- \"a/src/Caf\\303\\251.cs\"",
+                    "+++ \"b/src/Caf\\303\\251.cs\"",
+                    "@@ -1 +1,2 @@",
+                    " a",
+                    "+b",
+                    ""
+                });
+
+                IReadOnlyList<string> paths = DiffPathExtractor.ExtractChangedPaths(diff);
+
+                AssertEqual(1, paths.Count, "The quoted file is a changed file.");
+                AssertEqual("src/Café.cs", paths[0]);
+
+                RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
+                    paths, RescueChangeRequirementEnum.BehaviorChange);
+                AssertFalse(assessment.IsIneffective, "A rescue that fixed only the quoted source file changed code.");
+                AssertEqual(ChangeSubstanceEnum.Substantive, assessment.Substance);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A file name holding ' b/' is read whole, and a deletion is named by its old path", () =>
+            {
+                string diff = string.Join("\n", new[]
+                {
+                    "diff --git a/Plan b/data.cs b/Plan b/data.cs",
+                    "index 587be6b..b77b4eb 100644",
+                    "--- a/Plan b/data.cs\t",
+                    "+++ b/Plan b/data.cs\t",
+                    "@@ -1 +1,2 @@",
+                    " x",
+                    "+y",
+                    "diff --git a/src/Gone.cs b/src/Gone.cs",
+                    "deleted file mode 100644",
+                    "index 1111111..0000000",
+                    "--- a/src/Gone.cs",
+                    "+++ /dev/null",
+                    "@@ -1 +0,0 @@",
+                    "-gone",
+                    ""
+                });
+
+                IReadOnlyList<string> paths = DiffPathExtractor.ExtractChangedPaths(diff);
+
+                AssertEqual(2, paths.Count);
+                AssertEqual("Plan b/data.cs", paths[0]);
+                AssertEqual("src/Gone.cs", paths[1]);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("The end-to-end shape: a docs-only rescue diff is flagged", () =>
             {
                 string diff = "diff --git a/docs/armada-ops.md b/docs/armada-ops.md\n@@ -1 +1 @@\n-a\n+b";

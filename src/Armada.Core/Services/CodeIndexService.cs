@@ -3101,23 +3101,14 @@ namespace Armada.Core.Services
         {
             try
             {
-                string output = await RunGitAsync(repoPath, token, "diff", "--name-status", "-M", fromCommit, toCommit).ConfigureAwait(false);
+                // -z keeps every name raw: without it Git C-quotes non-ASCII names and the quoted
+                // text would match neither the stored records nor the files on disk.
+                string output = await RunGitAsync(repoPath, token, "diff", "--name-status", "-M", "-z", fromCommit, toCommit).ConfigureAwait(false);
                 HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (string raw in output.Split('\n'))
+                foreach (GitNameStatusEntry entry in GitDiffPaths.ParseNameStatusZ(output))
                 {
-                    string line = raw.Trim();
-                    if (String.IsNullOrEmpty(line)) continue;
-                    string[] parts = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length == 0) continue;
-                    if (parts[0].StartsWith("R", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3)
-                    {
-                        paths.Add(NormalizeRepoPath(parts[1]));
-                        paths.Add(NormalizeRepoPath(parts[2]));
-                    }
-                    else if (parts.Length >= 2)
-                    {
-                        paths.Add(NormalizeRepoPath(parts[1]));
-                    }
+                    if (!String.IsNullOrEmpty(entry.OldPath)) paths.Add(NormalizeRepoPath(entry.OldPath));
+                    paths.Add(NormalizeRepoPath(entry.Path));
                 }
 
                 return paths;

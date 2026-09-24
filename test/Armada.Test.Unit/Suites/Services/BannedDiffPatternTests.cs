@@ -61,6 +61,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, r.Findings.Count, "exactly one added non-comment line matches");
             });
 
+            RunTest("AddedLineStartingWithPlusPlus_Matches_UnderItsQuotedFileName", () =>
+            {
+                // Added content "++BannedThing" is shown as "+++BannedThing"; the file name is quoted.
+                string diff =
+                    "diff --git \"a/src/Caf\\303\\251.cs\" \"b/src/Caf\\303\\251.cs\"\n" +
+                    "--- \"a/src/Caf\\303\\251.cs\"\n" +
+                    "+++ \"b/src/Caf\\303\\251.cs\"\n" +
+                    "@@ -1 +1,2 @@\n" +
+                    " context\n" +
+                    "+++BannedThing;\n";
+                BannedDiffPatternResult r = BannedDiffPatternClassifier.Classify(diff, Rules("BannedThing"));
+                AssertEqual(1, r.Findings.Count, "the ++ added line is read");
+                AssertEqual("src/Caf\u00e9.cs", r.Findings[0].Path, "the finding names the decoded file");
+            });
+
             RunTest("InvalidRegex_IsSkippedNotThrown", () =>
             {
                 BannedDiffPatternResult r = BannedDiffPatternClassifier.Classify(_Diff, Rules("("));

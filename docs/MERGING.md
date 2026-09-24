@@ -47,7 +47,9 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
    2. Fetch latest refs from the remote (`git fetch`).
    3. Create a temporary worktree from the current target branch.
    4. Merge the entry's branch into the worktree (`git merge --no-ff`).
-   5. If the merge conflicts, mark the entry `Failed` and move on.
+   5. If the merge conflicts, read the conflicted files (`git diff --name-only -z
+      --diff-filter=U`, before `git merge --abort` clears them), classify the failure
+      with those files and the diff size, mark the entry `Failed`, and move on.
    6. Read the landing evidence: the vessel record, every changed path
       (`git diff --name-only --no-renames -z`, so a rename reports both names and no
       name arrives C-quoted), and the unified diff. If any read fails, mark the entry
@@ -79,7 +81,7 @@ Because each entry is landed immediately, the next entry in the same group alway
 
 | Scenario | Behavior |
 |---|---|
-| **Merge conflict** | Entry marked `Failed` with message. Worktree cleaned up. Next entry in the same group continues. |
+| **Merge conflict** | Entry marked `Failed` with message. The conflicted files, read before the merge is aborted, are stored on the entry and passed to the failure classifier. Worktree cleaned up. Next entry in the same group continues. |
 | **Test failure** | Entry marked `Failed` with exit code and truncated output. Worktree cleaned up. Next entry continues. |
 | **Landing evidence unavailable** | Entry marked `Failed` with `landing_evidence_unavailable: vessel_unreadable`, `vessel_not_found`, `changed_files_unreadable`, or `diff_unreadable` and the underlying error. Nothing is pushed. |
 | **Test timeout** | The test command and its whole process tree are stopped after `MergeQueueTestTimeoutSeconds`; the entry is marked `Failed` with `merge_queue_test_timeout`. Both output streams drain concurrently, so a command that fills one stream while holding the other open cannot hold the host test lock. The command owns its process group, so the stop also reaches a background child it left behind. Each stream keeps 1 MiB, its beginning and its end, with a marker naming what was dropped. |

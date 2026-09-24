@@ -84,6 +84,24 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Evaluate_AddedLinesStartingWithPlusPlus_CountTowardSize", () =>
+            {
+                // 51 added lines, 26 of them with content starting with "++" (shown as "+++...").
+                StringBuilder sb = new StringBuilder();
+                sb.Append("diff --git a/docs/table.md b/docs/table.md\n");
+                sb.Append("new file mode 100644\n");
+                sb.Append("--- /dev/null\n");
+                sb.Append("+++ b/docs/table.md\n");
+                sb.Append("@@ -0,0 +1,51 @@\n");
+                for (int i = 0; i < 51; i++) sb.Append(i % 2 == 0 ? "++++ row " + i + "\n" : "+row " + i + "\n");
+
+                CriticalTriggerEvaluator sut = new CriticalTriggerEvaluator();
+                CriticalTriggerResult r = sut.Evaluate(sb.ToString(), new ConventionCheckResult { Passed = true });
+                AssertTrue(r.Fired, "51 added lines exceed the size threshold");
+                AssertContains("size", string.Join(",", r.TriggeredCriteria));
+                return Task.CompletedTask;
+            });
+
             await RunTest("Evaluate_ManyFiles_FiresSizeCriterion", () =>
             {
                 CriticalTriggerEvaluator sut = new CriticalTriggerEvaluator();

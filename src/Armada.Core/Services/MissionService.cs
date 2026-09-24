@@ -7422,16 +7422,12 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            int nl = section.IndexOf('\n');
-            string header = nl < 0 ? section : section.Substring(0, nl);
-            int markerIdx = header.IndexOf(" b/", StringComparison.Ordinal);
-            string? path = null;
-            if (markerIdx > 0)
-            {
-                string aPart = header.Substring(0, markerIdx);
-                int aIdx = aPart.IndexOf(" a/", StringComparison.Ordinal);
-                if (aIdx >= 0) path = aPart.Substring(aIdx + 3);
-            }
+            // The file name comes from the shared diff reader, which decodes quoted names and reads
+            // a name holding " b/" whole. Only the file header (up to the first hunk) is parsed.
+            int hunkStart = section.IndexOf("\n@@", StringComparison.Ordinal);
+            string fileHeader = hunkStart < 0 ? section : section.Substring(0, hunkStart + 1);
+            IReadOnlyList<GitDiffFileChange> headerFiles = GitDiffPaths.ParseFiles(fileHeader);
+            string? path = headerFiles.Count > 0 ? headerFiles[0].DisplayPath : null;
             if (String.IsNullOrEmpty(path))
             {
                 return false;
@@ -7798,19 +7794,20 @@ namespace Armada.Core.Services
         /// A compact stat of the reviewed diff for the D4 state: files changed and lines added and
         /// removed, never the diff body. The redactor removes any path or id that leaks through.
         /// </summary>
-        private static string SummarizeDiffStat(string? diffSnapshot)
+        internal static string SummarizeDiffStat(string? diffSnapshot)
         {
             if (String.IsNullOrWhiteSpace(diffSnapshot)) return "no diff recorded";
 
-            int files = 0;
+            // Counted per hunk by the shared diff reader, so an added line whose content starts with
+            // "++" and a removed line whose content starts with "--" are counted.
+            IReadOnlyList<GitDiffFileChange> changes = GitDiffPaths.ParseFiles(diffSnapshot);
+            int files = changes.Count;
             int added = 0;
             int removed = 0;
-            foreach (string rawLine in diffSnapshot.Replace("\r\n", "\n").Split('\n'))
+            foreach (GitDiffFileChange change in changes)
             {
-                if (rawLine.StartsWith("diff --git", StringComparison.Ordinal)) files++;
-                else if (rawLine.StartsWith("+++", StringComparison.Ordinal) || rawLine.StartsWith("---", StringComparison.Ordinal)) continue;
-                else if (rawLine.StartsWith('+')) added++;
-                else if (rawLine.StartsWith('-')) removed++;
+                added += change.AddedLineCount;
+                removed += change.RemovedLineCount;
             }
 
             return files.ToString(System.Globalization.CultureInfo.InvariantCulture) + " files, +"

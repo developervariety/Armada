@@ -81,6 +81,27 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Diff readers share one parser:** `GitDiffPaths` reads hunk bodies by their
+  counts and returns each file's one name, line counts and (on request) hunk lines;
+  it also reads `--name-status -z` records. Change substance (rescue and planner
+  checks, custom-decision `changed_paths`) names a C-quoted non-ASCII file or a
+  name holding ` b/` correctly instead of dropping it. The code index reads changed
+  names with `-z`, so a change to a non-ASCII file is re-indexed and counts as
+  relevant staleness. Auto-land and critical-trigger size limits, the convention
+  and dock-boundary secret scans, the banned-diff guard, the leak and
+  change-substance model states, and the Judge diff stat count and scan an added
+  line whose content starts with `++`. The change-substance state labels each hunk
+  with its own file, and the Judge review diff elides a bulk data file whose name
+  is quoted or holds ` b/`.
+- **Dock boundary hooks:** the pre-commit and pre-push hooks read changed names
+  with `-z`, so a protected path with a non-ASCII name (`_briefing/**`,
+  `**/CLAUDE.md`) is blocked at commit and push time, and they read added lines
+  per hunk, so a `+++` file header is skipped and an added line starting with `++`
+  is scanned.
+- **Merge-queue conflict files:** the conflicted-file list is read before
+  `merge --abort` (NUL-separated, so names arrive unquoted), so the failure
+  classifier and the trivial-conflict recovery decision see the real files instead
+  of an always-empty list.
 - **Image rebuild helper:** `rebuild-local-image.sh` passes `ARMADA_CLI_REFRESH`
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test

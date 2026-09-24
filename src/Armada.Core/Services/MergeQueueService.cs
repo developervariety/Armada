@@ -1111,14 +1111,9 @@ namespace Armada.Core.Services
                 {
                     // git exits 1 when the merge stopped on conflicting content and 128 for fatal
                     // errors (bad identity, signing, corrupt ref). Only the former is a conflict.
-                    // The worktree has already been reset by `merge --abort`, so the exit code is
-                    // the reliable discriminator rather than the conflicted-file listing.
-                    // git exits 1 when the merge stopped on conflicting content and 128 for fatal
-                    // errors (bad identity, signing, corrupt ref). Only the former is a conflict.
-                    // The conflicted-file listing cannot be used as the discriminator here: the
-                    // worktree has already been reset by `merge --abort`, so the list is empty even
-                    // for a real conflict. git also exits 1 when it cannot resolve the ref at all,
-                    // so exclude that message explicitly rather than calling it a conflict.
+                    // git also exits 1 when it cannot resolve the ref at all, so exclude that
+                    // message explicitly rather than calling it a conflict. The conflicted-file
+                    // list was read before `merge --abort` reset the worktree.
                     bool unmergeableRef =
                         (mergeAttempt.StandardError ?? String.Empty).Contains("not something we can merge", StringComparison.OrdinalIgnoreCase) ||
                         (mergeAttempt.StandardOutput ?? String.Empty).Contains("not something we can merge", StringComparison.OrdinalIgnoreCase);
@@ -1126,7 +1121,7 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + (isContentConflict ? "merge conflict for " : "merge failed (not a conflict) for ") +
                         entryTag + " gitExitCode=" + mergeAttempt.GitExitCode);
 
-                    List<string> conflictedFiles = await CollectConflictedFilesAsync(integrationPath, token).ConfigureAwait(false);
+                    List<string> conflictedFiles = mergeAttempt.ConflictedFiles;
                     int diffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
                     MergeFailureContext mergeContext = new MergeFailureContext
                     {
@@ -2392,33 +2387,45 @@ namespace Armada.Core.Services
                 return new MergeAttemptResult(true, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
             }
 
-            // Abort the failed merge so the worktree is in a clean state for cleanup.
+            // The unmerged paths exist only while the merge is in progress, so read them before the
+            // abort that cleans the worktree for cleanup.
+            List<string> conflictedFiles = await CollectConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
             try { await RunGitCapturingAsync(worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
-            catch { }
-            return new MergeAttemptResult(false, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "merge --abort failed in " + worktreePath + ": " + ex.Message);
+            }
+
+            return new MergeAttemptResult(false, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError)
+            {
+                ConflictedFiles = conflictedFiles
+            };
         }
 
         /// <summary>
-        /// Capture conflicted-file paths reported by git after a failed merge. Returns an
-        /// empty list when git reports nothing or the call fails. Best-effort -- the
-        /// classifier degrades gracefully when the list is empty.
+        /// Read the unmerged paths of an in-progress merge. Names are read NUL-separated so a
+        /// name Git would C-quote is reported as its real text. Returns an empty list when git
+        /// reports nothing; a failed read is logged and also yields an empty list, which the
+        /// classifier treats as "no file evidence".
         /// </summary>
         private async Task<List<string>> CollectConflictedFilesAsync(string worktreePath, CancellationToken token)
         {
-            List<string> results = new List<string>();
             try
             {
-                GitProcessResult diff = await RunGitCapturingAsync(worktreePath, token, "diff", "--name-only", "--diff-filter=U").ConfigureAwait(false);
-                if (String.IsNullOrEmpty(diff.StandardOutput)) return results;
-                string[] lines = diff.StandardOutput.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (string line in lines)
+                GitProcessResult diff = await RunGitCapturingAsync(worktreePath, token, "diff", "--name-only", "-z", "--diff-filter=U").ConfigureAwait(false);
+                if (diff.ExitCode != 0)
                 {
-                    string trimmed = line.Trim();
-                    if (!String.IsNullOrEmpty(trimmed)) results.Add(trimmed);
+                    _Logging.Warn(_Header + "conflicted-file read failed in " + worktreePath + " (git exit " + diff.ExitCode + ")");
+                    return new List<string>();
                 }
+
+                return new List<string>(GitDiffPaths.SplitNulSeparated(diff.StandardOutput));
             }
-            catch { }
-            return results;
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging.Warn(_Header + "conflicted-file read failed in " + worktreePath + ": " + ex.Message);
+                return new List<string>();
+            }
         }
 
         /// <summary>
@@ -2606,7 +2613,11 @@ namespace Armada.Core.Services
 
         private sealed record GitProcessResult(int ExitCode, string StandardOutput, string StandardError);
 
-        private sealed record MergeAttemptResult(bool Ok, int GitExitCode, string StandardOutput, string StandardError);
+        private sealed record MergeAttemptResult(bool Ok, int GitExitCode, string StandardOutput, string StandardError)
+        {
+            /// <summary>Unmerged paths read before the failed merge was aborted; empty otherwise.</summary>
+            public List<string> ConflictedFiles { get; init; } = new List<string>();
+        }
 
         private async Task CleanupWorktreeAsync(MergeEntry entry, string worktreePath, CancellationToken token)
         {

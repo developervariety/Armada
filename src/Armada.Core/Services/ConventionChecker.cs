@@ -285,13 +285,11 @@ namespace Armada.Core.Services
             ConventionCheckResult result = new ConventionCheckResult();
             if (string.IsNullOrEmpty(unifiedDiff)) return result;
 
-            foreach (string rawLine in unifiedDiff.Split('\n'))
+            // Only added lines: the shared reader skips file headers, context and removed lines, and
+            // keeps an added line whose content starts with "++".
+            foreach (GitDiffAddedLine added in GitDiffPaths.ReadAddedLines(unifiedDiff))
             {
-                string line = rawLine.TrimEnd('\r');
-                // Only '+' addition lines. Skip '+++' headers and context/deletion lines.
-                if (line.Length == 0 || line[0] != '+') continue;
-                if (line.StartsWith("+++", StringComparison.Ordinal)) continue;
-
+                string line = "+" + added.Text;
                 foreach ((string rule, Regex pattern) in _Rules)
                 {
                     if (RuleFiresOnLine(rule, pattern, line))

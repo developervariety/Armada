@@ -1923,11 +1923,19 @@ namespace Armada.Core.Services
             "_gi=''\n" +
             "case \"$pat\" in '" + ConventionChecker.CaseInsensitivePrefix + "'*) pat=${pat#'" + ConventionChecker.CaseInsensitivePrefix + "'}; _gi=i ;; esac\n";
 
+        // Added lines of a diff: every '+' line inside a hunk. A file header runs from its "diff "
+        // line to its first "@@", so a header "+++ b/..." is skipped while an added line whose
+        // content starts with "++" is kept.
+        private const string _HookAddedLines = "awk '/^diff /{h=1;next} /^@@/{h=0;next} !h && /^[+]/'";
+
         // LF-only hook scripts so Git for Windows sh.exe can execute them without CRLF errors.
         // Protected paths are read from .armada/boundary.json via extract_section (globs need no
         // unescaping). Secret and private-id patterns are read from the sibling .armada/boundary.patterns
         // file which stores raw (un-JSON-escaped) regex strings so grep -qE receives correct metacharacters.
         // Both files fall back to hard-coded built-in defaults when absent.
+        // Changed names are read with -z and turned into lines, so a name Git would C-quote
+        // (non-ASCII, a double quote, a backslash) reaches the protected-path match as its real
+        // text. A name that itself holds a newline is still split across two lines.
         // Secret bytes and private identifier values are never printed.
         private const string _PreCommitHook =
             "#!/bin/sh\n" +
@@ -1995,7 +2003,7 @@ namespace Armada.Core.Services
             "  secrets='-----BEGIN.*PRIVATE KEY-----'\n" +
             "  privids=''\n" +
             "fi\n" +
-            "staged_files=$(git diff --cached --name-only 2>/dev/null)\n" +
+            "staged_files=$(git diff --cached --name-only -z 2>/dev/null | tr '\\0' '\\n')\n" +
             "if [ -n \"$staged_files\" ] && [ -n \"$protected\" ]; then\n" +
             "  while IFS= read -r f; do\n" +
             "    [ -z \"$f\" ] && continue\n" +
@@ -2013,7 +2021,7 @@ namespace Armada.Core.Services
             "FILES\n" +
             "fi\n" +
             "if [ -n \"$secrets\" ]; then\n" +
-            "  added=$(git diff --cached 2>/dev/null | sed -n '/^+++/d;/^+/p')\n" +
+            "  added=$(git diff --cached 2>/dev/null | " + _HookAddedLines + ")\n" +
             "  if [ -n \"$added\" ]; then\n" +
             "    while IFS= read -r pat; do\n" +
             "      [ -z \"$pat\" ] && continue\n" +
@@ -2030,7 +2038,7 @@ namespace Armada.Core.Services
             "  fi\n" +
             "fi\n" +
             "if [ -n \"$privids\" ]; then\n" +
-            "  added=$(git diff --cached 2>/dev/null | sed -n '/^+++/d;/^+/p')\n" +
+            "  added=$(git diff --cached 2>/dev/null | " + _HookAddedLines + ")\n" +
             "  if [ -n \"$added\" ]; then\n" +
             "    while IFS= read -r pat; do\n" +
             "      [ -z \"$pat\" ] && continue\n" +
@@ -2114,10 +2122,10 @@ namespace Armada.Core.Services
             "while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do\n" +
             "  [ \"$local_sha\" = \"0000000000000000000000000000000000000000\" ] && continue\n" +
             "  if [ \"$remote_sha\" = \"0000000000000000000000000000000000000000\" ]; then\n" +
-            "    push_files=$(git diff-tree --no-commit-id --name-only -r \"$local_sha\" 2>/dev/null)\n" +
+            "    push_files=$(git diff-tree --no-commit-id --name-only -r -z \"$local_sha\" 2>/dev/null | tr '\\0' '\\n')\n" +
             "    push_diff=$(git show --format= --no-ext-diff \"$local_sha\" 2>/dev/null)\n" +
             "  else\n" +
-            "    push_files=$(git diff --name-only \"${remote_sha}..${local_sha}\" 2>/dev/null)\n" +
+            "    push_files=$(git diff --name-only -z \"${remote_sha}..${local_sha}\" 2>/dev/null | tr '\\0' '\\n')\n" +
             "    push_diff=$(git diff \"${remote_sha}..${local_sha}\" 2>/dev/null)\n" +
             "  fi\n" +
             "  if [ -n \"$push_files\" ] && [ -n \"$protected\" ]; then\n" +
@@ -2137,7 +2145,7 @@ namespace Armada.Core.Services
             "PFILES\n" +
             "  fi\n" +
             "  if [ -n \"$secrets\" ] && [ -n \"$push_diff\" ]; then\n" +
-            "    added=$(printf '%s' \"$push_diff\" | sed -n '/^+++/d;/^+/p')\n" +
+            "    added=$(printf '%s' \"$push_diff\" | " + _HookAddedLines + ")\n" +
             "    if [ -n \"$added\" ]; then\n" +
             "      while IFS= read -r pat; do\n" +
             "        [ -z \"$pat\" ] && continue\n" +
@@ -2154,7 +2162,7 @@ namespace Armada.Core.Services
             "    fi\n" +
             "  fi\n" +
             "  if [ -n \"$privids\" ] && [ -n \"$push_diff\" ]; then\n" +
-            "    added=$(printf '%s' \"$push_diff\" | sed -n '/^+++/d;/^+/p')\n" +
+            "    added=$(printf '%s' \"$push_diff\" | " + _HookAddedLines + ")\n" +
             "    if [ -n \"$added\" ]; then\n" +
             "      while IFS= read -r pat; do\n" +
             "        [ -z \"$pat\" ] && continue\n" +

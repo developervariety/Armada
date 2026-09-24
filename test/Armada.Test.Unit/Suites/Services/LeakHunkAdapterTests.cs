@@ -301,6 +301,25 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(asked <= 20, "the per-scan hunk bound caps the model calls, asked=" + asked);
             }).ConfigureAwait(false);
 
+            await RunTest("AddedLineStartingWithPlusPlus_IsAskedAbout", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                List<System.Text.Json.Nodes.JsonObject> states = new List<System.Text.Json.Nodes.JsonObject>();
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(request =>
+                {
+                    states.Add((System.Text.Json.Nodes.JsonObject)request.State);
+                    return LeakResult(0.10, "none");
+                });
+                LeakHunkAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                // The added content "++counter;" is shown as "+++counter;", the prefix of a file header.
+                await adapter.EvaluateAsync(OneHunkDiff("++counter;"), "ExampleVessel", null, CleanScan(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(1, states.Count, "the hunk holding the ++ line is asked about");
+                AssertEqual("++counter;", states[0]["added_hunk"]!.GetValue<string>());
+                AssertEqual("src/Example/Widget.cs", states[0]["file_path"]!.GetValue<string>());
+            }).ConfigureAwait(false);
+
             await RunTest("CallerTokenReachesClient_AndDecisionPoint", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

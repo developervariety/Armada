@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Globalization;
     using System.Text;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -20,16 +21,33 @@ namespace Armada.Core.Services
         /// <summary>
         /// Parse every file entry of a unified diff. Accepts output with <c>diff --git</c> headers
         /// and plain unified diffs that only carry <c>---</c> / <c>+++</c> lines. Returns an empty
-        /// list for null or empty input.
+        /// list for null or empty input. Line counts are filled; hunk bodies are not.
         /// </summary>
         /// <param name="unifiedDiff">Unified diff text.</param>
         /// <returns>File entries in the order they appear.</returns>
         public static IReadOnlyList<GitDiffFileChange> ParseFiles(string? unifiedDiff)
         {
+            return ParseFiles(unifiedDiff, false);
+        }
+
+        /// <summary>
+        /// Parse every file entry of a unified diff, optionally with each hunk's body lines.
+        /// Hunk bodies are read by the counts in the <c>@@</c> header, so an added line whose
+        /// content starts with <c>++</c> (shown as <c>+++...</c>) or a removed line whose content
+        /// starts with <c>--</c> is a body line, never a file header. When a hunk carries more body
+        /// lines than its header counts, the extra <c>+</c>, <c>-</c> and space lines still belong to
+        /// it unless they are a <c>+++ </c> / <c>--- </c> header.
+        /// </summary>
+        /// <param name="unifiedDiff">Unified diff text.</param>
+        /// <param name="includeLines">True to fill <see cref="GitDiffFileChange.Hunks"/>.</param>
+        /// <returns>File entries in the order they appear.</returns>
+        public static IReadOnlyList<GitDiffFileChange> ParseFiles(string? unifiedDiff, bool includeLines)
+        {
             List<GitDiffFileChange> results = new List<GitDiffFileChange>();
             if (String.IsNullOrEmpty(unifiedDiff)) return results;
 
             FileBlock? current = null;
+            HunkCursor? hunk = null;
             int oldRemaining = 0;
             int newRemaining = 0;
 
@@ -42,6 +60,7 @@ namespace Armada.Core.Services
                 {
                     Flush(current, results);
                     current = new FileBlock();
+                    hunk = null;
                     ParseGitHeader(line.Substring("diff --git ".Length), current);
                     oldRemaining = 0;
                     newRemaining = 0;
@@ -54,18 +73,21 @@ namespace Armada.Core.Services
                     {
                         oldRemaining--;
                         newRemaining--;
+                        RecordLine(current, hunk, GitDiffLineKindEnum.Context, line, includeLines);
                         continue;
                     }
 
                     if (line[0] == '-')
                     {
                         oldRemaining--;
+                        RecordLine(current, hunk, GitDiffLineKindEnum.Removed, line, includeLines);
                         continue;
                     }
 
                     if (line[0] == '+')
                     {
                         newRemaining--;
+                        RecordLine(current, hunk, GitDiffLineKindEnum.Added, line, includeLines);
                         continue;
                     }
 
@@ -75,13 +97,28 @@ namespace Armada.Core.Services
                     oldRemaining = 0;
                     newRemaining = 0;
                 }
+                else if (hunk != null && IsTrailingBodyLine(line, out GitDiffLineKindEnum trailingKind))
+                {
+                    // Body lines beyond the header counts: a hand-built or trimmed diff.
+                    RecordLine(current, hunk, trailingKind, line, includeLines);
+                    continue;
+                }
 
                 if (line.StartsWith("@@", StringComparison.Ordinal))
                 {
-                    ParseHunkCounts(line, out oldRemaining, out newRemaining);
-                    if (current != null) current.SawHunk = true;
+                    ParseHunkHeader(line, out int oldStart, out oldRemaining, out int newStart, out newRemaining);
+                    hunk = null;
+                    if (current != null)
+                    {
+                        current.SawHunk = true;
+                        hunk = new HunkCursor(line, oldStart, newStart);
+                        if (includeLines) current.Change.Hunks.Add(hunk.Hunk);
+                    }
                     continue;
                 }
+
+                if (line.Length > 0 && line[0] == '\\' && hunk != null) continue;
+                hunk = null;
 
                 if (line.StartsWith("--- ", StringComparison.Ordinal))
                 {
@@ -155,6 +192,49 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Every added line of a diff, in order, with the file it belongs to. Hunk bodies are read
+        /// by their counts (see <see cref="ParseFiles(string?, bool)"/>), so an added line whose
+        /// content starts with <c>++</c> is included and a <c>+++</c> file header never is. Text
+        /// that carries no file header at all (a bare list of <c>+</c> lines) is read line by line:
+        /// every <c>+</c> line except a <c>+++ </c> header is an added line with no path.
+        /// </summary>
+        /// <param name="unifiedDiff">Unified diff text, or bare added lines.</param>
+        /// <returns>Added lines in order.</returns>
+        public static IReadOnlyList<GitDiffAddedLine> ReadAddedLines(string? unifiedDiff)
+        {
+            List<GitDiffAddedLine> results = new List<GitDiffAddedLine>();
+            if (String.IsNullOrEmpty(unifiedDiff)) return results;
+
+            IReadOnlyList<GitDiffFileChange> files = ParseFiles(unifiedDiff, true);
+            if (files.Count > 0)
+            {
+                foreach (GitDiffFileChange file in files)
+                {
+                    foreach (GitDiffHunk hunk in file.Hunks)
+                    {
+                        foreach (GitDiffLine line in hunk.Lines)
+                        {
+                            if (line.Kind != GitDiffLineKindEnum.Added) continue;
+                            results.Add(new GitDiffAddedLine { Path = file.DisplayPath, Text = line.Text, NewNumber = line.NewNumber });
+                        }
+                    }
+                }
+
+                return results;
+            }
+
+            foreach (string rawLine in unifiedDiff.Split('\n'))
+            {
+                string line = rawLine.EndsWith("\r", StringComparison.Ordinal) ? rawLine.Substring(0, rawLine.Length - 1) : rawLine;
+                if (line.Length == 0 || line[0] != '+') continue;
+                if (line.StartsWith("+++ ", StringComparison.Ordinal)) continue;
+                results.Add(new GitDiffAddedLine { Text = line.Substring(1) });
+            }
+
+            return results;
+        }
+
+        /// <summary>
         /// Every repository-relative path a unified diff touches: the old path of a deletion, the
         /// new path of an addition, both paths of a rename or copy. Distinct, in order of appearance.
         /// </summary>
@@ -208,6 +288,50 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Parse <c>git diff --name-status -z</c> output. Each record is a status field followed by
+        /// one path, or by the source and destination paths for a rename (<c>R</c>) or copy
+        /// (<c>C</c>). Names are raw, so no unquoting or trimming is applied.
+        /// </summary>
+        /// <param name="output">Raw process output.</param>
+        /// <returns>Records in output order.</returns>
+        public static IReadOnlyList<GitNameStatusEntry> ParseNameStatusZ(string? output)
+        {
+            List<GitNameStatusEntry> results = new List<GitNameStatusEntry>();
+            if (String.IsNullOrEmpty(output)) return results;
+
+            string[] fields = output.Split('\0');
+            int index = 0;
+            while (index < fields.Length)
+            {
+                // A trailing newline can follow the last NUL when output passes through a shell.
+                string status = fields[index].Trim('\r', '\n');
+                index++;
+                if (status.Length == 0) continue;
+
+                bool twoPaths = status[0] == 'R' || status[0] == 'C';
+                int needed = twoPaths ? 2 : 1;
+                if (index + needed > fields.Length) break;
+
+                GitNameStatusEntry entry = new GitNameStatusEntry { Status = status };
+                if (twoPaths)
+                {
+                    entry.OldPath = fields[index];
+                    entry.Path = fields[index + 1];
+                }
+                else
+                {
+                    entry.Path = fields[index];
+                }
+
+                index += needed;
+                if (entry.Path.Length == 0) continue;
+                results.Add(entry);
+            }
+
+            return results;
+        }
+
+        /// <summary>
         /// Decode a Git C-quoted name (<c>"r\303\251sum\303\251.md"</c>, <c>"a\tb"</c>). Octal escapes
         /// are UTF-8 bytes. A value that is not wrapped in double quotes is returned unchanged.
         /// </summary>
@@ -241,25 +365,91 @@ namespace Armada.Core.Services
             results.Add(change);
         }
 
-        private static void ParseHunkCounts(string line, out int oldCount, out int newCount)
+        private static bool IsTrailingBodyLine(string line, out GitDiffLineKindEnum kind)
         {
-            // @@ -start[,count] +start[,count] @@
+            kind = GitDiffLineKindEnum.Context;
+            if (line.Length == 0) return false;
+            if (line[0] == '+' && !line.StartsWith("+++ ", StringComparison.Ordinal))
+            {
+                kind = GitDiffLineKindEnum.Added;
+                return true;
+            }
+
+            if (line[0] == '-' && !line.StartsWith("--- ", StringComparison.Ordinal))
+            {
+                kind = GitDiffLineKindEnum.Removed;
+                return true;
+            }
+
+            return line[0] == ' ';
+        }
+
+        private static void RecordLine(FileBlock? block, HunkCursor? hunk, GitDiffLineKindEnum kind, string line, bool includeLines)
+        {
+            if (block == null || hunk == null) return;
+            GitDiffLine entry = new GitDiffLine
+            {
+                Kind = kind,
+                Text = line.Length > 0 ? line.Substring(1) : String.Empty
+            };
+
+            switch (kind)
+            {
+                case GitDiffLineKindEnum.Added:
+                    block.Change.AddedLineCount++;
+                    entry.NewNumber = hunk.NextNew++;
+                    break;
+                case GitDiffLineKindEnum.Removed:
+                    block.Change.RemovedLineCount++;
+                    entry.OldNumber = hunk.NextOld++;
+                    break;
+                default:
+                    entry.OldNumber = hunk.NextOld++;
+                    entry.NewNumber = hunk.NextNew++;
+                    break;
+            }
+
+            if (includeLines) hunk.Hunk.Lines.Add(entry);
+        }
+
+        private static void ParseHunkHeader(string line, out int oldStart, out int oldCount, out int newStart, out int newCount)
+        {
+            // @@ -start[,count] +start[,count] @@ [section]
+            oldStart = 0;
             oldCount = 0;
+            newStart = 0;
             newCount = 0;
+            bool sawOld = false;
+            bool sawNew = false;
             string[] parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             foreach (string part in parts)
             {
                 if (part.Length < 2) continue;
-                if (part[0] == '-') oldCount = ParseRangeCount(part.Substring(1));
-                else if (part[0] == '+') newCount = ParseRangeCount(part.Substring(1));
+                if (part[0] == '-' && !sawOld)
+                {
+                    ParseRange(part.Substring(1), out oldStart, out oldCount);
+                    sawOld = true;
+                }
+                else if (part[0] == '+' && !sawNew)
+                {
+                    ParseRange(part.Substring(1), out newStart, out newCount);
+                    sawNew = true;
+                }
             }
         }
 
-        private static int ParseRangeCount(string range)
+        private static void ParseRange(string range, out int start, out int count)
         {
             int comma = range.IndexOf(',');
-            if (comma < 0) return 1;
-            return Int32.TryParse(range.Substring(comma + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int count) ? count : 0;
+            string startText = comma < 0 ? range : range.Substring(0, comma);
+            if (!Int32.TryParse(startText, NumberStyles.None, CultureInfo.InvariantCulture, out start)) start = 0;
+            if (comma < 0)
+            {
+                count = 1;
+                return;
+            }
+
+            if (!Int32.TryParse(range.Substring(comma + 1), NumberStyles.None, CultureInfo.InvariantCulture, out count)) count = 0;
         }
 
         private static string? ParsePathField(string value, string prefix)
@@ -414,6 +604,22 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Classes
+
+        private sealed class HunkCursor
+        {
+            public HunkCursor(string header, int oldStart, int newStart)
+            {
+                Hunk = new GitDiffHunk { Header = header, OldStart = oldStart, NewStart = newStart };
+                NextOld = oldStart;
+                NextNew = newStart;
+            }
+
+            public GitDiffHunk Hunk { get; }
+
+            public int NextOld { get; set; }
+
+            public int NextNew { get; set; }
+        }
 
         private sealed class FileBlock
         {

@@ -50,7 +50,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// captain branch and main both modified the same line of the same file,
         /// guaranteeing that the merge-queue service will hit a TextConflict.
         /// </summary>
-        private async Task<ConflictRepoSetup> CreateConflictingReposAsync(string rootDir)
+        private async Task<ConflictRepoSetup> CreateConflictingReposAsync(string rootDir, string conflictFile = "shared.txt")
         {
             string remoteDir = Path.Combine(rootDir, "remote.git");
             string sourceDir = Path.Combine(rootDir, "source");
@@ -62,21 +62,21 @@ namespace Armada.Test.Unit.Suites.Services
             await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
             await RunGitAsync(sourceDir, "config", "receive.denyCurrentBranch", "ignore").ConfigureAwait(false);
 
-            string sharedFile = Path.Combine(sourceDir, "shared.txt");
+            string sharedFile = Path.Combine(sourceDir, conflictFile);
             await File.WriteAllTextAsync(sharedFile, "original line\n").ConfigureAwait(false);
-            await RunGitAsync(sourceDir, "add", "shared.txt").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "--", conflictFile).ConfigureAwait(false);
             await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
 
             string captainBranch = "armada/captain-conflict/msn_test001";
             await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
             await File.WriteAllTextAsync(sharedFile, "captain line\n").ConfigureAwait(false);
-            await RunGitAsync(sourceDir, "add", "shared.txt").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "--", conflictFile).ConfigureAwait(false);
             await RunGitAsync(sourceDir, "commit", "-m", "Captain edits shared").ConfigureAwait(false);
 
             // Diverge main with conflicting edit on the same line.
             await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
             await File.WriteAllTextAsync(sharedFile, "main line\n").ConfigureAwait(false);
-            await RunGitAsync(sourceDir, "add", "shared.txt").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "--", conflictFile).ConfigureAwait(false);
             await RunGitAsync(sourceDir, "commit", "-m", "Main edits shared").ConfigureAwait(false);
 
             await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
@@ -241,6 +241,9 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("Recording classifier: text conflict", updated.MergeFailureSummary,
                             "MergeFailureSummary must match classifier output");
                         AssertNotNull(updated.ConflictedFiles, "ConflictedFiles must be persisted");
+                        AssertEqual(1, classifier.LastContext.ConflictedFiles.Count,
+                            "the classifier must see the conflicted file, read before the merge was aborted");
+                        AssertEqual("shared.txt", classifier.LastContext.ConflictedFiles[0]);
                     }
                 }
                 finally
@@ -321,6 +324,56 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProcessEntry_MergeConflict_NonAsciiConflictedFileReachesClassifierByItsRealName", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_class_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    string conflictFile = "données.txt";
+                    ConflictRepoSetup repos = await CreateConflictingReposAsync(rootDir, conflictFile).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+                        RecordingMergeFailureClassifier classifier = new RecordingMergeFailureClassifier(
+                            new MergeFailureClassification(
+                                MergeFailureClassEnum.TextConflict,
+                                "Recording classifier: text conflict",
+                                new List<string> { conflictFile }));
+
+                        Vessel vessel = new Vessel("classification-vessel-quoted", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, classifier);
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        AssertEqual(1, classifier.CallCount, "classifier should have been invoked exactly once");
+                        AssertNotNull(classifier.LastContext, "classifier should have received a context");
+                        AssertEqual(1, classifier.LastContext!.ConflictedFiles.Count, "one conflicted file expected");
+                        AssertEqual(conflictFile, classifier.LastContext.ConflictedFiles[0],
+                            "the conflicted file is named as its real text, not Git's quoted form");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
             await RunTest("ProcessEntry_MergeConflict_ConflictedFilesStoredAsJsonArray", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_class_" + Guid.NewGuid().ToString("N"));

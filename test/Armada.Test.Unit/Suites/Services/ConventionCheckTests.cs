@@ -118,6 +118,24 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Check_AddedLineStartingWithPlusPlus_IsEvaluated", () =>
+            {
+                ConventionChecker sut = new ConventionChecker();
+                // The added content "++ -----BEGIN ..." is shown as "+++ -----BEGIN ...", the same
+                // prefix as a file header; inside the hunk it is an added line.
+                string keyHeader = "-----BEGIN " + "RSA PRIVATE" + " KEY-----";
+                string diff = "diff --git a/notes.txt b/notes.txt\n" +
+                              "index 0000000..1111111 100644\n" +
+                              "--- a/notes.txt\n" +
+                              "+++ b/notes.txt\n" +
+                              "@@ -0,0 +1,1 @@\n" +
+                              "+++ " + keyHeader + "\n";
+                ConventionCheckResult r = sut.Check(diff);
+                AssertFalse(r.Passed, "an added line starting with ++ is still scanned");
+                AssertContains("CORE_RULE_5_private_key", r.Violations[0].Rule);
+                return Task.CompletedTask;
+            });
+
             await RunTest("Check_NullOrEmptyDiff_Passes", () =>
             {
                 ConventionChecker sut = new ConventionChecker();

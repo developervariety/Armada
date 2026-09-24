@@ -219,6 +219,127 @@ namespace Armada.Test.Unit.Suites.Services
                     SafeDeleteDirectory(tempRoot);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Both hooks block protected paths whose names Git would quote", async () =>
+            {
+                string? shPath = FindShPath();
+                if (shPath == null)
+                {
+                    Console.WriteLine("  [SKIP] sh not found; quoted protected-path hook test skipped");
+                    return;
+                }
+
+                string repo = Path.Combine(Path.GetTempPath(), "armada-hookquoted-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    await InitHookRepoAsync(repo).ConfigureAwait(false);
+
+                    // Built-in protected paths apply (no boundary.json); both names are non-ASCII.
+                    string briefing = "_briefing/café.md";
+                    Directory.CreateDirectory(Path.Combine(repo, "_briefing"));
+                    await File.WriteAllTextAsync(Path.Combine(repo, "_briefing", "café.md"), "notes\n").ConfigureAwait(false);
+                    await RunGitAsync(repo, "add", "--", briefing).ConfigureAwait(false);
+
+                    HookRun commit = await RunHookAsync(shPath, repo, "pre-commit", null).ConfigureAwait(false);
+                    Assert(commit.ExitCode != 0, "pre-commit must block the staged _briefing file (stderr=" + commit.StandardError + ")");
+                    AssertContains("BLOCKED: commit modifies protected path '" + briefing + "'", commit.StandardError);
+
+                    await RunGitAsync(repo, "reset", "-q").ConfigureAwait(false);
+                    File.Delete(Path.Combine(repo, "_briefing", "café.md"));
+
+                    string nested = "src/Café/CLAUDE.md";
+                    Directory.CreateDirectory(Path.Combine(repo, "src", "Café"));
+                    await File.WriteAllTextAsync(Path.Combine(repo, "src", "Café", "CLAUDE.md"), "rules\n").ConfigureAwait(false);
+                    await RunGitAsync(repo, "add", "--", nested).ConfigureAwait(false);
+                    await RunGitAsync(repo, "-c", "user.name=Hook Test", "-c", "user.email=hook@example.invalid", "commit", "-q", "--no-verify", "-m", "fixture").ConfigureAwait(false);
+                    string head = await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false);
+                    string parent = await RunGitAsync(repo, "rev-parse", "HEAD~1").ConfigureAwait(false);
+                    string zero = new string('0', 40);
+
+                    HookRun newBranch = await RunHookAsync(shPath, repo, "pre-push",
+                        "refs/heads/work " + head + " refs/heads/work " + zero + "\n").ConfigureAwait(false);
+                    Assert(newBranch.ExitCode != 0, "pre-push of a new branch must block the nested CLAUDE.md (stderr=" + newBranch.StandardError + ")");
+                    AssertContains("BLOCKED: push modifies protected path '" + nested + "'", newBranch.StandardError);
+
+                    HookRun update = await RunHookAsync(shPath, repo, "pre-push",
+                        "refs/heads/work " + head + " refs/heads/work " + parent + "\n").ConfigureAwait(false);
+                    Assert(update.ExitCode != 0, "pre-push of a branch update must block the nested CLAUDE.md (stderr=" + update.StandardError + ")");
+                    AssertContains("BLOCKED: push modifies protected path '" + nested + "'", update.StandardError);
+                }
+                finally
+                {
+                    SafeDeleteDirectory(repo);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Both hooks scan an added line whose content starts with ++", async () =>
+            {
+                string? shPath = FindShPath();
+                if (shPath == null)
+                {
+                    Console.WriteLine("  [SKIP] sh not found; added-line hook test skipped");
+                    return;
+                }
+
+                string repo = Path.Combine(Path.GetTempPath(), "armada-hookplus-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    await InitHookRepoAsync(repo).ConfigureAwait(false);
+
+                    // The diff shows this added line as "+++ -----BEGIN ...", the same prefix as a file header.
+                    string keyHeader = "-----BEGIN " + "RSA PRIVATE" + " KEY-----";
+                    await File.WriteAllTextAsync(Path.Combine(repo, "notes.txt"), "++ " + keyHeader + "\n").ConfigureAwait(false);
+                    await RunGitAsync(repo, "add", "notes.txt").ConfigureAwait(false);
+
+                    HookRun commit = await RunHookAsync(shPath, repo, "pre-commit", null).ConfigureAwait(false);
+                    Assert(commit.ExitCode != 0, "pre-commit must scan the ++ line (stderr=" + commit.StandardError + ")");
+                    AssertContains("BLOCKED: staged changes contain secret material", commit.StandardError);
+
+                    await RunGitAsync(repo, "-c", "user.name=Hook Test", "-c", "user.email=hook@example.invalid", "commit", "-q", "--no-verify", "-m", "fixture").ConfigureAwait(false);
+                    string head = await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false);
+                    string parent = await RunGitAsync(repo, "rev-parse", "HEAD~1").ConfigureAwait(false);
+
+                    HookRun push = await RunHookAsync(shPath, repo, "pre-push",
+                        "refs/heads/work " + head + " refs/heads/work " + parent + "\n").ConfigureAwait(false);
+                    Assert(push.ExitCode != 0, "pre-push must scan the ++ line (stderr=" + push.StandardError + ")");
+                    AssertContains("BLOCKED: pushed commits contain secret material", push.StandardError);
+                }
+                finally
+                {
+                    SafeDeleteDirectory(repo);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Hooks do not read a file header as an added line", async () =>
+            {
+                string? shPath = FindShPath();
+                if (shPath == null)
+                {
+                    Console.WriteLine("  [SKIP] sh not found; header hook test skipped");
+                    return;
+                }
+
+                string repo = Path.Combine(Path.GetTempPath(), "armada-hookheader-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    await InitHookRepoAsync(repo).ConfigureAwait(false);
+
+                    // A private-identifier pattern that matches only the file name: it appears in the
+                    // "+++ b/<name>" header and in no added line.
+                    Directory.CreateDirectory(Path.Combine(repo, ".armada"));
+                    await File.WriteAllTextAsync(Path.Combine(repo, ".armada", "boundary.patterns"),
+                        "# secretPatterns\n# privateIdentifiers\nheaderonlyname\n").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repo, "headeronlyname.txt"), "plain\n").ConfigureAwait(false);
+                    await RunGitAsync(repo, "add", "headeronlyname.txt").ConfigureAwait(false);
+
+                    HookRun commit = await RunHookAsync(shPath, repo, "pre-commit", null).ConfigureAwait(false);
+                    AssertEqual(0, commit.ExitCode, "a name in a file header is not added content (stderr=" + commit.StandardError + ")");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(repo);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
@@ -294,6 +415,49 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        private static async Task InitHookRepoAsync(string repo)
+        {
+            Directory.CreateDirectory(repo);
+            await RunGitAsync(repo, "init", "-q", "-b", "main").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repo, "README.txt"), "base\n").ConfigureAwait(false);
+            await RunGitAsync(repo, "add", "README.txt").ConfigureAwait(false);
+            await RunGitAsync(repo, "-c", "user.name=Hook Test", "-c", "user.email=hook@example.invalid", "commit", "-q", "--no-verify", "-m", "base").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repo, "pre-commit"), DockService.PreCommitHookScript).ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repo, "pre-push"), DockService.PrePushHookScript).ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repo, ".git", "info", "exclude"), "pre-commit\npre-push\n").ConfigureAwait(false);
+        }
+
+        private static async Task<HookRun> RunHookAsync(string shPath, string repo, string hook, string? stdin)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = shPath,
+                WorkingDirectory = repo,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add(hook);
+            if (hook == "pre-push")
+            {
+                startInfo.ArgumentList.Add("origin");
+                startInfo.ArgumentList.Add("https://example.invalid/repo.git");
+            }
+
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                if (stdin != null) await process.StandardInput.WriteAsync(stdin).ConfigureAwait(false);
+                process.StandardInput.Close();
+                Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+                Task<string> stderr = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                return new HookRun { ExitCode = process.ExitCode, StandardOutput = await stdout.ConfigureAwait(false), StandardError = await stderr.ConfigureAwait(false) };
+            }
+        }
+
         private static void SafeDeleteDirectory(string path)
         {
             try
@@ -306,6 +470,15 @@ namespace Armada.Test.Unit.Suites.Services
                 Directory.Delete(path, true);
             }
             catch { }
+        }
+
+        private sealed class HookRun
+        {
+            public int ExitCode { get; set; }
+
+            public string StandardOutput { get; set; } = "";
+
+            public string StandardError { get; set; } = "";
         }
 
         /// <summary>

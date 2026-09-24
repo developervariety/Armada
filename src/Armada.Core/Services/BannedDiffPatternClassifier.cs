@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Text;
     using System.Text.RegularExpressions;
+    using Armada.Core.Models;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -18,7 +19,6 @@ namespace Armada.Core.Services
     {
         #region Private-Members
 
-        private static readonly Regex _HunkPath = new Regex(@"^\+\+\+ b/(.+)$", RegexOptions.Compiled);
         private static readonly TimeSpan _MatchTimeout = TimeSpan.FromMilliseconds(250);
 
         #endregion
@@ -51,19 +51,12 @@ namespace Armada.Core.Services
             }
             if (compiled.Count == 0) return result;
 
-            string path = "(unknown)";
-            foreach (string raw in unifiedDiff.Replace("\r\n", "\n").Split('\n'))
+            // Added lines come from the shared diff reader: the file is named by its decoded path,
+            // and an added line whose content starts with "++" is read like any other.
+            foreach (GitDiffAddedLine added in GitDiffPaths.ReadAddedLines(unifiedDiff))
             {
-                Match header = _HunkPath.Match(raw);
-                if (header.Success) { path = header.Groups[1].Value.Trim(); continue; }
-                if (raw.StartsWith("+++", StringComparison.Ordinal) || raw.StartsWith("---", StringComparison.Ordinal)
-                    || raw.StartsWith("@@", StringComparison.Ordinal) || raw.StartsWith("diff ", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                if (!raw.StartsWith("+", StringComparison.Ordinal)) continue;
-
-                string content = raw.Substring(1);
+                string path = added.Path ?? "(unknown)";
+                string content = added.Text;
                 string trimmed = content.TrimStart();
                 if (trimmed.StartsWith("//", StringComparison.Ordinal) || trimmed.StartsWith("*", StringComparison.Ordinal)
                     || trimmed.StartsWith("/*", StringComparison.Ordinal))

@@ -1098,6 +1098,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("NonAsciiFileName_ChangeIsRelevant_AndIncrementalUpdateReplacesItsRecords", async () =>
+            {
+                // Git C-quotes a non-ASCII name in name-status output unless it is read with -z.
+                string cafe = "src/Café.cs";
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    [cafe] = "namespace S { public class Cafe { public int FirstRevisionMarker() => 1; } }\n",
+                    ["src/Other.cs"] = "namespace S { public class Other { public int N() => 1; } }\n"
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        await AppendCommitAsync(repository.Path, cafe, "namespace S { public class Cafe { public int SecondRevisionMarker() => 2; } }\n", "edit the accented file").ConfigureAwait(false);
+
+                        CodeIndexStalenessRelevance relevance = await service.GetStalenessRelevanceAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(relevance.IsStale, "the commit made the index stale");
+                        AssertFalse(relevance.DiffUnavailable);
+                        AssertEqual(1, relevance.ChangedFileCount);
+                        AssertEqual(1, relevance.ChangedSourceFileCount, "the accented .cs file is indexable source");
+                        AssertTrue(relevance.IsRelevant, "a change to the accented source file needs a refresh");
+
+                        CodeIndexStatus second = await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        List<CodeIndexRecord> records = await ReadChunkRecordsAsync(second).ConfigureAwait(false);
+                        List<CodeIndexRecord> cafeRecords = records.Where(r => r.Path == cafe).ToList();
+                        AssertTrue(cafeRecords.Count > 0, "the accented file keeps records under its real name");
+                        AssertTrue(cafeRecords.Any(r => (r.Content ?? "").Contains("SecondRevisionMarker", StringComparison.Ordinal)),
+                            "the accented file is re-indexed with its new content");
+                        AssertFalse(records.Any(r => (r.Content ?? "").Contains("FirstRevisionMarker", StringComparison.Ordinal)),
+                            "no stale record of the old content survives the incremental update");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("UpdateAsync_SemanticSearchOn_UsesEmbeddingBatchRequests", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);

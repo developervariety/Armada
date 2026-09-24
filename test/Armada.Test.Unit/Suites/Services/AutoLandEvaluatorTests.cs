@@ -189,6 +189,25 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Evaluate_AddedLinesStartingWithPlusPlus_AreCounted", () =>
+            {
+                AutoLandEvaluator sut = CreateSut();
+                string diff =
+                    "diff --git a/docs/hugo.md b/docs/hugo.md\n" +
+                    "new file mode 100644\n" +
+                    "--- /dev/null\n" +
+                    "+++ b/docs/hugo.md\n" +
+                    "@@ -0,0 +1,3 @@\n" +
+                    "++++\n" +
+                    "+title = 1\n" +
+                    "++++\n";
+
+                EvaluationResult r = sut.Evaluate(diff, new AutoLandPredicate { MaxAddedLines = 2 });
+                AssertTrue(r is EvaluationResult.Fail, "Three added lines exceed a cap of two");
+                AssertEqual("maxAddedLines:3>2", ((EvaluationResult.Fail)r).Reason);
+                return Task.CompletedTask;
+            });
+
             await RunTest("Evaluate_QuotedAccentedPath_DenyPathMatchesDecodedName", () =>
             {
                 AutoLandEvaluator sut = CreateSut();

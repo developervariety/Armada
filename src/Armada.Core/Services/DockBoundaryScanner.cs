@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Text.RegularExpressions;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
 
@@ -169,36 +170,29 @@ namespace Armada.Core.Services
 
         private static Dictionary<string, List<string>> ParseAddedLinesByFile(string unifiedDiff)
         {
+            // Every file of the diff gets an entry, named once (the new path, or the old path of a
+            // deletion). Added lines come from the shared hunk reader, so an added line whose content
+            // starts with "++" is scanned and a "+++" file header never is.
             Dictionary<string, List<string>> result =
                 new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
-            string currentFile = "";
-            string[] rawLines = unifiedDiff.Split('\n');
-
-            foreach (string rawLine in rawLines)
+            foreach (GitDiffFileChange file in GitDiffPaths.ParseFiles(unifiedDiff, true))
             {
-                string line = rawLine.TrimEnd('\r');
-
-                if (line.StartsWith("diff --git ", StringComparison.Ordinal))
+                string? path = file.DisplayPath;
+                if (String.IsNullOrEmpty(path)) continue;
+                if (!result.TryGetValue(path, out List<string>? lines))
                 {
-                    // Re-use the existing diff-header parser to extract the destination path.
-                    IReadOnlyList<string> parsedPaths =
-                        ProtectedPathsValidator.ExtractChangedFilesFromDiff(line + "\n");
-                    currentFile = parsedPaths.Count > 0 ? parsedPaths[parsedPaths.Count - 1] : "";
-
-                    if (!String.IsNullOrEmpty(currentFile) && !result.ContainsKey(currentFile))
-                    {
-                        result[currentFile] = new List<string>();
-                    }
-                    continue;
+                    lines = new List<string>();
+                    result[path] = lines;
                 }
 
-                if (String.IsNullOrEmpty(currentFile)) continue;
-                if (line.Length == 0 || line[0] != '+') continue;
-                if (line.StartsWith("+++", StringComparison.Ordinal)) continue;
-
-                // Strip the leading '+' and store the raw content (without secret bytes going into return value).
-                result[currentFile].Add(line.Substring(1));
+                foreach (GitDiffHunk hunk in file.Hunks)
+                {
+                    foreach (GitDiffLine line in hunk.Lines)
+                    {
+                        if (line.Kind == GitDiffLineKindEnum.Added) lines.Add(line.Text);
+                    }
+                }
             }
 
             return result;
