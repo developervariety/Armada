@@ -207,6 +207,45 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The global kill switch stops every captain tool, the general ones included", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = ChoiceResult("provider", 0.93);
+                    Harness harness = Harness.Create(testDb, client, enabled: true, configure: s =>
+                    {
+                        s.TypedDecisions.Mode = TypedDecisionModeEnum.Off;
+                        s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Gate);
+                    });
+
+                    List<string> responses = new List<string>
+                    {
+                        await harness.CallAsync("armada_typed_decision", new
+                        {
+                            state = "a plain state to reason over",
+                            questions = new { cause = new { type = "choice", instructions = "Pick the cause", criteria = new { environmental = "host", provider = "provider" } } }
+                        }).ConfigureAwait(false),
+                        await harness.CallAsync("armada_score_items", new
+                        {
+                            claim = "This snippet truncates a payload byte.",
+                            items = new object[] { "byte b = (byte)data[i];", "if (b >= 32) keep(b);" }
+                        }).ConfigureAwait(false),
+                        await harness.CallAsync("armada_run_custom_decision", new { name = "house_rule", context = new { diff = "a" } }).ConfigureAwait(false),
+                        await harness.CallAsync("armada_check_premise", new { restatement = "I will port the decoder." }).ConfigureAwait(false)
+                    };
+
+                    AssertEqual(0, client.CallCount, "with the global mode Off no tool reaches the provider");
+                    foreach (string response in responses)
+                    {
+                        AssertContains("\"available\":false", Compact(response));
+                        AssertContains("typed_decisions_off", response, "the captain is told typed decisions are off");
+                    }
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
+                    AssertEqual(4, events.Count, "one recorded event per call");
+                }
+            });
+
             await RunTest("Disabled by default: the tool returns unavailable and records one event", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

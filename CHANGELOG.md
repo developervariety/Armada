@@ -553,6 +553,12 @@ upstream integrations and excludes changes already present at that baseline.
   preflight, `criteria_lint`, `stage_necessity`, `owner_digest`,
   `dispatch_staleness`) pass the objective's and the target's vessels to the
   shared guard.
+- **Typed-decision kill switch:** the global `typedDecisions.mode` stops the
+  captain tools too. With it `Off`, the general tool, the list tool, the
+  pre-shaped helpers and the custom runner make no provider call, record one
+  event, and return `unavailable` with reason `typed_decisions_off`
+  (`typed_decisions_no_key` when no key resolves). `captainTool.enabled: false`
+  still turns the tools off on its own.
 - **Documentation:** current contracts replace stale counts, rollout claims, and
   duplicate instructions. Product references are separate from deployment guides;
   the changelog records only the net delta from the upstream merge baseline.

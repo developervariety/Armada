@@ -409,6 +409,13 @@ namespace Armada.Server.Mcp.Tools
                     return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
                 }
 
+                string? killed = KillSwitchReasonOf(settings.TypedDecisions);
+                if (killed != null)
+                {
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable(killed), killed).ConfigureAwait(false);
+                    return Unavailable(killed, KillSwitchMessage);
+                }
+
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, recorder, settings.TypedDecisions, logging ?? new LoggingModule());
                 CustomDecisionOutcome outcome = await adapter.RunAsync(name!, context, mission, mission?.CaptainId, CancellationToken.None, participantKeyProvider(), RunCustomToolName).ConfigureAwait(false);
 
@@ -449,6 +456,19 @@ namespace Armada.Server.Mcp.Tools
                 logging?.Warn("[McpTypedDecisionTools] custom decision call failed: " + ex.Message);
                 return Unavailable("exception", "The custom decision call failed. Decide it yourself.");
             }
+        }
+
+        /// <summary>The reason a captain tool records and returns when the global typed-decision mode is Off.</summary>
+        public const string TypedDecisionsOffReason = "typed_decisions_off";
+
+        private const string KillSwitchMessage = "Typed decisions are off on this server. Decide it yourself.";
+
+        // The global kill switch as a captain tool reads it: null while the effective global mode is on, else why
+        // it is off - the stored mode, or no provider key.
+        private static string? KillSwitchReasonOf(TypedDecisionSettings settings)
+        {
+            if (settings.EffectiveMode != TypedDecisionModeEnum.Off) return null;
+            return settings.Mode == TypedDecisionModeEnum.Off ? TypedDecisionsOffReason : TypedDecisionKeyStore.ReasonNoKey;
         }
 
         private static async Task<object> HandleAsync(
@@ -537,6 +557,14 @@ namespace Armada.Server.Mcp.Tools
                 {
                     await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
                     return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
+                }
+
+                // 1b. The global mode is the single kill switch: Off stops every tool, the general ones included.
+                string? killed = KillSwitchReasonOf(settings.TypedDecisions);
+                if (killed != null)
+                {
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(killed), killed).ConfigureAwait(false);
+                    return Unavailable(killed, KillSwitchMessage);
                 }
 
                 // 2. A helper whose decision is Off is dormant: built, but no egress until enabled. A

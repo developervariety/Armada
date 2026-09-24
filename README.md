@@ -225,7 +225,7 @@ unredacted state. Captains can consult read-only tools
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `mode` | `Gate` (effective `Off` without a key) | Global cap and kill switch: `Off`, `Shadow`, or `Gate`. Hot-reloaded. |
+| `mode` | `Gate` (effective `Off` without a key) | Global cap and kill switch: `Off`, `Shadow`, or `Gate`. `Off` stops every decision point and every captain tool. Hot-reloaded. |
 | `baseUrl` | `https://api.typesafe.ai` | Provider base URL; the client POSTs to `{baseUrl}/v1/systemone`. |
 | `model` | `jev-latest` | Model id sent with each request. |
 | `apiKeyEnv` | `ARMADA_TYPESAFE_KEY` | Environment variable holding the Bearer key. When unset, the key file `<data directory>/secrets/typesafe-api-key` is read. The key is never stored in settings. |

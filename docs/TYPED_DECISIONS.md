@@ -220,7 +220,7 @@ in request history):
 
 Configure it under `typedDecisions` in `settings.json` (see the README settings
 table). The global `mode` is `Off`, `Shadow`, or `Gate` and is the single kill
-switch; each entry in `decisions` has its own `mode` and `gateThreshold`, and
+switch: `Off` stops every decision point and every captain tool; each entry in `decisions` has its own `mode` and `gateThreshold`, and
 the effective mode is the minimum of the two. `Shadow` consults the model and
 records the answer while the rule stands; it is also the demotion target for a
 decision operators reverse too often. Every decision ships in `Gate`. A shipped
@@ -351,7 +351,7 @@ record: it dispatches nothing, lands nothing, edits no objective, and writes no 
 Every call that carries its required arguments writes exactly one event, whatever the
 outcome. The general tool and the pre-shaped helpers write `typed_decision.captain`. The
 custom runner writes `typed_decision.captain` when the call never reaches the provider
-(the tool is disabled, or the decision is unknown or `Off`) and otherwise records through
+(the tool is disabled, typed decisions are off, or the decision is unknown or `Off`) and otherwise records through
 the custom decision's own path (see "Custom decisions" below). Every event carries only
 the state hash and byte count.
 
@@ -362,16 +362,21 @@ weighs a low-confidence answer itself. A pre-shaped helper follows its decision'
 provider and records the answer (`gate_outcome` `shadow`), but returns `unavailable` with
 reason `shadow`**, so the captain decides alone; `Gate` returns the answers. Shadow is the
 demotion target for a decision whose answers mislead, so it quiets the helper as well as
-recording it. The general tool has no decision of its own and answers whenever the tool
-is enabled. A pre-shaped helper records under its decision's own key (for example
+recording it. The general tool has no decision of its own; it answers while the tool is
+enabled and the global mode is not `Off`. A pre-shaped helper records under its decision's own key (for example
 `premise_check`), so that decision's `retainState` also retains the helper's calls, with
 rule verdict `none`. The general tool records under `captain_tool`. It ships with no
 settings entry, so it is retained only when an operator adds `decisions.captain_tool`
 with `retainState: true`; its mode there has no effect, because the general tool follows
-only `captainTool.enabled`. Its state and questions are whatever the captain chose, so
+`captainTool.enabled` and the global mode only. Its state and questions are whatever the captain chose, so
 its samples are a general corpus rather than one decision's training set.
-The tools are enabled by default (`typedDecisions.captainTool.enabled` is `true`); setting
-it `false` makes every call return `unavailable`. See `docs/MCP_API.md` for the tool
+The global `mode` is the kill switch for the captain tools too. While the effective global
+mode is `Off`, every tool (the general tool, the list tool, the pre-shaped helpers and the
+custom runner) makes no provider call, records one `typed_decision.captain` event, and
+returns `unavailable` with reason `typed_decisions_off`, or `typed_decisions_no_key` when
+the global mode is on but no key resolves. The tools are enabled by default
+(`typedDecisions.captainTool.enabled` is `true`); setting it `false` also makes every call
+return `unavailable`, whatever the global mode. See `docs/MCP_API.md` for the tool
 arguments.
 The client validates each response against the questions sent. Missing answers, wrong
 answer types, unknown Choice labels, invalid numeric ranges, or missing Choice/Score
@@ -860,7 +865,8 @@ recorder under the decision point `custom:<name>`: `typed_decision.gated` when i
 `typed_decision.shadow` (`gate_outcome` `shadow_mode` or `below_threshold`) when it only
 records, and `typed_decision.unavailable` when the provider does not answer. A tool call
 that never reaches the provider records one `typed_decision.captain` event under the same
-decision point, with `gate_outcome` `disabled` (the captain tool is off), `not_found` (no
+decision point, with `gate_outcome` `disabled` (the captain tool is off),
+`typed_decisions_off` or `typed_decisions_no_key` (the global kill switch), `not_found` (no
 such decision), or `dormant` (the decision is `Off`). The handoff skips an `Off` decision
 without an event, like every built-in seam. Events carry the state hash and byte count,
 never the state. Read them with:

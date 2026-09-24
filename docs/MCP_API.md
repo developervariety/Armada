@@ -668,7 +668,11 @@ is in `Gate`. In `Shadow` it consults and records, then returns
 `docs/TYPED_DECISIONS.md` owns the details.
 
 The tool ships enabled (`typedDecisions.captainTool.enabled` is `true`); when an
-operator sets it `false`, every call returns `unavailableReason: disabled`.
+operator sets it `false`, every call returns `unavailableReason: disabled`. The
+global `typedDecisions.mode` is the kill switch for every tool: while it is
+`Off`, no call reaches the provider and each returns
+`unavailableReason: typed_decisions_off` (`typed_decisions_no_key` when no
+provider key resolves).
 The work is authorized engineering on owned systems; authentication and
 access-control protocol content is ordinary engineering and is passed like any
 other state.
