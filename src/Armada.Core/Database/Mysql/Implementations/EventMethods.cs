@@ -93,7 +93,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return EventFromReader(reader);
+                            return EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -314,7 +314,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EventFromReader(reader));
+                            results.Add(EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -341,7 +341,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return EventFromReader(reader);
+                            return EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -386,7 +386,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EventFromReader(reader));
+                            results.Add(EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -571,7 +571,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EventFromReader(reader));
+                            results.Add(EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -598,7 +598,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return EventFromReader(reader);
+                            return EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -645,7 +645,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EventFromReader(reader));
+                            results.Add(EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -728,7 +728,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EventFromReader(reader));
+                            results.Add(EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -745,37 +745,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static ArmadaEvent EventFromReader(MySqlDataReader reader)
-        {
-            ArmadaEvent evt = new ArmadaEvent();
-            evt.Id = reader["id"].ToString()!;
-            evt.TenantId = NullableString(reader["tenant_id"]);
-            evt.UserId = NullableString(reader["user_id"]);
-            evt.EventType = reader["event_type"].ToString()!;
-            evt.EntityType = NullableString(reader["entity_type"]);
-            evt.EntityId = NullableString(reader["entity_id"]);
-            evt.CaptainId = NullableString(reader["captain_id"]);
-            evt.MissionId = NullableString(reader["mission_id"]);
-            evt.VesselId = NullableString(reader["vessel_id"]);
-            evt.VoyageId = NullableString(reader["voyage_id"]);
-            evt.Message = reader["message"].ToString()!;
-            evt.Payload = NullableString(reader["payload"]);
-            evt.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            return evt;
-        }
-
         private async Task<List<ArmadaEvent>> QueryEventsAsync(string sql, Action<MySqlCommand> addParams, CancellationToken token)
         {
             List<ArmadaEvent> results = new List<ArmadaEvent>();
@@ -790,7 +759,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(EventFromReader(reader));
+                            results.Add(EventColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }

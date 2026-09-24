@@ -339,27 +339,6 @@ namespace Armada.Core.Database.Sqlite
         }
 
         /// <summary>
-        /// Convert a SqliteDataReader row to a Fleet model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Fleet instance.</returns>
-        internal static Fleet FleetFromReader(SqliteDataReader reader)
-        {
-            Fleet fleet = new Fleet();
-            fleet.Id = reader["id"].ToString()!;
-            fleet.TenantId = NullableString(reader["tenant_id"]);
-            fleet.UserId = NullableString(reader["user_id"]);
-            fleet.Name = reader["name"].ToString()!;
-            fleet.Description = NullableString(reader["description"]);
-            try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
-            try { fleet.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
-            fleet.Active = Convert.ToInt64(reader["active"]) == 1;
-            fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return fleet;
-        }
-
-        /// <summary>
         /// Convert a SqliteDataReader row to a Vessel model.
         /// </summary>
         /// <param name="reader">Data reader positioned on a row.</param>
@@ -702,50 +681,6 @@ namespace Armada.Core.Database.Sqlite
             dock.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             dock.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
             return dock;
-        }
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to a Signal model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Signal instance.</returns>
-        internal static Signal SignalFromReader(SqliteDataReader reader)
-        {
-            Signal signal = new Signal();
-            signal.Id = reader["id"].ToString()!;
-            signal.TenantId = NullableString(reader["tenant_id"]);
-            signal.UserId = NullableString(reader["user_id"]);
-            signal.FromCaptainId = NullableString(reader["from_captain_id"]);
-            signal.ToCaptainId = NullableString(reader["to_captain_id"]);
-            signal.Type = Enum.Parse<SignalTypeEnum>(reader["type"].ToString()!);
-            signal.Payload = NullableString(reader["payload"]);
-            signal.Read = Convert.ToInt64(reader["read"]) == 1;
-            signal.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            return signal;
-        }
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to an ArmadaEvent model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>ArmadaEvent instance.</returns>
-        internal static ArmadaEvent EventFromReader(SqliteDataReader reader)
-        {
-            ArmadaEvent evt = new ArmadaEvent();
-            evt.Id = reader["id"].ToString()!;
-            evt.TenantId = NullableString(reader["tenant_id"]);
-            evt.UserId = NullableString(reader["user_id"]);
-            evt.EventType = reader["event_type"].ToString()!;
-            evt.EntityType = NullableString(reader["entity_type"]);
-            evt.EntityId = NullableString(reader["entity_id"]);
-            evt.CaptainId = NullableString(reader["captain_id"]);
-            evt.MissionId = NullableString(reader["mission_id"]);
-            evt.VesselId = NullableString(reader["vessel_id"]);
-            evt.VoyageId = NullableString(reader["voyage_id"]);
-            evt.Message = reader["message"].ToString()!;
-            evt.Payload = NullableString(reader["payload"]);
-            evt.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            return evt;
         }
 
         /// <summary>
