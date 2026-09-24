@@ -30,7 +30,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("CancelVoyage_InProgressMission_InvokesOnStopCaptainAndIdlesCaptain", async () =>
+            await RunTest("CancelVoyage_InProgressMission_RecallsTheRunningCaptain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -77,10 +77,8 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
                     AssertFalse(resultJson.Contains("\"Error\""), "Cancel should not error: " + resultJson);
 
-                    AssertTrue(stopped.Contains(captain.Id),
-                        "onStopCaptain must be invoked for the in-flight captain so the agent process dies");
                     AssertTrue(admiralDouble.RecalledCaptainIds.Contains(captain.Id),
-                        "RecallCaptainAsync must be invoked to reset captain DB state");
+                        "The in-flight captain must be recalled, which stops its agent process and resets it");
 
                     Mission? readMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Cancelled, readMission!.Status, "InProgress mission must be cancelled");
@@ -88,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("CancelVoyage_PendingOnly_DoesNotInvokeStopCaptain", async () =>
+            await RunTest("CancelVoyage_PendingOnly_RecallsNoCaptain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -124,8 +122,6 @@ namespace Armada.Test.Unit.Suites.Services
                     JsonElement args = JsonSerializer.SerializeToElement(new { voyageId = voyage.Id });
                     await cancelHandler!(args).ConfigureAwait(false);
 
-                    AssertEqual(0, stopped.Count,
-                        "onStopCaptain must NOT be invoked when no missions are assigned to a captain");
                     AssertEqual(0, admiralDouble.RecalledCaptainIds.Count,
                         "RecallCaptainAsync must NOT be invoked for purely pending missions");
 

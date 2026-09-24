@@ -492,32 +492,18 @@ namespace Armada.Server.Routes
                         : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
 
-                // The shared cancel stops the agent process of every running mission before it marks
-                // the voyage and its missions Cancelled.
-                VoyageCancellationResult cancellation = await VoyageCancellation.CancelAsync(
-                    _database,
-                    voyage,
-                    VoyageCancellation.OperatorCancelReason,
-                    _admiral.RecallCaptainAsync).ConfigureAwait(false);
+                // REST, WebSocket and MCP share one voyage cancel: every running captain is recalled first, then the
+                // voyage and its live missions are written Cancelled, one voyage.cancelled event is written, and each
+                // change is broadcast.
+                VoyageCancellationResult cancellation = await _operations.CancelVoyageAsync(voyage).ConfigureAwait(false);
                 voyage = cancellation.Voyage;
-
-                // Broadcast voyage and mission cancellations for dashboard toast notifications
-                if (_webSocketHub != null)
-                {
-                    _webSocketHub.BroadcastVoyageChange(id, voyage.Status.ToString(), voyage.Title,
-                        WebSocketDeliveryScope.ForOwner(voyage.TenantId, voyage.UserId));
-                    foreach (Mission cm in cancellation.CancelledMissions)
-                    {
-                        _webSocketHub.BroadcastMissionChange(cm);
-                    }
-                }
 
                 return (object)new { Voyage = voyage, CancelledMissions = cancellation.CancelledMissions.Count };
             },
             api => api
                 .WithTag("Voyages")
                 .WithSummary("Cancel a voyage")
-                .WithDescription("Cancels a voyage and every Pending, Assigned, or InProgress mission in it. The agent process of each running mission is stopped first. A voyage that is already Cancelled or Complete is returned unchanged.")
+                .WithDescription("Cancels a voyage and every Pending, Assigned, InProgress, Testing or Review mission in it. The captain of each running mission is recalled first, which stops its agent process. A voyage.cancelled event is written and each change is broadcast; WebSocket cancel_voyage and MCP armada_cancel_voyage run the same cancel. A voyage that is already Cancelled or Complete is returned unchanged.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Voyage ID (vyg_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));

@@ -1613,7 +1613,7 @@ or invisible voyage.
 
 #### DELETE /api/v1/voyages/{id}
 
-Cancel a voyage. Sets the voyage status to `Cancelled` and cancels every `Pending`, `Assigned`, `InProgress`, `Testing`, or `Review` mission in it, including a mission waiting for a review decision. The captain of each `Assigned` or `InProgress` mission, and of each `Testing` or `Review` mission it still holds, is recalled first, which stops its agent process; if a recall fails, the voyage stays active and the request fails. A voyage that is already `Cancelled` or `Complete` is returned unchanged with `CancelledMissions: 0`. The REST route, the WebSocket `cancel_voyage` command, the MCP `armada_cancel_voyage` tool, and the remote-control cancel all use this one operation.
+Cancel a voyage. Sets the voyage status to `Cancelled` and cancels every `Pending`, `Assigned`, `InProgress`, `Testing`, or `Review` mission in it, including a mission waiting for a review decision. The captain of each `Assigned` or `InProgress` mission, and of each `Testing` or `Review` mission it still holds, is recalled first, which stops its agent process; if a recall fails, the voyage stays active and the request fails. A voyage that is already `Cancelled` or `Complete` is returned unchanged with `CancelledMissions: 0`. The REST route, the WebSocket `cancel_voyage` command, the MCP `armada_cancel_voyage` tool, and the remote-control cancel all use this one operation. REST, WebSocket and MCP also write one `voyage.cancelled` event and broadcast the voyage and each cancelled mission.
 
 **Path Parameters:**
 | Parameter | Description |

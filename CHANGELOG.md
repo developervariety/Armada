@@ -182,6 +182,11 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **Voyage cancel reports alike on every surface:** REST, WebSocket and MCP
+  cancel a voyage through one shared operation that writes one
+  `voyage.cancelled` event and broadcasts the voyage and each cancelled mission
+  (MCP broadcast nothing, and no surface wrote an event). MCP no longer stops a
+  captain's process separately before the recall, which already stops it.
 - **The same audit events on REST and MCP:** dock delete, purge, repair, unstick
   and batch delete, event delete and batch delete, merge entry purge and batch
   purge, and captain batch delete write the same `dock.*`, `event.*`, `merge.*`

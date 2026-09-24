@@ -624,20 +624,8 @@ namespace Armada.Server.WebSocket
             if (cvVoyage == null)
                 return new { type = "command.error", action = "cancel_voyage", error = "Voyage not found" };
 
-            // The shared cancel stops the agent process of every running mission before it marks
-            // the voyage and its missions Cancelled.
-            VoyageCancellationResult cancellation = await VoyageCancellation.CancelAsync(
-                _Database,
-                cvVoyage,
-                VoyageCancellation.OperatorCancelReason,
-                _Admiral.RecallCaptainAsync).ConfigureAwait(false);
-
-            // Command events follow the changed record's owner, like the same change made through REST.
-            _BroadcastVoyageChange(cancellation.Voyage);
-            foreach (Mission cvCm in cancellation.CancelledMissions)
-            {
-                _BroadcastMissionChange(cvCm);
-            }
+            // The shared voyage cancel REST and MCP use: recall, cancel, event and broadcasts.
+            VoyageCancellationResult cancellation = await Operations.CancelVoyageAsync(cvVoyage).ConfigureAwait(false);
             return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cancellation.Voyage, CancelledMissions = cancellation.CancelledMissions.Count } };
         }
 

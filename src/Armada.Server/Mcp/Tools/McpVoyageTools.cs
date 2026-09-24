@@ -35,9 +35,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="database">Database driver for voyage data access.</param>
         /// <param name="admiral">Admiral service for voyage orchestration.</param>
         /// <param name="settings">Optional settings for log/diff cleanup during purge.</param>
-        /// <param name="onStopCaptain">Optional callback that kills a captain's agent process by captain id.
-        /// Invoked from armada_cancel_voyage when an in-flight mission is cancelled so the captain
-        /// process actually exits instead of staying orphaned in Working state.</param>
+        /// <param name="onStopCaptain">Not used by the voyage tools: armada_cancel_voyage recalls each running captain
+        /// through the shared voyage cancel, and the recall stops its agent process.</param>
         /// <param name="logging">Optional logging module. When provided it is used for downstream stage
         /// snapshot persistence; when null a silent fallback is created so snapshots are always persisted
         /// regardless of whether the caller threads logging in.</param>
@@ -340,26 +339,10 @@ namespace Armada.Server.Mcp.Tools
                     Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
                     if (voyage == null) return (object)new { Error = "Voyage not found" };
 
-                    // The shared cancel stops the agent process of every running mission before it
-                    // marks the voyage and its missions Cancelled, so no captain stays Working under a
-                    // cancelled voyage and blocks the dispatcher.
-                    VoyageCancellationResult cancellation = await VoyageCancellation.CancelAsync(
-                        database,
-                        voyage,
-                        VoyageCancellation.OperatorCancelReason,
-                        async (captainId, token) =>
-                        {
-                            if (onStopCaptain != null)
-                            {
-                                try { await onStopCaptain(captainId).ConfigureAwait(false); }
-                                catch (Exception stopEx)
-                                {
-                                    // The recall below stops the process again and resets the captain.
-                                    logging?.Warn("[McpVoyageTools] could not stop captain " + captainId + " while cancelling voyage " + voyageId + ": " + stopEx.Message);
-                                }
-                            }
-                            await admiral.RecallCaptainAsync(captainId, token).ConfigureAwait(false);
-                        }).ConfigureAwait(false);
+                    // The shared voyage cancel REST and WebSocket use: every running captain is recalled (which stops
+                    // its agent process) before the voyage and its missions are written Cancelled, and the event and
+                    // broadcasts are written.
+                    VoyageCancellationResult cancellation = await missionOperations.CancelVoyageAsync(voyage).ConfigureAwait(false);
                     return (object)new { Voyage = cancellation.Voyage, CancelledMissions = cancellation.CancelledMissions.Count };
                 });
 

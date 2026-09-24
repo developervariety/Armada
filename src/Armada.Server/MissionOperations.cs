@@ -462,6 +462,30 @@ namespace Armada.Server
             return warnings;
         }
 
+        /// <summary>
+        /// Cancel a voyage through <see cref="VoyageCancellation"/>, which recalls the captain of every running mission
+        /// first, then write one <c>voyage.cancelled</c> event and broadcast the voyage and each mission cancelled with it.
+        /// A voyage that is already Cancelled or Complete is returned unchanged and reports nothing.
+        /// </summary>
+        /// <param name="voyage">Voyage, already read under the caller's scope.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stored voyage and the missions cancelled with it.</returns>
+        public async Task<VoyageCancellationResult> CancelVoyageAsync(Voyage voyage, CancellationToken token = default)
+        {
+            if (voyage == null) throw new ArgumentNullException(nameof(voyage));
+            bool wasLive = voyage.Status != VoyageStatusEnum.Cancelled && voyage.Status != VoyageStatusEnum.Complete;
+            VoyageCancellationResult result = await VoyageCancellation.CancelAsync(
+                _Database, voyage, VoyageCancellation.OperatorCancelReason, _RecallCaptain, token).ConfigureAwait(false);
+            if (!wasLive) return result;
+
+            await Notifier.EmitAsync("voyage.cancelled", "Voyage " + result.Voyage.Id + " cancelled by operator",
+                "voyage", result.Voyage.Id, null, null, null, result.Voyage.Id).ConfigureAwait(false);
+            Notifier.VoyageChanged(result.Voyage);
+            foreach (Mission mission in result.CancelledMissions)
+                Notifier.MissionChanged(mission);
+            return result;
+        }
+
         #endregion
 
         #region Private-Methods
