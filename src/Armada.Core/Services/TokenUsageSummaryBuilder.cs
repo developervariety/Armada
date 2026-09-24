@@ -3,11 +3,14 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
     /// Builds token-usage summaries (time buckets with a per-model breakdown, a whole-window per-model
-    /// aggregate, and grand totals) from matching token-usage records.
+    /// aggregate, and grand totals) from matching token-usage records. At every level the three input
+    /// buckets sum only records under the separate-input-buckets rule, and legacy-rule records are summed
+    /// and counted on their own, so a total never mixes the two rules without saying so.
     /// </summary>
     public static class TokenUsageSummaryBuilder
     {
@@ -49,6 +52,17 @@ namespace Armada.Core.Services
                 result.OutputTokens += record.OutputTokens;
                 result.CachedTokens += record.CachedTokens;
                 result.TotalTokens += record.TotalTokens;
+                if (record.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
+                {
+                    result.UncachedInputTokens += record.UncachedInputTokens ?? 0;
+                    result.CacheReadInputTokens += record.CacheReadInputTokens ?? 0;
+                    result.CacheWriteInputTokens += record.CacheWriteInputTokens ?? 0;
+                }
+                else
+                {
+                    result.LegacyInputTokens += record.InputTokens;
+                    result.LegacyRecordCount++;
+                }
 
                 Accumulate(byModel, model, record);
 
@@ -68,6 +82,17 @@ namespace Armada.Core.Services
                 bucket.OutputTokens += record.OutputTokens;
                 bucket.CachedTokens += record.CachedTokens;
                 bucket.TotalTokens += record.TotalTokens;
+                if (record.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
+                {
+                    bucket.UncachedInputTokens += record.UncachedInputTokens ?? 0;
+                    bucket.CacheReadInputTokens += record.CacheReadInputTokens ?? 0;
+                    bucket.CacheWriteInputTokens += record.CacheWriteInputTokens ?? 0;
+                }
+                else
+                {
+                    bucket.LegacyInputTokens += record.InputTokens;
+                    bucket.LegacyRecordCount++;
+                }
                 Accumulate(bucketModels[bucketStart], model, record);
             }
 
@@ -125,7 +150,19 @@ namespace Armada.Core.Services
             breakdown.InputTokens += record.InputTokens;
             breakdown.OutputTokens += record.OutputTokens;
             breakdown.CacheReadTokens += record.CachedTokens;
+            breakdown.CacheWriteTokens += record.CacheWriteInputTokens ?? 0;
             breakdown.TotalTokens += record.TotalTokens;
+            if (record.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
+            {
+                breakdown.UncachedInputTokens += record.UncachedInputTokens ?? 0;
+                breakdown.CacheReadInputTokens += record.CacheReadInputTokens ?? 0;
+                breakdown.CacheWriteInputTokens += record.CacheWriteInputTokens ?? 0;
+            }
+            else
+            {
+                breakdown.LegacyInputTokens += record.InputTokens;
+                breakdown.LegacyRecordCount++;
+            }
         }
 
         #endregion

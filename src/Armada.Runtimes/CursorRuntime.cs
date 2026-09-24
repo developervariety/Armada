@@ -184,15 +184,15 @@ namespace Armada.Runtimes
             if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Usage == null)
                 return;
 
+            // cursor-agent reports cache reads and cache writes beside inputTokens, as its own
+            // usage report does, so inputTokens is the uncached bucket.
             CursorUsage reported = evt.Usage;
-            PublishTokenUsage(processId, new RuntimeTokenUsage
-            {
-                Source = "cursor.result",
-                InputTokens = NonNegative(reported.InputTokens),
-                OutputTokens = NonNegative(reported.OutputTokens),
-                CacheReadTokens = NonNegative(reported.CacheReadTokens),
-                CacheWriteTokens = NonNegative(reported.CacheWriteTokens)
-            });
+            PublishTokenUsage(processId, RuntimeTokenUsage.FromUncachedInput(
+                "cursor.result",
+                reported.InputTokens,
+                reported.CacheReadTokens,
+                reported.CacheWriteTokens,
+                reported.OutputTokens));
         }
 
         /// <summary>

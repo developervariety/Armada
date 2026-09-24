@@ -146,6 +146,16 @@ upstream integrations and excludes changes already present at that baseline.
   on the other providers and serialize with a `Z`. The database runner checks
   the kind and value of the objective and model endpoint timestamps after a
   reopen.
+- **Token usage input buckets:** every runtime records input tokens as three
+  separate buckets, counted the same way for every provider: uncached input,
+  cache-read input and cache-write input. A record's input is their sum and its
+  total is input plus output. Records carry a counting-rule marker; rows and
+  stored events from before the split read as the legacy rule, keep their stored
+  counts and are never rewritten. Token-usage summaries on REST, MCP and the
+  dashboard total each bucket from bucketed records only and report legacy input
+  and the legacy record count apart. Migrations: SQLite 109, PostgreSQL 112, SQL
+  Server 104, MySQL 101 (nullable columns).
+
 - **Runtime provider failures:** every runtime writes one provider failure record,
   `[ARMADA:ACTIVITY] <runtime> error <message>`, for an error event, a failed turn
   (Codex `turn.failed`) and a terminal result that reports an error (Claude Code

@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Text.Json;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -93,6 +94,7 @@ namespace Armada.Core.Services
                     SourceId = armadaEvent.MissionId ?? armadaEvent.EntityId,
                     VesselId = armadaEvent.VesselId,
                     CaptainId = armadaEvent.CaptainId,
+                    UsageRule = usage.UsageRule,
                     InputTokens = usage.InputTokens,
                     OutputTokens = usage.OutputTokens,
                     CachedTokens = usage.CacheReadTokens,
@@ -100,6 +102,12 @@ namespace Armada.Core.Services
                     Estimated = false,
                     CreatedUtc = armadaEvent.CreatedUtc
                 };
+                if (usage.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
+                {
+                    legacyRecord.UncachedInputTokens = usage.UncachedInputTokens;
+                    legacyRecord.CacheReadInputTokens = usage.CacheReadTokens;
+                    legacyRecord.CacheWriteInputTokens = usage.CacheWriteTokens;
+                }
 
                 string key = BuildMatchKey(legacyRecord);
                 if (availableTableRecords.TryGetValue(key, out int count) && count > 0)

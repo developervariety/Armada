@@ -231,6 +231,15 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(20L, captured.OutputTokens);
 
                 captured = null;
+                runtime.FeedUsage(21, "{\"eventType\":\"llm_response\",\"usage\":{\"input_tokens\":100,\"cache_read_tokens\":40,\"cache_write_tokens\":10,\"output_tokens\":20}}");
+                AssertNotNull(captured);
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, captured!.UsageRule, "Mux usage is split into input buckets");
+                AssertEqual(50L, captured.UncachedInputTokens, "Mux uncached input bucket");
+                AssertEqual(40L, captured.CacheReadTokens, "Mux cache-read input bucket");
+                AssertEqual(10L, captured.CacheWriteTokens, "Mux cache-write input bucket");
+                AssertEqual(100L, captured.InputTokens, "Mux input is the sum of the three buckets");
+
+                captured = null;
                 runtime.FeedUsage(21, "{\"eventType\":\"run_completed\",\"finalEstimatedTokens\":999}");
                 AssertNull(captured, "Mux estimates must never be recorded as authoritative usage");
             });

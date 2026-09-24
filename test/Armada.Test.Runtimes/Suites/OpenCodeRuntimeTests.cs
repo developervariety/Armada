@@ -150,11 +150,13 @@ namespace Armada.Test.Runtimes.Suites
                 runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
                 runtime.FeedUsage(5, "{\"type\":\"step_finish\",\"tokens\":{\"input\":10,\"output\":45,\"reasoning\":3,\"cache\":{\"read\":8,\"write\":2}}}");
                 AssertNotNull(captured);
-                AssertEqual(10L, captured!.InputTokens);
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, captured!.UsageRule, "OpenCode usage is split into input buckets");
+                AssertEqual(10L, captured.UncachedInputTokens, "OpenCode uncached input bucket");
+                AssertEqual(8L, captured.CacheReadTokens, "OpenCode cache-read input bucket");
+                AssertEqual(2L, captured.CacheWriteTokens, "OpenCode cache-write input bucket");
+                AssertEqual(20L, captured.InputTokens, "OpenCode input is the sum of the three buckets");
                 AssertEqual(45L, captured.OutputTokens);
                 AssertEqual(3L, captured.ReasoningTokens);
-                AssertEqual(8L, captured.CacheReadTokens);
-                AssertEqual(2L, captured.CacheWriteTokens);
             });
 
             await RunTest("AgentRuntimeEnum_OpenCode_ParseSucceeds", () =>

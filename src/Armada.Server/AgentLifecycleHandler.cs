@@ -1498,20 +1498,31 @@ namespace Armada.Server
                     if (String.IsNullOrWhiteSpace(usage.Model))
                         usage.Model = String.IsNullOrWhiteSpace(captain.Model) ? "(runtime default)" : captain.Model.Trim();
 
-                    await TokenUsageCapture.CaptureAsync(
-                        _Database, _Logging, "mission",
-                        model: usage.Model,
-                        runtime: usage.Runtime,
-                        tenantId: mission.TenantId,
-                        userId: mission.UserId,
-                        vesselId: mission.VesselId,
-                        captainId: captain.Id,
-                        sourceId: mission.Id,
-                        inputTokens: usage.InputTokens,
-                        outputTokens: usage.OutputTokens,
-                        cachedTokens: usage.CacheReadTokens,
-                        inputText: null,
-                        outputText: null).ConfigureAwait(false);
+                    // A sample without input buckets cannot be stored as a bucketed row. Its event below still
+                    // records it, and the summaries count it under the legacy rule.
+                    if (usage.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
+                    {
+                        await TokenUsageCapture.CaptureAsync(
+                            _Database, _Logging, "mission",
+                            model: usage.Model,
+                            runtime: usage.Runtime,
+                            tenantId: mission.TenantId,
+                            userId: mission.UserId,
+                            vesselId: mission.VesselId,
+                            captainId: captain.Id,
+                            sourceId: mission.Id,
+                            uncachedInputTokens: usage.UncachedInputTokens,
+                            outputTokens: usage.OutputTokens,
+                            cacheReadInputTokens: usage.CacheReadTokens,
+                            cacheWriteInputTokens: usage.CacheWriteTokens,
+                            inputText: null,
+                            outputText: null).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        _Logging.Warn(_Header + "token usage from " + usage.Runtime + " for mission " + mission.Id +
+                            " carries no input buckets; recorded as a legacy-rule event only");
+                    }
 
                     ArmadaEvent evt = new ArmadaEvent(
                         "mission.token_usage",

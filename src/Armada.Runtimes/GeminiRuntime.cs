@@ -119,20 +119,22 @@ namespace Armada.Runtimes
                 return;
 
             Dictionary<string, GeminiModelStats> models = evt.Stats.Models;
+            // Gemini's input_tokens is the whole prompt, cached content included, and Gemini
+            // reports no cache writes.
             foreach (KeyValuePair<string, GeminiModelStats> model in models)
             {
-                PublishTokenUsage(processId, new RuntimeTokenUsage
-                {
-                    Runtime = Name,
-                    Model = model.Key,
-                    Source = "gemini.result.stats.models",
-                    InputTokens = NonNegative(model.Value.InputTokens),
-                    OutputTokens = NonNegative(model.Value.OutputTokens),
-                    CacheReadTokens = NonNegative(model.Value.Cached),
-                    ProviderTotalTokens = model.Value.TotalTokens.HasValue
-                        ? NonNegative(model.Value.TotalTokens)
-                        : null
-                });
+                RuntimeTokenUsage usage = RuntimeTokenUsage.FromInclusiveInput(
+                    "gemini.result.stats.models",
+                    model.Value.InputTokens,
+                    model.Value.Cached,
+                    0,
+                    model.Value.OutputTokens);
+                usage.Runtime = Name;
+                usage.Model = model.Key;
+                usage.ProviderTotalTokens = model.Value.TotalTokens.HasValue
+                    ? NonNegative(model.Value.TotalTokens)
+                    : null;
+                PublishTokenUsage(processId, usage);
             }
         }
 

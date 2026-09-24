@@ -7,6 +7,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using SyslogLogging;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -16,9 +17,9 @@ namespace Armada.Core.Services
     /// <see cref="TokenUsageRecord"/>. Recording never throws: a persistence failure is logged and
     /// swallowed so token accounting can never break a chat turn or a mission run.
     ///
-    /// Token semantics: <c>input</c> covers prompt tokens, <c>output</c> covers completion tokens,
-    /// <c>cached</c> is the cache-read subset of input (informational, shown as its own series), and
-    /// <c>total</c> is input + output.
+    /// Token semantics: every record is written under <see cref="TokenUsageRuleEnum.SeparateInputBuckets"/>.
+    /// Input is three buckets (uncached, cache-read, cache-write); <c>input</c> is their sum, <c>cached</c> is the
+    /// cache-read bucket, <c>output</c> covers completion tokens, and <c>total</c> is input + output.
     /// </summary>
     public static class TokenUsageCapture
     {
@@ -30,7 +31,7 @@ namespace Armada.Core.Services
 
         // Matches an agent-reported "[ARMADA:TOKENS] input=1234 output=567 cached=0" line, which the
         // mission/captain instructions ask runtimes to emit. Reported counts are treated as real, not
-        // estimated.
+        // estimated. The reported input includes the reported cache-read count.
         private static readonly Regex _TokenMarker = new Regex(
             @"\[ARMADA:TOKENS\]\s*(?<body>[^\r\n]*)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -57,10 +58,11 @@ namespace Armada.Core.Services
         /// <param name="vesselId">Vessel, when known.</param>
         /// <param name="captainId">Captain, when known.</param>
         /// <param name="sourceId">Originating unit of work id (mission/session), when known.</param>
-        /// <param name="inputTokens">Real input (prompt) tokens, or null to estimate from inputText.</param>
+        /// <param name="uncachedInputTokens">Real input tokens that did not touch a prompt cache, or null to estimate from inputText.</param>
         /// <param name="outputTokens">Real output (completion) tokens, or null to estimate from outputText.</param>
-        /// <param name="cachedTokens">Real cache-read tokens, or null for 0.</param>
-        /// <param name="inputText">Text used to estimate input tokens when inputTokens is null.</param>
+        /// <param name="cacheReadInputTokens">Real input tokens read from a prompt cache, or null for 0.</param>
+        /// <param name="cacheWriteInputTokens">Real input tokens written to a prompt cache, or null for 0.</param>
+        /// <param name="inputText">Text used to estimate input tokens when uncachedInputTokens is null.</param>
         /// <param name="outputText">Text used to estimate output tokens when outputTokens is null.</param>
         /// <param name="token">Cancellation token.</param>
         public static async Task CaptureAsync(
@@ -74,9 +76,10 @@ namespace Armada.Core.Services
             string? vesselId,
             string? captainId,
             string? sourceId,
-            long? inputTokens,
+            long? uncachedInputTokens,
             long? outputTokens,
-            long? cachedTokens,
+            long? cacheReadInputTokens,
+            long? cacheWriteInputTokens,
             string? inputText,
             string? outputText,
             CancellationToken token = default)
@@ -91,7 +94,7 @@ namespace Armada.Core.Services
                 long? reportedInput = null;
                 long? reportedOutput = null;
                 long? reportedCached = null;
-                if (!inputTokens.HasValue || !outputTokens.HasValue || !cachedTokens.HasValue)
+                if (!uncachedInputTokens.HasValue || !outputTokens.HasValue || !cacheReadInputTokens.HasValue)
                 {
                     TryParseTokenMarker(outputText, out reportedInput, out reportedOutput, out reportedCached);
                 }
@@ -111,26 +114,30 @@ namespace Armada.Core.Services
                     if (output > 0) estimated = true;
                 }
 
-                long input;
-                if (inputTokens.HasValue && inputTokens.Value >= 0)
+                long cacheRead = cacheReadInputTokens.HasValue && cacheReadInputTokens.Value >= 0
+                    ? cacheReadInputTokens.Value
+                    : (!uncachedInputTokens.HasValue ? (reportedCached ?? 0) : 0);
+                long cacheWrite = cacheWriteInputTokens.HasValue && cacheWriteInputTokens.Value >= 0
+                    ? cacheWriteInputTokens.Value
+                    : 0;
+
+                long uncached;
+                if (uncachedInputTokens.HasValue && uncachedInputTokens.Value >= 0)
                 {
-                    input = inputTokens.Value;
+                    uncached = uncachedInputTokens.Value;
                 }
                 else if (reportedInput.HasValue)
                 {
-                    input = reportedInput.Value;
+                    uncached = Math.Max(0, reportedInput.Value - cacheRead);
                 }
                 else
                 {
-                    input = EstimateTokens(inputText);
-                    if (input > 0) estimated = true;
+                    uncached = EstimateTokens(inputText);
+                    if (uncached > 0) estimated = true;
                 }
 
-                long cached = cachedTokens.HasValue && cachedTokens.Value >= 0
-                    ? cachedTokens.Value
-                    : (reportedCached ?? 0);
-
-                if (input <= 0 && output <= 0 && cached <= 0) return;
+                long input = Add(Add(uncached, cacheRead), cacheWrite);
+                if (input <= 0 && output <= 0) return;
 
                 TokenUsageRecord record = new TokenUsageRecord
                 {
@@ -142,10 +149,14 @@ namespace Armada.Core.Services
                     SourceId = sourceId,
                     VesselId = vesselId,
                     CaptainId = captainId,
+                    UsageRule = TokenUsageRuleEnum.SeparateInputBuckets,
+                    UncachedInputTokens = uncached,
+                    CacheReadInputTokens = cacheRead,
+                    CacheWriteInputTokens = cacheWrite,
                     InputTokens = input,
                     OutputTokens = output,
-                    CachedTokens = cached,
-                    TotalTokens = input + output,
+                    CachedTokens = cacheRead,
+                    TotalTokens = Add(input, output),
                     Estimated = estimated,
                     CreatedUtc = DateTime.UtcNow
                 };
@@ -173,6 +184,11 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static long Add(long left, long right)
+        {
+            return right > 0 && left > long.MaxValue - right ? long.MaxValue : left + right;
+        }
 
         private static string ResolveModel(string? model, string? runtime)
         {

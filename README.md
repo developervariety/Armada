@@ -587,6 +587,8 @@ Useful REST areas include:
 - `/api/v1/incidents`
 - `/api/v1/runbooks`
 - `/api/v1/events/token-usage` (authoritative per-runtime/model token telemetry)
+- `/api/v1/token-usage/summary` (bucketed token usage; input is split into uncached, cache-read and cache-write
+  tokens for every runtime, and rows stored before that split are reported apart under the legacy rule)
 
 Every route authorizes the caller as a global administrator, a tenant
 administrator or an ordinary user; `docs/REST_API.md` holds the full

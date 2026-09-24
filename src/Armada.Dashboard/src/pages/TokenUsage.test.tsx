@@ -53,3 +53,20 @@ test('offers auto-refresh', async () => {
   render(<TokenUsage />);
   expect(await screen.findByTitle('Auto-refresh interval')).toBeInTheDocument();
 });
+
+test('reports input buckets and says when totals include legacy-rule records', async () => {
+  vi.mocked(getTokenUsageSummary).mockResolvedValue({
+    inputTokens: 500024, outputTokens: 6000, cachedTokens: 960000, totalTokens: 506024, recordCount: 2, estimatedCount: 0,
+    uncachedInputTokens: 12, cacheReadInputTokens: 480000, cacheWriteInputTokens: 20000,
+    legacyInputTokens: 12, legacyRecordCount: 1,
+    byModel: [breakdown('ClaudeCode', 506024)],
+    buckets: [],
+  } as never);
+
+  render(<TokenUsage />);
+
+  expect(await screen.findByText('Uncached input')).toBeInTheDocument();
+  expect(screen.getByText('Cache-read input')).toBeInTheDocument();
+  expect(screen.getByText('Cache-write input')).toBeInTheDocument();
+  expect(screen.getByText(/1 of 2 records predate the input buckets/)).toBeInTheDocument();
+});

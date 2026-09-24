@@ -2,15 +2,22 @@ namespace Armada.Core.Models
 {
     using System;
     using Armada.Core;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// A single persisted token-usage record: the tokens a model consumed for one unit of work
     /// (a mission run, an Ask Armada turn, or a planning turn). Records are written at the point the
-    /// work completes and aggregated by the token-usage summary APIs and dashboard charts. Token counts
-    /// are normalized across providers: <see cref="InputTokens"/> covers what some providers call prompt
-    /// tokens, <see cref="OutputTokens"/> covers completion tokens, and <see cref="CachedTokens"/> covers
-    /// cache-read tokens. When a runtime does not report real usage the counts are estimated and
+    /// work completes and aggregated by the token-usage summary APIs and dashboard charts.
+    /// <para>
+    /// <see cref="UsageRule"/> names the counting rule that produced the input counts. Under
+    /// <see cref="TokenUsageRuleEnum.SeparateInputBuckets"/> input is stored as three buckets the same way for every
+    /// runtime (<see cref="UncachedInputTokens"/>, <see cref="CacheReadInputTokens"/>,
+    /// <see cref="CacheWriteInputTokens"/>); <see cref="InputTokens"/> is their sum, <see cref="CachedTokens"/> is the
+    /// cache-read bucket and <see cref="TotalTokens"/> is input plus output. A record written before the buckets
+    /// existed reads as <see cref="TokenUsageRuleEnum.Legacy"/>: it has no buckets, and its input count is whatever its
+    /// runtime's provider called input. When a runtime does not report real usage the counts are estimated and
     /// <see cref="Estimated"/> is set so the UI can flag them.
+    /// </para>
     /// </summary>
     public class TokenUsageRecord
     {
@@ -67,7 +74,9 @@ namespace Armada.Core.Models
         public string? CaptainId { get; set; } = null;
 
         /// <summary>
-        /// Input (prompt) tokens consumed. Clamped to be non-negative.
+        /// Input (prompt) tokens consumed. Clamped to be non-negative. Under
+        /// <see cref="TokenUsageRuleEnum.SeparateInputBuckets"/> it is the sum of the three input buckets; under
+        /// <see cref="TokenUsageRuleEnum.Legacy"/> it is the runtime's own input figure.
         /// </summary>
         public long InputTokens
         {
@@ -103,6 +112,40 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// Counting rule that produced the input counts. A row stored before the rule existed reads as
+        /// <see cref="TokenUsageRuleEnum.Legacy"/>.
+        /// </summary>
+        public TokenUsageRuleEnum UsageRule { get; set; } = TokenUsageRuleEnum.Legacy;
+
+        /// <summary>
+        /// Input tokens that were neither read from nor written to a prompt cache. Null under
+        /// <see cref="TokenUsageRuleEnum.Legacy"/>.
+        /// </summary>
+        public long? UncachedInputTokens
+        {
+            get => _UncachedInputTokens;
+            set => _UncachedInputTokens = ClampNullable(value);
+        }
+
+        /// <summary>
+        /// Input tokens read from a prompt cache. Null under <see cref="TokenUsageRuleEnum.Legacy"/>.
+        /// </summary>
+        public long? CacheReadInputTokens
+        {
+            get => _CacheReadInputTokens;
+            set => _CacheReadInputTokens = ClampNullable(value);
+        }
+
+        /// <summary>
+        /// Input tokens written to a prompt cache. Null under <see cref="TokenUsageRuleEnum.Legacy"/>.
+        /// </summary>
+        public long? CacheWriteInputTokens
+        {
+            get => _CacheWriteInputTokens;
+            set => _CacheWriteInputTokens = ClampNullable(value);
+        }
+
+        /// <summary>
         /// True when the counts are estimated (the runtime did not report real usage) rather than measured.
         /// </summary>
         public bool Estimated { get; set; } = false;
@@ -121,6 +164,9 @@ namespace Armada.Core.Models
         private long _OutputTokens = 0;
         private long _CachedTokens = 0;
         private long _TotalTokens = 0;
+        private long? _UncachedInputTokens = null;
+        private long? _CacheReadInputTokens = null;
+        private long? _CacheWriteInputTokens = null;
 
         #endregion
 
@@ -131,6 +177,15 @@ namespace Armada.Core.Models
         /// </summary>
         public TokenUsageRecord()
         {
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static long? ClampNullable(long? value)
+        {
+            return value.HasValue && value.Value < 0 ? 0 : value;
         }
 
         #endregion

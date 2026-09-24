@@ -89,11 +89,13 @@ namespace Armada.Test.Runtimes.Suites
                 runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
                 runtime.FeedUsage(42, "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":15567,\"cached_input_tokens\":13056,\"cache_write_input_tokens\":12,\"output_tokens\":5,\"reasoning_output_tokens\":2}}");
                 AssertNotNull(captured);
-                AssertEqual(15567L, captured!.InputTokens);
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, captured!.UsageRule, "Codex usage is split into input buckets");
+                AssertEqual(2499L, captured.UncachedInputTokens, "Codex uncached input bucket");
+                AssertEqual(13056L, captured.CacheReadTokens, "Codex cache-read input bucket");
+                AssertEqual(12L, captured.CacheWriteTokens, "Codex cache-write input bucket");
+                AssertEqual(15567L, captured.InputTokens, "Codex input is the sum of the three buckets");
                 AssertEqual(5L, captured.OutputTokens);
                 AssertEqual(2L, captured.ReasoningTokens);
-                AssertEqual(13056L, captured.CacheReadTokens);
-                AssertEqual(12L, captured.CacheWriteTokens);
             });
 
             await RunTest("WriteStderrToLogFile Returns False", () =>

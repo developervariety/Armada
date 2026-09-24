@@ -2594,6 +2594,59 @@ Paginated enumeration of events with optional filtering and sorting.
 
 Return provider-reported token usage grouped by runtime and model for the requested window.
 Armada does not include tokenizer estimates. `days` accepts `1` through `3650` and defaults to `30`.
+The summary and each entry in `models` carry the input fields described in
+[Token usage input buckets](#token-usage-input-buckets).
+
+#### Token usage input buckets
+
+Every runtime reports input tokens as three separate buckets, counted the same way whatever the provider:
+
+| Field | Meaning |
+|---|---|
+| `uncachedInputTokens` | Input tokens that were neither read from nor written to a prompt cache. |
+| `cacheReadInputTokens` | Input tokens read from a prompt cache. |
+| `cacheWriteInputTokens` | Input tokens written to a prompt cache. |
+| `outputTokens` | Output (completion) tokens. |
+
+A record under this rule has `usageRule` `SeparateInputBuckets`. Its `inputTokens` is the sum of the three
+buckets, its `cachedTokens` is the cache-read bucket, and its `totalTokens` is input plus output. Each runtime's
+provider fields map as follows:
+
+| Runtime | Uncached input | Cache-read input | Cache-write input |
+|---|---|---|---|
+| Claude Code | `input_tokens` | `cache_read_input_tokens` | `cache_creation_input_tokens` |
+| Codex | `input_tokens` less the cached counts | `cached_input_tokens` | `cache_write_input_tokens` |
+| OpenCode | `tokens.input` | `tokens.cache.read` | `tokens.cache.write` |
+| Cursor | `inputTokens` | `cacheReadTokens` | `cacheWriteTokens` |
+| Gemini | `input_tokens` less `cached` | `cached` | none |
+| Mux | input less the cached counts | cache-read count | cache-write count |
+| API endpoint, Anthropic | prompt tokens | cached prompt tokens | cache-creation tokens |
+| API endpoint, other providers | prompt tokens less the cached counts | cached prompt tokens | cache-creation tokens |
+
+A record stored before the buckets existed has `usageRule` `Legacy` and no buckets (the bucket fields are
+`null`). Its stored counts are kept as they were written: its `inputTokens` is whatever its runtime's provider called
+input, so Claude Code, OpenCode, Cursor and Anthropic API-endpoint legacy rows exclude cached input while Codex and
+Gemini legacy rows include it. Nothing is backfilled or rewritten. A stored `mission.token_usage` event payload
+without a `usageRule` reads the same way.
+
+Summaries total each bucket from `SeparateInputBuckets` records only. `legacyInputTokens` sums the input of
+`Legacy` records on its own, and `legacyRecordCount` counts them. `inputTokens` and `totalTokens` sum every
+record's stored value, so when `legacyRecordCount` is above zero they include input counted under the legacy rule;
+compare runtimes with the three bucket fields.
+
+#### GET /api/v1/token-usage/summary
+
+Return the bucketed token-usage summary that feeds the dashboard: time buckets with a per-model breakdown
+(`buckets`), a whole-window per-model aggregate (`byModel`), grand totals, `recordCount` and `estimatedCount`.
+Filter with `model`, `runtime`, `source`, `vesselId`, `captainId`, `fromUtc`, `toUtc` and `bucketMinutes`.
+The summary, every bucket and every model entry carry the fields in
+[Token usage input buckets](#token-usage-input-buckets).
+
+#### GET /api/v1/token-usage
+
+Page through token-usage records. Each record carries `usageRule`, `uncachedInputTokens`,
+`cacheReadInputTokens` and `cacheWriteInputTokens` as described in
+[Token usage input buckets](#token-usage-input-buckets).
 
 ---
 

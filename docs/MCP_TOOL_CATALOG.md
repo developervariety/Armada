@@ -649,6 +649,13 @@ Narrow it with `model`, `runtime`, `source` (mission, chat, or planning),
 `vesselId`, or `captainId`, and set the window with `sinceHours` or an explicit
 `fromUtc`/`toUtc` pair. `bucketMinutes` accepts fractional values.
 
+Input is reported as three buckets for every runtime: `uncachedInputTokens`,
+`cacheReadInputTokens` and `cacheWriteInputTokens`. Records stored before the
+buckets existed carry no buckets and are counted in `legacyInputTokens` and
+`legacyRecordCount`; `inputTokens` and `totalTokens` include them, so compare
+runtimes with the bucket fields (see "Token usage input buckets" in
+`REST_API.md`).
+
 Read the `estimatedCount` before comparing models. Counts are real only where
 the runtime reports usage, and estimated otherwise, so a window mixing runtimes
 mixes measured and inferred numbers in one total. Several runtimes report no

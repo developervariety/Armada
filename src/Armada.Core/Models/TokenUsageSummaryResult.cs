@@ -40,6 +40,7 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Total input (prompt) tokens across the whole window.
+        /// Sums every record's stored input, whatever its rule; see <see cref="LegacyRecordCount"/>.
         /// </summary>
         public long InputTokens { get; set; } = 0;
 
@@ -57,6 +58,33 @@ namespace Armada.Core.Models
         /// Total tokens across the whole window.
         /// </summary>
         public long TotalTokens { get; set; } = 0;
+
+        /// <summary>
+        /// Uncached input tokens, from records under the separate-input-buckets rule only.
+        /// </summary>
+        public long UncachedInputTokens { get; set; }
+
+        /// <summary>
+        /// Cache-read input tokens, from records under the separate-input-buckets rule only.
+        /// </summary>
+        public long CacheReadInputTokens { get; set; }
+
+        /// <summary>
+        /// Cache-write input tokens, from records under the separate-input-buckets rule only.
+        /// </summary>
+        public long CacheWriteInputTokens { get; set; }
+
+        /// <summary>
+        /// Input tokens of records under the legacy rule, whose input count means what each runtime's provider called
+        /// input. Never added to the three input buckets.
+        /// </summary>
+        public long LegacyInputTokens { get; set; }
+
+        /// <summary>
+        /// Number of records under the legacy rule. When it is above zero, <c>InputTokens</c> and <c>TotalTokens</c>
+        /// include input counted by that rule; the three input buckets never do.
+        /// </summary>
+        public long LegacyRecordCount { get; set; }
 
         /// <summary>
         /// Time buckets in chronological order (gap-filled across the requested window).

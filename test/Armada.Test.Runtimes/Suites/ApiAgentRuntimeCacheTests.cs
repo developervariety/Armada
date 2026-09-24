@@ -23,6 +23,23 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("A provider that counts cached input inside the prompt splits into the same buckets", () =>
+            {
+                ChatStreamingUsage reported = new ChatStreamingUsage { PromptTokens = 100, CachedPromptTokens = 40, CompletionTokens = 9 };
+                RuntimeTokenUsage openAi = ApiAgentRuntime.BuildUsageSample(ModelProviderEnum.OpenAI, reported);
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, openAi.UsageRule);
+                AssertEqual(60L, openAi.UncachedInputTokens, "OpenAI prompt tokens include the cached tokens");
+                AssertEqual(40L, openAi.CacheReadTokens);
+                AssertEqual(0L, openAi.CacheWriteTokens);
+                AssertEqual(100L, openAi.InputTokens);
+                AssertEqual(9L, openAi.OutputTokens);
+
+                RuntimeTokenUsage anthropic = ApiAgentRuntime.BuildUsageSample(ModelProviderEnum.Anthropic, reported);
+                AssertEqual(100L, anthropic.UncachedInputTokens, "Anthropic prompt tokens exclude the cached tokens");
+                AssertEqual(140L, anthropic.InputTokens);
+                return Task.CompletedTask;
+            });
+
             await RunTest("Stable launch prefix is cached across turns without caching tool results", async () =>
             {
                 using RecordingHandler handler = new RecordingHandler(false);
@@ -67,10 +84,12 @@ namespace Armada.Test.Runtimes.Suites
                 await runtime.StartAsync(Path.GetTempPath(), "fixed launch", token: timeout.Token).ConfigureAwait(false);
                 AssertEqual<int?>(0, await exited.Task.WaitAsync(timeout.Token).ConfigureAwait(false));
                 AssertEqual(1, usage.Count);
-                AssertEqual(7L, usage[0].InputTokens);
-                AssertEqual(11L, usage[0].OutputTokens);
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, usage[0].UsageRule, "API usage is split into input buckets");
+                AssertEqual(7L, usage[0].UncachedInputTokens, "Anthropic input_tokens is the uncached bucket");
                 AssertEqual(2048L, usage[0].CacheReadTokens);
                 AssertEqual(1024L, usage[0].CacheWriteTokens);
+                AssertEqual(3079L, usage[0].InputTokens, "Input is the sum of the three buckets");
+                AssertEqual(11L, usage[0].OutputTokens);
             });
         }
 

@@ -188,15 +188,15 @@ namespace Armada.Runtimes
             if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Usage == null)
                 return;
 
+            // Anthropic's input_tokens excludes the cache: cache reads and cache writes are
+            // reported beside it, so each maps to its own bucket.
             ClaudeUsage reported = evt.Usage;
-            PublishTokenUsage(processId, new RuntimeTokenUsage
-            {
-                Source = "claude.result",
-                InputTokens = NonNegative(reported.InputTokens),
-                OutputTokens = NonNegative(reported.OutputTokens),
-                CacheReadTokens = NonNegative(reported.CacheReadInputTokens),
-                CacheWriteTokens = NonNegative(reported.CacheCreationInputTokens)
-            });
+            PublishTokenUsage(processId, RuntimeTokenUsage.FromUncachedInput(
+                "claude.result",
+                reported.InputTokens,
+                reported.CacheReadInputTokens,
+                reported.CacheCreationInputTokens,
+                reported.OutputTokens));
         }
 
         /// <summary>

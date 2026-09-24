@@ -235,8 +235,14 @@ export default function TokenUsage() {
         <span><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.input }}>{formatTokens(totalInput)}</span> {t('Input')}</span>
         <span><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.output }}>{formatTokens(totalOutput)}</span> {t('Output')}</span>
         <span><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.cached }}>{formatTokens(totalCached)}</span> {t('Cached')}</span>
+        <span><span className="mission-history-stat-value">{formatTokens(data?.uncachedInputTokens ?? 0)}</span> {t('Uncached input')}</span>
+        <span><span className="mission-history-stat-value">{formatTokens(data?.cacheReadInputTokens ?? 0)}</span> {t('Cache-read input')}</span>
+        <span><span className="mission-history-stat-value">{formatTokens(data?.cacheWriteInputTokens ?? 0)}</span> {t('Cache-write input')}</span>
         {(data?.estimatedCount ?? 0) > 0 && (
           <span className="token-usage-estimated-note">{t('{{estimated}} of {{total}} records estimated', { estimated: data!.estimatedCount, total: data!.recordCount })}</span>
+        )}
+        {(data?.legacyRecordCount ?? 0) > 0 && (
+          <span className="token-usage-estimated-note">{t('{{legacy}} of {{total}} records predate the input buckets; Input and Total include their input, the bucket figures do not', { legacy: data!.legacyRecordCount ?? 0, total: data!.recordCount })}</span>
         )}
       </div>
 

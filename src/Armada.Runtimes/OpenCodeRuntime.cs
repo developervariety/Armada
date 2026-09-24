@@ -321,16 +321,16 @@ namespace Armada.Runtimes
             if (tokens == null || !tokens.HasReportedValue())
                 return;
 
-            RuntimeTokenUsage usage = new RuntimeTokenUsage
-            {
-                Source = "opencode.step_finish",
-                InputTokens = NonNegative(tokens.Input),
-                OutputTokens = NonNegative(tokens.Output),
-                ReasoningTokens = NonNegative(tokens.Reasoning),
-                CacheReadTokens = NonNegative(tokens.Cache?.Read),
-                CacheWriteTokens = NonNegative(tokens.Cache?.Write),
-                ProviderTotalTokens = tokens.Total.HasValue ? NonNegative(tokens.Total) : null
-            };
+            // OpenCode reports tokens.input with cached input already taken out, and cache
+            // reads and writes beside it, whatever the provider behind it.
+            RuntimeTokenUsage usage = RuntimeTokenUsage.FromUncachedInput(
+                "opencode.step_finish",
+                tokens.Input,
+                tokens.Cache?.Read,
+                tokens.Cache?.Write,
+                tokens.Output);
+            usage.ReasoningTokens = NonNegative(tokens.Reasoning);
+            usage.ProviderTotalTokens = tokens.Total.HasValue ? NonNegative(tokens.Total) : null;
             PublishTokenUsage(processId, usage);
         }
 

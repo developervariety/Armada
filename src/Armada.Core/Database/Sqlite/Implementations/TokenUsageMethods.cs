@@ -54,10 +54,12 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO token_usage (
                             id, tenant_id, user_id, model, runtime, source, source_id, vessel_id, captain_id,
-                            input_tokens, output_tokens, cached_tokens, total_tokens, estimated, created_utc
+                            input_tokens, output_tokens, cached_tokens, total_tokens, estimated, created_utc,
+                            uncached_input_tokens, cache_read_input_tokens, cache_write_input_tokens, usage_rule
                         ) VALUES (
                             @id, @tenant_id, @user_id, @model, @runtime, @source, @source_id, @vessel_id, @captain_id,
-                            @input_tokens, @output_tokens, @cached_tokens, @total_tokens, @estimated, @created_utc
+                            @input_tokens, @output_tokens, @cached_tokens, @total_tokens, @estimated, @created_utc,
+                            @uncached_input_tokens, @cache_read_input_tokens, @cache_write_input_tokens, @usage_rule
                         );";
                     BindRecord(cmd, record);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -209,6 +211,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@captain_id", (object?)record.CaptainId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@input_tokens", record.InputTokens);
             cmd.Parameters.AddWithValue("@output_tokens", record.OutputTokens);
+            cmd.Parameters.AddWithValue("@uncached_input_tokens", TokenUsageBucketColumns.ToColumn(record.UncachedInputTokens));
+            cmd.Parameters.AddWithValue("@cache_read_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheReadInputTokens));
+            cmd.Parameters.AddWithValue("@cache_write_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheWriteInputTokens));
+            cmd.Parameters.AddWithValue("@usage_rule", TokenUsageBucketColumns.ToColumn(record.UsageRule));
             cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
             cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
             cmd.Parameters.AddWithValue("@estimated", record.Estimated ? 1 : 0);
@@ -231,6 +237,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 InputTokens = Convert.ToInt64(reader["input_tokens"]),
                 OutputTokens = Convert.ToInt64(reader["output_tokens"]),
                 CachedTokens = Convert.ToInt64(reader["cached_tokens"]),
+                UncachedInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["uncached_input_tokens"]),
+                CacheReadInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_read_input_tokens"]),
+                CacheWriteInputTokens = TokenUsageBucketColumns.CountFromColumn(reader["cache_write_input_tokens"]),
+                UsageRule = TokenUsageBucketColumns.RuleFromColumn(reader["usage_rule"]),
                 TotalTokens = Convert.ToInt64(reader["total_tokens"]),
                 Estimated = Convert.ToInt32(reader["estimated"]) == 1,
                 CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!)

@@ -101,18 +101,20 @@ namespace Armada.Runtimes
             if (evt?.Usage == null || !evt.Usage.HasReportedValue())
                 return;
 
-            PublishTokenUsage(processId, new RuntimeTokenUsage
-            {
-                Source = "mux.provider_usage",
-                InputTokens = NonNegative(evt.Usage.InputTokens ?? evt.Usage.InputTokensSnake),
-                OutputTokens = NonNegative(evt.Usage.OutputTokens ?? evt.Usage.OutputTokensSnake),
-                ReasoningTokens = NonNegative(evt.Usage.ReasoningTokens ?? evt.Usage.ReasoningTokensSnake),
-                CacheReadTokens = NonNegative(evt.Usage.CacheReadTokens ?? evt.Usage.CacheReadTokensSnake),
-                CacheWriteTokens = NonNegative(evt.Usage.CacheWriteTokens ?? evt.Usage.CacheWriteTokensSnake),
-                ProviderTotalTokens = (evt.Usage.TotalTokens ?? evt.Usage.TotalTokensSnake).HasValue
-                    ? NonNegative(evt.Usage.TotalTokens ?? evt.Usage.TotalTokensSnake)
-                    : null
-            });
+            // Mux's input count is read as the OpenAI-shape prompt count, which includes cached
+            // input, so the uncached bucket is input less the cached counts. A provider that
+            // reports input without its cached part would under-count the uncached bucket.
+            RuntimeTokenUsage usage = RuntimeTokenUsage.FromInclusiveInput(
+                "mux.provider_usage",
+                evt.Usage.InputTokens ?? evt.Usage.InputTokensSnake,
+                evt.Usage.CacheReadTokens ?? evt.Usage.CacheReadTokensSnake,
+                evt.Usage.CacheWriteTokens ?? evt.Usage.CacheWriteTokensSnake,
+                evt.Usage.OutputTokens ?? evt.Usage.OutputTokensSnake);
+            usage.ReasoningTokens = NonNegative(evt.Usage.ReasoningTokens ?? evt.Usage.ReasoningTokensSnake);
+            usage.ProviderTotalTokens = (evt.Usage.TotalTokens ?? evt.Usage.TotalTokensSnake).HasValue
+                ? NonNegative(evt.Usage.TotalTokens ?? evt.Usage.TotalTokensSnake)
+                : null;
+            PublishTokenUsage(processId, usage);
         }
 
         /// <summary>

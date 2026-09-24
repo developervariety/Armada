@@ -8,6 +8,7 @@ namespace Armada.Server.Routes
     using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -276,7 +277,7 @@ namespace Armada.Server.Routes
             {
                 FromUtc = fromUtc,
                 ToUtc = toUtc,
-                CoverageNote = "Exact provider-reported usage only. OpenCode, Codex, Claude Code, Gemini, and Cursor emit authoritative counters; Mux is counted only when its provider event includes exact usage."
+                CoverageNote = "Exact provider-reported usage only. OpenCode, Codex, Claude Code, Gemini, and Cursor emit authoritative counters; Mux is counted only when its provider event includes exact usage. Input is split into uncached, cache-read and cache-write buckets; samples recorded before the buckets existed are counted under the legacy rule and reported separately."
             };
             Dictionary<string, TokenUsageModelBreakdown> breakdowns = new Dictionary<string, TokenUsageModelBreakdown>(StringComparer.Ordinal);
             Dictionary<string, HashSet<string>> missions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
@@ -320,6 +321,17 @@ namespace Armada.Server.Routes
                 breakdown.CacheReadTokens = AddWithoutOverflow(breakdown.CacheReadTokens, usage.CacheReadTokens);
                 breakdown.CacheWriteTokens = AddWithoutOverflow(breakdown.CacheWriteTokens, usage.CacheWriteTokens);
                 breakdown.TotalTokens = AddWithoutOverflow(breakdown.TotalTokens, sampleTotal);
+                if (usage.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
+                {
+                    breakdown.UncachedInputTokens = AddWithoutOverflow(breakdown.UncachedInputTokens, usage.UncachedInputTokens);
+                    breakdown.CacheReadInputTokens = AddWithoutOverflow(breakdown.CacheReadInputTokens, usage.CacheReadTokens);
+                    breakdown.CacheWriteInputTokens = AddWithoutOverflow(breakdown.CacheWriteInputTokens, usage.CacheWriteTokens);
+                }
+                else
+                {
+                    breakdown.LegacyInputTokens = AddWithoutOverflow(breakdown.LegacyInputTokens, usage.InputTokens);
+                    breakdown.LegacyRecordCount = AddWithoutOverflow(breakdown.LegacyRecordCount, 1);
+                }
                 summary.SampleCount = AddWithoutOverflow(summary.SampleCount, 1);
 
                 if (!String.IsNullOrEmpty(evt.MissionId))
@@ -338,6 +350,11 @@ namespace Armada.Server.Routes
                 summary.CacheReadTokens = AddWithoutOverflow(summary.CacheReadTokens, item.Value.CacheReadTokens);
                 summary.CacheWriteTokens = AddWithoutOverflow(summary.CacheWriteTokens, item.Value.CacheWriteTokens);
                 summary.TotalTokens = AddWithoutOverflow(summary.TotalTokens, item.Value.TotalTokens);
+                summary.UncachedInputTokens = AddWithoutOverflow(summary.UncachedInputTokens, item.Value.UncachedInputTokens);
+                summary.CacheReadInputTokens = AddWithoutOverflow(summary.CacheReadInputTokens, item.Value.CacheReadInputTokens);
+                summary.CacheWriteInputTokens = AddWithoutOverflow(summary.CacheWriteInputTokens, item.Value.CacheWriteInputTokens);
+                summary.LegacyInputTokens = AddWithoutOverflow(summary.LegacyInputTokens, item.Value.LegacyInputTokens);
+                summary.LegacyRecordCount = AddWithoutOverflow(summary.LegacyRecordCount, item.Value.LegacyRecordCount);
                 summary.Models.Add(item.Value);
             }
 

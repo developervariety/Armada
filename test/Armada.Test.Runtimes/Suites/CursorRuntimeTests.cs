@@ -102,9 +102,12 @@ namespace Armada.Test.Runtimes.Suites
                 runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
                 runtime.FeedUsage(11, "{\"type\":\"result\",\"usage\":{\"inputTokens\":11010,\"outputTokens\":23,\"cacheReadTokens\":2905,\"cacheWriteTokens\":0}}");
                 AssertNotNull(captured);
-                AssertEqual(11010L, captured!.InputTokens);
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, captured!.UsageRule, "Cursor usage is split into input buckets");
+                AssertEqual(11010L, captured.UncachedInputTokens, "Cursor uncached input bucket");
+                AssertEqual(2905L, captured.CacheReadTokens, "Cursor cache-read input bucket");
+                AssertEqual(0L, captured.CacheWriteTokens, "Cursor cache-write input bucket");
+                AssertEqual(13915L, captured.InputTokens, "Cursor input is the sum of the three buckets");
                 AssertEqual(23L, captured.OutputTokens);
-                AssertEqual(2905L, captured.CacheReadTokens);
             });
 
             await RunTest("BuildArguments Includes Model When Supplied", () =>

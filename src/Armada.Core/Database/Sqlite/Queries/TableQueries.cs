@@ -1657,7 +1657,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(105, "Persist captain preference ranks and persona specialist flags", TierRoutingPersistence.SqliteStatements),
                 new SchemaMigration(106, "Drop the unused jobs table", JobsTableDropSchema.SqliteStatements),
                 new SchemaMigration(107, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.SqliteStatements),
-                new SchemaMigration(108, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.SqliteStatements)
+                new SchemaMigration(108, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.SqliteStatements),
+                new SchemaMigration(109, "Persist token usage input buckets and the counting rule", TokenUsageInputBucketsPersistence.SqliteStatements)
             };
         }
 

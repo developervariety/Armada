@@ -97,10 +97,13 @@ namespace Armada.Test.Runtimes.Suites
                 runtime.OnTokenUsageReceived += (_, usage) => captured = usage;
                 runtime.FeedUsage(7, "{\"type\":\"result\",\"usage\":{\"input_tokens\":2,\"output_tokens\":4,\"cache_read_input_tokens\":15273,\"cache_creation_input_tokens\":5528}}");
                 AssertNotNull(captured);
-                AssertEqual(2L, captured!.InputTokens);
+                AssertTrue(captured!.InputTokens >= captured.CacheReadTokens, "Input includes the cache reads");
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, captured.UsageRule, "Claude usage is split into input buckets");
+                AssertEqual(2L, captured.UncachedInputTokens, "Claude uncached input bucket");
+                AssertEqual(15273L, captured.CacheReadTokens, "Claude cache-read input bucket");
+                AssertEqual(5528L, captured.CacheWriteTokens, "Claude cache-write input bucket");
+                AssertEqual(20803L, captured.InputTokens, "Claude input is the sum of the three buckets");
                 AssertEqual(4L, captured.OutputTokens);
-                AssertEqual(15273L, captured.CacheReadTokens);
-                AssertEqual(5528L, captured.CacheWriteTokens);
             });
 
             await RunTest("BuildArguments Includes SettingSources ProjectLocal", () =>

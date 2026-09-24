@@ -348,18 +348,9 @@ namespace Armada.Runtimes
                     };
                     if (response.Usage != null)
                     {
-                        RuntimeTokenUsage usage = new RuntimeTokenUsage
-                        {
-                            Runtime = Name,
-                            Model = effectiveModel ?? String.Empty,
-                            Source = "api_endpoint",
-                            InputTokens = response.Usage.PromptTokens ?? 0,
-                            OutputTokens = response.Usage.CompletionTokens ?? 0,
-                            CacheReadTokens = response.Usage.CachedPromptTokens ?? 0,
-                            CacheWriteTokens = response.Usage.CacheCreationTokens ?? 0,
-                            ReasoningTokens = response.Usage.ReasoningTokens ?? 0,
-                            ProviderTotalTokens = response.Usage.TotalTokens
-                        };
+                        RuntimeTokenUsage usage = BuildUsageSample(_Endpoint.Provider, response.Usage);
+                        usage.Runtime = Name;
+                        usage.Model = effectiveModel ?? String.Empty;
                         PublishTokenUsage(processId, usage);
                     }
                     try { OnProviderProgressReceived?.Invoke(processId, progress); } catch { }
@@ -861,6 +852,24 @@ namespace Armada.Runtimes
             WriteLog(line);
             try { OnOutputReceived?.Invoke(processId, line); } catch { }
             try { OnStdoutReceived?.Invoke(processId, line); } catch { }
+        }
+
+        /// <summary>
+        /// Split one inference response's usage into the three input buckets. PolyPrompt reports the provider's
+        /// prompt count as it is: Anthropic's excludes cached input (cache reads and writes are reported beside it),
+        /// while OpenAI, OpenAI-compatible, Gemini and Ollama include cached input in it.
+        /// </summary>
+        /// <param name="provider">Endpoint provider.</param>
+        /// <param name="reported">Usage reported with the response.</param>
+        /// <returns>The usage sample.</returns>
+        internal static RuntimeTokenUsage BuildUsageSample(ModelProviderEnum provider, ChatStreamingUsage reported)
+        {
+            RuntimeTokenUsage usage = provider == ModelProviderEnum.Anthropic
+                ? RuntimeTokenUsage.FromUncachedInput("api_endpoint", reported.PromptTokens, reported.CachedPromptTokens, reported.CacheCreationTokens, reported.CompletionTokens)
+                : RuntimeTokenUsage.FromInclusiveInput("api_endpoint", reported.PromptTokens, reported.CachedPromptTokens, reported.CacheCreationTokens, reported.CompletionTokens);
+            usage.ReasoningTokens = Math.Max(0, reported.ReasoningTokens ?? 0);
+            usage.ProviderTotalTokens = reported.TotalTokens;
+            return usage;
         }
 
         private void PublishTokenUsage(int processId, RuntimeTokenUsage usage)

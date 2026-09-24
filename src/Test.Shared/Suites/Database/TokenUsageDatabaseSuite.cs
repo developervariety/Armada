@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Database
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Test.Shared.Infrastructure;
@@ -124,6 +125,52 @@ namespace Test.Shared.Suites.Database
                     long bucketSum = 0;
                     foreach (TokenUsageBucket bucket in summary.Buckets) bucketSum += bucket.TotalTokens;
                     AssertEqual(570L, bucketSum, "Bucket totals should sum to the grand total");
+                }
+            }));
+
+            cases.Add(CaseAsync("summary_keeps_input_rules_apart", "Summary totals each input bucket and never mixes a legacy-rule record into them", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+
+                    // A row written before input buckets existed: no buckets, input counted by its runtime's rule.
+                    TokenUsageRecord legacy = Record("tku_legacy", "claude-sonnet-4", "mission", 12, 3000, 480000, 3012, false, _BaseTime.AddMinutes(1));
+                    TokenUsageRecord bucketed = Record("tku_buckets", "claude-sonnet-4", "mission", 500012, 3000, 480000, 503012, false, _BaseTime.AddMinutes(2));
+                    bucketed.UsageRule = TokenUsageRuleEnum.SeparateInputBuckets;
+                    bucketed.UncachedInputTokens = 12;
+                    bucketed.CacheReadInputTokens = 480000;
+                    bucketed.CacheWriteInputTokens = 20000;
+                    await db.TokenUsage.CreateAsync(legacy);
+                    await db.TokenUsage.CreateAsync(bucketed);
+
+                    TokenUsageRecord? legacyRead = await db.TokenUsage.ReadAsync("tku_legacy");
+                    AssertNotNull(legacyRead, "Legacy record reads back");
+                    AssertEqual(TokenUsageRuleEnum.Legacy, legacyRead!.UsageRule, "A record without buckets reads under the legacy rule");
+                    AssertNull(legacyRead.UncachedInputTokens, "A legacy record has no uncached bucket");
+                    TokenUsageRecord? bucketedRead = await db.TokenUsage.ReadAsync("tku_buckets");
+                    AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, bucketedRead!.UsageRule, "The rule round-trips");
+                    AssertEqual(20000L, bucketedRead.CacheWriteInputTokens ?? -1, "The cache-write bucket round-trips");
+
+                    TokenUsageQuery query = new TokenUsageQuery { FromUtc = _BaseTime, ToUtc = _BaseTime.AddMinutes(15), BucketMinutes = 15 };
+                    TokenUsageSummaryResult summary = TokenUsageSummaryBuilder.Build(await db.TokenUsage.EnumerateForSummaryAsync(query), query);
+
+                    AssertEqual(12L, summary.UncachedInputTokens, "Uncached input comes from the bucketed record only");
+                    AssertEqual(480000L, summary.CacheReadInputTokens, "Cache-read input comes from the bucketed record only");
+                    AssertEqual(20000L, summary.CacheWriteInputTokens, "Cache-write input comes from the bucketed record only");
+                    AssertEqual(12L, summary.LegacyInputTokens, "Legacy input is summed on its own");
+                    AssertEqual(1L, summary.LegacyRecordCount, "The legacy record is counted");
+                    AssertEqual(1L, summary.ByModel[0].LegacyRecordCount, "The per-model breakdown counts the legacy record");
+                    AssertEqual(12L, summary.ByModel[0].UncachedInputTokens, "The per-model breakdown keeps the buckets apart");
+                    long bucketLegacy = 0;
+                    long bucketUncached = 0;
+                    foreach (TokenUsageBucket bucket in summary.Buckets)
+                    {
+                        bucketLegacy += bucket.LegacyRecordCount;
+                        bucketUncached += bucket.UncachedInputTokens;
+                    }
+                    AssertEqual(1L, bucketLegacy, "Time buckets count the legacy record");
+                    AssertEqual(12L, bucketUncached, "Time buckets keep the input buckets apart");
                 }
             }));
 

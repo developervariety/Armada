@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using SyslogLogging;
@@ -53,7 +54,7 @@ namespace Test.Shared.Suites.Services
                     await TokenUsageCapture.CaptureAsync(db, logging, "chat",
                         model: "claude-sonnet-4", runtime: "claudecode",
                         tenantId: "ten_a", userId: null, vesselId: null, captainId: "cpt_a", sourceId: "msn_a",
-                        inputTokens: 100, outputTokens: 250, cachedTokens: 30,
+                        uncachedInputTokens: 70, outputTokens: 250, cacheReadInputTokens: 30, cacheWriteInputTokens: 0,
                         inputText: null, outputText: null);
 
                     EnumerationResult<TokenUsageRecord> all = await db.TokenUsage.EnumerateAsync(new TokenUsageQuery());
@@ -63,6 +64,10 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(250L, record.OutputTokens, "Output persists");
                     AssertEqual(30L, record.CachedTokens, "Cached persists");
                     AssertEqual(350L, record.TotalTokens, "Total is input + output");
+                    AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, record.UsageRule, "A new record carries the bucket rule");
+                    AssertEqual(70L, record.UncachedInputTokens ?? -1, "Uncached bucket persists");
+                    AssertEqual(30L, record.CacheReadInputTokens ?? -1, "Cache-read bucket persists");
+                    AssertEqual(0L, record.CacheWriteInputTokens ?? -1, "Cache-write bucket persists");
                     AssertFalse(record.Estimated, "Real counts are not flagged estimated");
                     AssertEqual("chat", record.Source, "Source persists");
                 }
@@ -78,7 +83,7 @@ namespace Test.Shared.Suites.Services
                     await TokenUsageCapture.CaptureAsync(db, logging, "mission",
                         model: null, runtime: "codex",
                         tenantId: null, userId: null, vesselId: null, captainId: null, sourceId: "msn_b",
-                        inputTokens: null, outputTokens: null, cachedTokens: null,
+                        uncachedInputTokens: null, outputTokens: null, cacheReadInputTokens: null, cacheWriteInputTokens: null,
                         inputText: new string('a', 35), outputText: new string('b', 70));
 
                     EnumerationResult<TokenUsageRecord> all = await db.TokenUsage.EnumerateAsync(new TokenUsageQuery());
@@ -102,7 +107,7 @@ namespace Test.Shared.Suites.Services
                     await TokenUsageCapture.CaptureAsync(db, logging, "mission",
                         model: "claude-sonnet-4", runtime: "claudecode",
                         tenantId: null, userId: null, vesselId: null, captainId: null, sourceId: "msn_c",
-                        inputTokens: null, outputTokens: null, cachedTokens: null,
+                        uncachedInputTokens: null, outputTokens: null, cacheReadInputTokens: null, cacheWriteInputTokens: null,
                         inputText: "the prompt", outputText: output);
 
                     EnumerationResult<TokenUsageRecord> all = await db.TokenUsage.EnumerateAsync(new TokenUsageQuery());
@@ -112,6 +117,8 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(1200L, record.OutputTokens, "Reported output used");
                     AssertEqual(300L, record.CachedTokens, "Reported cached used");
                     AssertEqual(1700L, record.TotalTokens, "Total is reported input + output");
+                    AssertEqual(200L, record.UncachedInputTokens ?? -1, "The reported input includes the reported cache reads");
+                    AssertEqual(300L, record.CacheReadInputTokens ?? -1, "Reported cache reads are the cache-read bucket");
                     AssertFalse(record.Estimated, "Reported counts are not flagged estimated");
                 }
             }));
@@ -126,7 +133,7 @@ namespace Test.Shared.Suites.Services
                     await TokenUsageCapture.CaptureAsync(db, logging, "chat",
                         model: "m", runtime: "r",
                         tenantId: null, userId: null, vesselId: null, captainId: null, sourceId: null,
-                        inputTokens: 0, outputTokens: 0, cachedTokens: 0,
+                        uncachedInputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheWriteInputTokens: 0,
                         inputText: null, outputText: null);
 
                     EnumerationResult<TokenUsageRecord> all = await db.TokenUsage.EnumerateAsync(new TokenUsageQuery());

@@ -533,9 +533,10 @@ namespace Armada.Server
                     vesselId: null,
                     captainId: captain.Id,
                     sourceId: captain.CurrentMissionId,
-                    inputTokens: null,
+                    uncachedInputTokens: null,
                     outputTokens: realCompletionTokens.HasValue ? (long?)realCompletionTokens.Value : null,
-                    cachedTokens: null,
+                    cacheReadInputTokens: null,
+                    cacheWriteInputTokens: null,
                     inputText: prompt,
                     outputText: reply,
                     token: token).ConfigureAwait(false);

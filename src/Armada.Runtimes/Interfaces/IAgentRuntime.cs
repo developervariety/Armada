@@ -43,7 +43,9 @@ namespace Armada.Runtimes.Interfaces
         event Action<int, string>? OnStdoutReceived;
 
         /// <summary>
-        /// Event raised when the runtime receives authoritative provider token usage.
+        /// Event raised when the runtime receives authoritative provider token usage. A runtime builds each sample
+        /// with the <see cref="RuntimeTokenUsage"/> input-bucket factories, so input arrives as uncached, cache-read and
+        /// cache-write tokens; a sample without buckets is recorded only as a legacy-rule event.
         /// </summary>
         event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
 

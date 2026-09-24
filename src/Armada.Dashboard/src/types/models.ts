@@ -2218,6 +2218,16 @@ export interface TokenUsageModelBreakdown {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  /** Uncached input tokens, from records under the separate-input-buckets rule only. */
+  uncachedInputTokens?: number;
+  /** Cache-read input tokens, from records under the separate-input-buckets rule only. */
+  cacheReadInputTokens?: number;
+  /** Cache-write input tokens, from records under the separate-input-buckets rule only. */
+  cacheWriteInputTokens?: number;
+  /** Input of records stored before the buckets existed, whose input means what each provider called input. */
+  legacyInputTokens?: number;
+  /** Records under the legacy rule; when above zero, inputTokens and totalTokens include their input. */
+  legacyRecordCount?: number;
 }
 
 export interface BatchDeleteRequest {
@@ -2420,6 +2430,16 @@ export interface TokenUsageBucket {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** Uncached input tokens, from records under the separate-input-buckets rule only. */
+  uncachedInputTokens?: number;
+  /** Cache-read input tokens, from records under the separate-input-buckets rule only. */
+  cacheReadInputTokens?: number;
+  /** Cache-write input tokens, from records under the separate-input-buckets rule only. */
+  cacheWriteInputTokens?: number;
+  /** Input of records stored before the buckets existed, whose input means what each provider called input. */
+  legacyInputTokens?: number;
+  /** Records under the legacy rule; when above zero, inputTokens and totalTokens include their input. */
+  legacyRecordCount?: number;
   models: TokenUsageModelBreakdown[];
 }
 
@@ -2436,6 +2456,16 @@ export interface TokenUsageSummaryResult {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** Uncached input tokens, from records under the separate-input-buckets rule only. */
+  uncachedInputTokens?: number;
+  /** Cache-read input tokens, from records under the separate-input-buckets rule only. */
+  cacheReadInputTokens?: number;
+  /** Cache-write input tokens, from records under the separate-input-buckets rule only. */
+  cacheWriteInputTokens?: number;
+  /** Input of records stored before the buckets existed, whose input means what each provider called input. */
+  legacyInputTokens?: number;
+  /** Records under the legacy rule; when above zero, inputTokens and totalTokens include their input. */
+  legacyRecordCount?: number;
   buckets: TokenUsageBucket[];
   byModel: TokenUsageModelBreakdown[];
 }

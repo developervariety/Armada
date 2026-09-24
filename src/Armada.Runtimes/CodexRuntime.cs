@@ -322,16 +322,17 @@ namespace Armada.Runtimes
             if (evt == null || !String.Equals(evt.Type, "turn.completed", StringComparison.Ordinal) || evt.Usage == null)
                 return;
 
+            // Codex's input_tokens already includes cached_input_tokens, so the uncached
+            // bucket is the input count less the cached counts.
             CodexUsage reported = evt.Usage;
-            PublishTokenUsage(processId, new RuntimeTokenUsage
-            {
-                Source = "codex.turn.completed",
-                InputTokens = NonNegative(reported.InputTokens),
-                OutputTokens = NonNegative(reported.OutputTokens),
-                ReasoningTokens = NonNegative(reported.ReasoningOutputTokens),
-                CacheReadTokens = NonNegative(reported.CachedInputTokens),
-                CacheWriteTokens = NonNegative(reported.CacheWriteInputTokens)
-            });
+            RuntimeTokenUsage usage = RuntimeTokenUsage.FromInclusiveInput(
+                "codex.turn.completed",
+                reported.InputTokens,
+                reported.CachedInputTokens,
+                reported.CacheWriteInputTokens,
+                reported.OutputTokens);
+            usage.ReasoningTokens = NonNegative(reported.ReasoningOutputTokens);
+            PublishTokenUsage(processId, usage);
         }
 
         /// <summary>

@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Text.Json;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Test.Shared.Infrastructure;
@@ -70,6 +71,37 @@ namespace Test.Shared.Suites.Services
                 List<TokenUsageRecord> windowOnly = TokenUsageCompatibility.MergeLegacyEvents(
                     new List<TokenUsageRecord>(), new List<ArmadaEvent> { evt }, jsonOptions);
                 AssertEqual(1, windowOnly.Count, "A match against in-window records alone cannot see the earlier record and counts the usage again");
+            }));
+
+            cases.Add(Case("an_event_stored_before_input_buckets_reads_under_the_legacy_rule", () =>
+            {
+                JsonSerializerOptions jsonOptions = new JsonSerializerOptions();
+                ArmadaEvent stored = new ArmadaEvent("mission.token_usage", "stored token usage")
+                {
+                    MissionId = "msn_stored",
+                    EntityId = "msn_stored",
+                    Payload = "{\"Runtime\":\"ClaudeCode\",\"Model\":\"claude-sonnet-4\",\"Source\":\"claude.result\",\"InputTokens\":12,\"OutputTokens\":3000,\"ReasoningTokens\":0,\"CacheReadTokens\":480000,\"CacheWriteTokens\":20000,\"ProviderTotalTokens\":null}"
+                };
+                RuntimeTokenUsage current = RuntimeTokenUsage.FromUncachedInput("claude.result", 12, 480000, 20000, 3000);
+                current.Runtime = "ClaudeCode";
+                current.Model = "claude-sonnet-4";
+                ArmadaEvent bucketed = new ArmadaEvent("mission.token_usage", "current token usage")
+                {
+                    MissionId = "msn_bucketed",
+                    EntityId = "msn_bucketed",
+                    Payload = JsonSerializer.Serialize(current, jsonOptions)
+                };
+
+                List<TokenUsageRecord> merged = TokenUsageCompatibility.MergeLegacyEvents(
+                    new List<TokenUsageRecord>(), new List<ArmadaEvent> { stored, bucketed }, jsonOptions);
+
+                AssertEqual(2, merged.Count, "Both events have no table record");
+                AssertEqual(TokenUsageRuleEnum.Legacy, merged[0].UsageRule, "A payload without a rule reads under the legacy rule");
+                AssertEqual(12L, merged[0].InputTokens, "The stored input is kept as written");
+                AssertNull(merged[0].UncachedInputTokens, "A legacy payload has no buckets");
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, merged[1].UsageRule, "A bucketed payload keeps its rule");
+                AssertEqual(12L, merged[1].UncachedInputTokens ?? -1, "The uncached bucket is kept");
+                AssertEqual(500012L, merged[1].InputTokens, "Input is the sum of the three buckets");
             }));
 
             return new TestSuiteDescriptor(

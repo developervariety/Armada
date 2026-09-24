@@ -1,6 +1,7 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.IO;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Runtimes;
     using Armada.Test.Common;
@@ -61,7 +62,11 @@ namespace Armada.Test.Runtimes.Suites
                 AssertNotNull(captured);
                 AssertEqual("gemini-2.5-pro", captured!.Model);
                 AssertEqual(40L, captured.ProviderTotalTokens);
-                AssertEqual(5L, captured.CacheReadTokens);
+                AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, captured.UsageRule, "Gemini usage is split into input buckets");
+                AssertEqual(25L, captured.UncachedInputTokens, "Gemini uncached input bucket");
+                AssertEqual(5L, captured.CacheReadTokens, "Gemini cache-read input bucket");
+                AssertEqual(0L, captured.CacheWriteTokens, "Gemini cache-write input bucket");
+                AssertEqual(30L, captured.InputTokens, "Gemini input is the sum of the three buckets");
             });
 
             await RunTest("A JSON Error Event Reaches The Mission Log", () =>
