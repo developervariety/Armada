@@ -438,7 +438,9 @@ upstream integrations and excludes changes already present at that baseline.
   load: a filter change, an auto-refresh tick, a manual refresh and a reload all
   start a load, and only the newest load writes the rows,
   totals, selection, spinner and errors, so a slower, older response never replaces
-  a newer one. A detail page shows the spinner and any load failure when the id
+  a newer one. The Memories search sends one request with the final text after
+  typing pauses, through a shared debounced-value hook, instead of one request
+  per keystroke. A detail page shows the spinner and any load failure when the id
   changes and never shows the previous record. The Planning page reads the session
   list and the open session again after a reconnect or an event gap, and applies
   session, message and captain events that arrive while the open session is loading

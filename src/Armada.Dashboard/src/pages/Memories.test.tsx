@@ -52,6 +52,27 @@ describe('Memories page', () => {
     await waitFor(() => expect(listMemories).toHaveBeenLastCalledWith({ pageNumber: 1, pageSize: 25, filters: { type: 'Procedural' } }));
   });
 
+  it('sends one search request with the final text after the user stops typing', async () => {
+    render(<Memories />);
+    await screen.findByText('Own memory');
+    vi.mocked(listMemories).mockClear();
+    vi.useFakeTimers();
+    try {
+      const input = screen.getByPlaceholderText('Search content, topic, tags...');
+      for (const text of ['b', 'bu', 'bui', 'buil', 'build']) {
+        fireEvent.change(input, { target: { value: text } });
+        await act(async () => { vi.advanceTimersByTime(50); });
+      }
+      expect(listMemories).not.toHaveBeenCalled();
+
+      await act(async () => { vi.advanceTimersByTime(1000); });
+      expect(listMemories).toHaveBeenCalledTimes(1);
+      expect(listMemories).toHaveBeenCalledWith({ pageNumber: 1, pageSize: 25, filters: { search: 'build' } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows the newest search result when an earlier search responds last', async () => {
     const earlier = deferred<unknown>();
     const later = deferred<unknown>();
@@ -65,8 +86,11 @@ describe('Memories page', () => {
     await screen.findByText('Own memory');
 
     const input = screen.getByPlaceholderText('Search content, topic, tags...');
+    // Each term waits out the search debounce so both requests are in flight together.
     fireEvent.change(input, { target: { value: 'bu' } });
+    await waitFor(() => expect(listMemories).toHaveBeenLastCalledWith(expect.objectContaining({ filters: { search: 'bu' } })));
     fireEvent.change(input, { target: { value: 'build' } });
+    await waitFor(() => expect(listMemories).toHaveBeenLastCalledWith(expect.objectContaining({ filters: { search: 'build' } })));
     await act(async () => { later.resolve(page([memory({ id: 'mem_new', summary: 'Newest match' })])); });
     expect(await screen.findByText('Newest match')).toBeInTheDocument();
 

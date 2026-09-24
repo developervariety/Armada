@@ -6,6 +6,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { canEditOwned, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
 import { useLatestRequest } from '../lib/useLatestRequest';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
 import PageHeader from '../components/shared/PageHeader';
 import Pagination from '../components/shared/Pagination';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -35,10 +36,12 @@ export default function Memories() {
   const [totalRecords, setTotalRecords] = useState(0);
   const [typeFilter, setTypeFilter] = useState<'' | MemoryType>('');
   const [search, setSearch] = useState('');
+  // The list queries the search text only after typing pauses, so a word sends one request, not one per keystroke.
+  const appliedSearch = useDebouncedValue(search.trim());
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; id: string }>({ open: false, id: '' });
 
-  // Each keystroke, filter or page change starts a load; only the newest one writes the list.
+  // Each search, filter or page change starts a load; only the newest one writes the list.
   const requests = useLatestRequest();
   const load = useCallback(async () => {
     const request = requests.begin();
@@ -46,7 +49,7 @@ export default function Memories() {
     try {
       const filters: Record<string, string> = {};
       if (typeFilter) filters.type = typeFilter;
-      if (search.trim()) filters.search = search.trim();
+      if (appliedSearch) filters.search = appliedSearch;
       const result = await listMemories({ pageNumber, pageSize, filters });
       if (!request.isCurrent()) return;
       setMemories(result.objects ?? []);
@@ -57,7 +60,7 @@ export default function Memories() {
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
-  }, [requests, pageNumber, pageSize, typeFilter, search, pushToast, t]);
+  }, [requests, pageNumber, pageSize, typeFilter, appliedSearch, pushToast, t]);
 
   useEffect(() => { void load(); }, [load]);
 
