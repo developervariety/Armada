@@ -193,6 +193,7 @@ namespace Armada.Server
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
         private Task _ModelEndpointHealthTask = null!;
+        private Task? _HarborJobExpiryTask = null;
         private int _StopRequested = 0;
         private int _HealthCheckCycles = 0;
         private TimeSpan? _HealthLoopInterval = null;
@@ -1226,6 +1227,7 @@ namespace Armada.Server
                 // The loops read and write the database; wait for them before it is disposed.
                 WaitForBackgroundLoop("health check loop", _HealthCheckTask);
                 WaitForBackgroundLoop("model endpoint health loop", _ModelEndpointHealthTask);
+                WaitForBackgroundLoop("Harbor job expiry loop", _HarborJobExpiryTask);
 
                 RunStopStep("objective scheduler stop", () => _ObjectiveScheduler?.Dispose());
                 RunStopStep("remote tunnel stop", () => _RemoteTunnel?.StopAsync().GetAwaiter().GetResult());
@@ -1412,7 +1414,8 @@ namespace Armada.Server
         private void StartHarborJobExpiry(Armada.Core.Harbor.HarborJobCoordinator coordinator)
         {
             CancellationToken token = _TokenSource.Token;
-            _ = Task.Run(async () =>
+            // Kept so shutdown waits for a running expiry pass before the database is disposed.
+            _HarborJobExpiryTask = Task.Run(async () =>
             {
                 while (!token.IsCancellationRequested)
                 {

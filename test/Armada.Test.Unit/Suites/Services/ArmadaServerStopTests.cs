@@ -16,7 +16,7 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Admiral shutdown: stop runs once, waits for the background loops that use the database before
+    /// Admiral shutdown: stop runs once, waits for every background loop that uses the database before
     /// disposing it, and still disposes the database when an earlier shutdown step throws.
     /// </summary>
     public class ArmadaServerStopTests : TestSuite
@@ -101,6 +101,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Stop waits for the Harbor job expiry loop before disposing the database", async () =>
+            {
+                string tempDir = NewTempDirectory();
+                ArmadaServer server = NewServer(tempDir, harborEnabled: true);
+                try
+                {
+                    await server.StartAsync().ConfigureAwait(false);
+
+                    CancellationToken serverToken = GetField<CancellationTokenSource>(server, "_TokenSource").Token;
+                    Task? realLoop = GetField<Task?>(server, "_HarborJobExpiryTask");
+                    AssertNotNull(realLoop, "an enabled Harbor starts the job expiry loop");
+                    DatabaseDriver database = GetField<DatabaseDriver>(server, "_Database");
+                    bool databaseReadAfterCancel = false;
+
+                    // An expiry pass that is still reading the database when shutdown cancels the loop.
+                    Task slowLoop = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await realLoop!.ConfigureAwait(false);
+                        }
+                        catch (Exception)
+                        {
+                            // The real loop's own outcome is not under test.
+                        }
+                        await Task.Delay(TimeSpan.FromMilliseconds(1500)).ConfigureAwait(false);
+                        await database.Captains.EnumerateAsync().ConfigureAwait(false);
+                        databaseReadAfterCancel = true;
+                    });
+                    SetField(server, "_HarborJobExpiryTask", slowLoop);
+
+                    server.Stop();
+
+                    AssertTrue(serverToken.IsCancellationRequested, "shutdown cancels the loop's token");
+                    AssertTrue(slowLoop.IsCompleted, "Stop must not return before the Harbor job expiry loop finishes");
+                    AssertFalse(slowLoop.IsFaulted, "the loop must not see a disposed database: " + slowLoop.Exception?.GetBaseException().Message);
+                    AssertTrue(databaseReadAfterCancel, "the loop's last database read must succeed");
+                    AssertTrue(IsDatabaseDisposed(server), "the database is disposed after the loop finishes");
+                }
+                finally
+                {
+                    server.Stop();
+                    DeleteDirectory(tempDir);
+                }
+            });
+
             await RunTest("Stop disposes the database and notifies even when an earlier step throws", async () =>
             {
                 string tempDir = NewTempDirectory();
@@ -138,7 +184,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         #region Private-Methods
 
-        private static ArmadaServer NewServer(string tempDir)
+        private static ArmadaServer NewServer(string tempDir, bool harborEnabled = false)
         {
             DatabaseSettings dbSettings = new DatabaseSettings
             {
@@ -160,6 +206,7 @@ namespace Armada.Test.Unit.Suites.Services
             };
             settings.Rest.Hostname = "127.0.0.1";
             settings.AutonomousObjectiveScheduler.Enabled = false;
+            settings.Harbor.Enabled = harborEnabled;
             settings.SettingsFilePath = Path.Combine(tempDir, "settings.json");
             settings.InitializeDirectories();
 
