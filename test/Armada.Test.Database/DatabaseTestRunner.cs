@@ -146,6 +146,9 @@ namespace Armada.Test.Database
             await RunTest("MergeEntry_Create_Read_Update_Enumerate", "Operational", () => TestMergeEntryCrudAsync(token), token);
             await RunTest("MergeEntry_EnumerateByStatus_Exists", "Operational", () => TestMergeEntryLookupAsync(token), token);
             await RunTest("WorkflowProfile_Create_Read_Update_Enumerate", "Operational", () => TestWorkflowProfileCrudAsync(token), token);
+            OperationalRoundTripDatabaseTests roundTrips = new OperationalRoundTripDatabaseTests(_Driver, _Settings, _NoCleanup);
+            await RunTest("Skill_Create_Read_Update_Reopen_Window_Delete", "Operational", () => roundTrips.VerifySkillsAsync(token), token);
+            await RunTest("ProjectProfile_Create_Read_Update_Reopen_Window_Delete", "Operational", () => roundTrips.VerifyProjectProfilesAsync(token), token);
             await RunTest("Pipeline_Update_And_Delete_Roll_Back_On_Failure", "Operational", () => TestPipelineWriteAtomicityAsync(token), token);
             await RunTest("RequestHistory_Timestamp_RoundTrip_And_Same_Day_Range", "Operational", () => TestRequestHistorySameDayRangeAsync(token), token);
             await RunTest("CheckRun_Create_Read_Update_Enumerate", "Operational", () => TestCheckRunCrudAsync(token), token);

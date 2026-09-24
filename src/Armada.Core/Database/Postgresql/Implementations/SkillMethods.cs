@@ -231,12 +231,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
             if (query.FromUtc.HasValue)
             {
-                conditions.Add("created_utc >= @from_utc");
+                conditions.Add("created_utc::timestamptz >= @from_utc");
                 parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
-                conditions.Add("created_utc <= @to_utc");
+                conditions.Add("created_utc::timestamptz <= @to_utc");
                 parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value));
             }
         }
@@ -269,8 +269,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 Content = NullableString(reader["content"]) ?? String.Empty,
                 IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]),
                 Active = Convert.ToBoolean(reader["active"]),
-                CreatedUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["created_utc"]), DateTimeKind.Utc),
-                LastUpdateUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["last_update_utc"]), DateTimeKind.Utc)
+                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
         }
 

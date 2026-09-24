@@ -85,6 +85,14 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **PostgreSQL skill and project profile timestamps:** skill and project
+  profile timestamps (stored as text) read through the shared PostgreSQL UTC
+  reader, which honours the stored offset, so a host outside UTC no longer
+  shifts them by its offset. The creation-time filters on both lists cast the
+  stored text to `timestamptz` before comparing, instead of comparing text with
+  a timestamp. The database runner has a create, read, update, reopen,
+  creation-window and delete case for skills and for project profiles that
+  compares every property on every provider.
 - **PostgreSQL timestamps read as UTC:** objective `CreatedUtc` and
   `LastUpdateUtc`, model endpoint timestamps and Judge follow-up timestamps read
   through the shared PostgreSQL UTC reader, so they carry `DateTimeKind.Utc` as
