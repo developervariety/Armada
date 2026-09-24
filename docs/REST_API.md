@@ -131,7 +131,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/prompt-templates` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below. A user-specific template is never resolved into a mission prompt |
 | `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant. Create records the caller's tenant and user |
 | `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
-| `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the persona inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant. Every tenant uses a built-in persona, so only a global admin may update one; anyone else receives `403` |
+| `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the persona by name as the caller sees it (the caller's own tenant first, then a built-in record) and require edit rights under the ownership rule. Every tenant uses a built-in persona, so only a global admin may update one; anyone else receives `403`. REST, MCP and WebSocket share one persona service |
 | `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/jobs` | GET | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
@@ -3485,8 +3485,16 @@ Create a new persona.
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
 | `MinimumTier` | string | no | Capability floor for missions of this persona: `Economy`, `Standard`, `Premium`, or `null` for none. The mission's request raises it, never lowers it. A body that sends the retired `Specialist` flag returns 400 `specialist_retired` |
 | `DefaultCaptainId` | string | no | Captain id missions of this persona prefer; `null` or `""` for none |
+| `DefaultPlaybooks` | array | no | Default playbooks (`PlaybookId`, `DeliveryMode`) merged for this persona. The JSON-text string a stored persona carries is also accepted |
+| `Active` | bool | no | Whether the persona is active (default: true) |
+| `OwnershipScope` | string | no | `TenantWide` (default) or `UserSpecific`. Kept for an administrator; any other caller's record is `UserSpecific` |
+
+Only these fields are read. `Id`, `TenantId`, `UserId`, `IsBuiltIn` and the
+timestamps come from the server, never the body.
 
 **Response:** `201 Created` - Persona
+**Error:** `400` - missing `Name` or `PromptTemplateName`, or a body that is not valid JSON
+**Error:** `409` - the name is already used in the caller's tenant
 **Error:** `400` - `default_captain_not_found`: no captain with that id exists in the caller's tenant (a captain in another tenant counts as not found)
 **Error:** `400` - `default_captain_persona_locked`: the captain's `AllowedPersonas` excludes the persona
 
@@ -3514,10 +3522,12 @@ Update an existing persona. Every tenant uses a built-in persona, so only a glob
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `Description` | string | no | Updated description |
+| `Description` | string | no | Updated description; `""` clears it |
 | `PromptTemplateName` | string | no | Updated prompt template name |
 | `MinimumTier` | string | no | Updated capability floor; `null` clears it, omitted leaves it unchanged. The retired `Specialist` flag returns 400 `specialist_retired` |
 | `DefaultCaptainId` | string | no | Captain id missions of this persona prefer; `null` or `""` clears it, omitted leaves it unchanged |
+| `DefaultPlaybooks` | array | no | Replaces the default playbooks; an empty array clears them, omitted leaves them unchanged |
+| `Active` | bool | no | Whether the persona is active |
 
 **Response:** `200 OK` - Persona
 **Error:** `400` - `default_captain_not_found`: no captain with that id exists in the persona's tenant (a captain in another tenant counts as not found)
@@ -3546,7 +3556,8 @@ Delete a persona. Built-in personas cannot be deleted.
 
 **Response:** `204 No Content`
 **Error:** `404` - Persona not found
-**Error:** `403` - Built-in persona cannot be deleted
+**Error:** `400` - Built-in persona cannot be deleted
+**Error:** `403` - a persona the caller may read but not change
 
 ```bash
 curl -X DELETE http://localhost:7890/api/v1/personas/reviewer

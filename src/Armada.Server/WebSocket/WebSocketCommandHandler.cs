@@ -1244,70 +1244,34 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>create_persona</c> command. Ownership comes from the caller, a request cannot create a built-in
-        /// persona, and a default captain passes the shared default captain rule.
+        /// Run the <c>create_persona</c> command through the shared persona rule.
         /// </summary>
         private async Task<object> CreatePersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            Persona newPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
-            string? createRetiredFieldError = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data?.RetiredFieldError();
-            if (createRetiredFieldError != null)
-                return new { type = "command.error", action = "create_persona", error = createRetiredFieldError };
-            newPersona.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
-            newPersona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
-            newPersona.IsBuiltIn = false;
-            string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_Database, newPersona, newPersona.DefaultCaptainId).ConfigureAwait(false);
-            if (defaultCaptainError != null)
-                return new { type = "command.error", action = "create_persona", error = defaultCaptainError };
-            newPersona = await _Database.Personas.CreateAsync(newPersona).ConfigureAwait(false);
-            return new { type = "command.result", action = "create_persona", data = (object)newPersona };
+            PersonaWriteRequest? request = ReadWriteRequest<PersonaWriteRequest>(rawBody, "create_persona", out object? refusal);
+            if (request == null) return refusal!;
+            RecordWriteResult<Persona> result = await new PersonaService(_Database).CreateAsync(caller, request).ConfigureAwait(false);
+            return WriteResult("create_persona", result, result.Record);
         }
 
         /// <summary>
-        /// Run the <c>update_persona</c> command. The persona is found through the shared caller scope and changed
-        /// only when the shared ownership rule lets the caller edit it.
+        /// Run the <c>update_persona</c> command through the shared persona rule.
         /// </summary>
         private async Task<object> UpdatePersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            Persona? existPersona = await ReadVisiblePersonaAsync(caller, command.Id).ConfigureAwait(false);
-            if (existPersona == null)
-                return NotFound("update_persona", "Persona not found");
-            if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, existPersona))
-                return Forbidden("update_persona", "You may not change this persona");
-            Persona patchPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
-            if (patchPersona.Description != null) existPersona.Description = patchPersona.Description;
-            if (patchPersona.PromptTemplateName != null) existPersona.PromptTemplateName = patchPersona.PromptTemplateName;
-            PersonaRoutingUpdate? patchRouting = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaRoutingUpdate>>(rawBody, _JsonOptions)?.Data;
-            string? updateRetiredFieldError = patchRouting?.RetiredFieldError();
-            if (updateRetiredFieldError != null)
-                return new { type = "command.error", action = "update_persona", error = updateRetiredFieldError };
-            if (patchRouting?.MinimumTierSupplied == true) existPersona.MinimumTier = patchRouting.MinimumTier;
-            if (patchRouting != null && patchRouting.DefaultCaptainIdSupplied)
-            {
-                string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_Database, existPersona, patchRouting.DefaultCaptainId).ConfigureAwait(false);
-                if (defaultCaptainError != null)
-                    return new { type = "command.error", action = "update_persona", error = defaultCaptainError };
-            }
-            existPersona = await _Database.Personas.UpdateAsync(existPersona).ConfigureAwait(false);
-            return new { type = "command.result", action = "update_persona", data = (object)existPersona };
+            PersonaWriteRequest? request = ReadWriteRequest<PersonaWriteRequest>(rawBody, "update_persona", out object? refusal);
+            if (request == null) return refusal!;
+            RecordWriteResult<Persona> result = await new PersonaService(_Database).UpdateAsync(caller, command.Id, request).ConfigureAwait(false);
+            return WriteResult("update_persona", result, result.Record);
         }
 
         /// <summary>
-        /// Run the <c>delete_persona</c> command. The persona is found through the shared caller scope and deleted
-        /// only when the shared ownership rule lets the caller edit it.
+        /// Run the <c>delete_persona</c> command through the shared persona rule.
         /// </summary>
         private async Task<object> DeletePersonaCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            string delPersonaName = command.Id ?? "";
-            Persona? delPersona = await ReadVisiblePersonaAsync(caller, delPersonaName).ConfigureAwait(false);
-            if (delPersona == null)
-                return NotFound("delete_persona", "Persona not found");
-            if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, delPersona))
-                return Forbidden("delete_persona", "You may not delete this persona");
-            if (delPersona.IsBuiltIn)
-                return new { type = "command.error", action = "delete_persona", error = "Cannot delete built-in persona" };
-            await _Database.Personas.DeleteAsync(delPersona.Id).ConfigureAwait(false);
-            return new { type = "command.result", action = "delete_persona", data = (object)new { Status = "deleted", Name = delPersonaName } };
+            RecordWriteResult<Persona> result = await new PersonaService(_Database).DeleteAsync(caller, command.Id).ConfigureAwait(false);
+            return WriteResult("delete_persona", result, new { Status = "deleted", Name = result.Record?.Name });
         }
 
         /// <summary>

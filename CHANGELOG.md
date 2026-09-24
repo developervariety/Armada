@@ -470,6 +470,16 @@ upstream integrations and excludes changes already present at that baseline.
   id instead of a protocol error. New MCP tool `delete_backlog_refinement_session`
   matches `DELETE /api/v1/objective-refinement-sessions/{id}`; both remove the
   session from its objective's links through one method.
+- **Persona writes:** REST, MCP and WebSocket create, update and delete a
+  persona through one service. REST and WebSocket read only the allow-listed
+  fields, so an id, tenant, built-in flag or timestamp in the body is ignored,
+  and they accept `DefaultPlaybooks` on create and update (an array, or the JSON
+  text a stored persona carries); an update through them had ignored it. A
+  missing name or prompt template is refused on every surface instead of
+  creating a persona named `Worker`, and a duplicate name returns `409`. A global
+  administrator's update or delete by name reaches its own tenant's record
+  before another tenant's. Deleting a built-in pipeline or persona returns `400`
+  on every surface; a tenant administrator of another tenant got `404` on REST.
 - **Built-in personas and pipelines:** only a global administrator may change a
   built-in persona or pipeline, because every tenant uses them; a tenant
   administrator of the tenant that stores them receives `403`.

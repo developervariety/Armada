@@ -152,17 +152,17 @@ namespace Armada.Test.Unit.Suites.Routes
                 {
                     Dictionary<string, Func<JsonElement?, Task<object>>> tools = PersonaTools(testDb.Driver);
                     string created = JsonSerializer.Serialize(await tools["create_persona"](JsonSerializer.SerializeToElement(new { name = "RetiredFlag", promptTemplateName = "persona.worker", specialist = true })).ConfigureAwait(false));
-                    AssertContains(PersonaRoutingUpdate.SpecialistRetiredErrorCode, created, "MCP create names the retired flag");
+                    AssertContains(PersonaWriteRequest.SpecialistRetiredErrorCode, created, "MCP create names the retired flag");
                     AssertNull(await testDb.Driver.Personas.ReadByNameAsync("RetiredFlag").ConfigureAwait(false), "a refused create stores nothing");
 
                     Persona persona = await testDb.Driver.Personas.CreateAsync(new Persona("RetiredFlagWs", "persona.worker") { MinimumTier = CaptainTierEnum.Standard }).ConfigureAwait(false);
                     string updated = JsonSerializer.Serialize(await tools["update_persona"](JsonSerializer.SerializeToElement(new { name = "RetiredFlagWs", specialist = true, description = "changed" })).ConfigureAwait(false));
-                    AssertContains(PersonaRoutingUpdate.SpecialistRetiredErrorCode, updated, "MCP update names the retired flag");
+                    AssertContains(PersonaWriteRequest.SpecialistRetiredErrorCode, updated, "MCP update names the retired flag");
 
                     WebSocketCommandHandler handler = new WebSocketCommandHandler(null!, testDb.Driver, null!, null, null, null, _ServerJsonOptions, mission => { }, voyage => { });
                     string flag = JsonSerializer.Serialize(new { Route = "command", action = "update_persona", id = "RetiredFlagWs", data = new { specialist = true, description = "changed" } });
                     string wsResult = JsonSerializer.Serialize(await handler.HandleCommandAsync("update_persona", new WebSocketCommand { Action = "update_persona", Id = "RetiredFlagWs" }, flag, McpTestCaller.Operator).ConfigureAwait(false));
-                    AssertContains(PersonaRoutingUpdate.SpecialistRetiredErrorCode, wsResult, "WebSocket update names the retired flag");
+                    AssertContains(PersonaWriteRequest.SpecialistRetiredErrorCode, wsResult, "WebSocket update names the retired flag");
 
                     Persona? stored = await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false);
                     AssertEqual(CaptainTierEnum.Standard, stored!.MinimumTier, "a refused update keeps the stored minimum tier");

@@ -2072,10 +2072,14 @@ using System.IO;
             // Personas, pipelines and prompt templates are read by name. A tenant admin must not
             // reach a record another tenant owns, and shared prompt templates change only through
             // a global administrator.
-            await RunTest("Persona_DeleteBuiltInFromOtherTenant_Returns404", async () =>
+            await RunTest("Persona_DeleteBuiltInFromOtherTenant_IsRefusedAndKept", async () =>
             {
+                // A built-in persona is readable by every tenant, so the refusal names it as built-in
+                // rather than hiding it; what matters is that it is never deleted.
                 HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/personas/Worker").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's persona must not be reachable by name");
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, "A built-in persona cannot be deleted");
+                HttpResponseMessage kept = await _AdminClient.GetAsync("/api/v1/personas/Worker").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, kept.StatusCode, "The built-in persona is still stored");
             }).ConfigureAwait(false);
 
             await RunTest("Pipeline_DeleteBuiltInFromOtherTenant_IsRefusedAndKept", async () =>

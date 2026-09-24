@@ -10,6 +10,7 @@ namespace Armada.Server.Routes
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -120,94 +121,45 @@ namespace Armada.Server.Routes
                 .WithSecurity("ApiKey"));
 
             // Create persona
-            app.Post<Persona>("/api/v1/personas", async (ApiRequest req) =>
+            app.Post<PersonaWriteRequest>("/api/v1/personas", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                Persona persona = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
-                string? retiredFieldError = (JsonSerializer.Deserialize<PersonaRoutingUpdate>(req.Http.Request.DataAsString, _jsonOptions) ?? new PersonaRoutingUpdate()).RetiredFieldError();
-                if (retiredFieldError != null)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = retiredFieldError };
-                }
-                // Ownership comes from the caller, never from the body. Built-in records are
-                // seeded by the server, so a request cannot create one.
-                persona.TenantId = ctx.TenantId;
-                persona.UserId = ctx.UserId;
-                persona.IsBuiltIn = false;
-                // A default captain named on create passes the same rule as an update, so the stored id always
-                // names a captain in the persona's tenant that admits the persona.
-                string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_database, persona, persona.DefaultCaptainId).ConfigureAwait(false);
-                if (defaultCaptainError != null)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = defaultCaptainError };
-                }
-                persona = await _database.Personas.CreateAsync(persona).ConfigureAwait(false);
-                req.Http.Response.StatusCode = 201;
-                return persona;
+                if (!RecordWriteResponse.TryReadBody(req, _jsonOptions, out PersonaWriteRequest? body, out object? refusal)) return refusal;
+                RecordWriteResult<Persona> result = await new PersonaService(_database).CreateAsync(ctx, body).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 201);
             },
             api => api
                 .WithTag("Personas")
                 .WithSummary("Create a persona")
-                .WithDescription("Creates a new persona with a name, description, and prompt template reference. A DefaultCaptainId must name a captain in the caller's tenant whose AllowedPersonas admit the persona: otherwise 400 default_captain_not_found or default_captain_persona_locked, and nothing is created.")
-                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Persona data (Name, Description, PromptTemplateName, DefaultCaptainId)", true))
+                .WithDescription("Creates a new persona. Name and PromptTemplateName are required. Only the allow-listed fields are read; ownership, identifiers, built-in status and timestamps come from the server. A DefaultCaptainId must name a captain in the caller's tenant whose AllowedPersonas admit the persona: otherwise 400 default_captain_not_found or default_captain_persona_locked, and nothing is created.")
+                .WithRequestBody(OpenApiJson.BodyFor<PersonaWriteRequest>("Persona data (Name, PromptTemplateName, Description, MinimumTier, DefaultCaptainId, DefaultPlaybooks, Active, OwnershipScope)", true))
                 .WithResponse(201, OpenApiJson.For<Persona>("Created persona"))
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("A persona with that name already exists"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
             // Update persona by name
-            app.Put<Persona>("/api/v1/personas/{name}", async (ApiRequest req) =>
+            app.Put<PersonaWriteRequest>("/api/v1/personas/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string name = req.Parameters["name"];
-                // A global administrator reaches every tenant; anyone else stays inside their own.
-                Persona? existing = ctx.IsAdmin
-                    ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
-                    : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanView(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
-                // Every tenant uses a built-in persona, so only a global administrator may change it.
-                if (!Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) return RouteAuthRefusal.Forbid(req, existing.IsBuiltIn ? "Built-in personas can be changed only by a global administrator" : "You may not change this persona");
-                Persona body = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
-                if (body.Description != null) existing.Description = body.Description;
-                if (body.PromptTemplateName != null) existing.PromptTemplateName = body.PromptTemplateName;
-                PersonaRoutingUpdate routing = JsonSerializer.Deserialize<PersonaRoutingUpdate>(req.Http.Request.DataAsString, _jsonOptions) ?? new PersonaRoutingUpdate();
-                string? retiredFieldError = routing.RetiredFieldError();
-                if (retiredFieldError != null)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = retiredFieldError };
-                }
-                if (routing.MinimumTierSupplied) existing.MinimumTier = routing.MinimumTier;
-                if (routing.DefaultCaptainIdSupplied)
-                {
-                    string? defaultCaptainError = await Armada.Core.Services.PersonaDefaultCaptainRule.ApplyAsync(_database, existing, routing.DefaultCaptainId).ConfigureAwait(false);
-                    if (defaultCaptainError != null)
-                    {
-                        req.Http.Response.StatusCode = 400;
-                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = defaultCaptainError };
-                    }
-                }
-                existing.LastUpdateUtc = DateTime.UtcNow;
-                Persona updated = await _database.Personas.UpdateAsync(existing).ConfigureAwait(false);
-                return (object)updated;
+                if (!RecordWriteResponse.TryReadBody(req, _jsonOptions, out PersonaWriteRequest? body, out object? refusal)) return refusal;
+                RecordWriteResult<Persona> result = await new PersonaService(_database).UpdateAsync(ctx, req.Parameters["name"], body).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 200);
             },
             api => api
                 .WithTag("Personas")
                 .WithSummary("Update a persona")
-                .WithDescription("Updates an existing persona by name. Only supplied fields are updated: Description, PromptTemplateName, MinimumTier (Economy, Standard, Premium, or null to clear), and DefaultCaptainId (null or empty clears it). A DefaultCaptainId that names no captain in the persona's tenant returns 400 default_captain_not_found; a captain whose AllowedPersonas excludes the persona returns 400 default_captain_persona_locked. Every tenant uses a built-in persona, so only a global administrator may change one; any other caller receives 403.")
+                .WithDescription("Updates an existing persona by name. Only supplied fields are updated: Description (empty clears it), PromptTemplateName, MinimumTier (Economy, Standard, Premium, or null to clear), DefaultCaptainId (null or empty clears it), DefaultPlaybooks (an array, or the JSON text a stored persona carries; empty clears them) and Active. A DefaultCaptainId that names no captain in the persona's tenant returns 400 default_captain_not_found; a captain whose AllowedPersonas excludes the persona returns 400 default_captain_persona_locked. Every tenant uses a built-in persona, so only a global administrator may change one; any other caller receives 403.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
-                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Updated persona data", true))
+                .WithRequestBody(OpenApiJson.BodyFor<PersonaWriteRequest>("Updated persona data", true))
                 .WithResponse(200, OpenApiJson.For<Persona>("Updated persona"))
                 .WithResponse(403, OpenApiResponseMetadata.Forbidden())
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
@@ -222,21 +174,14 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string name = req.Parameters["name"];
-                // A global administrator reaches every tenant; anyone else stays inside their own.
-                Persona? existing = ctx.IsAdmin
-                    ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
-                    : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null || (!existing.IsBuiltIn && !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing))) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
-                if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in personas cannot be deleted" }; }
-                await _database.Personas.DeleteAsync(existing.Id).ConfigureAwait(false);
-                req.Http.Response.StatusCode = 204;
-                return null;
+                RecordWriteResult<Persona> result = await new PersonaService(_database).DeleteAsync(ctx, req.Parameters["name"]).ConfigureAwait(false);
+                return RecordWriteResponse.From(req, result, 204);
             },
             api => api
                 .WithTag("Personas")
                 .WithSummary("Delete a persona")
-                .WithDescription("Deletes a persona by name. Built-in personas cannot be deleted.")
+                .WithDescription("Deletes a persona by name. Built-in personas cannot be deleted (400); a persona the caller may read but not change returns 403.")
+                .WithResponse(403, OpenApiResponseMetadata.Forbidden())
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())

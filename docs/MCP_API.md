@@ -1002,6 +1002,17 @@ field left out keeps the value of the existing stage for the same persona, so an
 update that does not name `requiresReview` keeps the review gate; send `false`
 to turn it off, or `null` to clear a stage's `description` or `preferredModel`.
 
+### Personas
+
+`create_persona` requires `name` and `promptTemplateName` and accepts
+`description`, `minimumTier`, `defaultCaptainId`, `defaultPlaybooks`, `active`
+and `ownershipScope`. A name already used in the caller's tenant returns
+`conflict`. `update_persona` changes only the supplied fields; `description`
+and `defaultCaptainId` declare `emptyStringClears`, and an empty
+`defaultPlaybooks` array clears the playbooks. REST and WebSocket accept the
+same fields, so `defaultPlaybooks` set through any surface is stored the same
+way.
+
 ### Objectives And Backlog Items
 
 `create_objective`, `create_backlog_item`, `update_objective` and
