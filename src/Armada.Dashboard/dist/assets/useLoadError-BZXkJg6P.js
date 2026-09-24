@@ -1,0 +1,1 @@
+import{i as e,s as t}from"./LocaleContext-JtHbApia.js";var n=t(e(),1);function r(){let[e,t]=(0,n.useState)(``),r=(0,n.useRef)(!1);return{error:e,setError:t,loadFailed:(0,n.useCallback)(e=>{r.current||(r.current=!0,t(e))},[]),loadSucceeded:(0,n.useCallback)(()=>{r.current=!1,t(``)},[])}}export{r as t};

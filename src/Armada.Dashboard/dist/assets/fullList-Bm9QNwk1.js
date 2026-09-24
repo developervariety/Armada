@@ -1,0 +1,1 @@
+import{Xi as e}from"./client-BO-JCSd1.js";var t=1e3;function n(n,r){return e(e=>n({pageNumber:e,pageSize:t,filters:r}))}function r(e,t,n){let r=Math.max(1,Math.ceil(e.length/n)),i=Math.min(Math.max(1,t),r),a=(i-1)*n;return{rows:e.slice(a,a+n),currentPage:i,totalPages:r,totalRecords:e.length}}export{r as n,n as t};
