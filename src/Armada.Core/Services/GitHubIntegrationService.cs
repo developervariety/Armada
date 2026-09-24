@@ -706,10 +706,15 @@ namespace Armada.Core.Services
             return new InvalidOperationException(message);
         }
 
+        // A refresh never moves an objective out of the objective terminal set (Completed, Cancelled);
+        // only an explicit StatusOverride on the import request does.
         private static ObjectiveStatusEnum ResolveImportedObjectiveStatus(
             ObjectiveStatusEnum currentStatus,
             ObjectiveStatusEnum importedStatus)
         {
+            if (ObjectiveLifecycleRules.IsTerminalStatus(currentStatus))
+                return currentStatus;
+
             if (importedStatus == ObjectiveStatusEnum.Completed
                 || importedStatus == ObjectiveStatusEnum.Cancelled
                 || importedStatus == ObjectiveStatusEnum.Released)

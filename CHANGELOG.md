@@ -139,6 +139,9 @@ upstream integrations and excludes changes already present at that baseline.
   `Cancelled`. A Pending or Running Check holds completion on every path, and a
   failed Check fails the voyage on every path. A `PullRequestOpen` mission and a
   `WorkProduced` mission held for operator review keep their voyage open.
+- **GitHub objective refresh:** re-importing a `Completed` or `Cancelled`
+  objective keeps its status; a merged pull request no longer moves it back to
+  `Released`. An explicit `StatusOverride` still sets any status.
 - **Captain assignment commit:** assignment claims the captain with its
   compare-and-set first and records the dock on the mission only while the mission
   is still Assigned. A lost claim returns the stored mission to Pending with no

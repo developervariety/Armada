@@ -106,6 +106,79 @@ namespace Test.Shared.Suites.E2E
                 }
             }));
 
+            cases.Add(CaseAsync("github_objectives_refresh_keeps_terminal_status", "GitHubObjectives_RefreshKeepsTerminalStatus", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient authClient = fx.AuthClient;
+
+                using FakeGitHubServer fakeGitHub = new FakeGitHubServer("ghp_vessel_token");
+                string vesselId = String.Empty;
+                string objectiveId = String.Empty;
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-github-terminal-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    vesselId = await CreateVesselAsync(authClient, "GitHub Terminal Objective Vessel", fakeGitHub.RepositoryUrl, workingDirectory, fakeGitHub.ExpectedToken).ConfigureAwait(false);
+
+                    HttpResponseMessage importResponse = await authClient.PostAsync("/api/v1/objectives/import/github",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            VesselId = vesselId,
+                            SourceType = GitHubObjectiveSourceTypeEnum.PullRequest,
+                            Number = 45
+                        })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, importResponse.StatusCode);
+                    Objective imported = await JsonHelper.DeserializeAsync<Objective>(importResponse).ConfigureAwait(false);
+                    objectiveId = imported.Id;
+                    AssertEqual(ObjectiveStatusEnum.InProgress, imported.Status);
+
+                    HttpResponseMessage completeResponse = await authClient.PutAsync("/api/v1/objectives/" + objectiveId,
+                        JsonHelper.ToJsonContent(new { Status = ObjectiveStatusEnum.Completed })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, completeResponse.StatusCode);
+
+                    // A merged pull request imports as Released. A refresh never moves a Completed or
+                    // Cancelled objective out of the terminal set; only an explicit StatusOverride does.
+                    fakeGitHub.PullRequest45Merged = true;
+                    HttpResponseMessage refreshResponse = await authClient.PostAsync("/api/v1/objectives/import/github",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            VesselId = vesselId,
+                            ObjectiveId = objectiveId,
+                            SourceType = GitHubObjectiveSourceTypeEnum.PullRequest,
+                            Number = 45
+                        })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, refreshResponse.StatusCode);
+                    Objective refreshed = await JsonHelper.DeserializeAsync<Objective>(refreshResponse).ConfigureAwait(false);
+                    AssertEqual(ObjectiveStatusEnum.Completed, refreshed.Status);
+
+                    HttpResponseMessage overrideResponse = await authClient.PostAsync("/api/v1/objectives/import/github",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            VesselId = vesselId,
+                            ObjectiveId = objectiveId,
+                            SourceType = GitHubObjectiveSourceTypeEnum.PullRequest,
+                            Number = 45,
+                            StatusOverride = ObjectiveStatusEnum.Released
+                        })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, overrideResponse.StatusCode);
+                    Objective overridden = await JsonHelper.DeserializeAsync<Objective>(overrideResponse).ConfigureAwait(false);
+                    AssertEqual(ObjectiveStatusEnum.Released, overridden.Status);
+                }
+                finally
+                {
+                    if (!String.IsNullOrWhiteSpace(objectiveId))
+                    {
+                        try { await authClient.DeleteAsync("/api/v1/objectives/" + objectiveId).ConfigureAwait(false); } catch { }
+                    }
+                    if (!String.IsNullOrWhiteSpace(vesselId))
+                    {
+                        try { await authClient.DeleteAsync("/api/v1/vessels/" + vesselId).ConfigureAwait(false); } catch { }
+                    }
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }));
+
             cases.Add(CaseAsync("github_actions_sync_creates_and_updates_deployment_linked_checks", "GitHubActions_SyncCreatesAndUpdatesDeploymentLinkedChecks", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -443,6 +516,8 @@ namespace Test.Shared.Suites.E2E
 
             public string Issue123State { get; set; } = "open";
 
+            public bool PullRequest45Merged { get; set; } = false;
+
             public int Port { get; }
 
             public string RepositoryUrl => "http://localhost:" + Port + "/octo/armada-test.git";
@@ -538,7 +613,7 @@ namespace Test.Shared.Suites.E2E
 
                     if (String.Equals(path, "/api/v3/repos/octo/armada-test/pulls/45", StringComparison.OrdinalIgnoreCase))
                     {
-                        string body = "{\"number\":45,\"title\":\"Armada Integration PR\",\"body\":\"Implements GitHub-backed delivery visibility.\",\"state\":\"open\",\"html_url\":\"" + PullRequestUrl + "\",\"draft\":false,\"merged\":false,\"mergeable_state\":\"clean\",\"additions\":12,\"deletions\":3,\"changed_files\":4,\"commits\":2,\"created_at\":\"2026-05-06T10:00:00Z\",\"updated_at\":\"2026-05-06T11:00:00Z\",\"merged_at\":null,\"user\":{\"login\":\"captain-armada\"},\"merged_by\":null,\"base\":{\"ref\":\"main\",\"sha\":\"base123\"},\"head\":{\"ref\":\"feature/github\",\"sha\":\"abc123\"},\"requested_reviewers\":[{\"login\":\"reviewer1\"}],\"labels\":[{\"name\":\"automation\"}]}";
+                        string body = "{\"number\":45,\"title\":\"Armada Integration PR\",\"body\":\"Implements GitHub-backed delivery visibility.\",\"state\":\"open\",\"html_url\":\"" + PullRequestUrl + "\",\"draft\":false,\"merged\":" + (PullRequest45Merged ? "true" : "false") + ",\"mergeable_state\":\"clean\",\"additions\":12,\"deletions\":3,\"changed_files\":4,\"commits\":2,\"created_at\":\"2026-05-06T10:00:00Z\",\"updated_at\":\"2026-05-06T11:00:00Z\",\"merged_at\":null,\"user\":{\"login\":\"captain-armada\"},\"merged_by\":null,\"base\":{\"ref\":\"main\",\"sha\":\"base123\"},\"head\":{\"ref\":\"feature/github\",\"sha\":\"abc123\"},\"requested_reviewers\":[{\"login\":\"reviewer1\"}],\"labels\":[{\"name\":\"automation\"}]}";
                         await WriteJsonAsync(context.Response, body).ConfigureAwait(false);
                         return;
                     }

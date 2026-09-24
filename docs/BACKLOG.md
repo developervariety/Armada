@@ -93,6 +93,14 @@ Compatibility objective routes:
 - `POST /api/v1/objectives/reorder`
 - `POST /api/v1/objectives/import/github`
 
+A GitHub import maps a closed issue to `Completed`, a merged pull request to
+`Released`, and a closed unmerged pull request to `Cancelled`. On a refresh of
+an existing objective, an imported `Released`, `Completed` or `Cancelled`
+status is applied. Any other imported status is applied only when it is higher
+than the current status. A `Completed` or `Cancelled` objective keeps its
+status on refresh. An explicit `StatusOverride` on the import request sets any
+status.
+
 Refinement routes:
 
 - `GET /api/v1/backlog/{id}/refinement-sessions`
