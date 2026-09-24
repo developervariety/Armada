@@ -134,21 +134,24 @@ namespace Armada.Test.Unit.Suites.Services
                         await admission.RecordVoyageCreatedAsync(orphan).ConfigureAwait(false);
                         await admission.AbandonAsCrashedAsync().ConfigureAwait(false);
 
+                        // Reconciliation cancels the orphan voyage first and writes the closed record after it,
+                        // so the wait covers both outcomes rather than reading the record the moment the voyage turns.
                         VoyageStatusEnum status = VoyageStatusEnum.Open;
+                        bool attemptClosed = false;
                         DateTime deadline = DateTime.UtcNow.AddSeconds(40);
                         while (DateTime.UtcNow < deadline)
                         {
                             status = (await driver.Voyages.ReadAsync(orphan.Id).ConfigureAwait(false))!.Status;
-                            if (status == VoyageStatusEnum.Cancelled) break;
+                            List<ArmadaEvent> attemptEvents = await driver.Events
+                                .EnumerateByEntityAsync(ObjectiveDispatchAdmission.AttemptEntityType, admission.AttemptId).ConfigureAwait(false);
+                            attemptClosed = attemptEvents.Any(evt => evt.EventType == ObjectiveDispatchAdmission.ClosedEventType);
+                            if (status == VoyageStatusEnum.Cancelled && attemptClosed) break;
                             await Task.Delay(100).ConfigureAwait(false);
                         }
 
                         AssertEqual(VoyageStatusEnum.Cancelled, status,
                             "The server's periodic health loop must reconcile the crashed attempt created after startup.");
-                        List<ArmadaEvent> closed = await driver.Events
-                            .EnumerateByEntityAsync(ObjectiveDispatchAdmission.AttemptEntityType, admission.AttemptId).ConfigureAwait(false);
-                        AssertTrue(closed.Any(evt => evt.EventType == ObjectiveDispatchAdmission.ClosedEventType),
-                            "The health loop must close the reconciled attempt.");
+                        AssertTrue(attemptClosed, "The health loop must close the reconciled attempt.");
                     }
                 }
                 finally
