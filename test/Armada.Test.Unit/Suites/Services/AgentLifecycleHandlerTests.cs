@@ -1570,6 +1570,109 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // ----------------------------------------------------------------
+            // A stage whose final result is [ARMADA:RESULT] BLOCKED is held for
+            // the owner: it never completes, hands off, lands, or gets a rescue
+            // ----------------------------------------------------------------
+
+            await RunTest("An Implementation Worker that ends BLOCKED fails with its question, cancels the next stage, fails the voyage, and gets no rescue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Implementation, withJudgeStage: true).ConfigureAwait(false);
+
+                    await rig.RunCaptainAsync(
+                        "Read the brief and the storage layer.",
+                        "The brief asks for a retention window but names two different values (30 and 90 days).",
+                        "[ARMADA:RESULT] BLOCKED",
+                        "Which retention window is authoritative, 30 days or 90 days?").ConfigureAwait(false);
+
+                    Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, worker.Status, "A blocked stage does not complete");
+                    AssertTrue(CaptainBlockedResult.IsBlockedFailure(worker.FailureReason), "The failure names the blocked class: " + worker.FailureReason);
+                    AssertContains("Which retention window is authoritative, 30 days or 90 days?", worker.FailureReason ?? String.Empty, "The question is preserved on the mission");
+
+                    Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.JudgeStage!.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Cancelled, judge.Status, "The next stage is not handed off");
+                    AssertFalse((judge.Description ?? String.Empty).Contains("retention window", StringComparison.Ordinal), "The blocked stage's output never reaches the next brief");
+
+                    Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
+                    AssertEqual(VoyageStatusEnum.Failed, voyage.Status, "The voyage does not complete as a success");
+
+                    await rig.AssertOwnerSeesQuestionAndNoRescueAsync("Which retention window is authoritative, 30 days or 90 days?").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("A Research Worker that ends BLOCKED is not a completed report: it fails with its question and gets no rescue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Research, withJudgeStage: false).ConfigureAwait(false);
+
+                    await rig.RunCaptainAsync(
+                        "## Findings",
+                        "The mission required calling one read-only status tool, and no such tool is callable in this session.",
+                        "Should the report proceed without the tool call, or is the missing tool delivery the finding?",
+                        "",
+                        "[ARMADA:RESULT] BLOCKED").ConfigureAwait(false);
+
+                    Mission research = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, research.Status, "A blocked report is not a completed report");
+                    AssertTrue(CaptainBlockedResult.IsBlockedFailure(research.FailureReason), "The failure names the blocked class: " + research.FailureReason);
+                    AssertContains("Should the report proceed without the tool call", research.FailureReason ?? String.Empty,
+                        "A question written above the marker is preserved");
+
+                    Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
+                    AssertEqual(VoyageStatusEnum.Failed, voyage.Status, "The voyage does not complete as a success");
+
+                    await rig.AssertOwnerSeesQuestionAndNoRescueAsync("Should the report proceed without the tool call").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("A Judge that ends BLOCKED is not re-run for a missing verdict: it fails with its question and gets no rescue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Judge", MissionModeEnum.Implementation, withJudgeStage: false).ConfigureAwait(false);
+
+                    await rig.RunCaptainAsync(
+                        "Reviewed the diff against the brief.",
+                        "The change drops a column the brief says to keep. Was dropping the legacy column approved by the owner?",
+                        "[ARMADA:RESULT] BLOCKED").ConfigureAwait(false);
+
+                    Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, judge.Status, "A blocked Judge is not requeued as a missing verdict");
+                    AssertTrue(String.IsNullOrEmpty(judge.RetrySkipCaptainIds), "No in-place re-run was scheduled");
+                    AssertTrue(CaptainBlockedResult.IsBlockedFailure(judge.FailureReason), "The failure names the blocked class: " + judge.FailureReason);
+                    AssertContains("Was dropping the legacy column approved by the owner?", judge.FailureReason ?? String.Empty, "The question is preserved on the mission");
+
+                    await rig.AssertOwnerSeesQuestionAndNoRescueAsync("Was dropping the legacy column approved by the owner?").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("BLOCKED in prose, or followed by a later COMPLETE, is not a blocked stage: the Worker completes and hands off", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Implementation, withJudgeStage: true).ConfigureAwait(false);
+
+                    await rig.RunCaptainAsync(
+                        "The brief says to end with [ARMADA:RESULT] BLOCKED if the owner must decide; nothing here needs that.",
+                        "[ARMADA:RESULT] BLOCKED",
+                        "Resolved: the brief's second value is a typo, confirmed in the design doc.",
+                        "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
+
+                    Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.WorkProduced, worker.Status, "The final result is COMPLETE, so the stage completes");
+                    AssertFalse(CaptainBlockedResult.IsBlockedFailure(worker.FailureReason), "No blocked failure is recorded");
+
+                    Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.JudgeStage!.Id).ConfigureAwait(false))!;
+                    AssertTrue(judge.Status != MissionStatusEnum.Cancelled, "The next stage is handed off, not cancelled");
+                    AssertEqual(0, rig.OwnerNotes.Posts.Count, "No owner question is raised");
+                    AssertEqual(0, (await rig.ActiveIncidentsAsync().ConfigureAwait(false)).Count, "No incident is opened");
+                }
+            });
+
+            // ----------------------------------------------------------------
             // One output record can carry several markers; each one is routed
             // ----------------------------------------------------------------
 
@@ -2167,6 +2270,161 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             throw new TimeoutException("Timed out waiting for asynchronous condition");
+        }
+
+        /// <summary>
+        /// One captain stage run through the real lifecycle: the agent lifecycle handler buffers the captain's
+        /// output, the mission service completes the stage on exit, and the real recovery orchestrator receives
+        /// the outcome. The owner-note poster records what reached the owner.
+        /// </summary>
+        private sealed class BlockedStageRig
+        {
+            private const string _TenantId = "ten_blocked_stage";
+            private const string _UserId = "usr_blocked_stage";
+            private static int _NextProcessId = 979000;
+
+            private readonly AgentLifecycleHandlerTests _Suite;
+            private readonly TestDatabase _Db;
+
+            public Mission Mission { get; private set; } = null!;
+            public Mission? JudgeStage { get; private set; }
+            public Voyage Voyage { get; private set; } = null!;
+            public Vessel Vessel { get; private set; } = null!;
+            public Captain Captain { get; private set; } = null!;
+            public AgentLifecycleHandler Handler { get; private set; } = null!;
+            public MissionService MissionService { get; private set; } = null!;
+            public FakeOwnerDecisionNotePoster OwnerNotes { get; } = new FakeOwnerDecisionNotePoster();
+
+            private BlockedStageRig(AgentLifecycleHandlerTests suite, TestDatabase db)
+            {
+                _Suite = suite;
+                _Db = db;
+            }
+
+            public static async Task<BlockedStageRig> CreateAsync(AgentLifecycleHandlerTests suite, TestDatabase testDb, string persona, MissionModeEnum mode, bool withJudgeStage)
+            {
+                BlockedStageRig rig = new BlockedStageRig(suite, testDb);
+                DatabaseDriver db = testDb.Driver;
+
+                await db.Tenants.CreateAsync(new TenantMetadata { Id = _TenantId, Name = _TenantId }).ConfigureAwait(false);
+                await db.Users.CreateAsync(new UserMaster
+                {
+                    Id = _UserId,
+                    TenantId = _TenantId,
+                    Email = _UserId + "@armada.test",
+                    PasswordSha256 = UserMaster.ComputePasswordHash("password"),
+                    IsTenantAdmin = true
+                }).ConfigureAwait(false);
+
+                rig.Handler = suite.CreateHandler(db, out ArmadaSettings settings);
+                LoggingModule logging = CreateLogging();
+                StubGitService git = new StubGitService();
+                IDockService dockService = new DockService(logging, db, settings, git);
+                ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
+                rig.MissionService = new MissionService(logging, db, settings, dockService, captainService,
+                    resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
+                rig.MissionService.HandoffOwnerNotePoster = rig.OwnerNotes;
+                rig.MissionService.OnGetMissionOutput = rig.Handler.GetAndClearMissionOutput;
+
+                AutonomousRecoveryOrchestrator recovery = new AutonomousRecoveryOrchestrator(
+                    db, RecordingAdmiral.Create().Service, new IncidentService(db), new RunbookService(db, logging), settings, logging);
+                rig.MissionService.OnMissionOutcome = (Mission outcome, bool willLand) => recovery.HandleMissionOutcomeAsync(outcome, willLand);
+
+                rig.Vessel = await db.Vessels.CreateAsync(new Vessel("blocked-vessel", "https://github.com/test/blocked.git")
+                {
+                    TenantId = _TenantId,
+                    UserId = _UserId
+                }).ConfigureAwait(false);
+                rig.Voyage = await db.Voyages.CreateAsync(new Voyage("blocked-voyage") { TenantId = _TenantId, UserId = _UserId }).ConfigureAwait(false);
+
+                Captain captain = new Captain("blocked-captain", AgentRuntimeEnum.ClaudeCode);
+                captain.TenantId = _TenantId;
+                captain.UserId = _UserId;
+                captain.State = CaptainStateEnum.Working;
+                rig.Captain = await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                Dock dock = new Dock(rig.Vessel.Id);
+                dock.TenantId = _TenantId;
+                dock.UserId = _UserId;
+                dock.CaptainId = rig.Captain.Id;
+                dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                dock.BranchName = "armada/blocked-captain/stage";
+                dock.Active = true;
+                dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                Mission mission = new Mission("Blocked " + persona + " stage", "Do the stage's work.");
+                mission.TenantId = _TenantId;
+                mission.UserId = _UserId;
+                mission.Persona = persona;
+                mission.Mode = mode;
+                mission.Status = MissionStatusEnum.InProgress;
+                mission.CaptainId = rig.Captain.Id;
+                mission.DockId = dock.Id;
+                mission.VesselId = rig.Vessel.Id;
+                mission.VoyageId = rig.Voyage.Id;
+                mission.BranchName = dock.BranchName;
+                rig.Mission = await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                if (withJudgeStage)
+                {
+                    Mission judge = new Mission("[Judge] Review", "Review the prior stage.");
+                    judge.TenantId = _TenantId;
+                    judge.UserId = _UserId;
+                    judge.Persona = "Judge";
+                    judge.Mode = mode;
+                    judge.Status = MissionStatusEnum.Pending;
+                    judge.VesselId = rig.Vessel.Id;
+                    judge.VoyageId = rig.Voyage.Id;
+                    judge.DependsOnMissionId = rig.Mission.Id;
+                    rig.JudgeStage = await db.Missions.CreateAsync(judge).ConfigureAwait(false);
+                }
+
+                rig.Captain.CurrentMissionId = rig.Mission.Id;
+                rig.Captain.CurrentDockId = dock.Id;
+                await db.Captains.UpdateAsync(rig.Captain).ConfigureAwait(false);
+                return rig;
+            }
+
+            /// <summary>
+            /// The captain writes its final answer as one output record, then its process exits and the
+            /// completion path runs, as it does for a real captain.
+            /// </summary>
+            public async Task RunCaptainAsync(params string[] lines)
+            {
+                int processId = Interlocked.Increment(ref _NextProcessId);
+                RegisterTrackedProcess(Handler, processId, Captain.Id, Mission.Id);
+                string record = String.Join("\n", lines);
+                Handler.HandleAgentOutput(processId, record);
+                await WaitForProgressSignalsAsync(_Db.Driver, Captain.Id, ProgressParser.ParseAll(record).Count).ConfigureAwait(false);
+
+                await MissionService.HandleCompletionAsync(Captain, Mission.Id).ConfigureAwait(false);
+            }
+
+            public async Task<List<Incident>> ActiveIncidentsAsync()
+            {
+                AuthContext auth = AuthContext.Authenticated(_TenantId, _UserId, false, true, "UnitTest");
+                return await new IncidentService(_Db.Driver).EnumerateActiveAsync(auth, new IncidentQuery { MissionId = Mission.Id }).ConfigureAwait(false);
+            }
+
+            /// <summary>
+            /// The owner sees the question on one open incident and one owner-addressed note, recovery read the
+            /// blocked stage and dispatched nothing.
+            /// </summary>
+            public async Task AssertOwnerSeesQuestionAndNoRescueAsync(string question)
+            {
+                List<Incident> incidents = await ActiveIncidentsAsync().ConfigureAwait(false);
+                _Suite.AssertEqual(1, incidents.Count, "One open incident carries the blocked question");
+                _Suite.AssertContains(question, incidents[0].RecoveryNotes ?? String.Empty, "The incident carries the captain's question");
+                _Suite.AssertContains("Autonomous policy stopped before rescue dispatch: " + CaptainBlockedResult.FailureReasonPrefix,
+                    incidents[0].RecoveryNotes ?? String.Empty, "Recovery read the blocked stage and held the rescue");
+
+                _Suite.AssertEqual(1, OwnerNotes.Posts.Count, "One owner-addressed note is posted");
+                _Suite.AssertContains(question, OwnerNotes.Posts[0], "The owner note carries the captain's question");
+                _Suite.AssertEqual(Vessel.Id, OwnerNotes.VesselIds[0], "The owner note is tagged with the vessel");
+
+                List<Mission> vesselMissions = await _Db.Driver.Missions.EnumerateByVesselAsync(Vessel.Id).ConfigureAwait(false);
+                _Suite.AssertFalse(vesselMissions.Any(item => item.ParentMissionId == Mission.Id), "No rescue re-runs the blocked stage");
+            }
         }
 
         private sealed class StubAdmiralService : IAdmiralService

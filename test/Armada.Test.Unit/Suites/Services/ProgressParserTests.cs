@@ -65,6 +65,35 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("NEEDS_REVISION", JudgeOutputParser.ParseVerdictLabel(verdict), "A verdict marker at line start is read");
             });
 
+            // A stage is blocked only when its FINAL result or verdict is [ARMADA:RESULT] BLOCKED at the start of a
+            // line. Every stage and the Architect parser read it through CaptainBlockedResult.
+            await RunTest("The blocked-result rule reads only a final BLOCKED result at the start of a line", () =>
+            {
+                string[] notBlocked =
+                {
+                    "If you are stuck, end with [ARMADA:RESULT] BLOCKED and the question.\n[ARMADA:RESULT] COMPLETE",
+                    "Done.[ARMADA:RESULT] BLOCKED",
+                    "**[ARMADA:RESULT] BLOCKED**",
+                    "[ARMADA:RESULT] BLOCKED\n- which database?\nResolved from the design doc.\n[ARMADA:RESULT] COMPLETE",
+                    "[ARMADA:RESULT] BLOCKED\nAnswered by the brief after all.\n[ARMADA:VERDICT] PASS",
+                    "[ARMADA:RESULT] BLOCKEDNESS noted",
+                    "**BLOCKED** - the status tool is missing.\n[ARMADA:RESULT] COMPLETE"
+                };
+                foreach (string output in notBlocked)
+                {
+                    AssertFalse(CaptainBlockedResult.IsBlocked(output), "Not blocked: " + output);
+                    AssertTrue(new ArchitectOutputParser().Parse(output).Verdict != ArchitectParseVerdict.Blocked, "Architect agrees, not blocked: " + output);
+                }
+
+                AssertTrue(CaptainBlockedResult.TryRead("Plan draft\n[ARMADA:RESULT] BLOCKED\n- which database?", out string after), "A final BLOCKED at line start is blocked");
+                AssertEqual("- which database?", after, "The question after the marker is read");
+                AssertTrue(CaptainBlockedResult.TryRead("[ARMADA:VERDICT] PASS\n  [ARMADA:RESULT] BLOCKED: which schema is live?", out string inline), "A BLOCKED after a verdict is the final outcome");
+                AssertEqual("which schema is live?", inline, "The question on the marker line is read");
+                AssertTrue(CaptainBlockedResult.TryRead("Context line.\nWhich retention window applies?\n[ARMADA:RESULT] BLOCKED", out string before), "BLOCKED as the last line is blocked");
+                AssertContains("Which retention window applies?", before, "With nothing after the marker, the lines above it are the question");
+                AssertTrue(CaptainBlockedResult.IsBlockedFailure(CaptainBlockedResult.BuildFailureReason("Judge", before)), "The failure reason carries the blocked class");
+            });
+
             await RunTest("TryParse Null ReturnsNull", () =>
             {
                 ProgressParser.ProgressSignal? result = ProgressParser.TryParse(null!);

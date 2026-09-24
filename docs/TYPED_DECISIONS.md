@@ -315,7 +315,9 @@ One decision point runs behind the deterministic dock-boundary scanner:
 read-only captain-log screen, beside the deterministic pass. Over the bounded
 tail the screen already read, it asks one Choice `off_course` (`on_track`,
 `wrong_premise`, `wrong_base`, `misread_stage`, `blocked_unstated`, `unclear`)
-and one Noul `correctable_now`. At or above the threshold with a class other
+and one Noul `correctable_now`. A tail whose final outcome is already
+`[ARMADA:RESULT] BLOCKED` is not read: the captain stated its block, and the
+completion path raises the question to the owner. At or above the threshold with a class other
 than `on_track`, it returns one finding, so the screen posts its single
 voyage-tagged board note naming the drift class with one line of evidence, and
 the decision emits one `captain.course_flag` event carrying the mission, the
@@ -499,7 +501,10 @@ Two decision points recover captain time at the pipeline level (both ship
   acceptance criteria and the voyage continues. The decision never approves work,
   never lands, and never bypasses the Judge — a halt opens an incident rather than
   passing work through, and work that reaches the Judge is still judged. With the
-  decision `Off` the deterministic handoff stands.
+  decision `Off` the deterministic handoff stands. A stage whose final result is a
+  stated `[ARMADA:RESULT] BLOCKED` never reaches this decision: the completion
+  path fails it with its question first, whatever the decision's mode (see
+  [PERSONAS.md](PERSONAS.md)).
 
 Three persona-specific decision points sit on Judge and handoff seams (all ship
 `Gate`):

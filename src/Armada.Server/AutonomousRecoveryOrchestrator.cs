@@ -37,6 +37,13 @@ namespace Armada.Server
         /// </summary>
         internal const string RepeatedIdenticalTestFailureReason = "repeated_identical_test_failure";
 
+        /// <summary>
+        /// Decision reason recorded when the failed stage ended with <c>[ARMADA:RESULT] BLOCKED</c>: it waits on
+        /// an owner answer, and a rescue would re-run it without one.
+        /// </summary>
+        internal const string BlockedQuestionRecoveryReason =
+            "captain_blocked: the stage ended with [ARMADA:RESULT] BLOCKED on a question only the owner can answer; a rescue would re-run it without the answer";
+
         private static readonly Regex _JudgePassLinePattern = new Regex(
             @"^\[(?:ARMADA:)?VERDICT\]\s+PASS\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -1195,6 +1202,11 @@ namespace Armada.Server
         {
             string reason = mission.FailureReason ?? String.Empty;
 
+            // A stage that ended with [ARMADA:RESULT] BLOCKED is waiting on an owner answer. A rescue would
+            // re-run the same stage without it and ask the same question, so no mode or budget turns it
+            // into a rescue.
+            if (CaptainBlockedResult.IsBlockedFailure(reason))
+                return RecoveryDecision.Blocked(BlockedQuestionRecoveryReason);
             if (!_Settings.AutonomousRecovery.DispatchRescueMissions)
                 return RecoveryDecision.Blocked("autonomous rescue dispatch is disabled");
             if (String.IsNullOrWhiteSpace(mission.VesselId))
@@ -1622,6 +1634,10 @@ namespace Armada.Server
                     PersonaCatalog.NormalizeName(mission.Persona),
                     PersonaCatalog.Judge,
                     StringComparison.Ordinal))
+                return;
+
+            // A blocked Judge gave no verdict; its question is on the owner's incident, not a review follow-up.
+            if (CaptainBlockedResult.IsBlockedFailure(mission.FailureReason))
                 return;
 
             try

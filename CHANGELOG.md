@@ -83,6 +83,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A stage that ends `[ARMADA:RESULT] BLOCKED` waits for the owner:** every
+  persona and mission mode reads a blocked result through one rule: the final
+  result or verdict marker at the start of a line is `[ARMADA:RESULT] BLOCKED`.
+  The mission fails with a `captain_blocked:` reason that carries the captain's
+  question. It does not hand off, its later stages are cancelled, and the voyage
+  fails instead of completing. A blocked Judge is not re-run as a missing
+  verdict, and autonomous recovery dispatches no rescue. The question reaches the
+  owner on an open incident and an owner-addressed board note. A BLOCKED marker
+  followed by a later result, or prose that mentions BLOCKED, is not blocked. The
+  Architect parser uses the same rule, and the log screen does not read a tail
+  that already ends blocked.
 - **Mux MCP servers files use the auth fields Mux reads:** a Mux captain's
   scoped `--mcp-config` file and the `armada mcp install` Mux entry write
   `auth` as `type` plus `bearerToken` (or `apiKeyHeader` and `apiKeyValue`).

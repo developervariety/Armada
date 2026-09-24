@@ -53,6 +53,11 @@ at that order reach a successful terminal state, Armada advances to the next
 order. A required failure stops normal advancement. The operator must inspect
 the failed mission, evidence, and recovery options.
 
+A stage whose final result is `[ARMADA:RESULT] BLOCKED` is a failure of this
+kind: it does not hand off, its later stages are cancelled, and no rescue runs.
+Its question goes to the owner on an incident and a board note. See
+[PERSONAS.md](PERSONAS.md#a-stage-that-ends-armadaresult-blocked-waits-for-the-owner).
+
 Stage `preferredModel` values are logical tiers: `low`, `mid`, or `high`.
 Provider routing resolves the concrete model. Do not put concrete provider
 model names in pipeline documentation or persona prompts.

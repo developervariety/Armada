@@ -173,9 +173,9 @@ namespace Armada.Core.Services
         public const string RevisionCommentOnlyRescueBlockMarker = "[typed_decision:revision_comment_only]";
 
         /// <summary>
-        /// Owner-addressed board-note poster, used by the D20 handoff-outcome decision to reach the
-        /// owner when a stage is blocked on an owner question. Null skips the note (the incident still
-        /// opens). Set by the server after construction so existing construction sites and tests are
+        /// Owner-addressed board-note poster, used to reach the owner when a stage is blocked on an owner
+        /// question: a stage that ends with <c>[ARMADA:RESULT] BLOCKED</c>, and a D20 handoff-outcome halt.
+        /// Null skips the note (the incident still opens). Set by the server after construction so existing construction sites and tests are
         /// unchanged.
         /// </summary>
         public IOwnerDecisionNotePoster? HandoffOwnerNotePoster { get; set; }
@@ -2175,6 +2175,28 @@ namespace Armada.Core.Services
                 }
             }
 
+            // A stage whose final outcome is [ARMADA:RESULT] BLOCKED did not finish: its captain asks a
+            // question only the owner can answer. Every persona and mode reads it through the one rule
+            // (CaptainBlockedResult), before any gate that would read the stage as done, refused, or a
+            // no-op. The mission fails with the question in its FailureReason, so it never completes,
+            // hands off, or lands, the voyage cannot complete as a success, and recovery holds the rescue
+            // because a re-run without the answer asks the same question. The owner sees the question on
+            // an incident and an owner-addressed board note.
+            bool failedForBlockedResult = false;
+            if (!failedForScopeViolation && CaptainBlockedResult.TryRead(mission.AgentOutput, out string blockedQuestion))
+            {
+                failedForBlockedResult = true;
+                mission.Status = MissionStatusEnum.Failed;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                mission.FailureReason = CaptainBlockedResult.BuildFailureReason(mission.Persona, blockedQuestion);
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await AppendMissionActivityAsync(mission.Id, "captain blocked: stage ended with [ARMADA:RESULT] BLOCKED; held for the owner", token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "mission " + mission.Id + " (" + (mission.Persona ?? "Worker") + ", " + mission.Mode
+                    + ") ended with [ARMADA:RESULT] BLOCKED; failed as captain_blocked with no handoff and no rescue");
+                await RaiseBlockedQuestionForOwnerAsync(mission, blockedQuestion, token).ConfigureAwait(false);
+            }
+
             // Detect "false complete": a captain that ends its run within seconds with an
             // empty diff and a tiny AgentOutput, with or without the [ARMADA:RESULT] COMPLETE
             // marker, and did no real work. The captain-side fix is not always available
@@ -2187,7 +2209,7 @@ namespace Armada.Core.Services
             // the continuation service records the refusal and either requeues the mission once for an
             // approved alternate runtime or fails it with the reason.
             bool failedForPolicyRefusal = false;
-            if (!failedForScopeViolation)
+            if (!failedForScopeViolation && !failedForBlockedResult)
             {
                 CaptainRefusal refusal = CaptainRefusalClassifier.Classify(mission.AgentOutput);
                 refusal = await RefineRefusalAsync(mission, refusal, token).ConfigureAwait(false);
@@ -2237,7 +2259,7 @@ namespace Armada.Core.Services
 
             bool failedForNoOpCompletion = false;
             bool? dockProducedChanges = null;
-            if (!failedForScopeViolation && !failedForPolicyRefusal && mission.StartedUtc.HasValue)
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForPolicyRefusal && mission.StartedUtc.HasValue)
             {
                 TimeSpan runtime = (mission.CompletedUtc ?? DateTime.UtcNow) - mission.StartedUtc.Value;
                 int diffLineCount = String.IsNullOrEmpty(mission.DiffSnapshot)
@@ -2273,7 +2295,7 @@ namespace Armada.Core.Services
             // have been dispatched to write docs; a RESCUE was dispatched against a named defect,
             // so a change set that cannot carry behavior is evidence on its own.
             bool failedForIneffectiveRescue = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&RescueMissionMarker.IsAutoRescue(mission)
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&RescueMissionMarker.IsAutoRescue(mission)
                 && !PersonaCatalog.IsNoOpCompletionExempt(mission.Persona))
             {
                 IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
@@ -2319,7 +2341,7 @@ namespace Armada.Core.Services
             // Implementation mission, keeps the gate unchanged. When either commit cannot be read the
             // gate runs, because a skip must rest on proof that nothing was committed.
             bool dodSkippedForReadOnlyNoCommit = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && mission.IsReadOnlyMode)
             {
                 string? readOnlyNoCommitDetail = await DescribeReadOnlyNoCommitAsync(dock, token).ConfigureAwait(false);
@@ -2336,7 +2358,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
             {
                 await AppendMissionActivityAsync(
@@ -2354,7 +2376,7 @@ namespace Armada.Core.Services
 
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
             bool failedForDodGate = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
             {
                 DateTime dodStartedUtc = DateTime.UtcNow;
@@ -2412,7 +2434,7 @@ namespace Armada.Core.Services
             }
 
             bool retryingMissingVerdict = false;
-            if (!failedForScopeViolation && !failedForDodGate && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
@@ -2671,7 +2693,7 @@ namespace Armada.Core.Services
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation && !failedForDodGate && !failedForIneffectiveRescue && !awaitingManualReview && !heldForOperatorReview)
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && !failedForIneffectiveRescue && !awaitingManualReview && !heldForOperatorReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }
@@ -5781,6 +5803,81 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "handoff halt for mission " + completedMission.Id + " partly failed (" + reason + "): " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Put a blocked stage's question in front of the owner: one open incident for the mission carrying
+        /// the question, and an owner-addressed board note when a poster is wired. Idempotent per mission: an
+        /// open blocked-question incident for the same mission is not duplicated. Never throws into completion.
+        /// </summary>
+        /// <param name="mission">The blocked mission, already failed with its captain_blocked reason.</param>
+        /// <param name="question">The captain's question.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task RaiseBlockedQuestionForOwnerAsync(Mission mission, string question, CancellationToken token)
+        {
+            const int maxNoteQuestionLength = 1500;
+            string stage = mission.Persona ?? "Worker";
+            try
+            {
+                IncidentService incidents = new IncidentService(_Database);
+                AuthContext auth = AuthContext.Authenticated(
+                    mission.TenantId ?? Constants.DefaultTenantId,
+                    mission.UserId ?? Constants.DefaultUserId,
+                    false,
+                    true,
+                    "MissionCompletion",
+                    principalDisplay: "Armada Mission Completion");
+
+                List<Incident> existing = await incidents.EnumerateActiveAsync(auth, new IncidentQuery
+                {
+                    MissionId = mission.Id
+                }, token).ConfigureAwait(false);
+                if (!existing.Any(item => CaptainBlockedResult.IsBlockedFailure(item.RootCause)))
+                {
+                    string title = mission.Title ?? mission.Id;
+                    if (title.Length > 96) title = title.Substring(0, 96);
+                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Owner question: " + title,
+                        Summary = "The " + stage + " stage of " + mission.Mode + " mission " + mission.Id
+                            + " ended with [ARMADA:RESULT] BLOCKED. It needs an owner answer; it was not completed, handed off, or retried.",
+                        Status = IncidentStatusEnum.Open,
+                        Severity = IncidentSeverityEnum.High,
+                        VesselId = mission.VesselId,
+                        MissionId = mission.Id,
+                        VoyageId = mission.VoyageId,
+                        Impact = "The voyage stops at this stage and does not complete as a success.",
+                        RootCause = CaptainBlockedResult.FailureReasonPrefix + " " + stage + " stage blocked on an owner question",
+                        RecoveryNotes = "Answer the captain's question, then re-dispatch the stage with the answer in its brief.\n\n"
+                            + CaptainBlockedResult.QuestionHeading + "\n" + question,
+                        DetectedUtc = DateTime.UtcNow
+                    }, token).ConfigureAwait(false);
+                }
+
+                if (HandoffOwnerNotePoster != null)
+                {
+                    string noteQuestion = question.Length > maxNoteQuestionLength
+                        ? question.Substring(0, maxNoteQuestionLength) + "..."
+                        : question;
+                    string content = "A " + stage + " stage is blocked on an owner question (mission " + mission.Id
+                        + (String.IsNullOrEmpty(mission.VoyageId) ? String.Empty : ", voyage " + mission.VoyageId)
+                        + "). It was not completed, handed off, or retried. Answer it, then re-dispatch.\n"
+                        + CaptainBlockedResult.QuestionHeading + " " + noteQuestion;
+                    await HandoffOwnerNotePoster.PostOwnerDecisionAsync(content, mission.VesselId, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    _Logging.Info(_Header + "blocked question for mission " + mission.Id + " raised as an incident only: no owner note poster is wired");
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not raise the blocked question for mission " + mission.Id + " to the owner: " + ex.Message);
             }
         }
 

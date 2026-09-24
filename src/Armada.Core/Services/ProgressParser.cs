@@ -184,6 +184,58 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Find the captain's final outcome: the last <c>[ARMADA:RESULT]</c> or <c>[ARMADA:VERDICT]</c> marker that
+        /// starts a line. A later result or verdict supersedes an earlier one, so only this marker states how the
+        /// stage ended.
+        /// </summary>
+        /// <param name="output">Agent output.</param>
+        /// <param name="signal">The parsed final marker.</param>
+        /// <param name="match">The final marker's line.</param>
+        /// <returns>True when the output holds a result or verdict marker at the start of a line.</returns>
+        public static bool TryFindFinalOutcome(string? output, out ProgressSignal signal, out MarkerLine match)
+        {
+            signal = new ProgressSignal();
+            match = new MarkerLine();
+            if (String.IsNullOrEmpty(output)) return false;
+
+            bool found = false;
+            int offset = 0;
+            foreach (string physicalLine in output.Split('\n'))
+            {
+                ProgressSignal? parsed = TryParsePhysicalLine(physicalLine);
+                if (parsed != null
+                    && (String.Equals(parsed.Type, "result", StringComparison.Ordinal)
+                        || String.Equals(parsed.Type, "verdict", StringComparison.Ordinal)))
+                {
+                    found = true;
+                    signal = parsed;
+                    match = new MarkerLine
+                    {
+                        Line = physicalLine.Trim(),
+                        LineStart = offset,
+                        Remainder = parsed.Value
+                    };
+                }
+
+                offset += physicalLine.Length + 1;
+            }
+
+            return found;
+        }
+
+        /// <summary>
+        /// True when a marker value begins with the given word, compared without case, and the word is not the
+        /// prefix of a longer word.
+        /// </summary>
+        /// <param name="value">Marker value.</param>
+        /// <param name="word">Leading word.</param>
+        /// <returns>True when the value begins with the word.</returns>
+        public static bool ValueStartsWithWord(string? value, string word)
+        {
+            return StartsWithWord(value ?? String.Empty, word);
+        }
+
+        /// <summary>
         /// A marker line found by <see cref="TryFindSignal"/>.
         /// </summary>
         public sealed class MarkerLine

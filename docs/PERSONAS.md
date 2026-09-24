@@ -164,7 +164,7 @@ Every reader of `[ARMADA:RESULT]` and `[ARMADA:VERDICT]` applies one rule: a
 marker counts only when it starts a physical line, after optional leading
 whitespace. This holds for progress and terminal-marker tracking, the
 completion claim that no-op detection reads, refusal classification
-(`[ARMADA:RESULT] REFUSED`), the Architect's `[ARMADA:RESULT] BLOCKED`, the
+(`[ARMADA:RESULT] REFUSED`), the blocked result `[ARMADA:RESULT] BLOCKED`, the
 handoff-outcome check and the Judge verdict. Prose that mentions a marker in the
 middle of a line is not a marker, and neither is a marker glued to other text
 (`Done.[ARMADA:RESULT] COMPLETE`) or wrapped in formatting
@@ -172,6 +172,34 @@ middle of a line is not a marker, and neither is a marker glued to other text
 each text block becomes its own record, and streamed text is joined into whole
 lines before a record is written. The terminal values are `[ARMADA:RESULT]
 COMPLETE` and `[ARMADA:VERDICT] PASS`, `FAIL` or `NEEDS_REVISION`, exactly.
+
+### A stage that ends `[ARMADA:RESULT] BLOCKED` waits for the owner
+
+Every persona's template tells the captain to end with a standalone
+`[ARMADA:RESULT] BLOCKED` line and the question when only the owner can answer,
+instead of claiming COMPLETE. Every stage and mode reads that result through one
+rule: the stage is blocked when its final outcome marker, the last
+`[ARMADA:RESULT]` or `[ARMADA:VERDICT]` that starts a line, is
+`[ARMADA:RESULT] BLOCKED`. A BLOCKED marker followed by a later COMPLETE or
+verdict is not blocked, and neither is prose that mentions BLOCKED. The
+Architect parser uses the same rule.
+
+A blocked stage did not finish, so Armada treats it the same way for a Worker,
+TestEngineer, Judge, Architect, or any other persona, in Implementation,
+Research, and Audit mode:
+
+- The mission fails with a `captain_blocked:` failure reason. The reason carries
+  the captain's question: the text on and after the marker line, or the lines
+  above the marker when the captain wrote the question there.
+- It is not handed off. The pending stages after it are cancelled, so the
+  voyage fails instead of completing. A blocked Research or Audit report is not
+  a completed report.
+- A Judge that ends blocked is not re-run as a missing verdict.
+- Autonomous recovery does not dispatch a rescue. A rescue would re-run the
+  stage without the answer and ask the same question again.
+- The owner sees the question on one open incident for the mission and on an
+  owner-addressed board note. Answer it, then re-dispatch the stage with the
+  answer in its brief.
 
 ### Several markers in one output record
 

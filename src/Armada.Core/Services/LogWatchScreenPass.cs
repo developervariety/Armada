@@ -63,6 +63,12 @@ namespace Armada.Core.Services
             List<LogScreenFinding> findings = new List<LogScreenFinding>();
             if (context == null || String.IsNullOrWhiteSpace(context.Tail)) return findings;
 
+            // A tail whose final outcome is [ARMADA:RESULT] BLOCKED has stated its block through the one
+            // blocked-result rule, and the completion path fails the stage and raises the question to the
+            // owner. The captain has stopped, so there is no course left to read, and a blocked_unstated
+            // reading would contradict the log. No decision call is made.
+            if (CaptainBlockedResult.IsBlocked(context.Tail)) return findings;
+
             LogWatchDecisionInput input = new LogWatchDecisionInput
             {
                 MissionId = context.MissionId,

@@ -120,6 +120,26 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false), "one unavailable event");
             }).ConfigureAwait(false);
 
+            await RunTest("A tail that already ends [ARMADA:RESULT] BLOCKED is not read as blocked_unstated", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(Answer(TypedLogWatchAdapter.ClassBlockedUnstated, 0.99));
+                LogWatchScreenPass pass = new LogWatchScreenPass(BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate)));
+
+                IReadOnlyList<LogScreenFinding> stated = await pass.EvaluateAsync(
+                    Context("Two retention values in the brief.", "[ARMADA:RESULT] BLOCKED", "Which one applies?"), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(0, stated.Count, "a stated block is not reported as unstated");
+                AssertEqual(0, client.CallCount, "a tail that ends blocked makes no decision call");
+                AssertEqual(0, await CountEventsAsync(db, TypedLogWatchAdapter.CourseFlagEventType).ConfigureAwait(false), "no course flag");
+
+                IReadOnlyList<LogScreenFinding> prose = await pass.EvaluateAsync(
+                    Context("If stuck I would write [ARMADA:RESULT] BLOCKED, but I keep guessing values."), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(1, prose.Count, "BLOCKED in prose is not a stated block, so the reading is reported");
+                AssertEqual(TypedLogWatchAdapter.ClassBlockedUnstated, prose[0].RuleClass);
+            }).ConfigureAwait(false);
+
             await RunTest("BelowThreshold_ReportsNothingAndRecordsShadowEvent", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

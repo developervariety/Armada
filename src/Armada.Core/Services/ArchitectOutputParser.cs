@@ -43,8 +43,9 @@ namespace Armada.Core.Services
                 return result;
             }
 
-            // BLOCKED counts only at the start of a line, the one place a marker counts (ProgressParser).
-            if (ProgressParser.TryFindSignal(agentOutput, "result", "BLOCKED", false, out ProgressParser.MarkerLine blocked))
+            // BLOCKED is read by the one blocked-result rule every stage uses: the final outcome marker, at the
+            // start of a line (CaptainBlockedResult).
+            if (CaptainBlockedResult.TryFindMarker(agentOutput, out ProgressParser.MarkerLine blocked))
             {
                 int blockedIdx = blocked.LineStart;
                 result.Verdict = ArchitectParseVerdict.Blocked;
