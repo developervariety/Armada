@@ -85,6 +85,12 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **SQL Server captain delete:** SQL Server clears the signal references to a
+  captain and deletes it in one transaction, and clears only the references to
+  captains the delete's tenant or user scope matches. A scoped delete that
+  matches no captain, or a delete a referencing row refuses, leaves every
+  signal reference in place. The database runner checks this on every
+  provider.
 - **PostgreSQL playbook empty text:** PostgreSQL reads an empty playbook
   tenant, user or description, and an empty snapshot playbook id, description,
   resolved path or worktree path, as null, as the other providers do. The

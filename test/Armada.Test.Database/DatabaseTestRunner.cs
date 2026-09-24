@@ -168,6 +168,7 @@ namespace Armada.Test.Database
             Console.WriteLine();
             Console.WriteLine("--- Cascade Verification ---");
             await RunTest("Objective_ForeignKeys_And_Refinement_Cascade", "Cascade", () => TestObjectiveForeignKeysAsync(token), token);
+            await RunTest("Captain_Delete_Clears_Signal_References_Only_When_The_Captain_Is_Removed", "Cascade", () => new CaptainDeleteDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
             await RunTest("Tenant_Delete_Cascades_Auth_Data", "Cascade", () => TestTenantAuthCascadeDeleteAsync(token), token);
             await RunTest("Tenant_Delete_With_Operational_Subordinates_Is_FK_Fenced", "Cascade", () => TestTenantDeleteFencedByOperationalDataAsync(token), token);
 
