@@ -193,7 +193,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@value", value);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        return await reader.ReadAsync(token).ConfigureAwait(false) ? FromReader(reader) : null;
+                        return await reader.ReadAsync(token).ConfigureAwait(false) ? JudgeFollowUpColumns.Read(reader, SqliteDatabaseDriver.StoredValues) : null;
                     }
                 }
             }
@@ -211,7 +211,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     if (value != null) cmd.Parameters.AddWithValue("@value", value);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(FromReader(reader));
+                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(JudgeFollowUpColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -238,26 +238,5 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(item.LastUpdateUtc));
         }
 
-        private static JudgeFollowUp FromReader(SqliteDataReader reader)
-        {
-            JudgeFollowUp item = new JudgeFollowUp();
-            item.Id = reader["id"].ToString()!;
-            item.TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]);
-            item.UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]);
-            item.JudgeMissionId = reader["judge_mission_id"].ToString()!;
-            item.ReviewedMissionId = reader["reviewed_mission_id"].ToString()!;
-            item.VoyageId = SqliteDatabaseDriver.NullableString(reader["voyage_id"]);
-            item.VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]);
-            item.MergeEntryId = SqliteDatabaseDriver.NullableString(reader["merge_entry_id"]);
-            item.JudgeVerdict = reader["judge_verdict"].ToString()!;
-            item.SuggestedFollowUps = SqliteDatabaseDriver.NullableString(reader["suggested_follow_ups"]);
-            item.AuditVerdict = reader["audit_verdict"].ToString()!;
-            item.AuditNotes = SqliteDatabaseDriver.NullableString(reader["audit_notes"]);
-            item.AuditRecommendedAction = SqliteDatabaseDriver.NullableString(reader["audit_recommended_action"]);
-            item.AuditCompletedUtc = reader["audit_completed_utc"] == DBNull.Value ? null : SqliteDatabaseDriver.FromIso8601(reader["audit_completed_utc"].ToString()!);
-            item.CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            item.LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return item;
-        }
     }
 }

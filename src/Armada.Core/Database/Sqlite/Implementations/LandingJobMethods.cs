@@ -77,7 +77,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return LandingJobColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -99,7 +99,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@merge_entry_id", mergeEntryId);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return LandingJobColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -172,7 +172,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@state", state.ToString());
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(FromReader(reader));
+                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(LandingJobColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -201,27 +201,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@started_utc", job.StartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(job.StartedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", job.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(job.CompletedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@last_error", (object?)job.LastError ?? DBNull.Value);
-        }
-
-        private static LandingJob FromReader(SqliteDataReader reader)
-        {
-            LandingJob job = new LandingJob();
-            job.Id = reader["id"].ToString()!;
-            job.TenantId = reader["tenant_id"] as string;
-            job.UserId = reader["user_id"] as string;
-            job.MergeEntryId = reader["merge_entry_id"].ToString()!;
-            job.MissionId = reader["mission_id"] as string;
-            job.VesselId = reader["vessel_id"] as string;
-            job.BranchName = reader["branch_name"].ToString()!;
-            job.TargetBranch = reader["target_branch"].ToString()!;
-            job.State = Enum.Parse<LandingJobStateEnum>(reader["state"].ToString()!);
-            job.RetryCount = Convert.ToInt32(reader["retry_count"]);
-            job.CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
-            job.LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            job.StartedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["started_utc"]);
-            job.CompletedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]);
-            job.LastError = reader["last_error"] as string;
-            return job;
         }
 
         #endregion

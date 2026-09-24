@@ -68,7 +68,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return LandingJobColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -90,7 +90,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@merge_entry_id", mergeEntryId);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return LandingJobColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -163,7 +163,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@state", state.ToString());
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(FromReader(reader));
+                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(LandingJobColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -194,44 +194,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@last_error", (object?)job.LastError ?? DBNull.Value);
         }
 
-        private static LandingJob FromReader(MySqlDataReader reader)
-        {
-            LandingJob job = new LandingJob();
-            job.Id = reader["id"].ToString()!;
-            job.TenantId = reader["tenant_id"] as string;
-            job.UserId = reader["user_id"] as string;
-            job.MergeEntryId = reader["merge_entry_id"].ToString()!;
-            job.MissionId = reader["mission_id"] as string;
-            job.VesselId = reader["vessel_id"] as string;
-            job.BranchName = reader["branch_name"].ToString()!;
-            job.TargetBranch = reader["target_branch"].ToString()!;
-            job.State = Enum.Parse<LandingJobStateEnum>(reader["state"].ToString()!);
-            job.RetryCount = Convert.ToInt32(reader["retry_count"]);
-            job.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            job.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            job.StartedUtc = FromIso8601Nullable(reader["started_utc"]);
-            job.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            job.LastError = reader["last_error"] as string;
-            return job;
-        }
-
         private static string ToIso8601(DateTime dt)
         {
             return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.ParseExact(value, _Iso8601Format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        }
-
-        private static DateTime? FromIso8601Nullable(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
-            string? str = value.ToString();
-            if (String.IsNullOrEmpty(str)) return null;
-            return FromIso8601(str);
         }
 
         #endregion

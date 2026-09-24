@@ -183,7 +183,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@value", value);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        return await reader.ReadAsync(token).ConfigureAwait(false) ? FromReader(reader) : null;
+                        return await reader.ReadAsync(token).ConfigureAwait(false) ? JudgeFollowUpColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues) : null;
                     }
                 }
             }
@@ -201,7 +201,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     if (value != null) cmd.Parameters.AddWithValue("@value", value);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(FromReader(reader));
+                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(JudgeFollowUpColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -228,18 +228,5 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@last_update_utc", item.LastUpdateUtc);
         }
 
-        private static JudgeFollowUp FromReader(NpgsqlDataReader reader)
-        {
-            JudgeFollowUp item = new JudgeFollowUp();
-            item.Id = reader["id"].ToString()!;
-            item.TenantId = PostgresqlDatabaseDriver.NullableString(reader["tenant_id"]); item.UserId = PostgresqlDatabaseDriver.NullableString(reader["user_id"]);
-            item.JudgeMissionId = reader["judge_mission_id"].ToString()!; item.ReviewedMissionId = reader["reviewed_mission_id"].ToString()!;
-            item.VoyageId = PostgresqlDatabaseDriver.NullableString(reader["voyage_id"]); item.VesselId = PostgresqlDatabaseDriver.NullableString(reader["vessel_id"]); item.MergeEntryId = PostgresqlDatabaseDriver.NullableString(reader["merge_entry_id"]);
-            item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = PostgresqlDatabaseDriver.NullableString(reader["suggested_follow_ups"]);
-            item.AuditVerdict = reader["audit_verdict"].ToString()!; item.AuditNotes = PostgresqlDatabaseDriver.NullableString(reader["audit_notes"]); item.AuditRecommendedAction = PostgresqlDatabaseDriver.NullableString(reader["audit_recommended_action"]);
-            item.AuditCompletedUtc = PostgresqlDatabaseDriver.ReadUtcNullable(reader["audit_completed_utc"]);
-            item.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]); item.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return item;
-        }
     }
 }

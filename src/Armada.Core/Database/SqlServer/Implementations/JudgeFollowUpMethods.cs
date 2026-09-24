@@ -182,7 +182,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@value", value);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        return await reader.ReadAsync(token).ConfigureAwait(false) ? FromReader(reader) : null;
+                        return await reader.ReadAsync(token).ConfigureAwait(false) ? JudgeFollowUpColumns.Read(reader, SqlServerDatabaseDriver.StoredValues) : null;
                     }
                 }
             }
@@ -200,7 +200,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     if (value != null) cmd.Parameters.AddWithValue("@value", value);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(FromReader(reader));
+                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(JudgeFollowUpColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -220,17 +220,5 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(item.CreatedUtc)); cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(item.LastUpdateUtc));
         }
 
-        private static JudgeFollowUp FromReader(SqlDataReader reader)
-        {
-            JudgeFollowUp item = new JudgeFollowUp();
-            item.Id = reader["id"].ToString()!; item.TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]); item.UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]);
-            item.JudgeMissionId = reader["judge_mission_id"].ToString()!; item.ReviewedMissionId = reader["reviewed_mission_id"].ToString()!;
-            item.VoyageId = SqlServerDatabaseDriver.NullableString(reader["voyage_id"]); item.VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]); item.MergeEntryId = SqlServerDatabaseDriver.NullableString(reader["merge_entry_id"]);
-            item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = SqlServerDatabaseDriver.NullableString(reader["suggested_follow_ups"]); item.AuditVerdict = reader["audit_verdict"].ToString()!;
-            item.AuditNotes = SqlServerDatabaseDriver.NullableString(reader["audit_notes"]); item.AuditRecommendedAction = SqlServerDatabaseDriver.NullableString(reader["audit_recommended_action"]);
-            item.AuditCompletedUtc = reader["audit_completed_utc"] == DBNull.Value ? null : SqlServerDatabaseDriver.FromIso8601(reader["audit_completed_utc"].ToString()!);
-            item.CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!); item.LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
-            return item;
-        }
     }
 }

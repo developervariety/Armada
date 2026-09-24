@@ -91,8 +91,8 @@ upstream integrations and excludes changes already present at that baseline.
   and the shared-suite xUnit and NUnit hosts redirect the default data directory
   like the other runners, so no test indexes a vessel into the live Armada home.
 - **Stored rows read through shared column readers:** skills, project profiles,
-  playbooks and mission playbook snapshots are read by one column reader per
-  entity that every provider calls. Each provider configures only how it stores
+  playbooks, mission playbook snapshots, landing jobs and Judge follow-ups are
+  read by one column reader per entity that every provider calls. Each provider configures only how it stores
   booleans; a timestamp converts by the value the driver returns, so one stored
   as text reads as the same UTC instant whatever the host time zone. A required
   column that is missing, null or unconvertible, and a JSON column that holds

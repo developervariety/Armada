@@ -179,7 +179,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@value", value);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        return await reader.ReadAsync(token).ConfigureAwait(false) ? FromReader(reader) : null;
+                        return await reader.ReadAsync(token).ConfigureAwait(false) ? JudgeFollowUpColumns.Read(reader, MysqlDatabaseDriver.StoredValues) : null;
                     }
                 }
             }
@@ -197,7 +197,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     if (value != null) cmd.Parameters.AddWithValue("@value", value);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(FromReader(reader));
+                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(JudgeFollowUpColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -216,17 +216,5 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@created_utc", item.CreatedUtc); cmd.Parameters.AddWithValue("@last_update_utc", item.LastUpdateUtc);
         }
 
-        private static JudgeFollowUp FromReader(MySqlDataReader reader)
-        {
-            JudgeFollowUp item = new JudgeFollowUp();
-            item.Id = reader["id"].ToString()!; item.TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]); item.UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]);
-            item.JudgeMissionId = reader["judge_mission_id"].ToString()!; item.ReviewedMissionId = reader["reviewed_mission_id"].ToString()!;
-            item.VoyageId = MysqlDatabaseDriver.NullableString(reader["voyage_id"]); item.VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]); item.MergeEntryId = MysqlDatabaseDriver.NullableString(reader["merge_entry_id"]);
-            item.JudgeVerdict = reader["judge_verdict"].ToString()!; item.SuggestedFollowUps = MysqlDatabaseDriver.NullableString(reader["suggested_follow_ups"]); item.AuditVerdict = reader["audit_verdict"].ToString()!;
-            item.AuditNotes = MysqlDatabaseDriver.NullableString(reader["audit_notes"]); item.AuditRecommendedAction = MysqlDatabaseDriver.NullableString(reader["audit_recommended_action"]);
-            item.AuditCompletedUtc = reader["audit_completed_utc"] == DBNull.Value ? null : MysqlDatabaseDriver.ReadUtc(reader["audit_completed_utc"]);
-            item.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]); item.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return item;
-        }
     }
 }
