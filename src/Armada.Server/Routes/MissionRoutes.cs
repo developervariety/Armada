@@ -110,46 +110,6 @@ namespace Armada.Server.Routes
             return await reader.ReadToEndAsync().ConfigureAwait(false);
         }
 
-        private async Task<string[]> ReadLinesSharedAsync(string path)
-        {
-            List<string> lines = new List<string>();
-            using FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using StreamReader reader = new StreamReader(fs);
-            string? line;
-            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
-            {
-                lines.Add(line);
-            }
-            return lines.ToArray();
-        }
-
-        private string? ResolveMissionLogPath(string missionId)
-        {
-            string missionLogDir = Path.Combine(_settings.LogDirectory, "missions");
-            string canonicalPath = Path.Combine(missionLogDir, missionId + ".log");
-            if (File.Exists(canonicalPath) && new FileInfo(canonicalPath).Length > 0)
-            {
-                return canonicalPath;
-            }
-
-            if (!Directory.Exists(missionLogDir))
-            {
-                return File.Exists(canonicalPath) ? canonicalPath : null;
-            }
-
-            FileInfo? sidecar = Directory.GetFiles(missionLogDir, missionId + ".*.log")
-                .Select(path => new FileInfo(path))
-                .Where(file => file.Exists && file.Length > 0)
-                .OrderByDescending(file => file.LastWriteTimeUtc)
-                .FirstOrDefault();
-            if (sidecar != null)
-            {
-                return sidecar.FullName;
-            }
-
-            return File.Exists(canonicalPath) ? canonicalPath : null;
-        }
-
         private async Task<MissionInstructionsPath?> ResolveMissionInstructionsPathAsync(AuthContext ctx, Mission mission)
         {
             Captain? captain = null;
@@ -1255,48 +1215,13 @@ namespace Armada.Server.Routes
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 bool formatted = String.Equals(QueryValueReader.Read(req, "formatted"), "true", StringComparison.OrdinalIgnoreCase);
-                string? logPath = ResolveMissionLogPath(id);
-                if (String.IsNullOrEmpty(logPath))
-                    return new MissionLogResponse { MissionId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<FormattedLogLine>() : null };
-
-                try
-                {
-                    string[] allLines = RuntimeLogNoiseFilter.Filter(
-                        await ReadLinesSharedAsync(logPath).ConfigureAwait(false));
-                    int totalLines = allLines.Length;
-
-                    int offset = 0;
-                    int lineCount = 200;
-
-                    string? offsetParam = QueryValueReader.Read(req, "offset");
-                    if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset))
-                        offset = Math.Max(0, parsedOffset);
-
-                    string? linesParam = QueryValueReader.Read(req, "lines");
-                    if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines))
-                        lineCount = Math.Max(1, parsedLines);
-
-                    string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
-                    if (formatted)
-                    {
-                        // A mission can outlive its captain assignment. Use observed event shapes,
-                        // not the current captain's mutable runtime, to interpret historical logs.
-                        List<FormattedLogLine> entries = RuntimeLogFormatter.FormatPage(slice, AgentRuntimeEnum.Custom, out bool truncated);
-                        return new MissionLogResponse
-                        {
-                            MissionId = id, Log = String.Join("\n", entries.Select(entry => entry.Text)),
-                            Lines = entries.Count, TotalLines = totalLines, Entries = entries, EntriesTruncated = truncated
-                        };
-                    }
-                    string log = RuntimeLogFormatter.RedactSecrets(String.Join("\n", slice));
-
-                    return new MissionLogResponse { MissionId = id, Log = log, Lines = slice.Length, TotalLines = totalLines };
-                }
-                catch (IOException)
-                {
-                    // File may be locked, deleted, or in use -- return empty rather than 500
-                    return new MissionLogResponse { MissionId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<FormattedLogLine>() : null };
-                }
+                int? offset = null;
+                int? lineCount = null;
+                string? offsetParam = QueryValueReader.Read(req, "offset");
+                if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset)) offset = parsedOffset;
+                string? linesParam = QueryValueReader.Read(req, "lines");
+                if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines)) lineCount = parsedLines;
+                return await SessionLogReader.ReadMissionLogAsync(_settings.LogDirectory, mission.Id, offset, lineCount, 200, formatted).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Missions")

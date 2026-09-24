@@ -713,20 +713,9 @@ namespace Armada.Server.Mcp.Tools
                         Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
                         if (mission == null) return (object)new { Error = "Mission not found" };
 
-                        string logPath = Path.Combine(settings.LogDirectory, "missions", missionId + ".log");
-                        if (!File.Exists(logPath))
-                            return (object)new { MissionId = missionId, Log = "", Lines = 0, TotalLines = 0 };
-
-                        string[] allLines = RuntimeLogNoiseFilter.Filter(
-                            await McpToolHelpers.ReadLogFileSafeAsync(logPath).ConfigureAwait(false));
-                        int totalLines = allLines.Length;
-
-                        int offset = Math.Max(0, request.Offset ?? 0);
-                        int lineCount = Math.Max(1, request.Lines ?? 100);
-
-                        string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
-                        string log = Armada.Core.Services.RuntimeLogFormatter.RedactSecrets(String.Join("\n", slice));
-                        return (object)new { MissionId = missionId, Log = log, Lines = slice.Length, TotalLines = totalLines };
+                        MissionLogResponse page = await SessionLogReader.ReadMissionLogAsync(
+                            settings.LogDirectory, mission.Id, request.Offset, request.Lines, 100).ConfigureAwait(false);
+                        return (object)new { MissionId = page.MissionId, Log = page.Log, Lines = page.Lines, TotalLines = page.TotalLines };
                     });
             }
         }

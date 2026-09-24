@@ -30,16 +30,5 @@ namespace Armada.Server.Mcp.Tools
             using StreamReader reader = new StreamReader(fs);
             return await reader.ReadToEndAsync().ConfigureAwait(false);
         }
-
-        /// <summary>
-        /// Read a log file safely as lines, allowing concurrent writes from other processes.
-        /// </summary>
-        public static async Task<string[]> ReadLogFileSafeAsync(string path)
-        {
-            string content = await ReadTextFileSafeAsync(path).ConfigureAwait(false);
-            return content.Split('\n');
-        }
-
-
     }
 }

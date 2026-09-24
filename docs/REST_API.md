@@ -1961,7 +1961,7 @@ Returns the git diff of changes made by a captain in the mission's worktree. Che
 
 #### GET /api/v1/missions/{id}/log
 
-Returns the session log (captured stdout/stderr) for a mission. Log files are written to disk when a captain executes a mission. Supports pagination via query parameters.
+Returns the session log (captured stdout/stderr) for a mission. Log files are written to disk when a captain executes a mission. Supports pagination via query parameters. When the canonical log is empty or absent, the newest non-empty sidecar log (`<id>.*.log`) is read. REST, WebSocket `get_mission_log` and MCP `armada_get_mission_log` read the page through one reader: runtime noise is filtered, a negative offset reads as 0, the line count is at least 1, and secret-shaped values are redacted.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -1971,7 +1971,7 @@ Returns the session log (captured stdout/stderr) for a mission. Log files are wr
 **Query Parameters:**
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `lines` | integer | 100 | Number of lines to return |
+| `lines` | integer | 200 | Number of lines to return |
 | `offset` | integer | 0 | Line offset (0-based, skip this many lines from start) |
 
 **Response:** `200 OK`
@@ -2381,7 +2381,7 @@ Working captain, is left unchanged and the outcome is `NotQuarantined`.
 
 #### GET /api/v1/captains/{id}/log
 
-Returns the current session log for a captain. The captain's `.current` pointer file is resolved to find the active mission's log file. Supports pagination via query parameters.
+Returns the current session log for a captain. The captain's `.current` pointer file is resolved to find the active mission's log file. Supports pagination via query parameters. REST, WebSocket `get_captain_log` and MCP `armada_get_captain_log` read the page through one reader: a negative offset reads as 0, the line count is at least 1, and secret-shaped values are redacted.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -2391,7 +2391,7 @@ Returns the current session log for a captain. The captain's `.current` pointer 
 **Query Parameters:**
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `lines` | integer | 100 | Number of lines to return |
+| `lines` | integer | 50 | Number of lines to return |
 | `offset` | integer | 0 | Line offset (0-based, skip this many lines from start) |
 
 **Response:** `200 OK`

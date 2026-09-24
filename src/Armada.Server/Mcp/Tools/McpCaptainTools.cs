@@ -450,28 +450,9 @@ namespace Armada.Server.Mcp.Tools
                         Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
                         if (captain == null) return (object)new { Error = "Captain not found" };
 
-                        string pointerPath = Path.Combine(settings.LogDirectory, "captains", captainId + ".current");
-                        string? logPath = null;
-
-                        if (File.Exists(pointerPath))
-                        {
-                            string target = (await McpToolHelpers.ReadTextFileSafeAsync(pointerPath).ConfigureAwait(false)).Trim();
-                            if (File.Exists(target))
-                                logPath = target;
-                        }
-
-                        if (logPath == null)
-                            return (object)new { CaptainId = captainId, Log = "", Lines = 0, TotalLines = 0 };
-
-                        string[] allLines = await McpToolHelpers.ReadLogFileSafeAsync(logPath).ConfigureAwait(false);
-                        int totalLines = allLines.Length;
-
-                        int offset = Math.Max(0, request.Offset ?? 0);
-                        int lineCount = Math.Max(1, request.Lines ?? 100);
-
-                        string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
-                        string log = Armada.Core.Services.RuntimeLogFormatter.RedactSecrets(String.Join("\n", slice));
-                        return (object)new { CaptainId = captainId, Log = log, Lines = slice.Length, TotalLines = totalLines };
+                        CaptainLogResponse page = await SessionLogReader.ReadCaptainLogAsync(
+                            settings.LogDirectory, captain, request.Offset, request.Lines, 100).ConfigureAwait(false);
+                        return (object)new { CaptainId = page.CaptainId, Log = page.Log, Lines = page.Lines, TotalLines = page.TotalLines };
                     });
             }
         }

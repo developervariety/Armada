@@ -217,22 +217,6 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Reads all lines from a file using FileShare.ReadWrite to avoid locking conflicts with writer processes.
-        /// </summary>
-        private async Task<string[]> ReadLinesSharedAsync(string path)
-        {
-            List<string> lines = new List<string>();
-            using System.IO.FileStream fs = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite);
-            using System.IO.StreamReader reader = new System.IO.StreamReader(fs);
-            string? line;
-            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
-            {
-                lines.Add(line);
-            }
-            return lines.ToArray();
-        }
-
-        /// <summary>
         /// Refusal for a record the caller may not read or that does not exist; the two read the same.
         /// </summary>
         private static object NotFound(string action, string message)
@@ -1098,33 +1082,20 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>get_mission_log</c> command.
+        /// Run the <c>get_mission_log</c> command through the shared log reader REST and MCP use, so the page is
+        /// resolved, clamped and redacted alike.
         /// </summary>
         private async Task<object> GetMissionLogCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             string mlId = command.Id ?? "";
-            Mission? mlMission = await _Database.Missions.ReadAsync(mlId).ConfigureAwait(false);
+            Mission? mlMission = await _Database.Missions.ReadSummaryAsync(mlId).ConfigureAwait(false);
             if (mlMission == null)
                 return new { type = "command.error", action = "get_mission_log", error = "Mission not found" };
-            else if (_Settings == null)
+            if (_Settings == null)
                 return new { type = "command.error", action = "get_mission_log", error = "Logs not available — settings not configured" };
-            else
-            {
-                string mlLogPath = System.IO.Path.Combine(_Settings.LogDirectory, "missions", mlId + ".log");
-                if (!System.IO.File.Exists(mlLogPath))
-                    return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = "", Lines = 0, TotalLines = 0 } };
-                else
-                {
-                    string[] mlAllLines = RuntimeLogNoiseFilter.Filter(
-                        await ReadLinesSharedAsync(mlLogPath).ConfigureAwait(false));
-                    int mlTotalLines = mlAllLines.Length;
-                    int mlOffset = command.Offset ?? 0;
-                    int mlLineCount = command.Lines ?? 100;
-                    string[] mlSlice = mlAllLines.Skip(mlOffset).Take(mlLineCount).ToArray();
-                    string mlLog = String.Join("\n", mlSlice);
-                    return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = mlLog, Lines = mlSlice.Length, TotalLines = mlTotalLines } };
-                }
-            }
+            MissionLogResponse mlPage = await SessionLogReader.ReadMissionLogAsync(
+                _Settings.LogDirectory, mlMission.Id, command.Offset, command.Lines, 100).ConfigureAwait(false);
+            return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlPage.MissionId, Log = mlPage.Log, Lines = mlPage.Lines, TotalLines = mlPage.TotalLines } };
         }
 
         /// <summary>
@@ -1209,7 +1180,8 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>get_captain_log</c> command.
+        /// Run the <c>get_captain_log</c> command through the shared log reader REST and MCP use, so the page is
+        /// resolved, clamped and redacted alike.
         /// </summary>
         private async Task<object> GetCaptainLogCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
@@ -1217,31 +1189,11 @@ namespace Armada.Server.WebSocket
             Captain? clCaptain = await _Database.Captains.ReadAsync(clId).ConfigureAwait(false);
             if (clCaptain == null)
                 return new { type = "command.error", action = "get_captain_log", error = "Captain not found" };
-            else if (_Settings == null)
+            if (_Settings == null)
                 return new { type = "command.error", action = "get_captain_log", error = "Logs not available — settings not configured" };
-            else
-            {
-                string clPointerPath = System.IO.Path.Combine(_Settings.LogDirectory, "captains", clId + ".current");
-                string? clLogPath = null;
-                if (System.IO.File.Exists(clPointerPath))
-                {
-                    string clTarget = (await ReadFileSharedAsync(clPointerPath).ConfigureAwait(false)).Trim();
-                    if (System.IO.File.Exists(clTarget))
-                        clLogPath = clTarget;
-                }
-                if (clLogPath == null)
-                    return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clId, Log = "", Lines = 0, TotalLines = 0 } };
-                else
-                {
-                    string[] clAllLines = await ReadLinesSharedAsync(clLogPath).ConfigureAwait(false);
-                    int clTotalLines = clAllLines.Length;
-                    int clOffset = command.Offset ?? 0;
-                    int clLineCount = command.Lines ?? 100;
-                    string[] clSlice = clAllLines.Skip(clOffset).Take(clLineCount).ToArray();
-                    string clLog = String.Join("\n", clSlice);
-                    return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clId, Log = clLog, Lines = clSlice.Length, TotalLines = clTotalLines } };
-                }
-            }
+            CaptainLogResponse clPage = await SessionLogReader.ReadCaptainLogAsync(
+                _Settings.LogDirectory, clCaptain, command.Offset, command.Lines, 100).ConfigureAwait(false);
+            return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clPage.CaptainId, Log = clPage.Log, Lines = clPage.Lines, TotalLines = clPage.TotalLines } };
         }
 
         /// <summary>

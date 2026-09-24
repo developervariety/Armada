@@ -2107,7 +2107,10 @@ Get the git diff for a mission. Returns a saved diff file if available, otherwis
 
 #### get_mission_log
 
-Get the session log for a mission with pagination support.
+Get the session log for a mission with pagination support. The page is read through the same log reader as
+`GET /api/v1/missions/{id}/log` and `armada_get_mission_log`: the canonical log, or the newest non-empty
+sidecar log when the canonical one is empty; runtime noise filtered; a negative offset read as 0 and a line count
+of at least 1; and every secret-shaped value redacted.
 
 **Request:**
 
@@ -2281,7 +2284,9 @@ mission, is refused with `command.error` and nothing changes. Stop it first.
 
 #### get_captain_log
 
-Get the current session log for a captain with pagination support. The log is resolved via the `.current` pointer file.
+Get the current session log for a captain with pagination support. The log is resolved via the `.current` pointer file
+and read through the same log reader as `GET /api/v1/captains/{id}/log` and `armada_get_captain_log`, so the page is
+clamped alike and every secret-shaped value is redacted.
 
 **Request:**
 

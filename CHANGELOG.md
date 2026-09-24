@@ -182,6 +182,11 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One session log reader:** mission and captain log pages read the same way on
+  REST, WebSocket and MCP. Every surface resolves a mission's newest non-empty
+  sidecar log when its canonical log is empty, filters runtime noise, clamps the
+  page, counts lines alike, and redacts secret-shaped values; the WebSocket
+  `get_mission_log` and `get_captain_log` commands returned them unredacted.
 - **Tenant scope for ids in request bodies:** voyage and mission create, mission
   update, vessel create and update, vessel build-context, merge-queue enqueue,
   incident create and update, and planning-session create read every record their

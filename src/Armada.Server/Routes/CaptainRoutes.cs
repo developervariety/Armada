@@ -89,26 +89,6 @@ namespace Armada.Server.Routes
             _captainAdministration = captainAdministration;
         }
 
-        private async Task<string> ReadFileSharedAsync(string path)
-        {
-            using FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using StreamReader reader = new StreamReader(fs);
-            return await reader.ReadToEndAsync().ConfigureAwait(false);
-        }
-
-        private async Task<string[]> ReadLinesSharedAsync(string path)
-        {
-            List<string> lines = new List<string>();
-            using FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using StreamReader reader = new StreamReader(fs);
-            string? line;
-            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
-            {
-                lines.Add(line);
-            }
-            return lines.ToArray();
-        }
-
         /// <summary>
         /// Map a quarantine outcome to one HTTP status: 404 not found, 400 invalid, 409 busy, otherwise 200.
         /// </summary>
@@ -525,57 +505,16 @@ namespace Armada.Server.Routes
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
                 bool formatted = String.Equals(QueryValueReader.Read(req, "formatted"), "true", StringComparison.OrdinalIgnoreCase);
-                string pointerPath = Path.Combine(_settings.LogDirectory, "captains", id + ".current");
-                string? logPath = null;
+                int? offset = null;
+                int? lineCount = null;
+                string? offsetParam = QueryValueReader.Read(req, "offset");
+                if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset)) offset = parsedOffset;
+                string? linesParam = QueryValueReader.Read(req, "lines");
+                if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines)) lineCount = parsedLines;
 
-                if (File.Exists(pointerPath))
-                {
-                    string target = (await ReadFileSharedAsync(pointerPath).ConfigureAwait(false)).Trim();
-                    if (File.Exists(target))
-                        logPath = target;
-                }
-
-                if (logPath == null)
-                    return new CaptainLogResponse { CaptainId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<Armada.Core.Services.FormattedLogLine>() : null };
-
-                try
-                {
-                    string[] allLines = await ReadLinesSharedAsync(logPath).ConfigureAwait(false);
-                    int totalLines = allLines.Length;
-
-                    int offset = 0;
-                    int lineCount = 50;
-
-                    string? offsetParam = QueryValueReader.Read(req, "offset");
-                    if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset))
-                        offset = Math.Max(0, parsedOffset);
-
-                    string? linesParam = QueryValueReader.Read(req, "lines");
-                    if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines))
-                        lineCount = Math.Max(1, parsedLines);
-
-                    string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
-
-                    // ?formatted=true applies the readable formatter: resolves tool names out of runtime
-                    // JSONL, redacts secret-shaped values, truncates oversized payloads, and drops noise.
-                    if (formatted)
-                    {
-                        List<Armada.Core.Services.FormattedLogLine> entries = Armada.Core.Services.RuntimeLogFormatter.FormatPage(slice, captain.Runtime, out bool truncated);
-                        return new CaptainLogResponse
-                        {
-                            CaptainId = id, Log = String.Join("\n", entries.Select(entry => entry.Text)),
-                            Lines = entries.Count, TotalLines = totalLines, Entries = entries, EntriesTruncated = truncated
-                        };
-                    }
-
-                    string log = Armada.Core.Services.RuntimeLogFormatter.RedactSecrets(String.Join("\n", slice));
-
-                    return new CaptainLogResponse { CaptainId = id, Log = log, Lines = slice.Length, TotalLines = totalLines };
-                }
-                catch (IOException)
-                {
-                    return new CaptainLogResponse { CaptainId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<Armada.Core.Services.FormattedLogLine>() : null };
-                }
+                // ?formatted=true applies the readable formatter: resolves tool names out of runtime
+                // JSONL, redacts secret-shaped values, truncates oversized payloads, and drops noise.
+                return await SessionLogReader.ReadCaptainLogAsync(_settings.LogDirectory, captain, offset, lineCount, 50, formatted).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Captains")
