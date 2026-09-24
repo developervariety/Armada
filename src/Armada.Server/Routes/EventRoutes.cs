@@ -201,8 +201,7 @@ namespace Armada.Server.Routes
                     await _database.Events.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 else
                     await _database.Events.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                await _emitEvent("event.deleted", "Deleted event " + id,
-                    "event", id, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.EventDeletedAsync(new OperationNotifier(_emitEvent, null, null), id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
@@ -253,8 +252,7 @@ namespace Armada.Server.Routes
                     result.Deleted++;
                 }
 
-                await _emitEvent("event.batch_deleted", "Batch deleted " + result.Deleted + " events",
-                    "event", null, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.EventsBatchDeletedAsync(new OperationNotifier(_emitEvent, null, null), result.Deleted).ConfigureAwait(false);
 
                 result.ResolveStatus();
                 return (object)result;

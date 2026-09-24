@@ -142,18 +142,18 @@ namespace Armada.Server.Mcp
                 }
                 captainAdministration.AttachSessionCoordinators(planningSessionCoordinator, objectiveRefinementCoordinator);
             }
-            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration);
+            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration, missionOperations.Notifier);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);
             McpSignalTools.Register(register, database, () => remoteTriggerService?.GetAgentWakeStatus().EffectiveParticipantKey);
-            McpEventTools.Register(register, database);
+            McpEventTools.Register(register, database, missionOperations.Notifier);
             McpTokenUsageTools.Register(register, database);
             McpProductionTools.Register(register, database);
             McpPapercutTools.Register(register, database, papercutMergeAdapter);
             McpMemoryProposalTools.Register(register, database);
             if (logging != null) McpInboxTools.Register(register, database, logging, inboxTriageAdapter);
-            McpDockTools.Register(register, database, dockService);
+            McpDockTools.Register(register, database, dockService, missionOperations.Notifier);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs, database, missionOperations.Notifier);
             if (checkRunService != null) McpCheckRunTools.Register(register, database, checkRunService);

@@ -154,8 +154,7 @@ namespace Armada.Server.Routes
                     return (object)new { Error = "Conflict", Message = "Cannot delete dock while it is actively in use by a captain" };
                 }
 
-                await _emitEvent("dock.deleted", "Dock " + id + " deleted",
-                    "dock", id, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.DockDeletedAsync(new OperationNotifier(_emitEvent, null, null), id).ConfigureAwait(false);
 
                 req.Http.Response.StatusCode = 204;
                 return null;
@@ -187,8 +186,7 @@ namespace Armada.Server.Routes
 
                 await _dockService.PurgeAsync(id).ConfigureAwait(false);
 
-                await _emitEvent("dock.purged", "Dock " + id + " force purged",
-                    "dock", id, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.DockPurgedAsync(new OperationNotifier(_emitEvent, null, null), id).ConfigureAwait(false);
 
                 return (object)new { Status = "purged", DockId = id };
             },
@@ -217,8 +215,7 @@ namespace Armada.Server.Routes
                 if (dock == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Dock not found" }; }
 
                 await _dockService.RepairAsync(id).ConfigureAwait(false);
-                await _emitEvent("dock.repaired", "Dock " + id + " worktree repaired",
-                    "dock", id, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.DockRepairedAsync(new OperationNotifier(_emitEvent, null, null), id).ConfigureAwait(false);
                 return (object)new { Status = "repaired", DockId = id };
             },
             api => api
@@ -246,8 +243,7 @@ namespace Armada.Server.Routes
                 if (dock == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Dock not found" }; }
 
                 await _dockService.UnstickAsync(id).ConfigureAwait(false);
-                await _emitEvent("dock.unstuck", "Dock " + id + " unstuck (held captain released, worktree reclaimed)",
-                    "dock", id, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.DockUnstuckAsync(new OperationNotifier(_emitEvent, null, null), id).ConfigureAwait(false);
                 return (object)new { Status = "unstuck", DockId = id };
             },
             api => api
@@ -272,8 +268,7 @@ namespace Armada.Server.Routes
 
                 DeleteMultipleResult result = await DockBatchDelete.DeleteAsync(_database, _dockService, body.Ids, ctx).ConfigureAwait(false);
 
-                await _emitEvent("dock.batch_deleted", "Batch deleted " + result.Deleted + " docks",
-                    "dock", null, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.DocksBatchDeletedAsync(new OperationNotifier(_emitEvent, null, null), result.Deleted).ConfigureAwait(false);
 
                 return (object)result;
             },

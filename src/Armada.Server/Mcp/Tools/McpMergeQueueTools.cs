@@ -262,6 +262,7 @@ namespace Armada.Server.Mcp.Tools
                     bool deleted = await mergeQueue.DeleteAsync(entryId).ConfigureAwait(false);
                     if (!deleted) return (object)new { Error = "Cannot purge merge entry in non-terminal status " + entry.Status + ". Only Landed, Failed, or Cancelled entries can be purged." };
 
+                    await AdministrativeEvents.MergePurgedAsync(notifier, entryId).ConfigureAwait(false);
                     return (object)new { Status = "purged", EntryId = entryId };
                 });
 
@@ -284,6 +285,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "entryIds is required and must not be empty" };
 
                     MergeQueuePurgeResult result = await mergeQueue.DeleteMultipleAsync(request.EntryIds).ConfigureAwait(false);
+                    await AdministrativeEvents.MergesBatchPurgedAsync(notifier, result.EntriesPurged).ConfigureAwait(false);
                     return (object)result;
                 });
         }

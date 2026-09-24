@@ -46,7 +46,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="logging">Optional logging module for structured warning output.</param>
         /// <param name="captainQuarantine">Optional quarantine service; when supplied the bench and unbench tools are registered.</param>
         /// <param name="captainAdministration">Shared stop, stop-all and deletion service. When null, one is built that recalls through <paramref name="admiral"/>, stops processes through <paramref name="onStopCaptain"/>, and has no session coordinators, so it refuses to stop a Planning or Refining captain and reports active planning and refinement sessions as failed stops.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null, CaptainAdministrationService? captainAdministration = null)
+        /// <param name="notifier">Event sink for the captain batch event REST also writes; null writes none.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null, CaptainAdministrationService? captainAdministration = null, OperationNotifier? notifier = null)
         {
             CaptainAdministrationService administration = captainAdministration
                 ?? new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
@@ -393,6 +394,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "ids is required and must not be empty" };
 
                     DeleteMultipleResult result = await administration.DeleteManyAsync(request.Ids, null).ConfigureAwait(false);
+                    await AdministrativeEvents.CaptainsBatchDeletedAsync(notifier, result.Deleted).ConfigureAwait(false);
                     return (object)result;
                 });
 

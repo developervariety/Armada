@@ -538,8 +538,7 @@ namespace Armada.Server.Routes
 
                 DeleteMultipleResult result = await _captainAdministration.DeleteManyAsync(body.Ids, ctx).ConfigureAwait(false);
 
-                await _emitEvent("captain.batch_deleted", "Batch deleted " + result.Deleted + " captains",
-                    "captain", null, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.CaptainsBatchDeletedAsync(new OperationNotifier(_emitEvent, null, null), result.Deleted).ConfigureAwait(false);
 
                 return (object)result;
             },

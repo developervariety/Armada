@@ -182,6 +182,11 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **The same audit events on REST and MCP:** dock delete, purge, repair, unstick
+  and batch delete, event delete and batch delete, merge entry purge and batch
+  purge, and captain batch delete write the same `dock.*`, `event.*`, `merge.*`
+  and `captain.batch_deleted` events on MCP as on REST, from one definition
+  (MCP wrote none).
 - **One vessel delete:** REST, WebSocket and MCP delete a vessel through one
   shared operation. Every surface cancelled live missions in the database only,
   leaving their agents running; the shared delete cancels them through the

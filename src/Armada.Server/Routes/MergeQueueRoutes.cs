@@ -302,8 +302,7 @@ namespace Armada.Server.Routes
                     return (object)new { Error = "Conflict", Message = "Cannot purge merge entry in non-terminal status " + entry.Status + ". Only Landed, Failed, or Cancelled entries can be purged." };
                 }
 
-                await _emitEvent("merge.purged", "Merge entry " + id + " purged",
-                    "merge_entry", id, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.MergePurgedAsync(new OperationNotifier(_emitEvent, null, null), id).ConfigureAwait(false);
 
                 return (object)new { Status = "purged", EntryId = id };
             },
@@ -334,8 +333,7 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 MergeQueuePurgeResult result = await _mergeQueue.DeleteMultipleAsync(body.EntryIds, ctx.IsAdmin ? null : ctx.TenantId).ConfigureAwait(false);
 
-                await _emitEvent("merge.batch_purged", "Batch purged " + result.EntriesPurged + " merge entries",
-                    "merge_entry", null, null, null, null, null).ConfigureAwait(false);
+                await AdministrativeEvents.MergesBatchPurgedAsync(new OperationNotifier(_emitEvent, null, null), result.EntriesPurged).ConfigureAwait(false);
 
                 return (object)result;
             },

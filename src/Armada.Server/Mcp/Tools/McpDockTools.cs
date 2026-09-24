@@ -27,7 +27,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for dock data access.</param>
         /// <param name="dockService">Optional dock service for worktree operations.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IDockService? dockService = null)
+        /// <param name="notifier">Event sink for the dock events REST also writes; null writes none.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IDockService? dockService = null, OperationNotifier? notifier = null)
         {
             register(
                 "armada_get_dock",
@@ -70,6 +71,7 @@ namespace Armada.Server.Mcp.Tools
 
                     bool deleted = await dockService.DeleteAsync(request.DockId).ConfigureAwait(false);
                     if (!deleted) return (object)new { Error = "Cannot delete dock while it is actively in use by a captain" };
+                    await AdministrativeEvents.DockDeletedAsync(notifier, request.DockId).ConfigureAwait(false);
                     return (object)new { Status = "deleted", DockId = request.DockId };
                 });
 
@@ -93,6 +95,7 @@ namespace Armada.Server.Mcp.Tools
                     if (dock == null) return (object)new { Error = "Dock not found" };
 
                     await dockService.PurgeAsync(request.DockId).ConfigureAwait(false);
+                    await AdministrativeEvents.DockPurgedAsync(notifier, request.DockId).ConfigureAwait(false);
                     return (object)new { Status = "purged", DockId = request.DockId };
                 });
 
@@ -116,6 +119,7 @@ namespace Armada.Server.Mcp.Tools
                     if (dock == null) return (object)new { Error = "Dock not found" };
 
                     await dockService.RepairAsync(request.DockId).ConfigureAwait(false);
+                    await AdministrativeEvents.DockRepairedAsync(notifier, request.DockId).ConfigureAwait(false);
                     return (object)new { Status = "repaired", DockId = request.DockId };
                 });
 
@@ -139,6 +143,7 @@ namespace Armada.Server.Mcp.Tools
                     if (dock == null) return (object)new { Error = "Dock not found" };
 
                     await dockService.UnstickAsync(request.DockId).ConfigureAwait(false);
+                    await AdministrativeEvents.DockUnstuckAsync(notifier, request.DockId).ConfigureAwait(false);
                     return (object)new { Status = "unstuck", DockId = request.DockId };
                 });
 
@@ -162,6 +167,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "ids is required and must not be empty" };
 
                     DeleteMultipleResult result = await DockBatchDelete.DeleteAsync(database, dockService, request.Ids, null).ConfigureAwait(false);
+                    await AdministrativeEvents.DocksBatchDeletedAsync(notifier, result.Deleted).ConfigureAwait(false);
                     return (object)result;
                 });
         }

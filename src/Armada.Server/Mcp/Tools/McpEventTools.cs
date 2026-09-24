@@ -24,7 +24,8 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for event data access.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database)
+        /// <param name="notifier">Event sink for the event-log events REST also writes; null writes none.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, OperationNotifier? notifier = null)
         {
             register(
                 "armada_delete_event",
@@ -45,6 +46,7 @@ namespace Armada.Server.Mcp.Tools
                     ArmadaEvent? evt = await database.Events.ReadAsync(eventId).ConfigureAwait(false);
                     if (evt == null) return (object)new { Error = "Event not found" };
                     await database.Events.DeleteAsync(eventId).ConfigureAwait(false);
+                    await AdministrativeEvents.EventDeletedAsync(notifier, eventId).ConfigureAwait(false);
                     return (object)new { Status = "deleted", EventId = eventId };
                 });
 
@@ -83,6 +85,7 @@ namespace Armada.Server.Mcp.Tools
                         await database.Events.DeleteAsync(id).ConfigureAwait(false);
                         result.Deleted++;
                     }
+                    await AdministrativeEvents.EventsBatchDeletedAsync(notifier, result.Deleted).ConfigureAwait(false);
                     result.ResolveStatus();
                     return (object)result;
                 });
