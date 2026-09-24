@@ -158,6 +158,7 @@ namespace Armada.Test.Database
             OperationalRoundTripDatabaseTests roundTrips = new OperationalRoundTripDatabaseTests(_Driver, _Settings, _NoCleanup);
             await RunTest("Skill_Create_Read_Update_Reopen_Window_Delete", "Operational", () => roundTrips.VerifySkillsAsync(token), token);
             await RunTest("ProjectProfile_Create_Read_Update_Reopen_Window_Delete", "Operational", () => roundTrips.VerifyProjectProfilesAsync(token), token);
+            await RunTest("ProjectProfile_Damaged_Json_Is_Named_Not_Read_As_Empty", "Operational", () => roundTrips.VerifyDamagedJsonIsNamedAsync(token), token);
             await RunTest("Playbook_Create_Read_Empty_Text_Reads_As_Null_And_Snapshot_Reopen", "Operational", () => roundTrips.VerifyPlaybookEmptyTextAsync(token), token);
             await RunTest("LandingJob_Create_Read_Update_Reopen_State_Delete", "Operational", () => roundTrips.VerifyLandingJobsAsync(token), token);
             await RunTest("JudgeFollowUp_Upsert_Associate_Audit_Update_Reopen", "Operational", () => roundTrips.VerifyJudgeFollowUpsAsync(token), token);

@@ -388,21 +388,7 @@ namespace Armada.Test.Database
             {
                 // The follow-up method set has no delete; remove the fixture row directly.
                 if (stored != null && !_NoCleanup)
-                {
-                    using (System.Data.Common.DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
-                    {
-                        await connection.OpenAsync(token).ConfigureAwait(false);
-                        using (System.Data.Common.DbCommand command = connection.CreateCommand())
-                        {
-                            command.CommandText = "DELETE FROM judge_follow_ups WHERE id = @id;";
-                            System.Data.Common.DbParameter parameter = command.CreateParameter();
-                            parameter.ParameterName = "@id";
-                            parameter.Value = stored.Id;
-                            command.Parameters.Add(parameter);
-                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                        }
-                    }
-                }
+                    await ExecuteForIdAsync("DELETE FROM judge_follow_ups WHERE id = @id;", stored.Id, token).ConfigureAwait(false);
             }
         }
 
@@ -640,6 +626,67 @@ namespace Armada.Test.Database
             {
                 if (eventId != null && !_NoCleanup) await _Driver.Events.DeleteAsync(eventId, token).ConfigureAwait(false);
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyDamagedJsonIsNamedAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? profileId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("damaged-json-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "damaged-json-user", token: token).ConfigureAwait(false);
+                ProjectProfile profile = new ProjectProfile
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Name = "damaged-json-profile-" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    Skills = new List<string> { "kept-skill" }
+                };
+                ProjectProfile created = await _Driver.ProjectProfiles.CreateAsync(profile, token).ConfigureAwait(false);
+                profileId = created.Id;
+                await ExecuteForIdAsync("UPDATE project_profiles SET skills_json = '[\"kept-skill\"' WHERE id = @id;", created.Id, token).ConfigureAwait(false);
+
+                // A damaged document is reported with its entity and column. Reading it as an empty list would
+                // let the next update of the profile write the empty list over the stored skills.
+                string? failure = null;
+                ProjectProfile? read = null;
+                try
+                {
+                    read = await _Driver.ProjectProfiles.ReadAsync(created.Id, new ProjectProfileQuery { TenantId = tenant.Id }, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex.Message;
+                }
+
+                DatabaseAssert.True(failure != null,
+                    "A damaged skills document must fail the read, but it read as " + (read == null ? "<null>" : read.Skills.Count + " skills"));
+                DatabaseAssert.True(failure!.Contains("ProjectProfile") && failure.Contains("skills_json"),
+                    "The failure names the entity and column: " + failure);
+            }
+            finally
+            {
+                if (profileId != null && !_NoCleanup) await _Driver.ProjectProfiles.DeleteAsync(profileId, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ExecuteForIdAsync(string sql, string id, CancellationToken token)
+        {
+            using (System.Data.Common.DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (System.Data.Common.DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = sql;
+                    System.Data.Common.DbParameter parameter = command.CreateParameter();
+                    parameter.ParameterName = "@id";
+                    parameter.Value = id;
+                    command.Parameters.Add(parameter);
+                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
             }
         }
     }
