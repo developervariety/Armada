@@ -5,6 +5,7 @@ namespace Test.Shared.Infrastructure
     using System.IO;
     using System.Runtime.CompilerServices;
     using System.Threading;
+    using Armada.Test.Common;
 
     /// <summary>
     /// Centralized temp-artifact management for the test suites. Every temp directory and file the
@@ -50,8 +51,12 @@ namespace Test.Shared.Infrastructure
         #region Public-Methods
 
         /// <summary>
-        /// Module initializer: sweep stale artifacts from prior runs and arm the process-exit cleanup.
-        /// Runs exactly once when the test assembly is loaded.
+        /// Module initializer: redirect the default Armada data directory to a per-run temp root, sweep
+        /// stale artifacts from prior runs, and arm the process-exit cleanup. Runs exactly once when the
+        /// test assembly is loaded, so every host of the shared suites -- the console runners and the
+        /// xUnit and NUnit adapters -- is redirected before any suite resolves a default path under the
+        /// live Armada home. A runner that calls <see cref="TestDataDirectory.Redirect"/> itself first
+        /// keeps that earlier root; the call is idempotent.
         /// </summary>
         // CA2255: a module initializer is exactly the right tool here -- this is a test-support assembly,
         // and the whole point is to sweep stale temp artifacts once, automatically, when the test host
@@ -60,6 +65,7 @@ namespace Test.Shared.Infrastructure
         [ModuleInitializer]
         public static void Initialize()
         {
+            TestDataDirectory.Redirect();
             Sweep();
             EnsureExitHook();
         }

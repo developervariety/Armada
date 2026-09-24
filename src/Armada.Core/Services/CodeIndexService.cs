@@ -111,6 +111,12 @@ namespace Armada.Core.Services
                 ?? BuildMissingStatus(vessel);
 
             status.IndexDirectory = GetVesselIndexDirectory(vessel.Id);
+            // A status read is side-effect free: it never clones a missing repository or updates the
+            // vessel record. A missing repository is reported by name; an index update repairs it.
+            string? repoPath = await TryFindExistingRepositoryPathAsync(vessel, token).ConfigureAwait(false);
+            status.RepositoryState = repoPath == null
+                ? CodeIndexStatus.RepositoryMissing
+                : CodeIndexStatus.RepositoryAvailable;
             status.CurrentCommitSha = await TryResolveCurrentCommitAsync(vessel, token).ConfigureAwait(false);
             status.Freshness = ResolveFreshness(status);
             ApplyActiveUpdateStatus(status);
@@ -2674,19 +2680,13 @@ namespace Armada.Core.Services
 
         private async Task<string> ResolveRepositoryPathAsync(Vessel vessel, CancellationToken token)
         {
-            string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
-            if (Directory.Exists(repoPath) && await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
+            string? existing = await TryFindExistingRepositoryPathAsync(vessel, token).ConfigureAwait(false);
+            if (existing != null)
             {
-                return repoPath;
+                return existing;
             }
 
-            if (!String.IsNullOrWhiteSpace(vessel.WorkingDirectory) &&
-                Directory.Exists(vessel.WorkingDirectory) &&
-                await _Git.IsRepositoryAsync(vessel.WorkingDirectory, token).ConfigureAwait(false))
-            {
-                return vessel.WorkingDirectory;
-            }
-
+            string repoPath = GetDefaultRepositoryPath(vessel);
             if (String.IsNullOrWhiteSpace(vessel.RepoUrl))
             {
                 throw new InvalidOperationException("Vessel " + vessel.Id + " has no usable repository path or repo URL.");
@@ -2699,15 +2699,53 @@ namespace Armada.Core.Services
             return repoPath;
         }
 
+        /// <summary>
+        /// Find the vessel's usable local repository without creating anything: its local path, then its
+        /// working directory. Returns null when neither is a repository.
+        /// </summary>
+        private async Task<string?> TryFindExistingRepositoryPathAsync(Vessel vessel, CancellationToken token)
+        {
+            string repoPath = GetDefaultRepositoryPath(vessel);
+            if (Directory.Exists(repoPath) && await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
+            {
+                return repoPath;
+            }
+
+            if (!String.IsNullOrWhiteSpace(vessel.WorkingDirectory) &&
+                Directory.Exists(vessel.WorkingDirectory) &&
+                await _Git.IsRepositoryAsync(vessel.WorkingDirectory, token).ConfigureAwait(false))
+            {
+                return vessel.WorkingDirectory;
+            }
+
+            return null;
+        }
+
+        private string GetDefaultRepositoryPath(Vessel vessel)
+        {
+            return vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+        }
+
+        /// <summary>
+        /// Resolve the default-branch commit of the vessel's existing local repository. Reads only: a
+        /// missing repository yields null and is never cloned here.
+        /// </summary>
         private async Task<string?> TryResolveCurrentCommitAsync(Vessel vessel, CancellationToken token)
+        {
+            string? repoPath = await TryFindExistingRepositoryPathAsync(vessel, token).ConfigureAwait(false);
+            if (repoPath == null) return null;
+            return await TryResolveDefaultBranchCommitAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
+        }
+
+        private async Task<string?> TryResolveDefaultBranchCommitAsync(string repoPath, string defaultBranch, CancellationToken token)
         {
             try
             {
-                string repoPath = await ResolveRepositoryPathAsync(vessel, token).ConfigureAwait(false);
-                return await ResolveDefaultBranchCommitAsync(repoPath, vessel.DefaultBranch, token).ConfigureAwait(false);
+                return await ResolveDefaultBranchCommitAsync(repoPath, defaultBranch, token).ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex)
             {
+                _Logging.Debug(_Header + "could not resolve " + defaultBranch + " in " + repoPath + ": " + ex.Message);
                 return null;
             }
         }

@@ -284,6 +284,11 @@ Each test suite creates its own data, asserts only on that data, and cleans up a
 - Suites can run in any order without affecting each other
 - Use `--no-cleanup` to preserve test data after a run for debugging
 
+The filesystem is isolated the same way. No test process resolves a path under the live Armada home:
+
+- **Data directory redirect.** The unit, automated, runtimes and shared runners call `TestDataDirectory.Redirect()` (`test/Armada.Test.Common`) as the first statement of their entry point, and the `Test.Shared` module initializer calls it too, so the xUnit and NUnit hosts of the shared suites are redirected before any suite runs. It points `ARMADA_DATA_DIRECTORY` at a per-run temp root, so every default-resolved path (settings file, repositories, docks, logs, database, code index) lands there. `Constants.DefaultDataDirectory` resolves once, so the call must come before anything touches it; `TestDataDirectory.Verify()` fails the run when it did not.
+- **Per-server paths.** Each in-process test server gets its own data directory and binds its settings file to `<data directory>/settings.json`, so it neither reads nor writes another server's settings. The code index follows the server's data directory (`<data directory>/code-index`) unless `codeIndex.indexDirectory` is set, so a vessel a test indexes is written under that server's temp directory. `E2E.HarnessIsolation` fails if a test server reports a code index directory outside its own data directory.
+
 ## Agent Runtimes and Credentials in Test Hosts
 
 The in-process Admiral in `test/Armada.Test.Automated` and in the shared `E2EServerFixture` never starts the agent CLIs installed on the machine running the suite.

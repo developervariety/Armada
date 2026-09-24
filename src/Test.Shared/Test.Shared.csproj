@@ -20,6 +20,7 @@
     <ProjectReference Include="..\Armada.Server\Armada.Server.csproj" />
     <ProjectReference Include="..\Armada.Proxy\Armada.Proxy.csproj" />
     <ProjectReference Include="..\Armada.Helm\Armada.Helm.csproj" />
+    <ProjectReference Include="..\..\test\Armada.Test.Common\Armada.Test.Common.csproj" />
   </ItemGroup>
 
 </Project>

@@ -15,11 +15,12 @@ namespace Test.Shared.Suites.E2E
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
-    /// Proves the three properties that keep an end-to-end run independent of the host it runs on and of
+    /// Proves the properties that keep an end-to-end run independent of the host it runs on and of
     /// the order its cases execute in:
     ///
-    /// a test server reads only its own settings file, so an unrelated write to the host operator's
-    /// settings cannot lower this run's fleet capacity mid-run; cancelling a case's active work really
+    /// a test server keeps its code index under its own data directory; a test server reads only its own
+    /// settings file, so an unrelated write to the host operator's settings cannot lower this run's fleet
+    /// capacity mid-run; cancelling a case's active work really
     /// frees that capacity for the next case; and a refused tool result fails naming the refusal instead
     /// of being carried forward as a blank id.
     /// </summary>
@@ -55,6 +56,32 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(!ArmadaSettings.DefaultSettingsPath.StartsWith(liveHome, StringComparison.Ordinal),
                     "the default settings path must not be in the live Armada home: " + ArmadaSettings.DefaultSettingsPath);
                 return Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("code_index_resolves_under_the_test_servers_data_directory",
+                "CodeIndex_ResolvesUnderTheTestServersDataDirectory", TestTags.Positive, async () =>
+            {
+                // A test server is given its own data directory. Its code index must live there too: an
+                // index directory resolved from the process-wide default instead lands in whatever that
+                // default points at, which for an unredirected process is the live Armada home.
+                E2EServerFixture fx = await E2EServerFixture.StartIsolatedAsync(settings => { }).ConfigureAwait(false);
+                try
+                {
+                    string vesselId = await CreateVesselAsync(fx.AuthClient).ConfigureAwait(false);
+                    HttpResponseMessage response = await fx.AuthClient.GetAsync(
+                        "/api/v1/vessels/" + vesselId + "/code-index/status").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                    CodeIndexStatus status = await JsonHelper.DeserializeAsync<CodeIndexStatus>(response).ConfigureAwait(false);
+
+                    string dataDirectory = Path.GetFullPath(fx.Settings.DataDirectory) + Path.DirectorySeparatorChar;
+                    AssertTrue(Path.GetFullPath(status.IndexDirectory).StartsWith(dataDirectory, StringComparison.Ordinal),
+                        "the code index directory '" + status.IndexDirectory + "' must be under the test server's data directory '"
+                        + dataDirectory + "'");
+                }
+                finally
+                {
+                    fx.Stop();
+                }
             }));
 
             cases.Add(CaseAsync("settings_hot_reload_reads_only_this_servers_settings_file",

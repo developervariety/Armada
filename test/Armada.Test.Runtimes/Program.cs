@@ -7,6 +7,12 @@ namespace Armada.Test.Runtimes
     {
         public static async Task<int> Main(string[] args)
         {
+            // FIRST statement, as in every sibling runner: point the default data directory at a per-run
+            // temp path, so no runtime test resolves settings, repos, docks, or the code index under the
+            // live Armada home.
+            TestDataDirectory.Redirect();
+            TestDataDirectory.Verify();
+
             // Adapter tests assert on the environment a captain process inherits, so the developer's provider
             // variables must not be present unless a test sets them.
             global::Test.Shared.Infrastructure.TestProcessEnvironment.RemoveProviderVariablesAndReport();

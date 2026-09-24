@@ -1295,7 +1295,11 @@ namespace Armada.Core.Settings
             }
 
             _CodeIndex ??= new CodeIndexSettings();
-            _CodeIndex.IndexDirectory = ResolvePathRelativeToDataDirectory(_CodeIndex.IndexDirectory);
+            // An index directory that was never set follows this instance's data directory, so a server
+            // given its own data directory never reads or writes another data directory's index.
+            _CodeIndex.SetResolvedIndexDirectory(_CodeIndex.IndexDirectoryConfigured
+                ? ResolvePathRelativeToDataDirectory(_CodeIndex.IndexDirectory)
+                : Path.GetFullPath(Path.Combine(DataDirectory, CodeIndexSettings.DefaultDirectoryName)));
 
             _ModelTier ??= new ModelTierSettings();
             _ModelProviders ??= new ModelProvidersSettings();

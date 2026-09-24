@@ -151,6 +151,29 @@ namespace Armada.Core.Models
         /// </summary>
         public string? LastError { get; set; } = null;
 
+        /// <summary>
+        /// Whether a status read found a usable local repository for the vessel:
+        /// <see cref="RepositoryAvailable"/> or <see cref="RepositoryMissing"/>. A status read never
+        /// clones a missing repository or changes the vessel record; an index update is the explicit
+        /// action that clones it. Null when the status was not produced by a status read.
+        /// </summary>
+        public string? RepositoryState { get; set; } = null;
+
+        #endregion
+
+        #region Public-Static
+
+        /// <summary>
+        /// <see cref="RepositoryState"/> value when the vessel has a usable local repository.
+        /// </summary>
+        public const string RepositoryAvailable = "Available";
+
+        /// <summary>
+        /// <see cref="RepositoryState"/> value when the vessel has no usable local repository. An index
+        /// update clones it from the vessel's repository URL.
+        /// </summary>
+        public const string RepositoryMissing = "Missing";
+
         #endregion
     }
 }

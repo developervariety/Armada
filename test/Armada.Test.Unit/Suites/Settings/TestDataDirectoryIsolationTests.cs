@@ -54,6 +54,33 @@ namespace Armada.Test.Unit.Suites.Settings
                 AssertStartsWith(TestDataDirectory.Root!, settings.DocksDirectory, "DocksDirectory");
                 AssertStartsWith(TestDataDirectory.Root!, settings.LogDirectory, "LogDirectory");
                 AssertStartsWith(TestDataDirectory.Root!, settings.DatabasePath, "DatabasePath");
+                AssertStartsWith(TestDataDirectory.Root!, settings.CodeIndex.IndexDirectory, "CodeIndex.IndexDirectory");
+            }).ConfigureAwait(false);
+
+            // A server given its own data directory keeps its code index there, whatever the process-wide
+            // default is; an index directory set explicitly (as a deployed settings file does) is kept.
+            await RunTest("Code index directory follows the settings' own data directory unless set explicitly", () =>
+            {
+                string dataDirectory = Path.Combine(Path.GetTempPath(), "armada-code-index-home-" + Guid.NewGuid().ToString("N"));
+                string explicitIndex = Path.Combine(Path.GetTempPath(), "armada-code-index-explicit-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DataDirectory = dataDirectory;
+                    settings.InitializeDirectories();
+                    AssertEqual(Path.GetFullPath(Path.Combine(dataDirectory, "code-index")), settings.CodeIndex.IndexDirectory,
+                        "an unset index directory follows the data directory");
+
+                    string json = "{\"dataDirectory\":" + System.Text.Json.JsonSerializer.Serialize(dataDirectory)
+                        + ",\"codeIndex\":{\"indexDirectory\":" + System.Text.Json.JsonSerializer.Serialize(explicitIndex) + "}}";
+                    ArmadaSettings loaded = ArmadaSettings.FromJson(json, Path.Combine(dataDirectory, "settings.json"));
+                    AssertEqual(Path.GetFullPath(explicitIndex), loaded.CodeIndex.IndexDirectory,
+                        "an index directory set in the settings file is kept");
+                }
+                finally
+                {
+                    if (Directory.Exists(dataDirectory)) Directory.Delete(dataDirectory, true);
+                }
             }).ConfigureAwait(false);
 
             // Production must be unaffected: with the override absent the default is the user

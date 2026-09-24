@@ -18,7 +18,10 @@ namespace Armada.Core.Settings
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// Directory where index metadata, chunks, and generated context packs are stored.
+        /// Directory where index metadata, chunks, and generated context packs are stored. When not set,
+        /// it is <see cref="DefaultDirectoryName"/> under the owning settings' data directory, so a server
+        /// given its own data directory keeps its index there too. A relative value resolves against
+        /// that data directory.
         /// </summary>
         public string IndexDirectory
         {
@@ -27,6 +30,7 @@ namespace Armada.Core.Settings
             {
                 if (String.IsNullOrWhiteSpace(value)) throw new ArgumentNullException(nameof(IndexDirectory));
                 _IndexDirectory = value;
+                _IndexDirectoryConfigured = true;
             }
         }
 
@@ -649,7 +653,8 @@ namespace Armada.Core.Settings
 
         #region Private-Members
 
-        private string _IndexDirectory = Path.Combine(Constants.DefaultDataDirectory, "code-index");
+        private string _IndexDirectory = Path.Combine(Constants.DefaultDataDirectory, DefaultDirectoryName);
+        private bool _IndexDirectoryConfigured = false;
         private long _MaxFileBytes = 256 * 1024;
         private int _MaxChunkLines = 80;
         private int _MaxSearchResults = 10;
@@ -685,6 +690,30 @@ namespace Armada.Core.Settings
         private int _CaptainSearchMaxResults = 10;
         private double _DuplicateSimilarityThreshold = 0.92;
         private int _DuplicateMinLines = 6;
+
+        #endregion
+
+        #region Internal-Members
+
+        /// <summary>
+        /// Name of the index directory under the data directory when <see cref="IndexDirectory"/> is not set.
+        /// </summary>
+        internal const string DefaultDirectoryName = "code-index";
+
+        /// <summary>
+        /// True once <see cref="IndexDirectory"/> has been set explicitly, by code or by a settings file.
+        /// </summary>
+        internal bool IndexDirectoryConfigured => _IndexDirectoryConfigured;
+
+        /// <summary>
+        /// Store the resolved index directory without marking it as explicitly configured.
+        /// </summary>
+        /// <param name="path">Absolute index directory.</param>
+        internal void SetResolvedIndexDirectory(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path)) throw new ArgumentNullException(nameof(path));
+            _IndexDirectory = path;
+        }
 
         #endregion
     }

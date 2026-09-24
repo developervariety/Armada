@@ -81,6 +81,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Code-index status reads are side-effect free:** the code-index status route
+  and tool never clone a missing repository or update the vessel record. The
+  status names the case with `RepositoryState` (`Available` or `Missing`), and the
+  explicit index update is what clones the repository.
+- **The code index follows its settings' data directory:** when
+  `codeIndex.indexDirectory` is not set, the index lives in `code-index` under the
+  settings' own data directory, not the process-wide default. The runtimes runner
+  and the shared-suite xUnit and NUnit hosts redirect the default data directory
+  like the other runners, so no test indexes a vessel into the live Armada home.
 - **Diff readers share one parser:** `GitDiffPaths` reads hunk bodies by their
   counts and returns each file's one name, line counts and (on request) hunk lines;
   it also reads `--name-status -z` records. Change substance (rescue and planner

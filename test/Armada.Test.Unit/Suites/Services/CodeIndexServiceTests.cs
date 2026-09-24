@@ -63,6 +63,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetStatusAsync_MissingRepository_ReportsMissingWithoutCloningOrChangingTheVessel", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-missing-repo-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        // Only a clonable repository URL: no local path and no working directory.
+                        Vessel created = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                        {
+                            Name = "code-index-missing-repo-" + Guid.NewGuid().ToString("N"),
+                            RepoUrl = repository.Path,
+                            DefaultBranch = "main"
+                        }).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        string cloneTarget = Path.Combine(dataRoot, "repos", created.Name + ".git");
+                        Vessel? before = await testDb.Driver.Vessels.ReadAsync(created.Id).ConfigureAwait(false);
+                        AssertNotNull(before);
+
+                        CodeIndexStatus status = await service.GetStatusAsync(created.Id).ConfigureAwait(false);
+
+                        AssertFalse(Directory.Exists(cloneTarget), "a status read must not clone the repository");
+                        Vessel? reread = await testDb.Driver.Vessels.ReadAsync(created.Id).ConfigureAwait(false);
+                        AssertNotNull(reread);
+                        AssertNull(reread!.LocalPath, "a status read must not record a local path");
+                        AssertEqual(before!.LastUpdateUtc, reread.LastUpdateUtc, "a status read must not update the vessel row");
+                        AssertEqual(CodeIndexStatus.RepositoryMissing, status.RepositoryState,
+                            "a status read names the missing repository");
+                        AssertNull(status.CurrentCommitSha, "no current commit without a repository");
+
+                        // The explicit update is the action that clones the repository.
+                        await service.UpdateAsync(created.Id).ConfigureAwait(false);
+                        AssertTrue(Directory.Exists(cloneTarget), "an index update clones the missing repository");
+                        CodeIndexStatus repaired = await service.GetStatusAsync(created.Id).ConfigureAwait(false);
+                        AssertEqual(CodeIndexStatus.RepositoryAvailable, repaired.RepositoryState);
+                        AssertEqual(repository.CommitSha, repaired.CurrentCommitSha);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("UpdateAsync indexes eligible files and skips secrets and build outputs", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
