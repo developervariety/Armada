@@ -9,8 +9,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
     using Armada.Core.Models;
 
     /// <summary>
-    /// Mission-shaped summary reads. They select <see cref="MissionSummaryProjection.Columns"/>, so the heavy text
-    /// columns never leave the database, and they apply every enumeration filter at every scope.
+    /// Paginated mission enumeration and Mission-shaped summary reads. Summaries select
+    /// <see cref="MissionSummaryProjection.Columns"/>, so the heavy text columns never leave the database; full and
+    /// summary lists share one filter set at every scope.
     /// </summary>
     internal partial class MissionMethods
     {
@@ -40,14 +41,14 @@ namespace Armada.Core.Database.SqlServer.Implementations
         /// <inheritdoc />
         public Task<EnumerationResult<Mission>> EnumerateSummariesAsync(EnumerationQuery query, CancellationToken token = default)
         {
-            return EnumerateSummaryRowsAsync(null, null, query, token);
+            return EnumerateMissionRowsAsync(MissionSummaryProjection.Columns, null, null, query, token);
         }
 
         /// <inheritdoc />
         public Task<EnumerationResult<Mission>> EnumerateSummariesAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            return EnumerateSummaryRowsAsync(tenantId, null, query, token);
+            return EnumerateMissionRowsAsync(MissionSummaryProjection.Columns, tenantId, null, query, token);
         }
 
         /// <inheritdoc />
@@ -55,7 +56,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (String.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
-            return EnumerateSummaryRowsAsync(tenantId, userId, query, token);
+            return EnumerateMissionRowsAsync(MissionSummaryProjection.Columns, tenantId, userId, query, token);
         }
 
         /// <inheritdoc />
@@ -87,7 +88,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
             return results;
         }
 
-        private async Task<EnumerationResult<Mission>> EnumerateSummaryRowsAsync(string? tenantId, string? userId, EnumerationQuery? query, CancellationToken token)
+        /// <summary>
+        /// Every paginated mission enumeration, full or summary, at every scope: one filter set, so a scoped
+        /// read applies exactly the filters an unscoped read does, plus its tenant and user.
+        /// </summary>
+        private async Task<EnumerationResult<Mission>> EnumerateMissionRowsAsync(string selectColumns, string? tenantId, string? userId, EnumerationQuery? query, CancellationToken token)
         {
             if (query == null) query = new EnumerationQuery();
 
@@ -157,7 +162,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 List<Mission> results = new List<Mission>();
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT " + MissionSummaryProjection.Columns + " FROM missions" + whereClause +
+                    cmd.CommandText = "SELECT " + selectColumns + " FROM missions" + whereClause +
                         " ORDER BY created_utc " + orderDirection + " OFFSET " + query.Offset + " ROWS FETCH NEXT " + query.PageSize + " ROWS ONLY;";
                     foreach (SqlParameter p in parameters) cmd.Parameters.Add(new SqlParameter(p.ParameterName, p.Value));
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))

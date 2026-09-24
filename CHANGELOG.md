@@ -85,6 +85,12 @@ upstream integrations and excludes changes already present at that baseline.
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
   covers the `GIT_SHA` build argument the helper already sends.
+- **Scoped mission lists apply every filter:** tenant- and user-scoped mission
+  lists apply the status, voyage, vessel, captain and mission filters on every
+  provider; they applied only the creation-time filters and returned the rest
+  of the tenant's missions. Full and summary mission lists at every scope use
+  one filter set per provider. The database runner checks each filter at every
+  scope, full and summary, on every provider.
 - **Mission summary reads on every provider:** PostgreSQL, MySQL and SQL
   Server read Mission-shaped summaries (mission lists, the MCP and WebSocket
   mission reads, voyage status counts) without loading the description, diff

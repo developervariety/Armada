@@ -592,77 +592,9 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <param name="query">Enumeration query parameters.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Paginated enumeration result.</returns>
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
         {
-            if (query == null) query = new EnumerationQuery();
-
-            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string>();
-                List<MySqlParameter> parameters = new List<MySqlParameter>();
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
-                }
-                if (!string.IsNullOrEmpty(query.Status))
-                {
-                    conditions.Add("status = @status");
-                    parameters.Add(new MySqlParameter("@status", query.Status));
-                }
-                if (!string.IsNullOrEmpty(query.VoyageId))
-                {
-                    conditions.Add("voyage_id = @voyage_id");
-                    parameters.Add(new MySqlParameter("@voyage_id", query.VoyageId));
-                }
-                if (!string.IsNullOrEmpty(query.VesselId))
-                {
-                    conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
-                }
-                if (!string.IsNullOrEmpty(query.CaptainId))
-                {
-                    conditions.Add("captain_id = @captain_id");
-                    parameters.Add(new MySqlParameter("@captain_id", query.CaptainId));
-                }
-
-                string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                // Count
-                long totalCount = 0;
-                using (MySqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
-                    totalCount = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
-                }
-
-                // Query
-                List<Mission> results = new List<Mission>();
-                using (MySqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
-                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
-                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            return EnumerateMissionRowsAsync("*", null, null, query, token);
         }
 
         /// <summary>
@@ -765,56 +697,10 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <summary>
         /// Enumerate missions with pagination and filtering (tenant-scoped).
         /// </summary>
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (query == null) query = new EnumerationQuery();
-
-            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@tenantId", tenantId) };
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
-                }
-
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                long totalCount = 0;
-                using (MySqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
-                    totalCount = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
-                }
-
-                List<Mission> results = new List<Mission>();
-                using (MySqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
-                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
-                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            return EnumerateMissionRowsAsync("*", tenantId, null, query, token);
         }
 
         /// <inheritdoc />
@@ -1015,61 +901,11 @@ namespace Armada.Core.Database.Mysql.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
-            if (query == null) query = new EnumerationQuery();
-
-            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
-                List<MySqlParameter> parameters = new List<MySqlParameter>
-                {
-                    new MySqlParameter("@tenantId", tenantId),
-                    new MySqlParameter("@userId", userId)
-                };
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
-                }
-
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                long totalCount = 0;
-                using (MySqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
-                    totalCount = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
-                }
-
-                List<Mission> results = new List<Mission>();
-                using (MySqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
-                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
-                    using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (String.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            return EnumerateMissionRowsAsync("*", tenantId, userId, query, token);
         }
 
         #endregion

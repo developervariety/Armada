@@ -200,5 +200,117 @@ namespace Armada.Test.Database
             DatabaseAssert.True(allocated < budget,
                 label + " allocated " + allocated + " bytes; a read that never loads the heavy columns stays under " + budget);
         }
+        /// <summary>
+        /// Full and summary mission enumeration apply the same status, voyage, vessel, captain and mission filters
+        /// at every scope. A scoped read that drops a filter returns rows the filter excludes.
+        /// </summary>
+        internal async Task VerifyEnumerationFiltersAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("filter-tenant", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "filter-user", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "filter-fleet", token).ConfigureAwait(false);
+                Vessel vesselA = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "filter-vessel-a", token).ConfigureAwait(false);
+                Vessel vesselB = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "filter-vessel-b", token).ConfigureAwait(false);
+                Captain captainA = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "filter-captain-a", token).ConfigureAwait(false);
+                Captain captainB = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "filter-captain-b", token).ConfigureAwait(false);
+                Voyage voyageA = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "filter-voyage-a", token).ConfigureAwait(false);
+                Voyage voyageB = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "filter-voyage-b", token).ConfigureAwait(false);
+
+                List<Mission> missions = new List<Mission>
+                {
+                    await CreateFilterMissionAsync(fixture, tenant.Id, user.Id, voyageA.Id, vesselA.Id, captainA.Id, MissionStatusEnum.Complete, token).ConfigureAwait(false),
+                    await CreateFilterMissionAsync(fixture, tenant.Id, user.Id, voyageA.Id, vesselB.Id, captainB.Id, MissionStatusEnum.Failed, token).ConfigureAwait(false),
+                    await CreateFilterMissionAsync(fixture, tenant.Id, user.Id, voyageB.Id, vesselA.Id, captainB.Id, MissionStatusEnum.Complete, token).ConfigureAwait(false),
+                    await CreateFilterMissionAsync(fixture, tenant.Id, user.Id, voyageB.Id, vesselB.Id, captainA.Id, MissionStatusEnum.Pending, token).ConfigureAwait(false)
+                };
+
+                List<FilterCase> cases = new List<FilterCase>
+                {
+                    new FilterCase("status", new EnumerationQuery { Status = "Complete" }, m => m.Status == MissionStatusEnum.Complete, false),
+                    new FilterCase("voyage", new EnumerationQuery { VoyageId = voyageA.Id }, m => m.VoyageId == voyageA.Id, true),
+                    new FilterCase("vessel", new EnumerationQuery { VesselId = vesselB.Id }, m => m.VesselId == vesselB.Id, true),
+                    new FilterCase("captain", new EnumerationQuery { CaptainId = captainA.Id }, m => m.CaptainId == captainA.Id, true),
+                    new FilterCase("mission", new EnumerationQuery { MissionId = missions[2].Id }, m => m.Id == missions[2].Id, true),
+                    new FilterCase("status and voyage", new EnumerationQuery { Status = "Complete", VoyageId = voyageB.Id },
+                        m => m.Status == MissionStatusEnum.Complete && m.VoyageId == voyageB.Id, true)
+                };
+
+                foreach (FilterCase filter in cases)
+                {
+                    List<string> expected = new List<string>();
+                    foreach (Mission mission in missions)
+                        if (filter.Matches(mission)) expected.Add(mission.Id);
+                    expected.Sort(StringComparer.Ordinal);
+
+                    // An unscoped read also sees other tenants' rows, so it is compared only where the filter names
+                    // an identifier this fixture owns.
+                    if (filter.UniqueToFixture)
+                    {
+                        AssertIds(expected, await _Driver.Missions.EnumerateAsync(Page(filter.Query), token).ConfigureAwait(false), "unscoped full " + filter.Name);
+                        AssertIds(expected, await _Driver.Missions.EnumerateSummariesAsync(Page(filter.Query), token).ConfigureAwait(false), "unscoped summary " + filter.Name);
+                    }
+
+                    AssertIds(expected, await _Driver.Missions.EnumerateAsync(tenant.Id, Page(filter.Query), token).ConfigureAwait(false), "tenant full " + filter.Name);
+                    AssertIds(expected, await _Driver.Missions.EnumerateSummariesAsync(tenant.Id, Page(filter.Query), token).ConfigureAwait(false), "tenant summary " + filter.Name);
+                    AssertIds(expected, await _Driver.Missions.EnumerateAsync(tenant.Id, user.Id, Page(filter.Query), token).ConfigureAwait(false), "user full " + filter.Name);
+                    AssertIds(expected, await _Driver.Missions.EnumerateSummariesAsync(tenant.Id, user.Id, Page(filter.Query), token).ConfigureAwait(false), "user summary " + filter.Name);
+                }
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private static EnumerationQuery Page(EnumerationQuery filter)
+        {
+            return new EnumerationQuery
+            {
+                Status = filter.Status,
+                VoyageId = filter.VoyageId,
+                VesselId = filter.VesselId,
+                CaptainId = filter.CaptainId,
+                MissionId = filter.MissionId,
+                PageNumber = 1,
+                PageSize = 50
+            };
+        }
+
+        private static void AssertIds(List<string> expected, EnumerationResult<Mission> result, string label)
+        {
+            List<string> actual = new List<string>();
+            foreach (Mission mission in result.Objects) actual.Add(mission.Id);
+            actual.Sort(StringComparer.Ordinal);
+            DatabaseAssert.Equal(String.Join(",", expected), String.Join(",", actual), label + " mission ids");
+            DatabaseAssert.Equal((long)expected.Count, result.TotalRecords, label + " total");
+        }
+
+        private static Task<Mission> CreateFilterMissionAsync(DatabaseFixture fixture, string tenantId, string userId, string voyageId, string vesselId, string captainId,
+            MissionStatusEnum status, CancellationToken token)
+        {
+            return fixture.CreateMissionAsync(tenantId, userId, voyageId, vesselId, captainId, "filter-" + status, token, null, null, item => item.Status = status);
+        }
+
+        private sealed class FilterCase
+        {
+            internal FilterCase(string name, EnumerationQuery query, Func<Mission, bool> matches, bool uniqueToFixture)
+            {
+                Name = name;
+                Query = query;
+                Matches = matches;
+                UniqueToFixture = uniqueToFixture;
+            }
+
+            internal string Name { get; }
+
+            internal EnumerationQuery Query { get; }
+
+            internal Func<Mission, bool> Matches { get; }
+
+            internal bool UniqueToFixture { get; }
+        }
     }
 }

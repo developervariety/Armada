@@ -621,81 +621,13 @@ namespace Armada.Core.Database.Sqlite.Implementations
         /// <inheritdoc />
         public async Task<EnumerationResult<Mission>> EnumerateSummariesAsync(EnumerationQuery query, CancellationToken token = default)
         {
-            return await EnumerateSummariesInternalAsync(null, null, query, token).ConfigureAwait(false);
+            return await EnumerateMissionRowsAsync(MissionSummaryProjection.Columns, null, null, query, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
         {
-            if (query == null) query = new EnumerationQuery();
-
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string>();
-                List<SqliteParameter> parameters = new List<SqliteParameter>();
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
-                }
-                if (!string.IsNullOrEmpty(query.Status))
-                {
-                    conditions.Add("status = @status");
-                    parameters.Add(new SqliteParameter("@status", query.Status));
-                }
-                if (!string.IsNullOrEmpty(query.VoyageId))
-                {
-                    conditions.Add("voyage_id = @voyage_id");
-                    parameters.Add(new SqliteParameter("@voyage_id", query.VoyageId));
-                }
-                if (!string.IsNullOrEmpty(query.VesselId))
-                {
-                    conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new SqliteParameter("@vessel_id", query.VesselId));
-                }
-                if (!string.IsNullOrEmpty(query.CaptainId))
-                {
-                    conditions.Add("captain_id = @captain_id");
-                    parameters.Add(new SqliteParameter("@captain_id", query.CaptainId));
-                }
-
-                string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                // Count
-                long totalCount = 0;
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
-                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
-                }
-
-                // Query
-                List<Mission> results = new List<Mission>();
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
-                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
-                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            return EnumerateMissionRowsAsync("*", null, null, query, token);
         }
 
         /// <inheritdoc />
@@ -780,54 +712,17 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (query == null) query = new EnumerationQuery();
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@tenantId", tenantId) };
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
-                }
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-                long totalCount = 0;
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
-                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
-                }
-                List<Mission> results = new List<Mission>();
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
-                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
-                    }
-                }
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            return EnumerateMissionRowsAsync("*", tenantId, null, query, token);
         }
 
         /// <inheritdoc />
         public async Task<EnumerationResult<Mission>> EnumerateSummariesAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            return await EnumerateSummariesInternalAsync(tenantId, null, query, token).ConfigureAwait(false);
+            return await EnumerateMissionRowsAsync(MissionSummaryProjection.Columns, tenantId, null, query, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -1014,48 +909,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
-            if (query == null) query = new EnumerationQuery();
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
-                List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@tenantId", tenantId), new SqliteParameter("@userId", userId) };
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
-                }
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-                long totalCount = 0;
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
-                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
-                }
-                List<Mission> results = new List<Mission>();
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
-                    using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
-                    }
-                }
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (String.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            return EnumerateMissionRowsAsync("*", tenantId, userId, query, token);
         }
 
         /// <inheritdoc />
@@ -1063,14 +921,19 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
-            return await EnumerateSummariesInternalAsync(tenantId, userId, query, token).ConfigureAwait(false);
+            return await EnumerateMissionRowsAsync(MissionSummaryProjection.Columns, tenantId, userId, query, token).ConfigureAwait(false);
         }
 
         #endregion
 
         #region Internal-Helpers
 
-        private async Task<EnumerationResult<Mission>> EnumerateSummariesInternalAsync(
+        /// <summary>
+        /// Every paginated mission enumeration, full or summary, at every scope: one filter set, so a scoped
+        /// read applies exactly the filters an unscoped read does, plus its tenant and user.
+        /// </summary>
+        private async Task<EnumerationResult<Mission>> EnumerateMissionRowsAsync(
+            string selectColumns,
             string? tenantId,
             string? userId,
             EnumerationQuery query,
@@ -1100,7 +963,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 List<Mission> results = new List<Mission>();
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT " + MissionSummaryProjection.Columns + " FROM missions" + whereClause +
+                    cmd.CommandText = "SELECT " + selectColumns + " FROM missions" + whereClause +
                         " ORDER BY created_utc " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     AddParameters(cmd, parameters);

@@ -142,6 +142,7 @@ namespace Armada.Test.Database
             await RunTest("Dock_AnchorSnapshot_Create_Reopen", "Operational", () => TestDockAnchorSnapshotAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
             await RunTest("Mission_Summary_Reads_Skip_Heavy_Columns_And_Count_By_Voyage", "Operational", () => new MissionSummaryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
+            await RunTest("Mission_Enumerate_Applies_The_Same_Filters_At_Every_Scope", "Operational", () => new MissionSummaryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyEnumerationFiltersAsync(token), token);
             await RunTest("Mission_ActiveWorkFootprints_Count_Active_Work_Only", "Operational", () => TestActiveWorkFootprintsAsync(token), token);
             await RunTest("Mission_Fork_Fields_Create_Update_Reopen_Query", "Operational", () => TestMissionForkFieldsAsync(token), token);
             await RunTest("Dock_Create_Read_Update", "Operational", () => TestDockCrudAsync(token), token);

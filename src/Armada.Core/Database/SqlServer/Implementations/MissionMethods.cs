@@ -350,75 +350,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
         {
-            if (query == null) query = new EnumerationQuery();
-
-            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string>();
-                List<SqlParameter> parameters = new List<SqlParameter>();
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
-                }
-                if (!string.IsNullOrEmpty(query.Status))
-                {
-                    conditions.Add("status = @status");
-                    parameters.Add(new SqlParameter("@status", query.Status));
-                }
-                if (!string.IsNullOrEmpty(query.VoyageId))
-                {
-                    conditions.Add("voyage_id = @voyage_id");
-                    parameters.Add(new SqlParameter("@voyage_id", query.VoyageId));
-                }
-                if (!string.IsNullOrEmpty(query.VesselId))
-                {
-                    conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
-                }
-                if (!string.IsNullOrEmpty(query.CaptainId))
-                {
-                    conditions.Add("captain_id = @captain_id");
-                    parameters.Add(new SqlParameter("@captain_id", query.CaptainId));
-                }
-
-                string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                long totalCount = 0;
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (SqlParameter p in parameters) cmd.Parameters.Add(new SqlParameter(p.ParameterName, p.Value));
-                    totalCount = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
-                }
-
-                List<Mission> results = new List<Mission>();
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
-                        " OFFSET " + query.Offset + " ROWS FETCH NEXT " + query.PageSize + " ROWS ONLY;";
-                    foreach (SqlParameter p in parameters) cmd.Parameters.Add(new SqlParameter(p.ParameterName, p.Value));
-                    using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            return EnumerateMissionRowsAsync("*", null, null, query, token);
         }
 
         /// <inheritdoc />
@@ -839,54 +773,10 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (query == null) query = new EnumerationQuery();
-
-            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@tenantId", tenantId) };
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
-                }
-
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                long totalCount = 0;
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (SqlParameter p in parameters) cmd.Parameters.Add(new SqlParameter(p.ParameterName, p.Value));
-                    totalCount = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
-                }
-
-                List<Mission> results = new List<Mission>();
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " OFFSET " + query.Offset + " ROWS FETCH NEXT " + query.PageSize + " ROWS ONLY;";
-                    foreach (SqlParameter p in parameters) cmd.Parameters.Add(new SqlParameter(p.ParameterName, p.Value));
-                    using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            return EnumerateMissionRowsAsync("*", tenantId, null, query, token);
         }
 
         /// <inheritdoc />
@@ -964,59 +854,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
-            if (query == null) query = new EnumerationQuery();
-
-            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
-                List<SqlParameter> parameters = new List<SqlParameter>
-                {
-                    new SqlParameter("@tenantId", tenantId),
-                    new SqlParameter("@userId", userId)
-                };
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
-                }
-
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                long totalCount = 0;
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (SqlParameter p in parameters) cmd.Parameters.Add(new SqlParameter(p.ParameterName, p.Value));
-                    totalCount = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
-                }
-
-                List<Mission> results = new List<Mission>();
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " OFFSET " + query.Offset + " ROWS FETCH NEXT " + query.PageSize + " ROWS ONLY;";
-                    foreach (SqlParameter p in parameters) cmd.Parameters.Add(new SqlParameter(p.ParameterName, p.Value));
-                    using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqlServerDatabaseDriver.MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (String.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            return EnumerateMissionRowsAsync("*", tenantId, userId, query, token);
         }
 
         #endregion

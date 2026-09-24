@@ -276,83 +276,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
         /// <param name="query">Enumeration query parameters.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Paginated enumeration result.</returns>
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
         {
-            if (query == null) query = new EnumerationQuery();
-
-            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                List<string> conditions = new List<string>();
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
-
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
-                }
-                if (!string.IsNullOrEmpty(query.Status))
-                {
-                    conditions.Add("status = @status");
-                    parameters.Add(new NpgsqlParameter("@status", query.Status));
-                }
-                if (!string.IsNullOrEmpty(query.VoyageId))
-                {
-                    conditions.Add("voyage_id = @voyage_id");
-                    parameters.Add(new NpgsqlParameter("@voyage_id", query.VoyageId));
-                }
-                if (!string.IsNullOrEmpty(query.VesselId))
-                {
-                    conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new NpgsqlParameter("@vessel_id", query.VesselId));
-                }
-                if (!string.IsNullOrEmpty(query.CaptainId))
-                {
-                    conditions.Add("captain_id = @captain_id");
-                    parameters.Add(new NpgsqlParameter("@captain_id", query.CaptainId));
-                }
-
-                string whereClause = conditions.Count > 0
-                    ? " WHERE " + string.Join(" AND ", conditions)
-                    : "";
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-
-                // Count
-                long totalCount = 0;
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (NpgsqlParameter p in parameters)
-                        cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
-                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
-                }
-
-                // Query
-                List<Mission> results = new List<Mission>();
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
-                        " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (NpgsqlParameter p in parameters)
-                        cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
-                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionFromReader(reader));
-                    }
-                }
-
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            return EnumerateMissionRowsAsync("*", null, null, query, token);
         }
 
         /// <summary>
@@ -610,49 +536,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (query == null) query = new EnumerationQuery();
-            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenantId", tenantId) };
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
-                }
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-                long totalCount = 0;
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
-                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
-                }
-                List<Mission> results = new List<Mission>();
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
-                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionFromReader(reader));
-                    }
-                }
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            return EnumerateMissionRowsAsync("*", tenantId, null, query, token);
         }
 
         /// <inheritdoc />
@@ -779,50 +666,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
+        public Task<EnumerationResult<Mission>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
-            if (query == null) query = new EnumerationQuery();
-            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenantId", tenantId), new NpgsqlParameter("@userId", userId) };
-                if (query.CreatedAfter.HasValue)
-                {
-                    conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
-                }
-                if (query.CreatedBefore.HasValue)
-                {
-                    conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
-                }
-                string whereClause = " WHERE " + string.Join(" AND ", conditions);
-                string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
-                long totalCount = 0;
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = "SELECT COUNT(*) FROM missions" + whereClause + ";";
-                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
-                    totalCount = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
-                }
-                List<Mission> results = new List<Mission>();
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
-                    foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
-                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
-                    {
-                        while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionFromReader(reader));
-                    }
-                }
-                return EnumerationResult<Mission>.Create(query, results, totalCount);
-            }
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (String.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            return EnumerateMissionRowsAsync("*", tenantId, userId, query, token);
         }
 
         #endregion
