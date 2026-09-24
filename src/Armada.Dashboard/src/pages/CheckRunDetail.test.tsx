@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { WebSocketMessage } from '../types/models';
@@ -42,6 +42,7 @@ vi.mock('../api/client', () => ({
 
 import { getCheckRun, getVessel, getWorkflowProfile, listCheckRuns } from '../api/client';
 import CheckRunDetail from './CheckRunDetail';
+import { deferred, NavigateButton } from '../test/routeRace';
 
 function run(status: string) {
   return {
@@ -96,4 +97,28 @@ test('says when the previous-run comparison searched only the newest runs', asyn
     expect(call[0]?.pageSize ?? 0).toBeLessThanOrEqual(500);
   }
   expect(await screen.findByText(/newest 500 of 900/)).toBeInTheDocument();
+});
+
+test('a route change to another run shows loading, then the failure, never the previous run', async () => {
+  const second = deferred<unknown>();
+  vi.mocked(getCheckRun).mockImplementation((async (id: string) => (id === 'chk_2' ? second.promise : run('Running'))) as never);
+  render(
+    <MemoryRouter initialEntries={['/checks/chk_1']}>
+      <NavigateButton to="/checks/chk_2" />
+      <Routes>
+        <Route path="/checks/:id" element={<CheckRunDetail />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect((await screen.findAllByText('Unit Tests')).length).toBeGreaterThan(0);
+
+  fireEvent.click(screen.getByText('go /checks/chk_2'));
+
+  expect(await screen.findByText('Loading...')).toBeInTheDocument();
+  expect(screen.queryAllByText('Unit Tests')).toHaveLength(0);
+
+  await act(async () => { second.reject(new Error('Check run chk_2 was deleted.')); });
+
+  expect(await screen.findByText('Check run chk_2 was deleted.')).toBeInTheDocument();
+  expect(screen.queryAllByText('Unit Tests')).toHaveLength(0);
 });

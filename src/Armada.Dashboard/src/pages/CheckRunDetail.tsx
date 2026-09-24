@@ -8,6 +8,7 @@ import { RESYNC_MESSAGE_TYPE, useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLatestRequest } from '../lib/useLatestRequest';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -62,17 +63,31 @@ export default function CheckRunDetail() {
     onConfirm: () => {},
   });
 
+  // Only the newest load writes. A load for another run id is an initial load: it clears the previous run and shows
+  // the spinner, and its failure is reported, so the page never shows one run under another run's URL. A reload of
+  // the run on screen stays quiet.
+  const requests = useLatestRequest();
   useEffect(() => {
     if (!id) return;
-    let mounted = true;
     const runId = id;
+    const request = requests.begin(runId);
+    const isInitialLoad = request.isInitialLoad;
+    if (isInitialLoad) {
+      setLoading(true);
+      setRun(null);
+      setVessel(null);
+      setProfile(null);
+      setComparison(null);
+      setBaselineScope(null);
+      setError('');
+    }
 
     async function load() {
       try {
-        if (!run) setLoading(true);
         const nextRun = await getCheckRun(runId);
-        if (!mounted) return;
+        if (!request.isCurrent()) return;
         setRun(nextRun);
+        request.markLoaded();
 
         const [nextVessel, nextProfile, relatedRunsResult] = await Promise.all([
           nextRun.vesselId ? getVessel(nextRun.vesselId).catch(() => null) : Promise.resolve(null),
@@ -88,7 +103,7 @@ export default function CheckRunDetail() {
             : Promise.resolve(null),
         ]);
 
-        if (!mounted) return;
+        if (!request.isCurrent()) return;
         setVessel(nextVessel);
         setProfile(nextProfile);
         setComparison(relatedRunsResult?.objects ? buildCheckRunComparison(nextRun, relatedRunsResult.objects) : null);
@@ -100,17 +115,14 @@ export default function CheckRunDetail() {
         }
         setError('');
       } catch (err: unknown) {
-        if (mounted) setError(err instanceof Error ? err.message : t('Failed to load check run.'));
+        if (request.isCurrent() && isInitialLoad) setError(err instanceof Error ? err.message : t('Failed to load check run.'));
       } finally {
-        if (mounted) setLoading(false);
+        if (request.isCurrent()) setLoading(false);
       }
     }
 
     load();
-    return () => { mounted = false; };
-    // `run` is read only to decide whether a reload shows the loading state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, t, reloadTick]);
+  }, [id, t, reloadTick, requests]);
 
   // A Pending or Running check changes on the server; follow its change events instead of showing
   // a stale status, and read it again when the connection reports missed events.
@@ -124,7 +136,7 @@ export default function CheckRunDetail() {
       if (msg.type !== 'check-run.changed') return;
       const changed = msg.data as CheckRun | undefined;
       if (!changed || changed.id !== id) return;
-      setRun((current) => (current ? { ...current, ...changed } : changed));
+      setRun((current) => (!current ? changed : current.id === changed.id ? { ...current, ...changed } : current));
     });
   }, [id, subscribe]);
 
@@ -164,7 +176,14 @@ export default function CheckRunDetail() {
   }
 
   if (loading && !run) return <p className="text-dim">{t('Loading...')}</p>;
-  if (!run) return <p className="text-dim">{t('Check run not found.')}</p>;
+  if (!run) {
+    return (
+      <div>
+        <ErrorModal error={error} onClose={() => setError('')} />
+        <p className="text-dim">{t('Check run not found.')}</p>
+      </div>
+    );
+  }
 
   return (
     <div>

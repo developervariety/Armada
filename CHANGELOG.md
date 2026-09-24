@@ -150,6 +150,10 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard check run page:** opening another run (the "Compared to" link, Retry)
+  clears the previous run and shows the loading state; only the newest load writes,
+  a failure to read the new run is reported, and a change event for another run no
+  longer merges into the run on screen. A background reload failure stays quiet.
 - **Dashboard Requests page:** a refresh keeps the selected requests it still returns,
   and the route, status code, principal, credential, tenant and user filters query the
   server once the user pauses typing, not once per keystroke.
