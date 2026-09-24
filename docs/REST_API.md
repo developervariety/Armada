@@ -1287,7 +1287,12 @@ the stored predicate as a JSON string, so parse it before sending it back.
 
 #### DELETE /api/v1/vessels/{id}
 
-Delete a vessel.
+Delete a vessel. REST, WebSocket `delete_vessel` and MCP `armada_delete_vessel` run one shared delete: every live mission
+of the vessel (`Pending`, `Assigned`, `InProgress`, `Testing`, `Review`) is cancelled through the mission cancel, which
+recalls its captain and stops its agent process; every mission of the vessel is deleted with its log files and saved
+diff; each dock is purged through the dock service; the vessel's dock directory under the configured docks root and its
+bare repository are removed; and a `vessel.deleted` event is written. Cleanup that fails is logged as a warning and does
+not keep the vessel.
 
 **Path Parameters:**
 | Parameter | Description |

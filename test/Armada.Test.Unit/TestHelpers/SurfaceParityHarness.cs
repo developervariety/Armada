@@ -232,7 +232,7 @@ namespace Armada.Test.Unit.TestHelpers
             new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new CaptainRoutes(Driver, Admiral.Service, Settings, runtimeFactory, lifecycle, new CaptainToolService(logging, Driver, Settings),
                 emitEvent, _RestJsonOptions, null, null, logging, null, captainAdministration).Register(_Server, authenticate, authz);
-            new VesselRoutes(Driver, readiness, landingPreview, emitEvent, _RestJsonOptions, Docks)
+            new VesselRoutes(Driver, readiness, landingPreview, emitEvent, _RestJsonOptions, Docks, operations: Operations)
                 .Register(_Server, authenticate, authz);
 
             _Server.Start(_Cancellation.Token);

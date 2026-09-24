@@ -373,6 +373,95 @@ namespace Armada.Server
             return BareVoyageResult.Created(voyage);
         }
 
+        /// <summary>
+        /// Delete a vessel and everything that runs on it, then write a <c>vessel.deleted</c> event.
+        /// <para>
+        /// Every live mission of the vessel (Pending, Assigned, InProgress, Testing, Review) is cancelled through the
+        /// one mission cancel first, so the captain working it is recalled and its agent process stops. Then every
+        /// mission of the vessel is deleted, each dock is purged through the dock service, the vessel's dock directory
+        /// under the configured docks root and its bare repository are removed, and the vessel row is deleted.
+        /// Cleanup that fails is reported as a warning and does not keep the vessel row.
+        /// </para>
+        /// </summary>
+        /// <param name="vessel">Vessel, already read under the caller's scope.</param>
+        /// <param name="deleteVesselRow">The surface's caller-scoped delete of the vessel row.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Cleanup warnings; empty when every step succeeded.</returns>
+        public async Task<List<string>> DeleteVesselAsync(Vessel vessel, Func<string, Task>? deleteVesselRow = null, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            List<string> warnings = new List<string>();
+
+            List<Mission> missions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            foreach (Mission mission in missions)
+            {
+                if (!MissionStateMachine.IsCancelledWithVoyage(mission.Status)) continue;
+                MissionCancellationResult cancelled = await MissionCancellation.CancelAsync(
+                    _Database, mission, "Vessel deleted", _RecallCaptain, token).ConfigureAwait(false);
+                if (!cancelled.Succeeded) warnings.Add("Mission " + mission.Id + ": " + cancelled.Message);
+            }
+
+            foreach (Mission mission in missions)
+            {
+                try
+                {
+                    DeleteMissionFiles(mission.Id);
+                    await _Database.Missions.DeleteAsync(mission.Id, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add("Mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            List<Dock> docks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            foreach (Dock dock in docks)
+            {
+                try
+                {
+                    if (_Docks != null)
+                    {
+                        await _Docks.PurgeAsync(dock.Id, null, token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        warnings.Add("Dock " + dock.Id + ": no dock service is available, so its worktree was left on disk");
+                        await _Database.Docks.DeleteAsync(dock.Id, token).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add("Dock " + dock.Id + ": " + ex.Message);
+                }
+            }
+
+            // The vessel's dock directory is built from its name, so a name that is not one safe path segment never
+            // reaches a recursive delete.
+            string vesselDockDir = Path.Combine(_Settings.DocksDirectory, vessel.Name);
+            if (Armada.Core.Authorization.VesselPathPolicy.ValidateName(vessel.Name) == null && Directory.Exists(vesselDockDir))
+            {
+                try { Directory.Delete(vesselDockDir, true); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { warnings.Add("Dock directory " + vesselDockDir + ": " + ex.Message); }
+            }
+
+            if (!String.IsNullOrEmpty(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
+            {
+                try { Directory.Delete(vessel.LocalPath, true); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { warnings.Add("Bare repository " + vessel.LocalPath + ": " + ex.Message); }
+            }
+
+            if (deleteVesselRow != null)
+                await deleteVesselRow(vessel.Id).ConfigureAwait(false);
+            else
+                await _Database.Vessels.DeleteAsync(vessel.Id, token).ConfigureAwait(false);
+
+            foreach (string warning in warnings)
+                _Logging?.Warn(_Header + "vessel " + vessel.Id + " deleted with a cleanup warning: " + warning);
+            await Notifier.EmitAsync("vessel.deleted", "Vessel " + vessel.Id + " deleted with " + missions.Count + " missions",
+                "vessel", vessel.Id, null, null, vessel.Id, null).ConfigureAwait(false);
+            return warnings;
+        }
+
         #endregion
 
         #region Private-Methods

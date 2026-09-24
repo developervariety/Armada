@@ -29,8 +29,11 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for vessel data access.</param>
         /// <param name="dockService">Optional dock service for worktree cleanup during vessel deletion.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IDockService? dockService = null)
+        /// <param name="operations">Shared mission and voyage operations; vessel delete runs through them. When null, one is built
+        /// from <paramref name="database"/> and <paramref name="dockService"/> that writes no events.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IDockService? dockService = null, MissionOperations? operations = null)
         {
+            MissionOperations missionOperations = operations ?? new MissionOperations(database, new Armada.Core.Settings.ArmadaSettings(), dockService, null, OperationNotifier.None);
             register(
                 "armada_get_vessel",
                 "Get details of a specific vessel (repository)",
@@ -456,9 +459,9 @@ namespace Armada.Server.Mcp.Tools
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
 
-                    List<string> warnings = await CleanupVesselResourcesAsync(vessel, database, dockService).ConfigureAwait(false);
-
-                    await database.Vessels.DeleteAsync(vesselId).ConfigureAwait(false);
+                    // REST, WebSocket and MCP share one vessel delete: running captains are recalled, every mission is
+                    // deleted, docks are purged through the dock service, and a vessel.deleted event is written.
+                    List<string> warnings = await missionOperations.DeleteVesselAsync(vessel).ConfigureAwait(false);
                     if (warnings.Count > 0)
                         return (object)new { Status = "deleted", VesselId = vesselId, Warnings = warnings };
                     return (object)new { Status = "deleted", VesselId = vesselId };
@@ -497,8 +500,7 @@ namespace Armada.Server.Mcp.Tools
                             continue;
                         }
 
-                        await CleanupVesselResourcesAsync(vessel, database, dockService).ConfigureAwait(false);
-                        await database.Vessels.DeleteAsync(id).ConfigureAwait(false);
+                        await missionOperations.DeleteVesselAsync(vessel).ConfigureAwait(false);
                         result.Deleted++;
                     }
                     result.ResolveStatus();
@@ -750,86 +752,6 @@ namespace Armada.Server.Mcp.Tools
             bool isWorkingClone = Directory.Exists(Path.Combine(fullPath, ".git")) || File.Exists(Path.Combine(fullPath, ".git"));
             bool isBareRepository = File.Exists(Path.Combine(fullPath, "HEAD")) && Directory.Exists(Path.Combine(fullPath, "hooks"));
             return isWorkingClone || isBareRepository ? fullPath : null;
-        }
-
-        /// <summary>
-        /// Cleans up ALL filesystem and database resources associated with a vessel before deletion.
-        /// Cancels active missions, removes docks/worktrees, and deletes the bare repository.
-        /// This method throws on failure -- vessel deletion should NOT proceed if cleanup fails.
-        /// </summary>
-        private static async Task<List<string>> CleanupVesselResourcesAsync(Vessel vessel, DatabaseDriver database, IDockService? dockService)
-        {
-            List<string> errors = new List<string>();
-
-            // Cancel active missions on this vessel
-            List<Mission> missions = await database.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
-            foreach (Mission mission in missions)
-            {
-                if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.Assigned
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.InProgress
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.Review
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.Testing)
-                {
-                    mission.Status = Armada.Core.Enums.MissionStatusEnum.Cancelled;
-                    mission.FailureReason = "Vessel deleted";
-                    mission.CompletedUtc = DateTime.UtcNow;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                }
-            }
-
-            // Delete ALL missions for this vessel from the database
-            foreach (Mission mission in missions)
-            {
-                try { await database.Missions.DeleteAsync(mission.Id).ConfigureAwait(false); }
-                catch (Exception ex) { errors.Add("Failed to delete mission " + mission.Id + ": " + ex.Message); }
-            }
-
-            // Clean up docks/worktrees for this vessel
-            List<Dock> docks = await database.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
-            foreach (Dock dock in docks)
-            {
-                try
-                {
-                    if (dockService != null)
-                    {
-                        await dockService.PurgeAsync(dock.Id).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        if (!String.IsNullOrEmpty(dock.WorktreePath) && Directory.Exists(dock.WorktreePath))
-                            Directory.Delete(dock.WorktreePath, true);
-                        await database.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception ex) { errors.Add("Failed to purge dock " + dock.Id + ": " + ex.Message); }
-            }
-
-            // Delete the vessel's dock directory (the parent containing all worktrees)
-            string vesselDockDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".armada", "docks", vessel.Name);
-            if (Directory.Exists(vesselDockDir))
-            {
-                try { Directory.Delete(vesselDockDir, true); }
-                catch (Exception ex) { errors.Add("Failed to delete dock directory " + vesselDockDir + ": " + ex.Message); }
-            }
-
-            // Delete the bare repo
-            if (!String.IsNullOrEmpty(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
-            {
-                try { Directory.Delete(vessel.LocalPath, true); }
-                catch (Exception ex) { errors.Add("Failed to delete bare repo " + vessel.LocalPath + ": " + ex.Message); }
-            }
-
-            // If the bare repo STILL exists after deletion attempt, that's a hard failure
-            if (!String.IsNullOrEmpty(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
-            {
-                errors.Add("Bare repo still exists after deletion: " + vessel.LocalPath);
-            }
-
-            return errors;
         }
     }
 }

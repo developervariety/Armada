@@ -34,6 +34,7 @@ namespace Armada.Server.Routes
         private readonly LandingPreviewService _landingPreview;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly JsonSerializerOptions _jsonOptions;
+        private MissionOperations? _operations;
         private readonly IDockService? _dockService;
         private readonly VesselContextService? _contextService;
         private readonly IBranchInventory? _branchInventory;
@@ -51,6 +52,9 @@ namespace Armada.Server.Routes
         /// <param name="contextService">Optional vessel context service.</param>
         /// <param name="branchInventory">Optional read-only branch inventory.</param>
         /// <param name="branchWrites">Optional guarded branch push and merge service; when null the write routes report unavailable.</param>
+        /// <param name="operations">Shared mission and voyage operations; vessel delete runs through them. When null, one is
+        /// built that removes docks through <paramref name="dockService"/>, writes vessel events through
+        /// <paramref name="emitEvent"/>, and releases a running captain in the database without stopping its process.</param>
         public VesselRoutes(
             DatabaseDriver database,
             VesselReadinessService readiness,
@@ -60,9 +64,11 @@ namespace Armada.Server.Routes
             IDockService? dockService = null,
             VesselContextService? contextService = null,
             IBranchInventory? branchInventory = null,
-            VesselBranchWriteService? branchWrites = null)
+            VesselBranchWriteService? branchWrites = null,
+            MissionOperations? operations = null)
         {
             _branchWrites = branchWrites;
+            _operations = operations;
             _database = database;
             _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _landingPreview = landingPreview ?? throw new ArgumentNullException(nameof(landingPreview));
@@ -693,21 +699,16 @@ namespace Armada.Server.Routes
                         : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
 
-                await CleanupVesselResourcesAsync(vessel).ConfigureAwait(false);
-
-                if (ctx.IsAdmin)
-                    await _database.Vessels.DeleteAsync(id).ConfigureAwait(false);
-                else if (ctx.IsTenantAdmin)
-                    await _database.Vessels.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                else
-                    await _database.Vessels.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                // REST, WebSocket and MCP share one vessel delete: running captains are recalled, every mission is
+                // deleted, docks are purged through the dock service, and a vessel.deleted event is written.
+                await Operations.DeleteVesselAsync(vessel, vesselId => DeleteVesselRowAsync(ctx, vesselId)).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
             api => api
                 .WithTag("Vessels")
                 .WithSummary("Delete a vessel")
-                .WithDescription("Deletes a vessel by ID.")
+                .WithDescription("Deletes a vessel. The captain of every live mission on it is recalled, which stops its agent process; every mission of the vessel is deleted; its docks are purged through the dock service; its dock directory and bare repository are removed; and a vessel.deleted event is written. WebSocket delete_vessel and MCP armada_delete_vessel run the same delete.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithSecurity("ApiKey"));
@@ -742,14 +743,7 @@ namespace Armada.Server.Routes
                         continue;
                     }
 
-                    await CleanupVesselResourcesAsync(existing).ConfigureAwait(false);
-
-                    if (ctx.IsAdmin)
-                        await _database.Vessels.DeleteAsync(id).ConfigureAwait(false);
-                    else if (ctx.IsTenantAdmin)
-                        await _database.Vessels.DeleteAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                    else
-                        await _database.Vessels.DeleteAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                    await Operations.DeleteVesselAsync(existing, vesselId => DeleteVesselRowAsync(ctx, vesselId)).ConfigureAwait(false);
                     result.Deleted++;
                 }
 
@@ -773,74 +767,18 @@ namespace Armada.Server.Routes
         /// Removes docks/worktrees, the bare repository, and cancels active missions.
         /// Cleanup failures are silently caught to avoid blocking the vessel delete.
         /// </summary>
-        /// <summary>
-        /// Cleans up ALL resources associated with a vessel. Throws on failure.
-        /// </summary>
-        private async Task CleanupVesselResourcesAsync(Vessel vessel)
+        private MissionOperations Operations => _operations ??= new MissionOperations(
+            _database,
+            new ArmadaSettings(),
+            _dockService,
+            null,
+            new OperationNotifier(_emitEvent, null, null));
+
+        private Task DeleteVesselRowAsync(AuthContext ctx, string vesselId)
         {
-            List<string> errors = new List<string>();
-
-            // Cancel and delete all missions
-            List<Mission> missions = await _database.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
-            foreach (Mission mission in missions)
-            {
-                if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.Assigned
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.InProgress
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.Review
-                    || mission.Status == Armada.Core.Enums.MissionStatusEnum.Testing)
-                {
-                    mission.Status = Armada.Core.Enums.MissionStatusEnum.Cancelled;
-                    mission.FailureReason = "Vessel deleted";
-                    mission.CompletedUtc = DateTime.UtcNow;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                }
-                try { await _database.Missions.DeleteAsync(mission.Id).ConfigureAwait(false); }
-                catch (Exception ex) { errors.Add("Mission " + mission.Id + ": " + ex.Message); }
-            }
-
-            // Purge docks
-            List<Dock> docks = await _database.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
-            foreach (Dock dock in docks)
-            {
-                try
-                {
-                    if (_dockService != null)
-                        await _dockService.PurgeAsync(dock.Id).ConfigureAwait(false);
-                    else
-                    {
-                        if (!String.IsNullOrEmpty(dock.WorktreePath) && Directory.Exists(dock.WorktreePath))
-                            Directory.Delete(dock.WorktreePath, true);
-                        await _database.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception ex) { errors.Add("Dock " + dock.Id + ": " + ex.Message); }
-            }
-
-            // Delete vessel dock directory. The directory is built from the name, so a name that is not one safe
-            // path segment never reaches a recursive delete.
-            string vesselDockDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".armada", "docks", vessel.Name);
-            if (VesselPathPolicy.ValidateName(vessel.Name) == null && Directory.Exists(vesselDockDir))
-            {
-                try { Directory.Delete(vesselDockDir, true); }
-                catch (Exception ex) { errors.Add("Dock dir: " + ex.Message); }
-            }
-
-            // Delete bare repo
-            if (!String.IsNullOrEmpty(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
-            {
-                try { Directory.Delete(vessel.LocalPath, true); }
-                catch (Exception ex) { errors.Add("Bare repo: " + ex.Message); }
-            }
-
-            if (!String.IsNullOrEmpty(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
-                errors.Add("Bare repo still exists after deletion: " + vessel.LocalPath);
-
-            // Log warnings but don't block deletion -- orphan filesystem cleanup
-            // can happen on next server restart. The vessel DB record must be deleted.
+            if (ctx.IsAdmin) return _database.Vessels.DeleteAsync(vesselId);
+            if (ctx.IsTenantAdmin) return _database.Vessels.DeleteAsync(ctx.TenantId!, vesselId);
+            return _database.Vessels.DeleteAsync(ctx.TenantId!, ctx.UserId!, vesselId);
         }
 
         /// <summary>

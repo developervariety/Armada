@@ -1543,7 +1543,9 @@ Partial update of a vessel's project context and style guide fields only. Unlike
 
 #### delete_vessel
 
-Delete a vessel.
+Delete a vessel through the same shared delete as `DELETE /api/v1/vessels/{id}`: running captains are recalled, every
+mission of the vessel is deleted, docks are purged through the dock service, and a `vessel.deleted` event is written.
+Cleanup warnings are returned in `data.warnings`.
 
 **Request:**
 

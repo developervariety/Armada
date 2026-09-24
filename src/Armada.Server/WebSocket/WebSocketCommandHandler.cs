@@ -487,7 +487,7 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Run the <c>delete_vessel</c> command.
+        /// Run the <c>delete_vessel</c> command through the shared vessel delete REST and MCP use.
         /// </summary>
         private async Task<object> DeleteVesselCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
@@ -496,47 +496,11 @@ namespace Armada.Server.WebSocket
             if (delVessel == null)
                 return new { type = "command.error", action = "delete_vessel", error = "Vessel not found" };
 
-            // Cancel active missions on this vessel
-            try
-            {
-                List<Mission> delVesselMissions = await _Database.Missions.EnumerateByVesselAsync(delVesselId).ConfigureAwait(false);
-                foreach (Mission dvm in delVesselMissions)
-                {
-                    if (dvm.Status == MissionStatusEnum.Pending || dvm.Status == MissionStatusEnum.Assigned || dvm.Status == MissionStatusEnum.InProgress)
-                    {
-                        dvm.Status = MissionStatusEnum.Cancelled;
-                        dvm.CompletedUtc = DateTime.UtcNow;
-                        dvm.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Missions.UpdateAsync(dvm).ConfigureAwait(false);
-                    }
-                }
-            }
-            catch { }
-
-            // Clean up docks/worktrees for this vessel
-            try
-            {
-                List<Dock> delVesselDocks = await _Database.Docks.EnumerateByVesselAsync(delVesselId).ConfigureAwait(false);
-                foreach (Dock dvd in delVesselDocks)
-                {
-                    if (!String.IsNullOrEmpty(dvd.WorktreePath) && System.IO.Directory.Exists(dvd.WorktreePath))
-                    {
-                        try { System.IO.Directory.Delete(dvd.WorktreePath, true); }
-                        catch { }
-                    }
-                    await _Database.Docks.DeleteAsync(dvd.Id).ConfigureAwait(false);
-                }
-            }
-            catch { }
-
-            // Clean up bare repo
-            if (!String.IsNullOrEmpty(delVessel.LocalPath) && System.IO.Directory.Exists(delVessel.LocalPath))
-            {
-                try { System.IO.Directory.Delete(delVessel.LocalPath, true); }
-                catch { }
-            }
-
-            await _Database.Vessels.DeleteAsync(delVesselId).ConfigureAwait(false);
+            // The shared vessel delete REST and MCP use: running captains are recalled, every mission is deleted,
+            // docks are purged through the dock service, and a vessel.deleted event is written.
+            List<string> delWarnings = await Operations.DeleteVesselAsync(delVessel).ConfigureAwait(false);
+            if (delWarnings.Count > 0)
+                return new { type = "command.result", action = "delete_vessel", data = (object)new { status = "deleted", warnings = delWarnings } };
             return new { type = "command.result", action = "delete_vessel", data = (object)new { status = "deleted" } };
         }
 

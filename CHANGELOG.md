@@ -182,6 +182,15 @@ upstream integrations and excludes changes already present at that baseline.
   stream events still starts its own line; an unfinished line is written at the
   terminal event or at process exit.
 
+- **One vessel delete:** REST, WebSocket and MCP delete a vessel through one
+  shared operation. Every surface cancelled live missions in the database only,
+  leaving their agents running; the shared delete cancels them through the
+  mission cancel, which recalls the captain. WebSocket cancelled fewer statuses,
+  kept the missions (pointing at a deleted vessel) and removed worktrees with a
+  raw directory delete; every surface now deletes all of the vessel's missions,
+  purges docks through the dock service, removes the dock directory under the
+  configured docks root (MCP used a fixed home path without the name check), and
+  writes `vessel.deleted`.
 - **One bare voyage create:** a voyage created with no vessel or missions goes
   through one shared create on REST and WebSocket. WebSocket dropped the
   selected playbooks; REST created the voyage before it checked the selections,
