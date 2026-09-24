@@ -24,6 +24,14 @@ export default function Pagination({
 }: PaginationProps) {
   const { t } = useLocale();
   const [pageInput, setPageInput] = useState(String(pageNumber));
+  const [shownPage, setShownPage] = useState(pageNumber);
+
+  // The page number is owned by the parent: a filter change, a page-size change or a
+  // shrinking list moves it without the pager's buttons, so the box follows every change.
+  if (shownPage !== pageNumber) {
+    setShownPage(pageNumber);
+    setPageInput(String(pageNumber));
+  }
 
   const handlePageInputChange = (val: string) => {
     setPageInput(val);
@@ -42,11 +50,6 @@ export default function Pagination({
     if (e.key === 'Enter') handlePageInputSubmit();
   };
 
-  // Sync the input when pageNumber changes externally
-  if (String(pageNumber) !== pageInput && document.activeElement?.classList.contains('page-input') === false) {
-    // Will update on next render cycle
-  }
-
   return (
     <div className="pagination-bar">
       <div className="pagination-info">
@@ -63,7 +66,7 @@ export default function Pagination({
         <button
           className="btn btn-sm"
           disabled={pageNumber <= 1}
-          onClick={() => { onPageChange(pageNumber - 1); setPageInput(String(pageNumber - 1)); }}
+          onClick={() => onPageChange(pageNumber - 1)}
         >
           {t('Prev')}
         </button>
@@ -83,7 +86,7 @@ export default function Pagination({
         <button
           className="btn btn-sm"
           disabled={pageNumber >= totalPages}
-          onClick={() => { onPageChange(pageNumber + 1); setPageInput(String(pageNumber + 1)); }}
+          onClick={() => onPageChange(pageNumber + 1)}
         >
           {t('Next')}
         </button>

@@ -150,6 +150,9 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard pager:** the page-number box follows every page change the page makes
+  (a filter change, a page-size change, a shrinking list), not only Prev and Next, on
+  every paged table.
 - **Image rebuild helper:** `rebuild-local-image.sh` passes `ARMADA_CLI_REFRESH`
   (digits only) as the Dockerfile's `CLI_REFRESH` build argument, so a rebuild can
   refresh the agent CLIs without editing the Dockerfile, and its behavioural test
