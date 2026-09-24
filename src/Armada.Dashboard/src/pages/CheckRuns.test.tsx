@@ -292,4 +292,17 @@ describe('CheckRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: /Run Check/ }));
     expect(screen.getByText('Command Override')).toBeInTheDocument();
   });
+
+  it('a refresh reloads the runs but not the vessel and workflow profile names', async () => {
+    renderPage();
+    expect(await screen.findByText('Nightly Build')).toBeInTheDocument();
+    await waitFor(() => expect(listVessels).toHaveBeenCalled());
+    const vesselsBefore = vi.mocked(listVessels).mock.calls.length;
+    const runsBefore = vi.mocked(listCheckRuns).mock.calls.length;
+
+    fireEvent.click(screen.getByTitle('Refresh check runs'));
+
+    await waitFor(() => expect(vi.mocked(listCheckRuns).mock.calls.length).toBeGreaterThan(runsBefore));
+    expect(vi.mocked(listVessels).mock.calls.length).toBe(vesselsBefore);
+  });
 });

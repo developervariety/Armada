@@ -6,6 +6,7 @@ import { useLocale } from '../context/LocaleContext';
 import { copySvgToClipboard } from '../lib/chartImage';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { formatBucketLabel, formatTooltipTime } from '../lib/chartTime';
 
 // Bucket counts per range: hour = 2/min (120), day = 4/hour (96), week = 12/day (84), month = 4/day (120).
 const TIME_RANGES = [
@@ -51,18 +52,6 @@ function formatTokens(value: number): string {
   if (abs >= 1e6) return trimZero(value / 1e6) + 'M';
   if (abs >= 1e3) return trimZero(value / 1e3) + 'K';
   return String(Math.round(value));
-}
-
-function formatBucketLabel(ts: number, stepMinutes: number, hours: number): string {
-  const d = new Date(ts);
-  if (stepMinutes <= 15) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  if (hours > 48) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatTooltipTime(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function truncate(text: string, max: number): string {

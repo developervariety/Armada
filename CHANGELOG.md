@@ -150,6 +150,14 @@ upstream integrations and excludes changes already present at that baseline.
 - **Shutdown waits for the Harbor job expiry loop:** stop cancels the loop and
   waits for it with the same bounded wait as the health and endpoint-health loops,
   so an expiry pass never reads a disposed database.
+- **Dashboard refresh cost and error dialogs:** Incidents, Check Runs and History read
+  their name lookups (vessels, environments, deployments, releases, workflow profiles,
+  objectives) once when the page opens; the refresh timer reloads only the list. On
+  Captains, Prompt Templates, Users, Tenants, Credentials, Events, Signals, Merge
+  Queue, Missions and Voyages, a failed load opens the error dialog once; while loads
+  keep failing it stays closed after it is dismissed, and it opens again for the next
+  failure after a successful load. The mission-history and token-usage charts share
+  one time-label helper.
 - **Dashboard controls for global administrators:** the workspace terminal and the
   check-run Command Override field show only to a global administrator, since the
   server runs either for no one else. The Credentials page offers no copy for a

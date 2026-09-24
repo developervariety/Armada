@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getMissionHistory } from '../api/client';
 import type { MissionHistorySummaryResult, Vessel, Fleet } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
+import { formatBucketLabel, formatTooltipTime } from '../lib/chartTime';
 
 const TIME_RANGES = [
   { label: 'Last Hour', value: 'hour', hours: 1, stepMinutes: 1 },
@@ -34,18 +35,6 @@ function computeYTicks(max: number): number[] {
   for (let i = 0; i <= max; i += step) ticks.push(i);
   if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
   return ticks;
-}
-
-function formatBucketLabel(ts: number, stepMinutes: number, hours: number): string {
-  const d = new Date(ts);
-  if (stepMinutes <= 15) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  if (hours > 48) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatTooltipTime(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export default function MissionHistoryChart({ vessels, fleets, onRefresh, refreshKey = 0 }: MissionHistoryChartProps) {

@@ -16,6 +16,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 import { useResourceTable } from '../lib/useResourceTable';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -43,7 +44,7 @@ export default function PromptTemplates() {
   const canCreate = canWrite(viewer, writeLevel);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -66,9 +67,9 @@ export default function PromptTemplates() {
       setLoading(true);
       const result = await listAllPromptTemplates();
       setTemplates(result);
-      setError('');
+      loadSucceeded();
     } catch {
-      setError(translate('Failed to load prompt templates.'));
+      loadFailed(translate('Failed to load prompt templates.'));
     } finally {
       setLoading(false);
     }

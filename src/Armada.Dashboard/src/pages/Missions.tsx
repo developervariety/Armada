@@ -25,6 +25,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
 import { useVisibleSelection } from '../lib/useVisibleSelection';
@@ -49,7 +50,7 @@ export default function Missions() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const { pushToast } = useNotifications();
 
   // Pagination: server-side for the default creation-time order, client-side over every mission otherwise
@@ -123,9 +124,9 @@ export default function Missions() {
         if (!acceptPage(result)) return;
         setMissions(result.objects || []);
       }
-      setError('');
+      loadSucceeded();
     } catch {
-      if (request.isCurrent()) setError(t('Failed to load missions.'));
+      if (request.isCurrent()) loadFailed(t('Failed to load missions.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }

@@ -12,6 +12,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
 import PageHeader from '../components/shared/PageHeader';
@@ -29,7 +30,7 @@ export default function Voyages() {
   const { pushToast } = useNotifications();
   const [voyages, setVoyages] = useState<Voyage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Pagination and the status filter run on the server, so pages and totals cover every voyage.
   const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging();
@@ -63,9 +64,9 @@ export default function Voyages() {
       if (!request.isCurrent()) return;
       if (!acceptPage(result)) return;
       setVoyages(result.objects || []);
-      setError('');
+      loadSucceeded();
     } catch {
-      if (request.isCurrent()) setError(t('Failed to load voyages.'));
+      if (request.isCurrent()) loadFailed(t('Failed to load voyages.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }

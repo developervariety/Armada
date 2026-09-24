@@ -9,6 +9,7 @@ import CopyButton from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
 import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../../lib/useAutoRefresh';
+import { useLoadError } from '../../lib/useLoadError';
 import { useResourceTable } from '../../lib/useResourceTable';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
@@ -33,7 +34,7 @@ export default function Users() {
   const [items, setItems] = useState<UserMaster[]>([]);
   const [tenants, setTenants] = useState<TenantMetadata[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<UserMaster | null>(null);
   const [form, setForm] = useState({
@@ -64,8 +65,8 @@ export default function Users() {
       const [allUsers, allTenants] = await Promise.all([userPromise, tenantPromise]);
       setItems(allUsers);
       setTenants(allTenants);
-      setError('');
-    } catch { setError(t('Failed to load users.')); }
+      loadSucceeded();
+    } catch { loadFailed(t('Failed to load users.')); }
     finally { setLoading(false); }
   }, [isAdmin, t, user?.tenant]);
 

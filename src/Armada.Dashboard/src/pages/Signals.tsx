@@ -17,6 +17,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
 import { useVisibleSelection } from '../lib/useVisibleSelection';
@@ -43,7 +44,7 @@ export default function Signals() {
   // Data
   const [signals, setSignals] = useState<Signal[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [loading, setLoading] = useState(false);
 
   // Pagination
@@ -104,8 +105,9 @@ export default function Signals() {
         setSignals(result.objects || []);
         setTotalMs(result.totalMs || 0);
       }
+      loadSucceeded();
     } catch {
-      if (request.isCurrent()) setError(t('Failed to load signals.'));
+      if (request.isCurrent()) loadFailed(t('Failed to load signals.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }

@@ -235,17 +235,11 @@ export default function History() {
     const request = requests.begin();
     try {
       setLoading(true);
-      const [historyResult, vesselResult, allObjectives] = await Promise.all([
-        enumerateHistoryTimeline(appliedQuery),
-        listAllVessels(),
-        listAllObjectives(),
-      ]);
+      const historyResult = await enumerateHistoryTimeline(appliedQuery);
       if (!request.isCurrent()) return;
 
       setEntries(historyResult.objects || []);
       setTotalRecords(historyResult.totalRecords || 0);
-      setVessels(vesselResult);
-      setObjectives(allObjectives);
       setError('');
     } catch (err: unknown) {
       if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load history.'));
@@ -273,6 +267,19 @@ export default function History() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Name lookups are read once when the page opens; the refresh timer reloads only the list. A failed lookup shows
+  // the id in place of the name and reports the failure.
+  useEffect(() => {
+    Promise.all([listAllVessels(), listAllObjectives()])
+      .then(([vesselResult, allObjectives]) => {
+        setVessels(vesselResult);
+        setObjectives(allObjectives);
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load history.')));
+    // Read once per page open; `t` only words the failure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('history', load);
 

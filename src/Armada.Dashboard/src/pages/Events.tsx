@@ -13,6 +13,7 @@ import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
 import { useVisibleSelection } from '../lib/useVisibleSelection';
@@ -33,7 +34,7 @@ export default function Events() {
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Pagination (server-side)
   const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging({ initialPageSize: 50 });
@@ -83,9 +84,9 @@ export default function Events() {
         if (!acceptPage(result)) return;
         setEvents(result.objects || []);
       }
-      setError('');
+      loadSucceeded();
     } catch {
-      if (request.isCurrent()) setError(t('Failed to load events.'));
+      if (request.isCurrent()) loadFailed(t('Failed to load events.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }

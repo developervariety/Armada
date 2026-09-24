@@ -127,3 +127,16 @@ test('an auto-refresh of the previous page that responds last does not replace t
     vi.useRealTimers();
   }
 });
+
+test('a refresh reloads the incidents but not the vessel, environment, deployment and release names', async () => {
+  render(<MemoryRouter><Incidents /></MemoryRouter>);
+  expect(await screen.findByText('Incident A')).toBeInTheDocument();
+  await waitFor(() => expect(listVessels).toHaveBeenCalled());
+  const lookupsBefore = [listVessels, listEnvironments, listDeployments, listReleases].map(fn => vi.mocked(fn).mock.calls.length);
+  const pagesBefore = vi.mocked(listIncidents).mock.calls.length;
+
+  fireEvent.click(screen.getByTitle('Refresh incidents'));
+
+  await waitFor(() => expect(vi.mocked(listIncidents).mock.calls.length).toBeGreaterThan(pagesBefore));
+  expect([listVessels, listEnvironments, listDeployments, listReleases].map(fn => vi.mocked(fn).mock.calls.length)).toEqual(lookupsBefore);
+});

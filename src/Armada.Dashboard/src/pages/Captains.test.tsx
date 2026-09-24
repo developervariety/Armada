@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Captains from './Captains';
 import { createCaptain, listCaptains, listModelEndpoints, stopAllCaptains } from '../api/client';
@@ -230,5 +230,29 @@ describe('Captains', () => {
     const nameFilter = document.querySelectorAll('.column-filter-row input.col-filter')[0] as HTMLInputElement;
     fireEvent.change(nameFilter, { target: { value: 'alp' } });
     expect(screen.getByRole('button', { name: /Delete Selected/ })).toHaveTextContent('(1)');
+  });
+
+  it('opens the load error once while refreshes keep failing, and again after a success', async () => {
+    const refresh = async () => {
+      const before = vi.mocked(listCaptains).mock.calls.length;
+      fireEvent.click(screen.getByTitle('Refresh captain data'));
+      await waitFor(() => expect(vi.mocked(listCaptains).mock.calls.length).toBeGreaterThan(before));
+      await act(async () => { await Promise.resolve(); });
+    };
+    vi.mocked(listCaptains).mockRejectedValue(new Error('offline'));
+    renderCaptains();
+    expect(await screen.findByText('Failed to load captains.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    await refresh();
+    expect(screen.queryByText('Failed to load captains.')).not.toBeInTheDocument();
+
+    vi.mocked(listCaptains).mockResolvedValue(page([quarantined]) as never);
+    await refresh();
+    await screen.findByText('held-captain');
+
+    vi.mocked(listCaptains).mockRejectedValue(new Error('offline'));
+    await refresh();
+    expect(await screen.findByText('Failed to load captains.')).toBeInTheDocument();
   });
 });

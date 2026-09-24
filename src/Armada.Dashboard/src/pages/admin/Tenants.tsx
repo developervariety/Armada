@@ -9,6 +9,7 @@ import CopyButton from '../../components/shared/CopyButton';
 import RefreshButton from '../../components/shared/RefreshButton';
 import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../../lib/useAutoRefresh';
+import { useLoadError } from '../../lib/useLoadError';
 import { useResourceTable } from '../../lib/useResourceTable';
 import { useAuth } from '../../context/AuthContext';
 import ErrorModal from '../../components/shared/ErrorModal';
@@ -30,7 +31,7 @@ export default function Tenants() {
   const proxyContext = useProxySessionContext();
   const [items, setItems] = useState<TenantMetadata[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<TenantMetadata | null>(null);
   const [form, setForm] = useState({ name: '', active: true });
@@ -47,8 +48,8 @@ export default function Tenants() {
       } else {
         setItems(user?.tenant ? [user.tenant] : []);
       }
-      setError('');
-    } catch { setError(t('Failed to load tenants.')); }
+      loadSucceeded();
+    } catch { loadFailed(t('Failed to load tenants.')); }
     finally { setLoading(false); }
   }, [isAdmin, t, user?.tenant]);
 

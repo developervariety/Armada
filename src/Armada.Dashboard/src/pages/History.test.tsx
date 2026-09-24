@@ -238,4 +238,19 @@ describe('History', () => {
     expect(options).toEqual(expect.arrayContaining(['CheckRun', 'Deployment', 'Incident', 'Mission', 'Request', 'Voyage']));
     expect(screen.getByText(new RegExp(`of ${SERVER_TOTAL}`))).toBeInTheDocument();
   });
+
+  it('a refresh reloads the timeline but not the vessel and objective names', async () => {
+    renderHistory();
+    await waitFor(() => expect(listVessels).toHaveBeenCalled());
+    await waitFor(() => expect(listObjectives).toHaveBeenCalled());
+    const vesselsBefore = vi.mocked(listVessels).mock.calls.length;
+    const objectivesBefore = vi.mocked(listObjectives).mock.calls.length;
+    const timelineBefore = vi.mocked(enumerateHistoryTimeline).mock.calls.length;
+
+    fireEvent.click(screen.getByTitle('Refresh history'));
+
+    await waitFor(() => expect(vi.mocked(enumerateHistoryTimeline).mock.calls.length).toBeGreaterThan(timelineBefore));
+    expect(vi.mocked(listVessels).mock.calls.length).toBe(vesselsBefore);
+    expect(vi.mocked(listObjectives).mock.calls.length).toBe(objectivesBefore);
+  });
 });

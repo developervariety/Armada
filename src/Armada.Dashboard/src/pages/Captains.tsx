@@ -16,6 +16,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 import { useResourceTable } from '../lib/useResourceTable';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -57,7 +58,7 @@ export default function Captains() {
   const { isAdmin } = useAuth();
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Modal state
   const [showForm, setShowForm] = useState(false);
@@ -86,9 +87,9 @@ export default function Captains() {
       setLoading(true);
       const result = await listAllCaptains();
       setCaptains(result);
-      setError('');
+      loadSucceeded();
     } catch {
-      setError(t('Failed to load captains.'));
+      loadFailed(t('Failed to load captains.'));
     } finally {
       setLoading(false);
     }

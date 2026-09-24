@@ -162,11 +162,7 @@ export default function Incidents() {
         severity: severityFilter === 'all' ? undefined : severityFilter,
         search: appliedSearch.trim() || undefined,
       });
-      const [vesselResult, environmentResult, deploymentResult, releaseResult, countResults, incidentResult] = await Promise.all([
-        listAllVessels(),
-        listAllEnvironments(),
-        listAllDeployments(),
-        listAllReleases(),
+      const [countResults, incidentResult] = await Promise.all([
         Promise.all(countRequests),
         pageRequest,
       ]);
@@ -174,10 +170,6 @@ export default function Incidents() {
       if (!acceptPage(incidentResult)) return;
       setIncidents(incidentResult.objects || []);
       setStatusCounts(Object.fromEntries(INCIDENT_STATUSES.map((status, index) => [status, countResults[index]?.totalRecords ?? 0])));
-      setVessels(vesselResult);
-      setEnvironments(environmentResult);
-      setDeployments(deploymentResult);
-      setReleases(releaseResult);
       setError('');
     } catch (err: unknown) {
       if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load incidents.'));
@@ -189,6 +181,21 @@ export default function Incidents() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Name lookups are read once when the page opens; the refresh timer reloads only the list. A failed lookup shows
+  // the id in place of the name and reports the failure.
+  useEffect(() => {
+    Promise.all([listAllVessels(), listAllEnvironments(), listAllDeployments(), listAllReleases()])
+      .then(([vesselResult, environmentResult, deploymentResult, releaseResult]) => {
+        setVessels(vesselResult);
+        setEnvironments(environmentResult);
+        setDeployments(deploymentResult);
+        setReleases(releaseResult);
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load incidents.')));
+    // Read once per page open; `t` only words the failure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

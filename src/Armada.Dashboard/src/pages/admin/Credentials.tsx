@@ -9,6 +9,7 @@ import CopyButton, { copyToClipboard } from '../../components/shared/CopyButton'
 import RefreshButton from '../../components/shared/RefreshButton';
 import AutoRefreshSelect from '../../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../../lib/useAutoRefresh';
+import { useLoadError } from '../../lib/useLoadError';
 import { useResourceTable } from '../../lib/useResourceTable';
 import { isMaskedSecret } from '../../lib/format';
 import { useAuth } from '../../context/AuthContext';
@@ -27,7 +28,7 @@ export default function Credentials() {
   const [users, setUsers] = useState<UserMaster[]>([]);
   const [tenants, setTenants] = useState<TenantMetadata[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Credential | null>(null);
   const [form, setForm] = useState({ userId: '', tenantId: '', name: '', active: true });
@@ -58,8 +59,8 @@ export default function Credentials() {
       setItems(allCredentials);
       setUsers(allUsers);
       setTenants(allTenants);
-      setError('');
-    } catch { setError(t('Failed to load credentials.')); }
+      loadSucceeded();
+    } catch { loadFailed(t('Failed to load credentials.')); }
     finally { setLoading(false); }
   }, [isAdmin, t, user?.tenant]);
 

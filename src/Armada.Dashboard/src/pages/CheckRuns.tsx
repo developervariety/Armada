@@ -171,9 +171,7 @@ export default function CheckRuns() {
         (await listCheckRuns({ pageSize: 1, filters: status ? { status } : undefined })).totalRecords || 0;
       const countRequests = Promise.all([countOf(), countOf('Passed'), countOf('Failed'), countOf('Running')]);
       const pageRequest = listCheckRuns({ pageNumber, pageSize, filters });
-      const [vesselResult, profileResult, counts, runResult] = await Promise.all([
-        listAllVessels(),
-        listAllWorkflowProfiles(),
+      const [counts, runResult] = await Promise.all([
         countRequests,
         pageRequest,
       ]);
@@ -181,8 +179,6 @@ export default function CheckRuns() {
       if (!acceptPage(runResult)) return;
       setRuns(runResult.objects || []);
       setSummaryCounts({ total: counts[0], passed: counts[1], failed: counts[2], running: counts[3] });
-      setVessels(vesselResult);
-      setProfiles(profileResult);
       setError('');
     } catch (err: unknown) {
       if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load check runs.'));
@@ -194,6 +190,19 @@ export default function CheckRuns() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Name lookups are read once when the page opens; the refresh timer reloads only the list. A failed lookup shows
+  // the id in place of the name and reports the failure.
+  useEffect(() => {
+    Promise.all([listAllVessels(), listAllWorkflowProfiles()])
+      .then(([vesselResult, profileResult]) => {
+        setVessels(vesselResult);
+        setProfiles(profileResult);
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load check runs.')));
+    // Read once per page open; `t` only words the failure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('checkruns', load);
 
   useEffect(() => {
