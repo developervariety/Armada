@@ -810,6 +810,20 @@ namespace Armada.Test.Database
                 {
                     DatabaseAssert.AllProperties(updated, await reopened.WorkflowProfiles.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "Reopened WorkflowProfile");
                 }
+
+                // The creation-time window compares with the stored creation time in its own form.
+                WorkflowProfileQuery window = new WorkflowProfileQuery
+                {
+                    TenantId = tenant.Id,
+                    FromUtc = updated.CreatedUtc.AddMinutes(-1),
+                    ToUtc = updated.CreatedUtc.AddMinutes(1)
+                };
+                List<WorkflowProfile> inWindow = await _Driver.WorkflowProfiles.EnumerateAllAsync(window, token).ConfigureAwait(false);
+                DatabaseAssert.True(inWindow.Exists(item => item.Id == created.Id), "The creation-time window finds the workflow profile");
+                window.FromUtc = updated.CreatedUtc.AddMinutes(1);
+                window.ToUtc = updated.CreatedUtc.AddMinutes(2);
+                DatabaseAssert.True(!(await _Driver.WorkflowProfiles.EnumerateAllAsync(window, token).ConfigureAwait(false)).Exists(item => item.Id == created.Id),
+                    "A later creation-time window excludes the workflow profile");
             }
             finally
             {
