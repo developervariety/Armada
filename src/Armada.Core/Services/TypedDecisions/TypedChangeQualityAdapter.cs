@@ -202,6 +202,10 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override string? MissionIdOf(ChangeQualityInput input) => input.Mission?.Id ?? input.MissionId;
 
+        /// <inheritdoc />
+        protected override IEnumerable<string?> VesselIdsOf(ChangeQualityInput input)
+            => new[] { input.VesselId, input.Mission?.VesselId };
+
         #endregion
 
         #region Private-Methods

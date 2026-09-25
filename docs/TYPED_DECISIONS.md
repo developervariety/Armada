@@ -103,7 +103,11 @@ item keeps its rule and records why, and the other items are still decided.
   objective that lists an excluded vessel beside an allowed target is refused;
   this covers the objective-scoped decisions (`preflight`, `prior_art` at
   preflight, `criteria_lint`, `stage_necessity`, `owner_digest`,
-  `dispatch_staleness`) as well as the mission-scoped ones. The vessels are
+  `dispatch_staleness`) as well as the mission-scoped ones. A seam that holds
+  only ids passes the vessel with them: the log watch screen, `change_quality`
+  from a supplied diff, the merge-queue leak scan, and inbox and board-note
+  triage (an item's mission, merge entry, incident, deployment or claim; a
+  note's own vessel, its mission's, and its voyage's missions'). The vessels are
   checked before any state is built.
 - **Content markers.** A state whose UNREDACTED text contains one of the
   markers that apply sends nothing (`egress_excluded_content`). The check

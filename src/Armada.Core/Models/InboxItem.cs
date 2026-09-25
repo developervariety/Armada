@@ -1,5 +1,7 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -51,5 +53,12 @@ namespace Armada.Core.Models
         /// only annotates and sorts; it never hides or drops an item.
         /// </summary>
         public string? Attention { get; set; } = null;
+
+        /// <summary>
+        /// The vessels the item's content concerns, when known. The inbox triage decision reads them for the
+        /// egress vessel rule, so an excluded vessel's item never leaves the host. Not part of the response.
+        /// </summary>
+        [JsonIgnore]
+        public List<string> VesselIds { get; set; } = new List<string>();
     }
 }

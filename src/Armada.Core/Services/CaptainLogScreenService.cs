@@ -226,6 +226,7 @@ namespace Armada.Core.Services
             {
                 MissionId = mission.Id,
                 VoyageId = mission.VoyageId,
+                VesselId = mission.VesselId,
                 CaptainId = mission.CaptainId,
                 Tail = tail!,
                 TailSha256 = hash,

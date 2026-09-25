@@ -56,6 +56,31 @@ namespace Armada.Core.Services
 
         private const int _StalePeerMinutes = 15;
 
+        /// <summary>The known vessel ids among the supplied values, for an item's egress vessel rule.</summary>
+        private static List<string> VesselsOf(params string?[] vesselIds)
+        {
+            return vesselIds.Where(id => !String.IsNullOrWhiteSpace(id)).Select(id => id!).ToList();
+        }
+
+        /// <summary>
+        /// The vessels a claim concerns: the claimed vessel, or the vessels the claimed objective names. A lookup
+        /// that fails leaves the item without vessels, and the item still carries only claim metadata.
+        /// </summary>
+        private async Task<List<string>> ClaimVesselsAsync(CoordinationClaim claim, CancellationToken token)
+        {
+            if (claim.SubjectType == CoordinationClaimSubjectEnum.Vessel) return VesselsOf(claim.SubjectId);
+            try
+            {
+                Objective? objective = await _Database.Objectives.ReadAsync(claim.SubjectId, token).ConfigureAwait(false);
+                return VesselsOf((objective?.VesselIds ?? new List<string>()).ToArray());
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "objective lookup for claim " + claim.SubjectId + " failed: " + ex.Message);
+                return new List<string>();
+            }
+        }
+
         private async Task ScanSilentClaimHoldersAsync(List<InboxItem> items, CancellationToken token)
         {
             List<CoordinationClaim> activeClaims;
@@ -110,7 +135,8 @@ namespace Armada.Core.Services
                         (String.IsNullOrWhiteSpace(claim.Note) ? "." : ". Claim note: " + claim.Note),
                     EntityType = claim.SubjectType.ToString().ToLowerInvariant(),
                     EntityId = claim.SubjectId,
-                    Href = "/dashboard/chatroom"
+                    Href = "/dashboard/chatroom",
+                    VesselIds = await ClaimVesselsAsync(claim, token).ConfigureAwait(false)
                 });
             }
         }
@@ -139,6 +165,7 @@ namespace Armada.Core.Services
                         Detail = "Awaiting your review.",
                         EntityType = "mission",
                         EntityId = mission.Id,
+                        VesselIds = VesselsOf(mission.VesselId),
                         Href = "/missions/" + mission.Id
                     });
                 }
@@ -157,6 +184,7 @@ namespace Armada.Core.Services
                             + ". Clear it to proceed, or fail it, with armada_review_hold.",
                         EntityType = "mission",
                         EntityId = mission.Id,
+                        VesselIds = VesselsOf(mission.VesselId),
                         Href = "/missions/" + mission.Id
                     });
                 }
@@ -177,6 +205,7 @@ namespace Armada.Core.Services
                         Detail = String.IsNullOrWhiteSpace(mission.FailureReason) ? "The work could not be landed." : mission.FailureReason!,
                         EntityType = "mission",
                         EntityId = mission.Id,
+                        VesselIds = VesselsOf(mission.VesselId),
                         Href = "/missions/" + mission.Id
                     });
                 }
@@ -194,6 +223,7 @@ namespace Armada.Core.Services
                         Detail = String.IsNullOrWhiteSpace(mission.FailureReason) ? "The mission failed." : mission.FailureReason!,
                         EntityType = "mission",
                         EntityId = mission.Id,
+                        VesselIds = VesselsOf(mission.VesselId),
                         Href = "/missions/" + mission.Id
                     });
                 }
@@ -224,6 +254,7 @@ namespace Armada.Core.Services
                         Detail = "A queued merge failed testing or landing and needs attention.",
                         EntityType = "merge_entry",
                         EntityId = entry.Id,
+                        VesselIds = VesselsOf(entry.VesselId),
                         Href = "/merge-queue/" + entry.Id
                     });
                 }
@@ -251,6 +282,7 @@ namespace Armada.Core.Services
                         Detail = detail,
                         EntityType = "incident",
                         EntityId = incident.Id,
+                        VesselIds = VesselsOf(incident.VesselId),
                         Href = "/incidents/" + incident.Id
                     });
                 }
@@ -267,6 +299,7 @@ namespace Armada.Core.Services
                         Detail = "A deployment is waiting for your approval before it runs.",
                         EntityType = "deployment",
                         EntityId = deployment.Id,
+                        VesselIds = VesselsOf(deployment.VesselId),
                         Href = "/deployments/" + deployment.Id
                     });
                 }
@@ -283,6 +316,7 @@ namespace Armada.Core.Services
                             : "A deployment failed and needs attention.",
                         EntityType = "deployment",
                         EntityId = deployment.Id,
+                        VesselIds = VesselsOf(deployment.VesselId),
                         Href = "/deployments/" + deployment.Id
                     });
                 }

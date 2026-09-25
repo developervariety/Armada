@@ -112,7 +112,8 @@ namespace Armada.Core.Services
             List<AttentionOutcome> outcomes;
             try
             {
-                outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), scored.Select(MissionIdOf).ToList(), "severity_order", null, cfg, token).ConfigureAwait(false);
+                outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), scored.Select(MissionIdOf).ToList(),
+                    scored.Select(item => (IEnumerable<string?>)(item.VesselIds ?? new List<string>())).ToList(), "severity_order", null, cfg, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -166,7 +167,8 @@ namespace Armada.Core.Services
             List<AttentionOutcome> outcomes;
             try
             {
-                outcomes = await ScoreAttentionAsync(scored.Select(BuildNoteState).ToList(), scored.Select(note => note.MissionId).ToList(), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
+                outcomes = await ScoreAttentionAsync(scored.Select(BuildNoteState).ToList(), scored.Select(note => note.MissionId).ToList(),
+                    scored.Select(note => (IEnumerable<string?>)(note.VesselIds ?? new List<string>())).ToList(), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -193,6 +195,7 @@ namespace Armada.Core.Services
         private async Task<List<AttentionOutcome>> ScoreAttentionAsync(
             List<object> rawStates,
             List<string?> missionIds,
+            List<IEnumerable<string?>> vesselIds,
             string ruleVerdict,
             TypedQuestion? extraQuestion,
             ResolvedTypedDecision cfg,
@@ -208,10 +211,10 @@ namespace Armada.Core.Services
 
             // Items are independent, so they are scored together in as few requests as the limits allow;
             // each item still gets its own recorded event.
-            // The shared egress guard, per item: an item naming an excluded marker is not sent; it keeps its
-            // deterministic place and records why.
+            // The shared egress guard, per item: an item about an excluded vessel, or naming an excluded marker, is
+            // not sent; it keeps its deterministic place and records why.
             List<string?> refusals = rawStates
-                .Select(raw => TypedDecisionEgress.Refusal(_Settings, DecisionPoint, (IEnumerable<string?>?)null, () => raw))
+                .Select((raw, index) => TypedDecisionEgress.Refusal(_Settings, DecisionPoint, vesselIds[index], () => raw))
                 .ToList();
             List<TypedDecisionBatchItem?> batch = rawStates
                 .Select((raw, index) => refusals[index] != null ? null : new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(raw, _Settings.MaxStateChars), questions))
@@ -404,6 +407,9 @@ namespace Armada.Core.Services
 
         /// <summary>The mission the note relates to, when any. A record link only; never part of the state.</summary>
         public string? MissionId { get; init; }
+
+        /// <summary>The vessels the note relates to, when known, for the egress vessel rule; never part of the state.</summary>
+        public IReadOnlyList<string> VesselIds { get; init; } = new List<string>();
     }
 
     /// <summary>

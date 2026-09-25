@@ -22,6 +22,12 @@ namespace Armada.Core.Services
         public string? VoyageId { get; set; } = null;
 
         /// <summary>
+        /// Identifier of the mission's vessel. The decision reads it for the egress vessel rule, so an
+        /// excluded vessel's log never leaves the host.
+        /// </summary>
+        public string? VesselId { get; set; } = null;
+
+        /// <summary>
         /// Identifier of the captain running the mission, when one is assigned.
         /// </summary>
         public string? CaptainId { get; set; } = null;

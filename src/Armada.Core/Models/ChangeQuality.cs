@@ -87,6 +87,9 @@ namespace Armada.Core.Models
         /// <summary>The id of the mission whose change is reviewed, when only the id is known; never part of the state.</summary>
         public string? MissionId { get; init; } = null;
 
+        /// <summary>The vessel the change belongs to, for the egress vessel rule; never part of the state.</summary>
+        public string? VesselId { get; init; } = null;
+
         /// <summary>The focused unified diff under review.</summary>
         public string UnifiedDiff { get; init; } = "";
 

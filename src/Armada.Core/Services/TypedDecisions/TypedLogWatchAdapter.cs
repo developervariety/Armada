@@ -29,6 +29,9 @@ namespace Armada.Core.Services
         /// <summary>Identifier of the voyage the mission belongs to, when it has one.</summary>
         public string? VoyageId { get; init; } = null;
 
+        /// <summary>Identifier of the mission's vessel, for the egress vessel rule; never part of the state.</summary>
+        public string? VesselId { get; init; } = null;
+
         /// <summary>Identifier of the captain running the mission, when one is assigned.</summary>
         public string? CaptainId { get; init; } = null;
 
@@ -355,6 +358,10 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override string? MissionIdOf(LogWatchDecisionInput input)
             => input.Mission?.Id ?? (String.IsNullOrWhiteSpace(input.MissionId) ? null : input.MissionId);
+
+        /// <inheritdoc />
+        protected override IEnumerable<string?> VesselIdsOf(LogWatchDecisionInput input)
+            => new[] { input.VesselId, input.Mission?.VesselId };
 
         #endregion
     }

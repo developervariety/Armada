@@ -73,6 +73,7 @@ namespace Armada.Core.Services
             {
                 MissionId = context.MissionId,
                 VoyageId = context.VoyageId,
+                VesselId = context.VesselId,
                 CaptainId = context.CaptainId,
                 LogTail = context.Tail
             };

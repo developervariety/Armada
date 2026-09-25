@@ -23,6 +23,9 @@ namespace Armada.Core.Services
         /// <summary>The id of the mission whose change is scanned, when only the id is known; never part of the state.</summary>
         public string? MissionId { get; init; }
 
+        /// <summary>The vessel the scanned change belongs to, for the egress vessel rule; never part of the state.</summary>
+        public string? VesselId { get; init; }
+
         /// <summary>The vessel's public display name. Never the vessel identifier.</summary>
         public string VesselName { get; init; } = String.Empty;
 
@@ -195,6 +198,8 @@ namespace Armada.Core.Services
         /// <param name="token">Cancellation token, forwarded to the client so its timeout links to the caller.</param>
         /// <param name="missionId">The id of the mission whose change is scanned, when <paramref name="mission"/> is not
         /// held; recorded on each decision event and never sent.</param>
+        /// <param name="vesselId">The vessel the change belongs to, when <paramref name="mission"/> is not held; the
+        /// egress vessel rule reads it, so an excluded vessel's hunks never leave the host.</param>
         /// <returns>The flags attached by this pass, in order; never null.</returns>
         public async Task<IReadOnlyList<DockBoundaryAdvisoryFlag>> EvaluateAsync(
             string? unifiedDiff,
@@ -202,12 +207,13 @@ namespace Armada.Core.Services
             Mission? mission,
             DockBoundaryScanResult scanResult,
             CancellationToken token,
-            string? missionId = null)
+            string? missionId = null,
+            string? vesselId = null)
         {
             List<DockBoundaryAdvisoryFlag> attached = new List<DockBoundaryAdvisoryFlag>();
             if (scanResult == null) return attached;
 
-            List<LeakHunkDecisionInput> hunks = ExtractHunks(unifiedDiff, vesselName, mission, missionId);
+            List<LeakHunkDecisionInput> hunks = ExtractHunks(unifiedDiff, vesselName, mission, missionId, vesselId);
             if (hunks.Count == 0) return attached;
 
             List<LeakHunkVerdict> rules = new List<LeakHunkVerdict>(hunks.Count);
@@ -336,6 +342,10 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override string? MissionIdOf(LeakHunkDecisionInput input) => input.Mission?.Id ?? input.MissionId;
 
+        /// <inheritdoc />
+        protected override IEnumerable<string?> VesselIdsOf(LeakHunkDecisionInput input)
+            => new[] { input.VesselId, input.Mission?.VesselId };
+
         #endregion
 
         #region Private-Methods
@@ -382,7 +392,7 @@ namespace Armada.Core.Services
             return bestNoul > 0.0 ? best : KindNone;
         }
 
-        private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission, string? missionId)
+        private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission, string? missionId, string? vesselId)
         {
             // Files and hunks come from the shared diff reader: each file is named once by its decoded
             // path, and an added line whose content starts with "++" belongs to its hunk.
@@ -404,7 +414,7 @@ namespace Armada.Core.Services
                         added.Add(line.Text);
                     }
 
-                    Flush(hunks, currentFile, added, vesselName, mission, missionId, ref hunksInFile);
+                    Flush(hunks, currentFile, added, vesselName, mission, missionId, vesselId, ref hunksInFile);
                 }
             }
 
@@ -418,6 +428,7 @@ namespace Armada.Core.Services
             string? vesselName,
             Mission? mission,
             string? missionId,
+            string? vesselId,
             ref int hunksInFile)
         {
             if (added.Count == 0) return;
@@ -434,6 +445,7 @@ namespace Armada.Core.Services
             {
                 Mission = mission,
                 MissionId = missionId,
+                VesselId = vesselId,
                 VesselName = vesselName ?? String.Empty,
                 FilePath = filePath,
                 HunkText = text

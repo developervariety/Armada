@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Every typed decision refuses an excluded vessel:** the log watch screen,
+  change quality from a supplied diff, the merge-queue leak scan, and inbox and
+  board-note triage now pass the vessel to the egress exclusion check, so an
+  excluded vessel's content is refused before any provider call and the
+  refusal is recorded, as for every other decision.
 - **Typed-decision events name their subject:** every decision event and
   retained sample records the objective id and the mission id wherever the
   calling seam knows them, including preflight, prior art at preflight,

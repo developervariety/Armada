@@ -149,7 +149,7 @@ namespace Armada.Server.Mcp.Tools
                         // D11 inbox_triage: annotate each note with attention and kind and sort by
                         // attention in Gate mode. It never hides a note, so with no adapter or the
                         // decision Off the deterministic order stands.
-                        views = await ApplyBoardNoteTriageAsync(views, triageAdapter).ConfigureAwait(false);
+                        views = await ApplyBoardNoteTriageAsync(views, triageAdapter, database).ConfigureAwait(false);
 
                         return (object)new
                         {
@@ -749,21 +749,55 @@ namespace Armada.Server.Mcp.Tools
         /// and re-order by attention in Gate mode. The adapter never hides a note, so with no adapter or
         /// the decision Off the input order is returned unchanged.
         /// </summary>
+        /// <summary>
+        /// The vessels a board note concerns, for the triage decision's egress vessel rule: its own vessel, its
+        /// mission's vessel, and every vessel its voyage's missions run on.
+        /// </summary>
+        private static async Task<List<string>> BoardNoteVesselsAsync(CoordinationMessageView view, DatabaseDriver database)
+        {
+            List<string> vessels = new List<string>();
+            if (!String.IsNullOrWhiteSpace(view.VesselId)) vessels.Add(view.VesselId!);
+            if (!String.IsNullOrWhiteSpace(view.MissionId))
+            {
+                Mission? mission = await database.Missions.ReadAsync(view.MissionId!).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(mission?.VesselId)) vessels.Add(mission!.VesselId!);
+            }
+            if (!String.IsNullOrWhiteSpace(view.VoyageId))
+            {
+                foreach (Mission mission in await database.Missions.EnumerateByVoyageAsync(view.VoyageId!).ConfigureAwait(false))
+                    if (!String.IsNullOrWhiteSpace(mission.VesselId)) vessels.Add(mission.VesselId!);
+            }
+            return vessels.Distinct(StringComparer.Ordinal).ToList();
+        }
+
         private static async Task<List<CoordinationMessageView>> ApplyBoardNoteTriageAsync(
             List<CoordinationMessageView> views,
-            Armada.Core.Services.InboxTriageAdapter? triageAdapter)
+            Armada.Core.Services.InboxTriageAdapter? triageAdapter,
+            DatabaseDriver database)
         {
             if (triageAdapter == null || views.Count == 0) return views;
 
-            List<Armada.Core.Services.BoardNoteTriageInput> inputs = views
-                .Select(view => new Armada.Core.Services.BoardNoteTriageInput
+            List<Armada.Core.Services.BoardNoteTriageInput> inputs = new List<Armada.Core.Services.BoardNoteTriageInput>(views.Count);
+            try
+            {
+                foreach (CoordinationMessageView view in views)
                 {
-                    Id = view.Id,
-                    AuthorType = view.AuthorType,
-                    Content = view.Content,
-                    MissionId = view.MissionId
-                })
-                .ToList();
+                    inputs.Add(new Armada.Core.Services.BoardNoteTriageInput
+                    {
+                        Id = view.Id,
+                        AuthorType = view.AuthorType,
+                        Content = view.Content,
+                        MissionId = view.MissionId,
+                        VesselIds = await BoardNoteVesselsAsync(view, database).ConfigureAwait(false)
+                    });
+                }
+            }
+            catch (Exception)
+            {
+                // A note's vessels that cannot be read cannot be cleared for egress either: nothing is sent and
+                // the deterministic order stands.
+                return views;
+            }
 
             IReadOnlyList<Armada.Core.Services.BoardNoteTriage> triaged =
                 await triageAdapter.TriageBoardNotesAsync(inputs, System.Threading.CancellationToken.None).ConfigureAwait(false);
