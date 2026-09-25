@@ -97,6 +97,18 @@ upstream integrations and excludes changes already present at that baseline.
   Mux provider failure (for example an HTTP 429 from a proxy at capacity) left
   an empty mission log and never reached the throttle detector. The reader
   accepts either field.
+- **Stored values written through a shared binder:** every provider writes and
+  filters each entity read through a shared column reader through
+  `StoredValueBinder`, with one shared writer per row type beside its reader.
+  Each provider states how it stores each timestamp column (ISO 8601 text, text
+  the server renders from a typed timestamp, a zone-less timestamp, or a
+  zone-aware one) and which booleans it stores as integers, and every value is
+  sent explicitly typed in its column's stored form. A timestamp without a kind
+  is the UTC instant it reads back as. A PostgreSQL zone-less timestamp column
+  stores the UTC time whatever the session time zone, the PostgreSQL
+  workflow-profile creation-time window compares its bounds as timestamps, and
+  the mission admission and model-endpoint health compare-and-set writes match
+  the stored update time after every write path.
 - **Stored rows read through shared column readers:** every provider reads
   tenants, users, credentials, fleets, vessels, signals, events, captains,
   missions, mission summaries and history points, merge entries, landing jobs,
