@@ -23,18 +23,6 @@ namespace Armada.Core.Database
             Add(command, "source_planning_message_id", voyage.SourcePlanningMessageId);
         }
 
-        internal static void AddVessel(DbCommand command, Vessel vessel)
-        {
-            // The preserved PostgreSQL column is INTEGER, despite a later skipped BOOLEAN declaration.
-            DbParameter enabled = command.CreateParameter();
-            enabled.ParameterName = "@secret_scan_enabled";
-            enabled.DbType = DbType.Int32;
-            enabled.Value = vessel.SecretScanEnabled ? 1 : 0;
-            command.Parameters.Add(enabled);
-            Add(command, "protected_path_patterns_json", JsonSerializer.Serialize(vessel.ProtectedPathPatterns ?? new List<string>()));
-            Add(command, "private_identifier_denylist_json", JsonSerializer.Serialize(vessel.PrivateIdentifierDenylist ?? new List<string>()));
-        }
-
         private static string? TierName(CaptainTierEnum? tier)
         {
             if (!tier.HasValue) return null;
