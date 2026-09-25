@@ -65,7 +65,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT * FROM releases WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -128,7 +128,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM releases WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -167,8 +167,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.CommandText = "SELECT * FROM releases" + whereClause
                         + " ORDER BY COALESCE(published_utc, last_update_utc) DESC, created_utc DESC LIMIT @page_size OFFSET @offset;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
-                    cmd.Parameters.AddWithValue("@offset", offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", offset);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -224,80 +224,63 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new NpgsqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new NpgsqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new NpgsqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.WorkflowProfileId))
             {
                 conditions.Add("workflow_profile_id = @workflow_profile_id");
-                parameters.Add(new NpgsqlParameter("@workflow_profile_id", query.WorkflowProfileId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@workflow_profile_id", query.WorkflowProfileId));
             }
             if (!String.IsNullOrWhiteSpace(query.VoyageId))
             {
                 conditions.Add("voyage_ids_json LIKE @voyage_like");
-                parameters.Add(new NpgsqlParameter("@voyage_like", "%\"" + query.VoyageId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@voyage_like", "%\"" + query.VoyageId + "\"%"));
             }
             if (!String.IsNullOrWhiteSpace(query.MissionId))
             {
                 conditions.Add("mission_ids_json LIKE @mission_like");
-                parameters.Add(new NpgsqlParameter("@mission_like", "%\"" + query.MissionId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@mission_like", "%\"" + query.MissionId + "\"%"));
             }
             if (!String.IsNullOrWhiteSpace(query.CheckRunId))
             {
                 conditions.Add("check_run_ids_json LIKE @check_run_like");
-                parameters.Add(new NpgsqlParameter("@check_run_like", "%\"" + query.CheckRunId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@check_run_like", "%\"" + query.CheckRunId + "\"%"));
             }
             if (query.Status.HasValue)
             {
                 conditions.Add("status = @status");
-                parameters.Add(new NpgsqlParameter("@status", query.Status.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@status", query.Status.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(title) LIKE @search OR LOWER(COALESCE(version, '')) LIKE @search OR LOWER(COALESCE(tag_name, '')) LIKE @search OR LOWER(COALESCE(summary, '')) LIKE @search OR LOWER(COALESCE(notes, '')) LIKE @search)");
-                parameters.Add(new NpgsqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value.ToUniversalTime()));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@from_utc", "releases", "created_utc", query.FromUtc.Value.ToUniversalTime()));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value.ToUniversalTime()));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@to_utc", "releases", "created_utc", query.ToUtc.Value.ToUniversalTime()));
             }
         }
 
         private static void AddParameters(NpgsqlCommand cmd, Release release)
         {
-            cmd.Parameters.AddWithValue("@id", release.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)release.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)release.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)release.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)release.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", release.Title);
-            cmd.Parameters.AddWithValue("@version", (object?)release.Version ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@tag_name", (object?)release.TagName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@summary", (object?)release.Summary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@notes", (object?)release.Notes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", release.Status.ToString());
-            cmd.Parameters.AddWithValue("@voyage_ids_json", JsonSerializer.Serialize(release.VoyageIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@mission_ids_json", JsonSerializer.Serialize(release.MissionIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@check_run_ids_json", JsonSerializer.Serialize(release.CheckRunIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@artifacts_json", JsonSerializer.Serialize(release.Artifacts ?? new List<ReleaseArtifact>(), _Json));
-            cmd.Parameters.AddWithValue("@created_utc", release.CreatedUtc);
-            cmd.Parameters.AddWithValue("@last_update_utc", release.LastUpdateUtc);
-            cmd.Parameters.AddWithValue("@published_utc", (object?)release.PublishedUtc ?? DBNull.Value);
+            ReleaseColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "releases"), release);
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

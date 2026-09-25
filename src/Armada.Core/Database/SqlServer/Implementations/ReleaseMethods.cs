@@ -65,7 +65,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@id", id) };
+                    List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT TOP 1 * FROM releases WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -128,7 +128,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@id", id) };
+                    List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM releases WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -166,8 +166,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText = "SELECT * FROM releases" + whereClause
                         + " ORDER BY COALESCE(published_utc, last_update_utc) DESC, created_utc DESC OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY;";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@offset", query.Offset);
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", query.Offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -223,80 +223,63 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.WorkflowProfileId))
             {
                 conditions.Add("workflow_profile_id = @workflow_profile_id");
-                parameters.Add(new SqlParameter("@workflow_profile_id", query.WorkflowProfileId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@workflow_profile_id", query.WorkflowProfileId));
             }
             if (!String.IsNullOrWhiteSpace(query.VoyageId))
             {
                 conditions.Add("voyage_ids_json LIKE @voyage_like");
-                parameters.Add(new SqlParameter("@voyage_like", "%\"" + query.VoyageId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@voyage_like", "%\"" + query.VoyageId + "\"%"));
             }
             if (!String.IsNullOrWhiteSpace(query.MissionId))
             {
                 conditions.Add("mission_ids_json LIKE @mission_like");
-                parameters.Add(new SqlParameter("@mission_like", "%\"" + query.MissionId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@mission_like", "%\"" + query.MissionId + "\"%"));
             }
             if (!String.IsNullOrWhiteSpace(query.CheckRunId))
             {
                 conditions.Add("check_run_ids_json LIKE @check_run_like");
-                parameters.Add(new SqlParameter("@check_run_like", "%\"" + query.CheckRunId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@check_run_like", "%\"" + query.CheckRunId + "\"%"));
             }
             if (query.Status.HasValue)
             {
                 conditions.Add("status = @status");
-                parameters.Add(new SqlParameter("@status", query.Status.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@status", query.Status.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(title) LIKE @search OR LOWER(COALESCE(version, '')) LIKE @search OR LOWER(COALESCE(tag_name, '')) LIKE @search OR LOWER(COALESCE(summary, '')) LIKE @search OR LOWER(COALESCE(notes, '')) LIKE @search)");
-                parameters.Add(new SqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqlParameter("@from_utc", SqlServerDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@from_utc", "releases", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqlParameter("@to_utc", SqlServerDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@to_utc", "releases", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(SqlCommand cmd, Release release)
         {
-            cmd.Parameters.AddWithValue("@id", release.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)release.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)release.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)release.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)release.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", release.Title);
-            cmd.Parameters.AddWithValue("@version", (object?)release.Version ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@tag_name", (object?)release.TagName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@summary", (object?)release.Summary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@notes", (object?)release.Notes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", release.Status.ToString());
-            cmd.Parameters.AddWithValue("@voyage_ids_json", JsonSerializer.Serialize(release.VoyageIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@mission_ids_json", JsonSerializer.Serialize(release.MissionIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@check_run_ids_json", JsonSerializer.Serialize(release.CheckRunIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@artifacts_json", JsonSerializer.Serialize(release.Artifacts ?? new List<ReleaseArtifact>(), _Json));
-            cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(release.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(release.LastUpdateUtc));
-            cmd.Parameters.AddWithValue("@published_utc", release.PublishedUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(release.PublishedUtc.Value) : DBNull.Value);
+            ReleaseColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "releases"), release);
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

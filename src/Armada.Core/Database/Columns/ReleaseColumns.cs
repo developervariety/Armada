@@ -48,5 +48,33 @@ namespace Armada.Core.Database
             release.PublishedUtc = row.NullableUtc("published_utc");
             return release;
         }
+
+        /// <summary>
+        /// Bind every stored releases column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the releases table.</param>
+        /// <param name="release">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Release release)
+        {
+            parameters
+                .Text("id", release.Id)
+                .Text("tenant_id", release.TenantId)
+                .Text("user_id", release.UserId)
+                .Text("vessel_id", release.VesselId)
+                .Text("workflow_profile_id", release.WorkflowProfileId)
+                .Text("title", release.Title)
+                .Text("version", release.Version)
+                .Text("tag_name", release.TagName)
+                .Text("summary", release.Summary)
+                .Text("notes", release.Notes)
+                .Text("status", release.Status.ToString())
+                .Text("voyage_ids_json", JsonSerializer.Serialize(release.VoyageIds ?? new List<string>(), _Json))
+                .Text("mission_ids_json", JsonSerializer.Serialize(release.MissionIds ?? new List<string>(), _Json))
+                .Text("check_run_ids_json", JsonSerializer.Serialize(release.CheckRunIds ?? new List<string>(), _Json))
+                .Text("artifacts_json", JsonSerializer.Serialize(release.Artifacts ?? new List<ReleaseArtifact>(), _Json))
+                .Utc("created_utc", release.CreatedUtc)
+                .Utc("last_update_utc", release.LastUpdateUtc)
+                .Utc("published_utc", release.PublishedUtc);
+        }
     }
 }
