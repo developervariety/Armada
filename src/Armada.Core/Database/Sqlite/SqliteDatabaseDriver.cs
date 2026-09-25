@@ -405,7 +405,7 @@ namespace Armada.Core.Database.Sqlite
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
             Environments = new DeploymentEnvironmentMethods(_Stored);
             CheckRuns = new CheckRunMethods(_Stored);
-            Releases = new ReleaseMethods(this, _Settings, _Logging);
+            Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
             ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);

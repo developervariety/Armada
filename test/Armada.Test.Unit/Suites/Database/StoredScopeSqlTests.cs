@@ -76,6 +76,19 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(DeploymentEnvironmentMethods.Table, new DeploymentEnvironment());
             });
 
+            await RunTest("Release scope conditions keep their text, order and parameters on every provider", () =>
+            {
+                string expected = "tenant_id = @tenant_id AND user_id = @user_id AND vessel_id = @vessel_id AND workflow_profile_id = @workflow_profile_id AND voyage_ids_json LIKE @voyage_like AND mission_ids_json LIKE @mission_like AND check_run_ids_json LIKE @check_run_like AND status = @status AND (LOWER(title) LIKE @search OR LOWER(COALESCE(version, '')) LIKE @search OR LOWER(COALESCE(tag_name, '')) LIKE @search OR LOWER(COALESCE(summary, '')) LIKE @search OR LOWER(COALESCE(notes, '')) LIKE @search) AND created_utc >= @from_utc AND created_utc <= @to_utc";
+                ReleaseQuery everyFilter = new ReleaseQuery
+                {
+                    TenantId = "ten_x", UserId = "usr_x", VesselId = "vsl_x", WorkflowProfileId = "wfp_x", VoyageId = "vyg_x", MissionId = "msn_x", CheckRunId = "chk_x",
+                    Status = ReleaseStatusEnum.Candidate, Search = "Find", FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => expected, p => ReleaseMethods.Scope(ReleaseMethods.Table.Filter(), everyFilter, p), p => ReleaseMethods.Scope(ReleaseMethods.Table.Filter(), new ReleaseQuery(), p));
+                AssertEqual("COALESCE(published_utc, last_update_utc) DESC, created_utc DESC", ReleaseMethods.Order);
+                AssertTableMatchesWriter(ReleaseMethods.Table, new Release());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)

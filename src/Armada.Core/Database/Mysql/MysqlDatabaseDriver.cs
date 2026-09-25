@@ -119,7 +119,7 @@ namespace Armada.Core.Database.Mysql
             WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
             Environments = new DeploymentEnvironmentMethods(_Stored);
             CheckRuns = new CheckRunMethods(_Stored);
-            Releases = new ReleaseMethods(_ConnectionString);
+            Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_ConnectionString);
             ProjectProfiles = new ProjectProfileMethods(_ConnectionString);

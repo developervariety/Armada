@@ -420,7 +420,7 @@ namespace Armada.Core.Database.Postgresql
             WorkflowProfiles = new WorkflowProfileMethods(this);
             Environments = new DeploymentEnvironmentMethods(_Stored);
             CheckRuns = new CheckRunMethods(_Stored);
-            Releases = new ReleaseMethods(this);
+            Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_Settings);
             TokenUsage = new TokenUsageMethods(_DataSource);
