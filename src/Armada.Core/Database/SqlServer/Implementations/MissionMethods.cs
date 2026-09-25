@@ -253,7 +253,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             {
                 cmd.CommandText = "UPDATE voyages SET last_update_utc = @last_update_utc WHERE id = @voyage_id;";
                 StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
-                SqlServerDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
+                SqlServerDatabaseDriver.StoredBinder.For(cmd, "voyages").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }

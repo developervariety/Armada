@@ -331,7 +331,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 cmd.Transaction = transaction;
                 cmd.CommandText = "UPDATE voyages SET last_update_utc = @last_update_utc WHERE id = @voyage_id;";
                 StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
-                SqliteDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
+                SqliteDatabaseDriver.StoredBinder.For(cmd, "voyages").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
