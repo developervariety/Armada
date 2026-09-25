@@ -30,5 +30,24 @@ namespace Armada.Core.Database
             signal.CreatedUtc = row.Utc("created_utc");
             return signal;
         }
+
+        /// <summary>
+        /// Bind every stored signals column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the signals table.</param>
+        /// <param name="signal">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Signal signal)
+        {
+            parameters
+                .Text("id", signal.Id)
+                .Text("tenant_id", signal.TenantId)
+                .Text("user_id", signal.UserId)
+                .Text("from_captain_id", signal.FromCaptainId)
+                .Text("to_captain_id", signal.ToCaptainId)
+                .Text("type", signal.Type.ToString())
+                .Text("payload", signal.Payload)
+                .Bool("read", signal.Read)
+                .Utc("created_utc", signal.CreatedUtc);
+        }
     }
 }

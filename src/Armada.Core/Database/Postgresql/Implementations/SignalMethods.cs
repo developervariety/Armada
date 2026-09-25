@@ -18,8 +18,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #region Private-Members
 
         private NpgsqlDataSource _DataSource;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
-
         #endregion
 
         #region Constructors-and-Factories
@@ -54,15 +52,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO signals (id, tenant_id, user_id, from_captain_id, to_captain_id, type, payload, read, created_utc)
                         VALUES (@id, @tenant_id, @user_id, @from_captain_id, @to_captain_id, @type, @payload, @read, @created_utc);";
-                    cmd.Parameters.AddWithValue("@id", signal.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)signal.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)signal.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@from_captain_id", (object?)signal.FromCaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@to_captain_id", (object?)signal.ToCaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@type", signal.Type.ToString());
-                    cmd.Parameters.AddWithValue("@payload", (object?)signal.Payload ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@read", signal.Read);
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(signal.CreatedUtc));
+                    SignalColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "signals"), signal);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -86,7 +76,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM signals WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -118,7 +108,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.CommandText = unreadOnly
                         ? "SELECT * FROM signals WHERE to_captain_id = @to_captain_id AND read = FALSE ORDER BY created_utc DESC;"
                         : "SELECT * FROM signals WHERE to_captain_id = @to_captain_id ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@to_captain_id", captainId);
+                    StoredValueBinder.Value(cmd, "@to_captain_id", captainId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -146,7 +136,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM signals ORDER BY created_utc DESC LIMIT @count;";
-                    cmd.Parameters.AddWithValue("@count", count);
+                    StoredValueBinder.Value(cmd, "@count", count);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -174,7 +164,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "UPDATE signals SET read = TRUE WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -194,8 +184,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "UPDATE signals SET read = TRUE WHERE tenant_id = @tenant_id AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -214,7 +204,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM signals WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -238,22 +228,22 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "signals", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "signals", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.ToCaptainId))
                 {
                     conditions.Add("to_captain_id = @to_captain_id");
-                    parameters.Add(new NpgsqlParameter("@to_captain_id", query.ToCaptainId));
+                    parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@to_captain_id", query.ToCaptainId));
                 }
                 if (!string.IsNullOrEmpty(query.SignalType))
                 {
                     conditions.Add("type = @type");
-                    parameters.Add(new NpgsqlParameter("@type", query.SignalType));
+                    parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@type", query.SignalType));
                 }
                 if (query.UnreadOnly.HasValue && query.UnreadOnly.Value)
                 {
@@ -307,8 +297,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM signals WHERE tenant_id = @tenant_id AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -334,8 +324,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM signals WHERE tenant_id = @tenant_id AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -355,7 +345,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM signals WHERE tenant_id = @tenant_id ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -378,27 +368,27 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
             {
                 List<string> conditions = new List<string> { "tenant_id = @tenant_id" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenant_id", tenantId) };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenant_id", tenantId) };
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "signals", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "signals", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.ToCaptainId))
                 {
                     conditions.Add("to_captain_id = @to_captain_id");
-                    parameters.Add(new NpgsqlParameter("@to_captain_id", query.ToCaptainId));
+                    parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@to_captain_id", query.ToCaptainId));
                 }
                 if (!string.IsNullOrEmpty(query.SignalType))
                 {
                     conditions.Add("type = @type");
-                    parameters.Add(new NpgsqlParameter("@type", query.SignalType));
+                    parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@type", query.SignalType));
                 }
                 if (query.UnreadOnly.HasValue && query.UnreadOnly.Value)
                 {
@@ -453,8 +443,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.CommandText = unreadOnly
                         ? "SELECT * FROM signals WHERE tenant_id = @tenant_id AND to_captain_id = @to_captain_id AND read = FALSE ORDER BY created_utc DESC;"
                         : "SELECT * FROM signals WHERE tenant_id = @tenant_id AND to_captain_id = @to_captain_id ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@to_captain_id", captainId);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@to_captain_id", captainId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -478,8 +468,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM signals WHERE tenant_id = @tenant_id ORDER BY created_utc DESC LIMIT @count;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@count", count);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@count", count);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -504,9 +494,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM signals WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -531,9 +521,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM signals WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -552,8 +542,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM signals WHERE tenant_id = @tenant_id AND user_id = @user_id ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -575,27 +565,27 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
             {
                 List<string> conditions = new List<string> { "tenant_id = @tenant_id", "user_id = @user_id" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenant_id", tenantId), new NpgsqlParameter("@user_id", userId) };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenant_id", tenantId), StoredValueBinder.Parameter(new NpgsqlParameter(), "@user_id", userId) };
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "signals", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "signals", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.ToCaptainId))
                 {
                     conditions.Add("to_captain_id = @to_captain_id");
-                    parameters.Add(new NpgsqlParameter("@to_captain_id", query.ToCaptainId));
+                    parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@to_captain_id", query.ToCaptainId));
                 }
                 if (!string.IsNullOrEmpty(query.SignalType))
                 {
                     conditions.Add("type = @type");
-                    parameters.Add(new NpgsqlParameter("@type", query.SignalType));
+                    parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@type", query.SignalType));
                 }
                 if (query.UnreadOnly.HasValue && query.UnreadOnly.Value)
                 {
@@ -637,14 +627,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         #endregion
 
-        #region Private-Methods
-
-        private static string ToIso8601(DateTime dt)
-        {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        #endregion
     }
 }
 
