@@ -78,6 +78,91 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Every built-in template's current content is the last entry of its hash history", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    Dictionary<string, List<string>> history = PromptTemplateService.LoadTemplateHashHistory();
+
+                    // Regenerate mode: append each changed default's hash and write the manifest. The guard
+                    // below then passes on the next build, which embeds the written manifest.
+                    string? writePath = Environment.GetEnvironmentVariable("ARMADA_WRITE_TEMPLATE_HASHES");
+                    if (!String.IsNullOrWhiteSpace(writePath))
+                    {
+                        SortedDictionary<string, List<string>> updated = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+                        foreach (KeyValuePair<string, List<string>> entry in history) updated[entry.Key] = new List<string>(entry.Value);
+                        foreach (string name in service.EmbeddedTemplateNames)
+                        {
+                            string hash = PromptTemplateService.HashContent(service.GetEmbeddedDefault(name));
+                            if (!updated.TryGetValue(name, out List<string>? list)) updated[name] = list = new List<string>();
+                            if (list.Count == 0 || !String.Equals(list[list.Count - 1], hash, StringComparison.Ordinal)) list.Add(hash);
+                        }
+                        System.IO.File.WriteAllText(writePath, System.Text.Json.JsonSerializer.Serialize(updated, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
+                        return;
+                    }
+
+                    List<string> stale = new List<string>();
+                    foreach (string name in service.EmbeddedTemplateNames)
+                    {
+                        string hash = PromptTemplateService.HashContent(service.GetEmbeddedDefault(name));
+                        if (!history.TryGetValue(name, out List<string>? list) || list.Count == 0
+                            || !String.Equals(list[list.Count - 1], hash, StringComparison.Ordinal))
+                            stale.Add(name);
+                    }
+
+                    AssertEqual(0, stale.Count,
+                        "built-in template default changed without a hash history entry: " + String.Join(", ", stale)
+                        + ". Run the unit suite once with ARMADA_WRITE_TEMPLATE_HASHES=<repo>/src/Armada.Core/Resources/BuiltInTemplateHashes.json"
+                        + " to append the new hash, so live rows that still hold the earlier default are upgraded on the next deploy.");
+                }
+            });
+
+            await RunTest("A built-in row holding an earlier default from the hash history is upgraded, and an edited row is left alone", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    PromptTemplateService seeding = new PromptTemplateService(testDb.Driver, logging);
+                    await seeding.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    string earlierDefault = "An earlier built-in Judge default the platform wrote.";
+                    string operatorEdit = "An operator's own Ask system prompt.";
+                    PromptTemplate judge = (await testDb.Driver.PromptTemplates.ReadByNameAsync("persona.judge").ConfigureAwait(false))!;
+                    judge.Content = earlierDefault;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(judge).ConfigureAwait(false);
+                    PromptTemplate ask = (await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false))!;
+                    ask.Content = operatorEdit;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(ask).ConfigureAwait(false);
+
+                    PromptTemplateService restarted = new PromptTemplateService(testDb.Driver, logging);
+                    restarted.TemplateHashHistoryOverride = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+                    {
+                        ["persona.judge"] = new List<string>
+                        {
+                            PromptTemplateService.HashContent(earlierDefault),
+                            PromptTemplateService.HashContent(restarted.GetEmbeddedDefault("persona.judge"))
+                        }
+                    };
+                    await restarted.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate judgeAfter = (await testDb.Driver.PromptTemplates.ReadByNameAsync("persona.judge").ConfigureAwait(false))!;
+                    AssertEqual(restarted.GetEmbeddedDefault("persona.judge"), judgeAfter.Content, "a row holding an earlier default takes the current default");
+                    PromptTemplate askAfter = (await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false))!;
+                    AssertEqual(operatorEdit, askAfter.Content, "an operator's edit is never overwritten by the content upgrader");
+
+                    List<ArmadaEvent> drift = await testDb.Driver.Events.EnumerateByTypeAsync("prompt_template.content_drift", 50).ConfigureAwait(false);
+                    AssertEqual(1, drift.Count(evt => evt.EntityId == askAfter.Id), "the edited row's drift is reported");
+                    PromptTemplateService again = new PromptTemplateService(testDb.Driver, logging);
+                    await again.SeedDefaultsAsync().ConfigureAwait(false);
+                    drift = await testDb.Driver.Events.EnumerateByTypeAsync("prompt_template.content_drift", 50).ConfigureAwait(false);
+                    AssertEqual(1, drift.Count(evt => evt.EntityId == askAfter.Id), "an unchanged drift is not reported again on the next start");
+                }
+            });
+
             await RunTest("Seed defaults includes specialist persona templates", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

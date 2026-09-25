@@ -1,0 +1,81 @@
+{
+  "agent.launch_prompt": [
+    "90eb7f2fdcd17e017c1a916d66b276a4d1032e5d6ca0e22b0b051746376a4f97"
+  ],
+  "ask.system": [
+    "6ae16e8d417112316a4f70ecfef89abb02e09b3a253a5b95a163c8c4de9079cd"
+  ],
+  "commit.instructions_preamble": [
+    "a2a8116e2603a9bf738d39ffb7871ba7d19f320d3966c787c1da41bd13693f04"
+  ],
+  "landing.pr_body": [
+    "220e1695c97fe8861c5f6a15c6aefe1afa2f3a65d0f9dafbee04084d22004ba0"
+  ],
+  "mission.captain_instructions_wrapper": [
+    "77dac8227435b1b6f081767a74383bce801f21bd99a871c632d02ddad0e38f57"
+  ],
+  "mission.code_style_wrapper": [
+    "ac53d3b4f05cfb6e844908d0a6e8101c7e47a84b045f25ef74b02977fc25b7e1"
+  ],
+  "mission.context_conservation": [
+    "58fe01cffa5ddf0a2c215a67661eefc45f572d90d6227fdb54c307d13c56579f"
+  ],
+  "mission.existing_instructions_wrapper": [
+    "3e57155536f903ee9eb75da77c6c96b66fcf1767f6341d6947ee2c9aa10163da"
+  ],
+  "mission.merge_conflict_avoidance": [
+    "da8b779f8a420a6ac34a7d54dc2146ff9aa26c2eda687d86354f0729360144a6"
+  ],
+  "mission.metadata": [
+    "ea1315b7a52fb8bf743902fc2acdc1ddeca00c5790f262033c325f6ebc0b148c"
+  ],
+  "mission.model_context_wrapper": [
+    "9ef99ef294143454cf7c1bfd37f630baba7a5c13c1502365d8014c0520589ce1"
+  ],
+  "mission.playbooks_wrapper": [
+    "d7f3391a28d753a04b6592da777ed07c6ce1a284c8431a1a19ba383ac56ac560"
+  ],
+  "mission.progress_signals": [
+    "15e37a90fcccc296ebbab00f8c59ea879dcd5eb1e2ccd8cddd8515a5883231c9"
+  ],
+  "mission.project_context_wrapper": [
+    "48939e5ef5479ec25235069aa44ce9a26e11e4644055cba5e3e4f0f8d3046b0d"
+  ],
+  "mission.rules": [
+    "de02188e8f7f4a77a618f51f6fdb47e346888a0125bed67c3831d7b617067374"
+  ],
+  "mission.rules_no_push": [
+    "4cb0461b53735aa4f5ce8e6f568415ded7cdb0bea201745febd13d95a057c0e6"
+  ],
+  "persona.architect": [
+    "2021d7469366cc8b4034c9cf4f2505f2f58b8dd44984ca656eec164a11ee4398"
+  ],
+  "persona.judge": [
+    "e6fa2722cc7419371621b84a40bfceb1e164911ff403acd1ca66bb8dc2e5e7a7"
+  ],
+  "persona.linter": [
+    "978a5335cdb163f0df28b6c25c0a94ad516e1697f55793a0a72f76bd6584e1fc",
+    "0a6f06fc8dcfb7b2b9795179a1c6029ac6d58e648aef58924646bfb2e78ab757"
+  ],
+  "persona.prior_art_analyst": [
+    "a33c2153e52ddfb9a9a1a93c9378c337a214814c968f499f2654358963df01c1",
+    "5ac2b558b4b92d316b2db3a10f1347d6ac6c81ae7c9de162b5725382f28140e0"
+  ],
+  "persona.product_manager": [
+    "96812a286c7ddf1aebccb8f091518752ab0ff0295e8dec060c796fafa33925c9",
+    "d574670d35c4bfb0c130d5c01307272aa32522b5ccbdfc06023581bf8afa9831"
+  ],
+  "persona.recorder": [
+    "ee5cf7be0ba17dcc6edcb0b5ed4b8ce5aea9c40c9b41ba1dd8a0c7e74bf020f5"
+  ],
+  "persona.test_engineer": [
+    "fcb72c1465b79e9781d18938b1b9d95946e41b85462d74a76be94059b8a1a418"
+  ],
+  "persona.usability_engineer": [
+    "bc52cfaa4b5fd064577bcd79e28b51942681cd682e177b344771b1f9dcea193f",
+    "c1d9dacc208743a1a249ce9824e7bb21202192011b586ceb2acbc8f5eb399858"
+  ],
+  "persona.worker": [
+    "0d4a31b806456f92134e0ee21891cffd7e69af9fc99c75c3f0e1e389488c6aed"
+  ]
+}

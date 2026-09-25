@@ -134,6 +134,18 @@ Use these MCP tools:
 - `update_prompt_template`;
 - `reset_prompt_template`.
 
+### How built-in template defaults reach a live server
+
+`src/Armada.Core/Resources/BuiltInTemplateHashes.json` lists, per built-in
+template, the SHA-256 of every embedded default in order, the current one last.
+On startup a built-in row whose content equals an earlier entry is upgraded to
+the current default. A row that matches no entry is an operator edit: it is left
+alone and a `prompt_template.content_drift` event names it, once per pair of
+live and default content, for a manual merge. When a default changes in code,
+the unit guard "Every built-in template's current content is the last entry of
+its hash history" fails until the manifest is regenerated: run the unit suite
+once with `ARMADA_WRITE_TEMPLATE_HASHES` set to the manifest path.
+
 `create_persona` and `update_persona` accept `defaultPlaybooks`. Read the
 current persona before you replace that list. Do not attach inactive
 playbooks.

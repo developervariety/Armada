@@ -2,7 +2,9 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -25,6 +27,17 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private string _Header = "[PromptTemplateService] ";
+
+        /// <summary>
+        /// Manifest resource holding, per built-in template, the SHA-256 of every embedded content version
+        /// in order, the current version last. The content upgrader treats every earlier entry as a
+        /// superseded version, so a change to a built-in default reaches every live row that still holds an
+        /// earlier default. A unit test fails when a default changes without its new hash being appended.
+        /// </summary>
+        internal const string TemplateHashManifestResource = "Armada.Core.Resources.BuiltInTemplateHashes.json";
+
+        private static readonly Lazy<Dictionary<string, List<string>>> _TemplateHashHistory =
+            new Lazy<Dictionary<string, List<string>>>(LoadTemplateHashHistory);
 
         /// <summary>
         /// Heading of the memory-recall section. Presence of this heading means a template already
@@ -552,6 +565,56 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Replaces the assembly's hash history for this instance; null uses the assembly manifest.
+        /// </summary>
+        internal Dictionary<string, List<string>>? TemplateHashHistoryOverride { get; set; }
+
+        /// <summary>
+        /// Names of every embedded built-in template, in ordinal order.
+        /// </summary>
+        internal IReadOnlyList<string> EmbeddedTemplateNames =>
+            _EmbeddedDefaults.Keys.OrderBy(name => name, StringComparer.Ordinal).ToList();
+
+        /// <summary>
+        /// Reads the built-in template hash history from the assembly. A missing or unreadable manifest
+        /// yields an empty history, so seeding still runs; the unit guard fails on it instead.
+        /// </summary>
+        /// <returns>Hash history per template name; never null.</returns>
+        internal static Dictionary<string, List<string>> LoadTemplateHashHistory()
+        {
+            try
+            {
+                using (Stream? stream = typeof(PromptTemplateService).Assembly.GetManifestResourceStream(TemplateHashManifestResource))
+                {
+                    if (stream == null) return new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                    Dictionary<string, List<string>>? parsed = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(stream);
+                    return parsed == null
+                        ? new Dictionary<string, List<string>>(StringComparer.Ordinal)
+                        : new Dictionary<string, List<string>>(parsed, StringComparer.Ordinal);
+                }
+            }
+            catch (JsonException)
+            {
+                return new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            }
+        }
+
+        /// <summary>
+        /// Every superseded version of one built-in template: the hashes declared in code plus every
+        /// manifest entry that is not the current content.
+        /// </summary>
+        private List<string> PriorHashesFor(string name, EmbeddedTemplate embedded)
+        {
+            string current = HashContent(embedded.Content);
+            HashSet<string> priors = new HashSet<string>(embedded.PriorContentHashes, StringComparer.Ordinal);
+            Dictionary<string, List<string>> historyByName = TemplateHashHistoryOverride ?? _TemplateHashHistory.Value;
+            if (historyByName.TryGetValue(name, out List<string>? history) && history != null)
+                foreach (string hash in history) priors.Add(hash);
+            priors.Remove(current);
+            return priors.ToList();
+        }
+
+        /// <summary>
         /// Classify a built-in row's live content against the current embedded content and the known
         /// prior embedded versions. Pure and side-effect free so the upgrade rule is tested without a
         /// database: <see cref="TemplateContentDecision.Upgrade"/> only when the live content matches a
@@ -597,13 +660,12 @@ namespace Armada.Core.Services
             foreach (KeyValuePair<string, EmbeddedTemplate> pair in _EmbeddedDefaults)
             {
                 EmbeddedTemplate embedded = pair.Value;
-                if (embedded.PriorContentHashes.Count == 0) continue;
 
                 PromptTemplate? existing = await _Database.PromptTemplates.ReadByNameAsync(pair.Key, token).ConfigureAwait(false);
                 if (existing == null || !existing.IsBuiltIn) continue;
 
                 string liveContent = existing.Content ?? String.Empty;
-                TemplateContentDecision decision = ClassifyBuiltInContent(liveContent, embedded.Content, embedded.PriorContentHashes);
+                TemplateContentDecision decision = ClassifyBuiltInContent(liveContent, embedded.Content, PriorHashesFor(pair.Key, embedded));
                 if (decision == TemplateContentDecision.Current) continue;
 
                 string liveHash = HashContent(liveContent);
@@ -619,12 +681,42 @@ namespace Armada.Core.Services
                 }
                 else
                 {
+                    // Record a drift once per (live, embedded) pair: an edited row reports on every start
+                    // otherwise, and a report repeated on every deploy is one nobody reads. A new code default
+                    // or a new edit changes the pair and reports again.
+                    string driftMessage = "'" + pair.Key + "' content " + liveHash.Substring(0, 12)
+                        + " matches no embedded version (current default " + HashContent(embedded.Content).Substring(0, 12)
+                        + "); left for operator merge";
                     _Logging.Info(_Header + "built-in template '" + pair.Key + "' content " + liveHash.Substring(0, 12)
                         + " matches no known embedded version; left for operator merge");
-                    await RecordTemplateContentEventAsync(
-                        "prompt_template.content_drift", existing.Id, pair.Key,
-                        "'" + pair.Key + "' content " + liveHash.Substring(0, 12) + " matches no embedded version; left for operator merge", token).ConfigureAwait(false);
+                    if (!await IsLatestDriftReportAsync(existing.Id, driftMessage, token).ConfigureAwait(false))
+                    {
+                        await RecordTemplateContentEventAsync(
+                            "prompt_template.content_drift", existing.Id, pair.Key, driftMessage, token).ConfigureAwait(false);
+                    }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Whether the newest drift event recorded for a template row carries exactly this message. A read
+        /// failure answers false, so a drift is reported twice rather than not at all.
+        /// </summary>
+        private async Task<bool> IsLatestDriftReportAsync(string? entityId, string message, CancellationToken token)
+        {
+            try
+            {
+                List<ArmadaEvent> recent = await _Database.Events.EnumerateByTypeAsync("prompt_template.content_drift", 500, token).ConfigureAwait(false);
+                ArmadaEvent? latest = recent
+                    .Where(evt => String.Equals(evt.EntityId, entityId, StringComparison.Ordinal))
+                    .OrderByDescending(evt => evt.CreatedUtc)
+                    .FirstOrDefault();
+                return latest != null && String.Equals(latest.Message, message, StringComparison.Ordinal);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read earlier drift reports: " + ex.Message);
+                return false;
             }
         }
 

@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Built-in template defaults reach live servers:** a committed hash history
+  per built-in template lets the startup upgrader carry every row that still
+  holds an earlier default forward. A unit guard fails when a default changes
+  without its hash, and a row edited by an operator is reported once as drift
+  instead of being skipped silently.
 - **The scheduler skips unadmitted rows before previewing them:** a row whose
   recorded preflight does not admit dispatch is skipped on the record and
   counted as `dispatch_preflight`, without a dispatch preview and without
