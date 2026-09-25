@@ -37,12 +37,12 @@ namespace Armada.Core.Database
                 command.CommandText = "UPDATE docks SET git_anchors_json = @completed WHERE id = @id "
                     + "AND captain_id = @captain AND vessel_id = @vessel AND active = @active AND "
                     + BinaryEquals("git_anchors_json", "@expected", provider) + ";";
-                Add(command, "@id", dockId);
-                Add(command, "@captain", captainId);
-                Add(command, "@vessel", expected.VesselId);
-                Add(command, "@active", provider == DatabaseTypeEnum.Postgresql ? true : 1);
-                Add(command, "@expected", expected.StoredJson ?? expectedJson);
-                Add(command, "@completed", completedJson);
+                StoredValueBinder.Value(command, "@id", dockId);
+                StoredValueBinder.Value(command, "@captain", captainId);
+                StoredValueBinder.Value(command, "@vessel", expected.VesselId);
+                StoredValueBinder.For(provider).For(command, "docks").Bool("@active", "active", true);
+                StoredValueBinder.Value(command, "@expected", expected.StoredJson ?? expectedJson);
+                StoredValueBinder.Value(command, "@completed", completedJson);
                 await connection.OpenAsync(token).ConfigureAwait(false);
                 return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
             }
@@ -69,12 +69,6 @@ namespace Armada.Core.Database
                 DatabaseTypeEnum.SqlServer => "CONVERT(varbinary(max), " + left + ") = CONVERT(varbinary(max), " + right + ")",
                 _ => throw new NotSupportedException()
             };
-        }
-
-        private static void Add(DbCommand command, string name, object value)
-        {
-            DbParameter parameter = command.CreateParameter(); parameter.ParameterName = name; parameter.Value = value;
-            command.Parameters.Add(parameter);
         }
     }
 }

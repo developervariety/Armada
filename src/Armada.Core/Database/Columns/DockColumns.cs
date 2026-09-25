@@ -35,5 +35,25 @@ namespace Armada.Core.Database
             dock.LastUpdateUtc = row.Utc("last_update_utc");
             return dock;
         }
+
+        /// <summary>
+        /// Bind every stored docks column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the docks table.</param>
+        /// <param name="dock">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Dock dock)
+        {
+            parameters
+                .Text("id", dock.Id)
+                .Text("vessel_id", dock.VesselId)
+                .Text("tenant_id", dock.TenantId)
+                .Text("user_id", dock.UserId)
+                .Text("captain_id", dock.CaptainId)
+                .Text("worktree_path", dock.WorktreePath)
+                .Text("branch_name", dock.BranchName)
+                .Bool("active", dock.Active)
+                .Utc("created_utc", dock.CreatedUtc)
+                .Utc("last_update_utc", dock.LastUpdateUtc);
+        }
     }
 }
