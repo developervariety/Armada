@@ -147,7 +147,7 @@ namespace Armada.Core.Database.SqlServer
             Environments = new DeploymentEnvironmentMethods(this);
             CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(this);
-            Deployments = new DeploymentMethods(this);
+            Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
             ProjectProfiles = new ProjectProfileMethods(this);
             Skills = new SkillMethods(this);

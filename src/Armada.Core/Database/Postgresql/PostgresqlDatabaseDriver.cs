@@ -421,7 +421,7 @@ namespace Armada.Core.Database.Postgresql
             Environments = new DeploymentEnvironmentMethods(this);
             CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(this);
-            Deployments = new DeploymentMethods(this);
+            Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_Settings);
             TokenUsage = new TokenUsageMethods(_DataSource);
             ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);

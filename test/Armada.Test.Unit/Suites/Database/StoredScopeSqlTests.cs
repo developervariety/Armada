@@ -41,13 +41,27 @@ namespace Armada.Test.Unit.Suites.Database
                     ProviderName = "provider", ExternalId = "external", EnvironmentName = "staging",
                     FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
                 };
-                AssertScope(expected, p => CheckRunMethods.Scope(CheckRunMethods.Table.Filter(), everyFilter), p => CheckRunMethods.Scope(CheckRunMethods.Table.Filter(), new CheckRunQuery()));
+                AssertScope(p => expected, p => CheckRunMethods.Scope(CheckRunMethods.Table.Filter(), everyFilter), p => CheckRunMethods.Scope(CheckRunMethods.Table.Filter(), new CheckRunQuery()));
                 AssertEqual("created_utc DESC, id DESC", CheckRunMethods.Order);
             });
 
             await RunTest("CheckRun insert and update name every column the writer binds", () =>
             {
                 AssertTableMatchesWriter(CheckRunMethods.Table, new CheckRun());
+            });
+
+            await RunTest("Deployment scope conditions keep their text, order and parameters on every provider", () =>
+            {
+                string expected = "tenant_id = @tenant_id AND user_id = @user_id AND vessel_id = @vessel_id AND workflow_profile_id = @workflow_profile_id AND environment_id = @environment_id AND environment_name = @environment_name AND release_id = @release_id AND mission_id = @mission_id AND voyage_id = @voyage_id AND check_run_ids_json LIKE @check_run_like AND status = @status AND verification_status = @verification_status AND (LOWER(title) LIKE @search OR LOWER(COALESCE(source_ref, '')) LIKE @search OR LOWER(COALESCE(summary, '')) LIKE @search OR LOWER(COALESCE(notes, '')) LIKE @search OR LOWER(COALESCE(environment_name, '')) LIKE @search) AND created_utc >= @from_utc AND created_utc <= @to_utc";
+                DeploymentQuery everyFilter = new DeploymentQuery
+                {
+                    TenantId = "ten_x", UserId = "usr_x", VesselId = "vsl_x", WorkflowProfileId = "wfp_x", EnvironmentId = "env_x", EnvironmentName = "staging",
+                    ReleaseId = "rel_x", MissionId = "msn_x", VoyageId = "vyg_x", CheckRunId = "chk_x", Status = DeploymentStatusEnum.Succeeded,
+                    VerificationStatus = DeploymentVerificationStatusEnum.Passed, Search = "Find", FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => expected, p => DeploymentMethods.Scope(DeploymentMethods.Table.Filter(), everyFilter, p), p => DeploymentMethods.Scope(DeploymentMethods.Table.Filter(), new DeploymentQuery(), p));
+                AssertEqual("COALESCE(completed_utc, started_utc, last_update_utc) DESC, created_utc DESC", DeploymentMethods.Order);
+                AssertTableMatchesWriter(DeploymentMethods.Table, new Deployment());
             });
 
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
@@ -68,11 +82,12 @@ namespace Armada.Test.Unit.Suites.Database
         /// On every provider the full query writes exactly the expected conditions and binds exactly their parameters,
         /// and the empty query writes no WHERE clause at all.
         /// </summary>
-        private void AssertScope(string expected, Func<DatabaseTypeEnum, StoredFilter> everyFilter, Func<DatabaseTypeEnum, StoredFilter> noFilter)
+        private void AssertScope(Func<DatabaseTypeEnum, string> expectedFor, Func<DatabaseTypeEnum, StoredFilter> everyFilter, Func<DatabaseTypeEnum, StoredFilter> noFilter)
         {
-            List<string> expectedParameters = Regex.Matches(expected, "@[a-z_]+").Select(m => m.Value).Distinct().ToList();
             foreach (DatabaseTypeEnum provider in _Providers)
             {
+                string expected = expectedFor(provider);
+                List<string> expectedParameters = Regex.Matches(expected, "@[a-z_]+").Select(m => m.Value).Distinct().ToList();
                 StoredFilter filter = everyFilter(provider);
                 AssertEqual(expected, filter.Conjunction, provider + " conditions");
                 using (DbCommand command = Command(provider))
