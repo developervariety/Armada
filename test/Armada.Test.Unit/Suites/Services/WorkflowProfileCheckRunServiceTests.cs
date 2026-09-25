@@ -1193,6 +1193,23 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, whileLoop.Count, "while-loop command reported dependencies: " + String.Join(" | ", whileLoop));
                 }).ConfigureAwait(false);
 
+                await RunTest("Readiness does not probe a case terminator or a trap as command dependencies", async () =>
+                {
+                    List<string> caseBlock = await EvaluateBuildDependencyIssuesAsync(
+                        "case $PWD in /tmp/*) true;; esac; sh -c true").ConfigureAwait(false);
+                    AssertEqual(0, caseBlock.Count, "case block reported dependencies: " + String.Join(" | ", caseBlock));
+
+                    List<string> trap = await EvaluateBuildDependencyIssuesAsync(
+                        "trap \"rm -f ../stale\" EXIT; sh -c true").ConfigureAwait(false);
+                    AssertEqual(0, trap.Count, "trap reported dependencies: " + String.Join(" | ", trap));
+
+                    string missing = "armada-missing-binary-" + Guid.NewGuid().ToString("N");
+                    List<string> afterBoth = await EvaluateBuildDependencyIssuesAsync(
+                        "trap \"true\" EXIT; case x in y) true;; esac; " + missing + " run").ConfigureAwait(false);
+                    AssertEqual(1, afterBoth.Count, "a missing binary after trap and esac is still reported: " + String.Join(" | ", afterBoth));
+                    AssertContains(missing, afterBoth[0]);
+                }).ConfigureAwait(false);
+
                 await RunTest("Readiness still reports a real missing binary inside and outside a shell loop", async () =>
                 {
                     string missing = "armada-missing-binary-" + Guid.NewGuid().ToString("N");

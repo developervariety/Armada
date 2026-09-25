@@ -347,6 +347,27 @@ namespace Armada.Test.Automated.Suites
                 AssertContains("MissionStatusTest", text);
             }).ConfigureAwait(false);
 
+            await RunTest("ArmadaMissionStatus_IncludeDescription_ReturnsStoredDescription", async () =>
+            {
+                string missionId = await RestCreateMissionAsync("MissionStatusDescriptionTest").ConfigureAwait(false);
+
+                JsonElement plain = await CallToolAsync("armada_mission_status", new
+                {
+                    missionId = missionId
+                }).ConfigureAwait(false);
+                Mission plainMission = JsonHelper.Deserialize<Mission>(GetToolResultText(plain));
+                Assert(String.IsNullOrEmpty(plainMission.Description), "The description stays off by default.");
+
+                JsonElement withDescription = await CallToolAsync("armada_mission_status", new
+                {
+                    missionId = missionId,
+                    includeDescription = true
+                }).ConfigureAwait(false);
+                AssertToolResultValid(withDescription);
+                Mission described = JsonHelper.Deserialize<Mission>(GetToolResultText(withDescription));
+                AssertContains("Test mission for MCP", described.Description ?? "");
+            }).ConfigureAwait(false);
+
             await RunTest("ArmadaMissionStatus_NotFound_ReturnsErrorMessage", async () =>
             {
                 JsonElement result = await CallToolAsync("armada_mission_status", new

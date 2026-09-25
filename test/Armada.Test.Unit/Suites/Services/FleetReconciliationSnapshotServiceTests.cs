@@ -30,12 +30,14 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(snapshot.Voyages.Any(voyage => voyage.Id == state.OpenVoyage.Id), "The Open voyage is present.");
                     AssertTrue(snapshot.Voyages.Any(voyage => voyage.Id == state.ActiveVoyage.Id), "The InProgress voyage is present.");
                     AssertFalse(snapshot.Voyages.Any(voyage => voyage.Id == state.TerminalVoyage.Id), "The terminal voyage is absent.");
-                    AssertEqual(3, snapshot.Missions.Count, "Missions linked to active voyages and active standalone missions are present.");
-                    AssertEqual(3, snapshot.CheckRuns.Count, "Checks linked to active voyages and active standalone missions are present.");
+                    AssertEqual(4, snapshot.Missions.Count, "Missions linked to active voyages and active standalone missions, LandingFailed included, are present.");
+                    AssertEqual(4, snapshot.CheckRuns.Count, "Checks linked to active voyages and active standalone missions are present.");
                     AssertEqual(3, snapshot.Captains.Count, "All captains are present in a global snapshot.");
                     AssertTrue(snapshot.Captains.Any(captain => captain.Id == state.UnrelatedCaptain.Id), "An unrelated captain is present globally.");
                     AssertTrue(snapshot.Missions.Any(mission => mission.Id == state.StandaloneMission.Id), "An active standalone mission is present globally.");
                     AssertTrue(snapshot.CheckRuns.Any(check => check.MissionId == state.StandaloneMission.Id), "A standalone mission Check is present globally.");
+                    AssertTrue(snapshot.CheckRuns.Any(check => check.MissionId == state.LandingFailedMission.Id), "A LandingFailed mission Check is present globally.");
+                    AssertFalse(snapshot.CheckRuns.Any(check => check.MissionId == state.TerminalMission.Id), "A Check linked only to a terminal mission is absent globally.");
                 }
             }).ConfigureAwait(false);
 
@@ -120,6 +122,10 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Status = MissionStatusEnum.InProgress
             }).ConfigureAwait(false);
+            Mission landingFailedMission = await testDb.Driver.Missions.CreateAsync(new Mission("snapshot-landing-failed-mission", "large details are not needed")
+            {
+                Status = MissionStatusEnum.LandingFailed
+            }).ConfigureAwait(false);
 
             activeCaptain.CurrentMissionId = activeMission.Id;
             await testDb.Driver.Captains.UpdateAsync(activeCaptain).ConfigureAwait(false);
@@ -128,8 +134,9 @@ namespace Armada.Test.Unit.Suites.Services
             await CreateCheckAsync(testDb, activeVoyage.Id, activeMission.Id, CheckRunStatusEnum.Running).ConfigureAwait(false);
             await CreateCheckAsync(testDb, null, terminalMission.Id, CheckRunStatusEnum.Passed).ConfigureAwait(false);
             await CreateCheckAsync(testDb, null, standaloneMission.Id, CheckRunStatusEnum.Running).ConfigureAwait(false);
+            await CreateCheckAsync(testDb, null, landingFailedMission.Id, CheckRunStatusEnum.Failed).ConfigureAwait(false);
 
-            return new SeedState(openVoyage, activeVoyage, terminalVoyage, terminalMission, standaloneMission, terminalCaptain, unrelatedCaptain);
+            return new SeedState(openVoyage, activeVoyage, terminalVoyage, terminalMission, standaloneMission, landingFailedMission, terminalCaptain, unrelatedCaptain);
         }
 
         private static async Task CreateCheckAsync(
@@ -155,6 +162,7 @@ namespace Armada.Test.Unit.Suites.Services
             Voyage TerminalVoyage,
             Mission TerminalMission,
             Mission StandaloneMission,
+            Mission LandingFailedMission,
             Captain TerminalCaptain,
             Captain UnrelatedCaptain);
     }

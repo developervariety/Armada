@@ -27,11 +27,15 @@ namespace Armada.Core.Services
         {
             "cd", "echo", "set", "export", "unset", "shift", "eval", "exec", "source",
             "if", "elif", "then", "else", "fi", "while", "until", "do", "done", "call", "rem", "@echo",
-            "true", "false", "type", "exit", "return", ":", "!", "{", "}"
+            "true", "false", "type", "exit", "return", ":", "!", "{", "}",
+            "esac", "trap", "wait", "local", "readonly", "declare", "ulimit", "umask", "shopt"
         };
+        // A terminal builtin's remaining tokens are its arguments, not a program. "esac" closes a case statement
+        // after ";;" and so appears as a segment of its own; "trap" takes a command string and a signal name.
         private static readonly HashSet<string> _TerminalShellBuiltins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "echo", "@echo", "rem", "true", "false", "type", "exit", "return", ":", "fi", "done", "esac", "}"
+            "echo", "@echo", "rem", "true", "false", "type", "exit", "return", ":", "fi", "done", "esac", "}",
+            "trap", "wait", "local", "readonly", "declare", "ulimit", "umask", "shopt"
         };
         // The header of a for, select or case construct is a variable name and a word list, not a
         // command, so no token in it names a program. Probing one reports the loop variable as a

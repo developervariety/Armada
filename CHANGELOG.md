@@ -83,6 +83,24 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A watcher's reconciliation snapshot reads only linked Checks:** the global
+  and scoped snapshots read Check runs by the id of each included voyage and
+  mission. Before, they read every Check run created since the oldest active
+  record, output included; an old `LandingFailed` mission stayed in the active
+  set, so each watcher connect loaded several gigabytes of stored Check output
+  and could push the admiral past its container memory limit.
+- **A scope keeps its paragraphs in the objective brief:** the objective's
+  description renders up to 6000 characters, cut to the space left in the
+  brief with the truncation marker, instead of the 1200-character bound of one
+  list item that dropped the last instructions of longer scopes.
+- **Readiness does not probe a case terminator or a trap as a program:**
+  `esac`, `trap`, `wait`, `local`, `readonly`, `declare`, `ulimit`, `umask` and
+  `shopt` are shell builtins whose remaining tokens are arguments, so a
+  workflow command using them is no longer refused as
+  `command_dependency_missing`.
+- **`armada_mission_status` can return the mission description:** the optional
+  `includeDescription` flag returns the stored brief text, which the default
+  summary read leaves out.
 - **Every typed decision refuses an excluded vessel:** the log watch screen,
   change quality from a supplied diff, the merge-queue leak scan, and inbox and
   board-note triage now pass the vessel to the egress exclusion check, so an

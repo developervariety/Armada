@@ -159,6 +159,31 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("<!-- /armada-objective-brief -->", brief);
             }).ConfigureAwait(false);
 
+            await RunTest("Render keeps a multi-paragraph scope whole under the default limit", () =>
+            {
+                Objective objective = FullObjective();
+                string lastSentence = "The last paragraph names the provisioning command every stage must run.";
+                objective.Description = new string('s', 2800) + " " + lastSentence;
+
+                string brief = ObjectiveBriefRenderer.Render(objective);
+
+                AssertContains(lastSentence, brief);
+                AssertFalse(brief.Contains("[item truncated]", System.StringComparison.Ordinal),
+                    "A scope under the scope bound must not be truncated.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Render truncates a scope past its bound with the marker", () =>
+            {
+                Objective objective = FullObjective();
+                objective.Description = new string('s', 7000) + " tail-that-must-not-appear";
+
+                string brief = ObjectiveBriefRenderer.Render(objective);
+
+                AssertContains("[item truncated]", brief);
+                AssertFalse(brief.Contains("tail-that-must-not-appear", System.StringComparison.Ordinal),
+                    "Text past the scope bound is not rendered.");
+            }).ConfigureAwait(false);
+
             await RunTest("Render keeps acceptance criteria ahead of a huge scope", () =>
             {
                 Objective objective = FullObjective();

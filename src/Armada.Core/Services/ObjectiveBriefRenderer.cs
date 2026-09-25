@@ -16,6 +16,10 @@ namespace Armada.Core.Services
         public const int DefaultMaxPreparationChars = 8000;
         private const int _MaxItemChars = 1200;
 
+        // The scope is the objective's own prose and carries the stage instructions, so it gets a larger bound
+        // than one list item; a continuation brief regularly runs past a list item's length.
+        private const int _MaxScopeChars = 6000;
+
         /// <summary>
         /// Render one deterministic, bounded objective brief.
         /// </summary>
@@ -199,7 +203,9 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(text)) return true;
             if (!AppendAtomic(builder, heading, maxChars, true)) return false;
-            return AppendAtomic(builder, BoundItem(text), maxChars, true);
+            int remaining = maxChars - builder.Length - (Environment.NewLine.Length * 2);
+            if (remaining <= 0) return false;
+            return AppendAtomic(builder, BoundToLength(text.Trim(), Math.Min(_MaxScopeChars, remaining)), maxChars, true);
         }
 
         private static bool AppendListSection(StringBuilder builder, string heading, IEnumerable<string>? values, int maxChars)

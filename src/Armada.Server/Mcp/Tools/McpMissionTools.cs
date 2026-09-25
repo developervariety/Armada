@@ -66,16 +66,22 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        missionId = new { type = "string", description = "Mission ID (msn_ prefix)" }
+                        missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
+                        includeDescription = new { type = "boolean", description = "Return the stored mission description (the full brief text). Default false." }
                     },
                     required = new[] { "missionId" }
                 },
                 async (args) =>
                 {
-                    MissionIdArgs request = JsonSerializer.Deserialize<MissionIdArgs>(args!.Value, _JsonOptions)!;
+                    MissionStatusArgs request = JsonSerializer.Deserialize<MissionStatusArgs>(args!.Value, _JsonOptions)!;
                     string missionId = request.MissionId;
                     Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
+                    if (request.IncludeDescription)
+                    {
+                        Mission? full = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                        mission.Description = full?.Description;
+                    }
                     try
                     {
                         List<ArmadaEvent> missionEvents = await database.Events.EnumerateByMissionAsync(

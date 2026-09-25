@@ -69,17 +69,10 @@ namespace Armada.Core.Services
                 .Select(group => group.First())
                 .ToList();
 
-            HashSet<string> voyageIds = voyages.Select(voyage => voyage.Id).ToHashSet(StringComparer.Ordinal);
-            HashSet<string> missionIdsForChecks = missions.Select(mission => mission.Id).ToHashSet(StringComparer.Ordinal);
-            DateTime? checkWindowStart = voyages.Select(voyage => (DateTime?)voyage.CreatedUtc)
-                .Concat(missions.Select(mission => (DateTime?)mission.CreatedUtc))
-                .Min();
-            List<CheckRun> checks = (await ReadRelevantCheckPagesAsync(checkWindowStart, token).ConfigureAwait(false))
-                .Where(check => (!String.IsNullOrWhiteSpace(check.VoyageId) && voyageIds.Contains(check.VoyageId))
-                    || (!String.IsNullOrWhiteSpace(check.MissionId) && missionIdsForChecks.Contains(check.MissionId)))
-                .GroupBy(check => check.Id, StringComparer.Ordinal)
-                .Select(group => group.First())
-                .ToList();
+            List<CheckRun> checks = await ReadLinkedCheckRunsAsync(
+                voyages.Select(voyage => voyage.Id),
+                missions.Select(mission => mission.Id),
+                token).ConfigureAwait(false);
 
             List<Captain> allCaptains = await ReadCaptainPagesAsync(token).ConfigureAwait(false);
             if (voyageId != null)
@@ -170,18 +163,47 @@ namespace Armada.Core.Services
                 "captains").ConfigureAwait(false);
         }
 
-        private async Task<List<CheckRun>> ReadRelevantCheckPagesAsync(DateTime? fromUtc, CancellationToken token)
+        /// <summary>
+        /// Read only the check runs linked to the snapshot's voyages and missions, by id. A creation-time window is
+        /// not bounded: an old LandingFailed mission stays in the active set, so a window from the oldest active
+        /// record reads nearly every stored check run with its full output.
+        /// </summary>
+        private async Task<List<CheckRun>> ReadLinkedCheckRunsAsync(
+            IEnumerable<string> voyageIds,
+            IEnumerable<string> missionIds,
+            CancellationToken token)
         {
-            if (!fromUtc.HasValue) return new List<CheckRun>();
+            Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>(StringComparer.Ordinal);
 
-            return await ReadPagesAsync(
-                page => _Database.CheckRuns.EnumerateAsync(new CheckRunQuery
-                {
-                    FromUtc = fromUtc.Value.AddSeconds(-1),
-                    PageNumber = page,
-                    PageSize = PageSize
-                }, token),
-                "Check runs").ConfigureAwait(false);
+            foreach (string voyageId in voyageIds.Distinct(StringComparer.Ordinal))
+            {
+                List<CheckRun> linked = await ReadPagesAsync(
+                    page => _Database.CheckRuns.EnumerateAsync(new CheckRunQuery
+                    {
+                        VoyageId = voyageId,
+                        PageNumber = page,
+                        PageSize = PageSize
+                    }, token),
+                    "Check runs for voyage '" + voyageId + "'").ConfigureAwait(false);
+                foreach (CheckRun check in linked) checks.TryAdd(check.Id, check);
+                EnsureSnapshotSize(0, 0, checks.Count, 0);
+            }
+
+            foreach (string missionId in missionIds.Distinct(StringComparer.Ordinal))
+            {
+                List<CheckRun> linked = await ReadPagesAsync(
+                    page => _Database.CheckRuns.EnumerateAsync(new CheckRunQuery
+                    {
+                        MissionId = missionId,
+                        PageNumber = page,
+                        PageSize = PageSize
+                    }, token),
+                    "Check runs for mission '" + missionId + "'").ConfigureAwait(false);
+                foreach (CheckRun check in linked) checks.TryAdd(check.Id, check);
+                EnsureSnapshotSize(0, 0, checks.Count, 0);
+            }
+
+            return checks.Values.ToList();
         }
 
         private static readonly MissionStatusEnum[] ActiveMissionStatuses =
