@@ -26,9 +26,10 @@ namespace Armada.Core.Database
         /// <param name="sessionId">Id of the refinement session row.</param>
         /// <param name="field">Stored column that holds the unreadable value.</param>
         /// <param name="problem">What is wrong with the value.</param>
-        public StoredRefinementSessionDataException(string sessionId, string field, string problem)
+        /// <param name="inner">Underlying read failure, if any.</param>
+        public StoredRefinementSessionDataException(string sessionId, string field, string problem, Exception? inner = null)
             : base("Objective refinement session " + sessionId + " cannot be read: stored field " + field + " " + problem
-                + ". Repair the stored value; the session is not read with a default value in its place.")
+                + ". Repair the stored value; the session is not read with a default value in its place.", inner)
         {
             SessionId = sessionId;
             Field = field;

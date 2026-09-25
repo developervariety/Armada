@@ -210,7 +210,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ObjectiveRefinementSessionColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -231,7 +231,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
-                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
+                            reader, () => ObjectiveRefinementSessionColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -256,47 +256,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@started_utc", (object?)session.StartedUtc ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", (object?)session.CompletedUtc ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@last_update_utc", session.LastUpdateUtc);
-        }
-
-        private static ObjectiveRefinementSession FromReader(NpgsqlDataReader reader)
-        {
-            return new ObjectiveRefinementSession
-            {
-                Id = reader["id"].ToString()!,
-                ObjectiveId = reader["objective_id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                CaptainId = reader["captain_id"].ToString()!,
-                FleetId = NullableString(reader["fleet_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                Title = reader["title"].ToString()!,
-                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
-                ProcessId = NullableInt(reader["process_id"]),
-                FailureReason = NullableString(reader["failure_reason"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                StartedUtc = NullableDateTime(reader["started_utc"]),
-                CompletedUtc = NullableDateTime(reader["completed_utc"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static int? NullableInt(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt32(value);
-        }
-
-        private static DateTime? NullableDateTime(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return PostgresqlDatabaseDriver.ReadUtc(value);
         }
     }
 }

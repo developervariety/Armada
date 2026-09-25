@@ -87,7 +87,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ObjectiveRefinementMessageColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -160,7 +160,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ObjectiveRefinementMessageColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -181,24 +181,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@is_selected", message.IsSelected ? 1 : 0);
             cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(message.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(message.LastUpdateUtc));
-        }
-
-        private static ObjectiveRefinementMessage FromReader(MySqlDataReader reader)
-        {
-            return new ObjectiveRefinementMessage
-            {
-                Id = reader["id"].ToString()!,
-                ObjectiveRefinementSessionId = reader["objective_refinement_session_id"].ToString()!,
-                ObjectiveId = reader["objective_id"].ToString()!,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                Role = reader["role"].ToString()!,
-                Sequence = Convert.ToInt32(reader["sequence"]),
-                Content = MysqlDatabaseDriver.NullableString(reader["content"]) ?? String.Empty,
-                IsSelected = Convert.ToInt64(reader["is_selected"]) == 1,
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
         }
     }
 }

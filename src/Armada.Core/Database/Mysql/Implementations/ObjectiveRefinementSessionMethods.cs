@@ -212,7 +212,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ObjectiveRefinementSessionColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -233,7 +233,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
-                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
+                            reader, () => ObjectiveRefinementSessionColumns.Read(reader, MysqlDatabaseDriver.StoredValues), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -258,28 +258,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(session.StartedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(session.CompletedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(session.LastUpdateUtc));
-        }
-
-        private static ObjectiveRefinementSession FromReader(MySqlDataReader reader)
-        {
-            return new ObjectiveRefinementSession
-            {
-                Id = reader["id"].ToString()!,
-                ObjectiveId = reader["objective_id"].ToString()!,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                CaptainId = reader["captain_id"].ToString()!,
-                FleetId = MysqlDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = MysqlDatabaseDriver.NullableString(reader["vessel_id"]),
-                Title = reader["title"].ToString()!,
-                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
-                ProcessId = MysqlDatabaseDriver.NullableInt(reader["process_id"]),
-                FailureReason = MysqlDatabaseDriver.NullableString(reader["failure_reason"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                StartedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
-                CompletedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
         }
     }
 }

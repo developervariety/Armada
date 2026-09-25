@@ -123,6 +123,11 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
+- **Objective refinement sessions and messages read through shared column
+  readers:** the four provider copies of each mapper become one reader. A
+  session value that cannot be read, including a timestamp, raises
+  `StoredRefinementSessionDataException` naming the session and field, so a list
+  read skips and reports that row as it does for an unknown status.
 - **Objectives read through a shared column reader:** the four provider copies
   of the objective mapper become one reader. A stored value that cannot be
   read, including a timestamp, raises `StoredObjectiveDataException` naming the

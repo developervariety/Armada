@@ -210,7 +210,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ObjectiveRefinementSessionColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -231,7 +231,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
-                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
+                            reader, () => ObjectiveRefinementSessionColumns.Read(reader, SqlServerDatabaseDriver.StoredValues), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -256,28 +256,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(session.StartedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(session.CompletedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(session.LastUpdateUtc));
-        }
-
-        private static ObjectiveRefinementSession FromReader(SqlDataReader reader)
-        {
-            return new ObjectiveRefinementSession
-            {
-                Id = reader["id"].ToString()!,
-                ObjectiveId = reader["objective_id"].ToString()!,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                CaptainId = reader["captain_id"].ToString()!,
-                FleetId = SqlServerDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
-                Title = reader["title"].ToString()!,
-                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
-                ProcessId = SqlServerDatabaseDriver.NullableInt(reader["process_id"]),
-                FailureReason = SqlServerDatabaseDriver.NullableString(reader["failure_reason"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                StartedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
-                CompletedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
         }
     }
 }

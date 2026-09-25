@@ -186,7 +186,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ObjectiveRefinementSessionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -207,7 +207,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         results = await RefinementSessionPersistenceHelper.ReadRowsAsync(
-                            reader, () => FromReader(reader), _Logging, token).ConfigureAwait(false);
+                            reader, () => ObjectiveRefinementSessionColumns.Read(reader, SqliteDatabaseDriver.StoredValues), _Logging, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -232,28 +232,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.StartedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.CompletedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(session.LastUpdateUtc));
-        }
-
-        private static ObjectiveRefinementSession FromReader(SqliteDataReader reader)
-        {
-            return new ObjectiveRefinementSession
-            {
-                Id = reader["id"].ToString()!,
-                ObjectiveId = reader["objective_id"].ToString()!,
-                TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqliteDatabaseDriver.NullableString(reader["user_id"]),
-                CaptainId = reader["captain_id"].ToString()!,
-                FleetId = SqliteDatabaseDriver.NullableString(reader["fleet_id"]),
-                VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
-                Title = reader["title"].ToString()!,
-                Status = RefinementSessionPersistenceHelper.ParseStatus(reader["status"], reader["id"].ToString()!),
-                ProcessId = SqliteDatabaseDriver.NullableInt(reader["process_id"]),
-                FailureReason = SqliteDatabaseDriver.NullableString(reader["failure_reason"]),
-                CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                StartedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
-                CompletedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                LastUpdateUtc = SqliteDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
         }
     }
 }

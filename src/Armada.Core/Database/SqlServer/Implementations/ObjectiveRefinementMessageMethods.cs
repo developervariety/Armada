@@ -87,7 +87,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return ObjectiveRefinementMessageColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -160,7 +160,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(ObjectiveRefinementMessageColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -181,24 +181,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@is_selected", message.IsSelected);
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(message.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(message.LastUpdateUtc));
-        }
-
-        private static ObjectiveRefinementMessage FromReader(SqlDataReader reader)
-        {
-            return new ObjectiveRefinementMessage
-            {
-                Id = reader["id"].ToString()!,
-                ObjectiveRefinementSessionId = reader["objective_refinement_session_id"].ToString()!,
-                ObjectiveId = reader["objective_id"].ToString()!,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                Role = reader["role"].ToString()!,
-                Sequence = Convert.ToInt32(reader["sequence"]),
-                Content = SqlServerDatabaseDriver.NullableString(reader["content"]) ?? String.Empty,
-                IsSelected = Convert.ToBoolean(reader["is_selected"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
         }
     }
 }

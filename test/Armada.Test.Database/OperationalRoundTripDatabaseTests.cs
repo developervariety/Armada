@@ -2085,6 +2085,91 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyObjectiveRefinementsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? sessionId = null;
+            string? messageId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("refinement-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "refinement-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "refinement-round-trip", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "refinement-round-trip", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "refinement-round-trip", token).ConfigureAwait(false);
+                Objective objective = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "refinement-round-trip", token: token).ConfigureAwait(false);
+
+                // Sub-second digits and a date far from the host's daylight-saving rules make a host-offset read visible.
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                ObjectiveRefinementSession session = new ObjectiveRefinementSession
+                {
+                    ObjectiveId = objective.Id,
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    CaptainId = captain.Id,
+                    FleetId = fleet.Id,
+                    VesselId = vessel.Id,
+                    Title = "Refinement ユニコード",
+                    Status = ObjectiveRefinementSessionStatusEnum.Failed,
+                    ProcessId = 424242,
+                    FailureReason = "Failure reason ユニコード",
+                    CreatedUtc = baseUtc.AddMinutes(-5),
+                    StartedUtc = baseUtc.AddMinutes(-4),
+                    CompletedUtc = baseUtc,
+                    LastUpdateUtc = baseUtc.AddMinutes(1)
+                };
+                ObjectiveRefinementSession createdSession = await _Driver.ObjectiveRefinementSessions.CreateAsync(session, token).ConfigureAwait(false);
+                sessionId = createdSession.Id;
+                DatabaseAssert.AllProperties(createdSession, await _Driver.ObjectiveRefinementSessions.ReadAsync(createdSession.Id, token).ConfigureAwait(false), "ObjectiveRefinementSession");
+                DatabaseAssert.AllProperties(createdSession, await _Driver.ObjectiveRefinementSessions.ReadAsync(tenant.Id, user.Id, createdSession.Id, token).ConfigureAwait(false), "ObjectiveRefinementSession by tenant and user");
+                List<ObjectiveRefinementSession> byObjective = await _Driver.ObjectiveRefinementSessions.EnumerateByObjectiveAsync(objective.Id, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(createdSession, byObjective.Find(item => item.Id == createdSession.Id), "ObjectiveRefinementSession by objective");
+
+                ObjectiveRefinementMessage message = new ObjectiveRefinementMessage
+                {
+                    ObjectiveRefinementSessionId = createdSession.Id,
+                    ObjectiveId = objective.Id,
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Role = "Assistant",
+                    Sequence = 7,
+                    Content = "Message content ユニコード",
+                    IsSelected = true,
+                    CreatedUtc = baseUtc.AddMinutes(-3),
+                    LastUpdateUtc = baseUtc.AddMinutes(-2)
+                };
+                ObjectiveRefinementMessage createdMessage = await _Driver.ObjectiveRefinementMessages.CreateAsync(message, token).ConfigureAwait(false);
+                messageId = createdMessage.Id;
+                DatabaseAssert.AllProperties(createdMessage, await _Driver.ObjectiveRefinementMessages.ReadAsync(createdMessage.Id, token).ConfigureAwait(false), "ObjectiveRefinementMessage");
+                List<ObjectiveRefinementMessage> bySession = await _Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(createdSession.Id, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(createdMessage, bySession.Find(item => item.Id == createdMessage.Id), "ObjectiveRefinementMessage by session");
+
+                createdSession.FleetId = null;
+                createdSession.VesselId = null;
+                createdSession.Status = ObjectiveRefinementSessionStatusEnum.Created;
+                createdSession.ProcessId = null;
+                createdSession.FailureReason = null;
+                createdSession.StartedUtc = null;
+                createdSession.CompletedUtc = null;
+                ObjectiveRefinementSession updatedSession = await _Driver.ObjectiveRefinementSessions.UpdateAsync(createdSession, token).ConfigureAwait(false);
+                createdMessage.Sequence = 0;
+                createdMessage.Content = String.Empty;
+                createdMessage.IsSelected = false;
+                ObjectiveRefinementMessage updatedMessage = await _Driver.ObjectiveRefinementMessages.UpdateAsync(createdMessage, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updatedSession, await reopened.ObjectiveRefinementSessions.ReadAsync(createdSession.Id, token).ConfigureAwait(false), "Reopened ObjectiveRefinementSession");
+                    DatabaseAssert.AllProperties(updatedMessage, await reopened.ObjectiveRefinementMessages.ReadAsync(createdMessage.Id, token).ConfigureAwait(false), "Reopened ObjectiveRefinementMessage");
+                }
+            }
+            finally
+            {
+                if (messageId != null && !_NoCleanup) await _Driver.ObjectiveRefinementMessages.DeleteAsync(messageId, token).ConfigureAwait(false);
+                if (sessionId != null && !_NoCleanup) await _Driver.ObjectiveRefinementSessions.DeleteAsync(sessionId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
