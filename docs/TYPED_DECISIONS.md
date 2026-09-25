@@ -549,6 +549,14 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   finding becomes an **evidence note**; a routing note is prepended to the next
   brief. The Linter's own result is unchanged — only the routing is. With the
   decision `Off` the Linter output flows unchanged.
+- `memory_relevance` sits on brief generation, over the ranked memory leaves
+  retrieved for the mission (never the core rules or the safety leaves). The
+  model answers one `applies_N` Noul per leaf, naming it by `leaves[i]`: does this
+  rule apply to the work the mission describes. A leaf whose "does not apply"
+  reading is at or above the threshold is delivered in the brief's **reference**
+  files instead of its read-first files. It **never removes a leaf**: every leaf
+  is still delivered in full, and a missing answer reads as "applies". With the
+  decision `Off`, unavailable, or below threshold, every leaf is read-first.
 
 Two decision points read the papercut grouping:
 

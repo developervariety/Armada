@@ -199,22 +199,31 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
 
 - **`briefSlimmingEnabled` (default `false`).** While `false`, brief generation
   uses the full memory-reading instruction, and no retrieval runs for the brief. Enabling it is a separate, deliberate step.
-- While `true`, the Shared Memory section is built from a retrieval request
-  scoped to the mission's persona and vessel, with a query from the mission's
-  title and description. It carries the always-on core rules inline, the
-  mission's must-retrieve safety leaves and ranked relevant leaves within
+- While `true`, the memory is built from a retrieval request scoped to the
+  mission's persona and vessel, with a query from the mission's title and
+  description: the always-on core rules, the mission's must-retrieve safety
+  leaves, and ranked relevant leaves within
   `contextRetrieval.briefLeafBudgetBytes` (default 24000; core and must-retrieve
-  are exempt), and a one-line pointer to `armada_fetch_context` for anything
-  else by topic. It never tells the captain to read every file under `shared/`.
+  are exempt). The memory is written into the dock as files under
+  `_briefing/memory/`, not inline in the instruction file. Each file stays under
+  9,000 bytes and 200 lines so a captain reads it in one call on every runtime;
+  a chunk larger than that is split on line boundaries, and nothing is cut. The
+  brief's Shared Memory section lists the files in reading order: **Read first**
+  (core rules, then safety leaves and the leaves that apply), then **Reference**
+  (leaves the `memory_relevance` typed decision judged not to apply to the
+  mission's work; still delivered in full). The section ends with a one-line
+  pointer to `armada_fetch_context` for anything else by topic. It never tells
+  the captain to read every file under `shared/`. A copy of the delivered files
+  is kept beside the instruction snapshot, under `<mission id>.memory/`.
 - **Fail-safe.** When no context index was built, or retrieval returns a
   degraded (fail-safe) result or no core, the section falls back to the full
   read-every-file memory section and logs a warning. A failure therefore
   degrades to today's behaviour, never to fewer rules, and never to an empty
   section.
-- **Telemetry.** When the flag is on, the slimmed section's core, must-retrieve,
-  and leaf byte counts (and any fallback) are recorded under `ContextSlimming`
-  on the `mission.prompt_budget` event, so the per-persona before/after cost is
-  measurable.
+- **Telemetry.** When the flag is on, the core, must-retrieve, and leaf byte
+  counts, the delivered file count and bytes, the number of reference leaves,
+  the leaf-sort outcome, and any fallback are recorded under `ContextSlimming`
+  on the `mission.prompt_budget` event.
 
 The flag is runtime-tunable: it is merged in place on a settings hot reload, so
 it can be turned on or off from the watched settings file without an Admiral

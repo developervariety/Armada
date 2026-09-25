@@ -822,6 +822,10 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.LintFindingAdapter = new TypedLintFindingAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                // memory_relevance sorts a brief's retrieved memory leaves into read-first and reference
+                // files. It never removes a leaf; set Off, every leaf stays read-first.
+                missionService.MemoryRelevanceAdapter = new TypedMemoryRelevanceAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 // Operator-defined custom decisions on the MissionDiff surface read a Worker stage's diff
                 // at handoff. Each follows its own mode under the global cap; a bound flag only adds a
                 // Judge review instruction to the next brief.

@@ -83,6 +83,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Brief memory is delivered as files:** with brief slimming on, the core
+  rules and the mission's retrieved leaves are written into the dock under
+  `_briefing/memory/` as files that each fit one read, and the brief's Shared
+  Memory section lists them. Memory no longer counts against the instruction
+  file's byte budget, so the budget backstop stops eliding a mission's own
+  scope, playbooks and description to make room for memory. The new
+  `memory_relevance` typed decision sorts retrieved leaves into read-first and
+  reference files without removing any.
 - **A watcher's reconciliation snapshot reads only linked Checks:** the global
   and scoped snapshots read Check runs by the id of each included voyage and
   mission. Before, they read every Check run created since the oldest active

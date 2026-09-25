@@ -344,6 +344,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new FollowUpRoutingAdapterTests());
             runner.AddSuite(new TypedRevisionKindAdapterTests());
             runner.AddSuite(new TypedTestCoversAdapterTests());
+            runner.AddSuite(new TypedMemoryRelevanceAdapterTests());
             runner.AddSuite(new ToolOutputRetentionTests());
             runner.AddSuite(new TypedDecisionEgressRuleTests());
             runner.AddSuite(new TypedLintFindingAdapterTests());

@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.TestHelpers
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Context;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -336,6 +337,17 @@ namespace Armada.Test.Unit.TestHelpers
                         AddedTests = new List<TestCoversMethod> { new TestCoversMethod("Decode_TruncatesCounter_ReturnsByte", "AssertEqual(0x08, decoder.Decode(frame));") },
                         Symptom = "The decoder truncates the counter."
                     }, TestCoversVerdict.NoInstructions(), CancellationToken.None).ConfigureAwait(false);
+                    return MissionId;
+                }),
+                new SeamDriver("memory_relevance", "brief_memory", null, async (SeamContext ctx) =>
+                {
+                    await new TypedMemoryRelevanceAdapter(ctx.Client, ctx.Recorder, ctx.Typed, Quiet()).SortAsync(
+                        LinkMission(ctx.VesselId, "Worker"),
+                        new List<ContextChunk>
+                        {
+                            new ContextChunk { Topic = "leaf.decoder", Summary = "Decoder counters are bytes.", ReadWhen = "When the task touches the decoder.", Text = "Decode the counter as one byte." }
+                        },
+                        CancellationToken.None).ConfigureAwait(false);
                     return MissionId;
                 }),
                 new SeamDriver("lint_finding", "linter", null, async (SeamContext ctx) =>

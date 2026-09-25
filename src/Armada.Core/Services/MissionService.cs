@@ -48,6 +48,13 @@ namespace Armada.Core.Services
         public Action<Mission>? OnReviewRequested { get; set; }
 
         /// <summary>
+        /// Optional <c>memory_relevance</c> adapter. It sorts a brief's ranked memory leaves into read-first
+        /// and reference files; it only reorders reading, and every leaf is still delivered. Null, or the
+        /// decision set Off, keeps every leaf read-first.
+        /// </summary>
+        public TypedMemoryRelevanceAdapter? MemoryRelevanceAdapter { get; set; }
+
+        /// <summary>
         /// Optional definition-of-done gate that runs in-dock build and unit-test commands
         /// before a Worker mission is accepted as complete. When set, the gate is evaluated
         /// after diff capture and before handoff/landing. A failing gate sets the mission to
@@ -3038,17 +3045,26 @@ namespace Armada.Core.Services
             // that AI-Memory existed when the vessel's own instruction file happened to mention it, so
             // the same fleet-wide memory was visible to some captains and invisible to others.
             //
-            // The section is built once through BuildMemorySection: with brief slimming OFF (the
-            // default) it is byte-for-byte the full read-every-file section; with slimming ON it is
-            // the always-on core plus the mission's retrieved leaves, falling back to the full section
-            // if retrieval is unavailable or degraded. Its telemetry rides the prompt-budget event.
+            // The section is built once through BuildMemoryDeliveryAsync: with brief slimming OFF it is
+            // byte-for-byte the full read-every-file section; with slimming ON the always-on core and the
+            // mission's retrieved leaves are written as bounded files under _briefing/memory/ and the
+            // section lists them, falling back to the full section if retrieval is unavailable or
+            // degraded. Its telemetry rides the prompt-budget event.
             ContextBriefTelemetry? memorySlimming = null;
+            List<ContextBriefFile> memoryFiles = new List<ContextBriefFile>();
             if (!String.IsNullOrWhiteSpace(_Settings.AiMemoryRoot))
             {
                 string? memoryFolderReason;
                 string? memoryRepoFolder = ResolveMemoryRepoFolder(_Settings.AiMemoryRoot, vessel.Name, out memoryFolderReason);
                 if (memoryRepoFolder == null) LogUnresolvedMemoryFolderOnce(vessel.Name, memoryFolderReason);
-                string memorySection = BuildMemorySection(
+                Func<List<ContextChunk>, CancellationToken, Task<ContextLeafSort>>? sortLeaves = null;
+                TypedMemoryRelevanceAdapter? relevanceAdapter = MemoryRelevanceAdapter;
+                if (relevanceAdapter != null && _Settings.TypedDecisions.For("memory_relevance").Mode != TypedDecisionModeEnum.Off)
+                {
+                    Mission briefedMission = mission;
+                    sortLeaves = (leaves, ct) => relevanceAdapter.SortAsync(briefedMission, leaves, ct);
+                }
+                ContextBriefDelivery memoryDelivery = await BuildMemoryDeliveryAsync(
                     _Settings.ContextRetrieval.BriefSlimmingEnabled,
                     _ContextRetrievalProvider?.Invoke(),
                     _Settings.AiMemoryRoot!, memoryRepoFolder, memoryFolderReason,
@@ -3056,8 +3072,12 @@ namespace Armada.Core.Services
                     BuildMemoryRetrievalQuery(mission),
                     _Settings.ContextRetrieval.BriefLeafBudgetBytes,
                     _Settings.ContextRetrieval.FetchToolEnabled,
-                    _Logging, out memorySlimming);
-                content += ledger.Track("mission.ai_memory", memorySection);
+                    sortLeaves,
+                    _Logging, token).ConfigureAwait(false);
+                memorySlimming = memoryDelivery.Telemetry;
+                memoryFiles = memoryDelivery.Files;
+                await WriteMemoryFilesAsync(worktreePath, memoryFiles, token).ConfigureAwait(false);
+                content += ledger.Track("mission.ai_memory", memoryDelivery.Section);
                 content += "\n";
 
                 // Facts about this vessel that cannot be fixed today. Empty by default, and meant to
@@ -3249,6 +3269,19 @@ namespace Armada.Core.Services
                 Directory.CreateDirectory(instructionsSnapshotDir);
                 string snapshotPath = Path.Combine(instructionsSnapshotDir, mission.Id + "." + instructionsFileName);
                 await File.WriteAllTextAsync(snapshotPath, content).ConfigureAwait(false);
+
+                // The memory files the brief lists are part of what the captain was sent; keep them beside
+                // the instruction snapshot so a review can read exactly what was delivered.
+                string memorySnapshotDir = Path.Combine(instructionsSnapshotDir, mission.Id + ".memory");
+                if (Directory.Exists(memorySnapshotDir)) Directory.Delete(memorySnapshotDir, true);
+                if (memoryFiles.Count > 0)
+                {
+                    Directory.CreateDirectory(memorySnapshotDir);
+                    foreach (ContextBriefFile memoryFile in memoryFiles)
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(memorySnapshotDir, Path.GetFileName(memoryFile.RelativePath)), memoryFile.Content).ConfigureAwait(false);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -3360,7 +3393,11 @@ namespace Armada.Core.Services
                         memorySlimming.MustRetrieveCount,
                         memorySlimming.LeafBytes,
                         memorySlimming.LeafCount,
-                        memorySlimming.SectionBytes
+                        memorySlimming.SectionBytes,
+                        memorySlimming.FileCount,
+                        memorySlimming.FileBytes,
+                        memorySlimming.ReferenceLeafCount,
+                        memorySlimming.LeafSortOutcome
                     }
                 });
 
@@ -3513,17 +3550,45 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Build the AI-Memory brief section, through one seam whether or not brief slimming is on.
+        /// Writes the delivered memory files into the dock, replacing any left by an earlier mission in the
+        /// same dock. With no files it only removes the stale folder, so a full-section brief never sits
+        /// beside another mission's memory.
+        /// </summary>
+        /// <param name="worktreePath">Dock worktree path.</param>
+        /// <param name="files">Files to write; may be empty.</param>
+        /// <param name="token">Cancellation token.</param>
+        internal static async Task WriteMemoryFilesAsync(string worktreePath, List<ContextBriefFile> files, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) return;
+
+            string folder = Path.Combine(worktreePath, ContextBriefRenderer.MemoryFolder.Replace('/', Path.DirectorySeparatorChar));
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            if (files == null || files.Count == 0) return;
+
+            Directory.CreateDirectory(folder);
+            foreach (ContextBriefFile file in files)
+            {
+                string path = Path.Combine(worktreePath, file.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+                await File.WriteAllTextAsync(path, file.Content, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Build the AI-Memory part of the brief, through one seam whether or not brief slimming is on.
         ///
-        /// With <paramref name="slimmingEnabled"/> FALSE (the default) it returns exactly
-        /// <see cref="BuildAiMemorySection(string, string?, string?)"/>, so the brief is byte-for-byte
-        /// unchanged and <paramref name="telemetry"/> is null. With it TRUE it replaces the section
-        /// with the always-on core plus the mission's retrieved leaves and a one-line fetch-tool
-        /// pointer, and never tells the captain to read every file under shared/.
+        /// With <paramref name="slimmingEnabled"/> FALSE it returns exactly
+        /// <see cref="BuildAiMemorySection(string, string?, string?)"/> with no files and no telemetry. With
+        /// it TRUE it delivers the always-on core plus the mission's retrieved leaves as bounded files in
+        /// the dock, and a short section that lists them with a one-line fetch-tool pointer. It never tells
+        /// the captain to read every file under shared/.
+        ///
+        /// When <paramref name="sortLeaves"/> is supplied it sorts the ranked leaves into read-first and
+        /// reference material. A sort never removes a leaf; when it throws, every leaf stays read-first and
+        /// the failure is recorded on the telemetry.
         ///
         /// Fail-safe: when the retrieval service is unavailable (no built index) or its result is
         /// degraded or empty of core, it falls back to the full memory section rather than shipping a
-        /// captain fewer rules. A failure therefore degrades to today's behaviour, never to less; the
+        /// captain fewer rules. A failure therefore degrades to the full section, never to less; the
         /// fallback is logged and recorded on the returned telemetry, never silent.
         /// </summary>
         /// <param name="slimmingEnabled">Whether the slimming flag is on for this brief.</param>
@@ -3536,10 +3601,11 @@ namespace Armada.Core.Services
         /// <param name="query">The relevance query built from the mission. May be empty.</param>
         /// <param name="leafBudgetBytes">The ranked-leaf byte budget.</param>
         /// <param name="fetchToolEnabled">Whether to emit the on-demand fetch-tool pointer.</param>
+        /// <param name="sortLeaves">Optional sorter for the ranked leaves. May be null.</param>
         /// <param name="logging">Optional logging for the fallback warning.</param>
-        /// <param name="telemetry">The section accounting when slimming was on; null when off.</param>
-        /// <returns>The rendered AI-Memory section.</returns>
-        internal static string BuildMemorySection(
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The section, the files to write, and the telemetry (null when slimming is off).</returns>
+        internal static async Task<ContextBriefDelivery> BuildMemoryDeliveryAsync(
             bool slimmingEnabled,
             ContextRetrievalService? retrieval,
             string memoryRoot,
@@ -3550,33 +3616,30 @@ namespace Armada.Core.Services
             string query,
             int leafBudgetBytes,
             bool fetchToolEnabled,
+            Func<List<ContextChunk>, CancellationToken, Task<ContextLeafSort>>? sortLeaves,
             LoggingModule? logging,
-            out ContextBriefTelemetry? telemetry)
+            CancellationToken token = default)
         {
             if (!slimmingEnabled)
             {
-                telemetry = null;
-                return BuildAiMemorySection(memoryRoot, repoFolder, unresolvedReason);
+                return new ContextBriefDelivery { Section = BuildAiMemorySection(memoryRoot, repoFolder, unresolvedReason) };
             }
 
             ContextBriefTelemetry t = new ContextBriefTelemetry { Enabled = true };
 
-            string FallBack(string reason)
+            ContextBriefDelivery FallBack(string reason)
             {
                 logging?.Warn("[MissionService] brief slimming fell back to the full memory section: " + reason);
                 t.FellBack = true;
                 t.FallbackReason = reason;
                 string full = BuildAiMemorySection(memoryRoot, repoFolder, unresolvedReason);
                 t.SectionBytes = System.Text.Encoding.UTF8.GetByteCount(full);
-                return full;
+                return new ContextBriefDelivery { Section = full, Telemetry = t };
             }
 
-            if (retrieval == null)
-            {
-                telemetry = t;
-                return FallBack("no built context index");
-            }
+            if (retrieval == null) return FallBack("no built context index");
 
+            ContextRetrievalResult result;
             try
             {
                 ContextRetrievalRequest request = new ContextRetrievalRequest
@@ -3587,42 +3650,57 @@ namespace Armada.Core.Services
                     MaxLeafBytes = leafBudgetBytes
                 };
 
-                ContextRetrievalResult result = retrieval.Retrieve(request);
-
-                // A degraded (internally failed) result, or one with no core, is not trusted for the
-                // slimmed section: fall back to the full one. The full section names the whole tree,
-                // so it is always at least as safe as any partial set.
-                if (result == null || result.Core == null || result.Core.Count == 0)
-                {
-                    telemetry = t;
-                    return FallBack("retrieval returned no core");
-                }
-                if (result.Degraded)
-                {
-                    t.Degraded = true;
-                    telemetry = t;
-                    return FallBack("retrieval degraded" + (String.IsNullOrEmpty(result.Note) ? "" : ": " + result.Note));
-                }
-
-                string section = ContextBriefRenderer.Render(result, memoryRoot, repoFolder, fetchToolEnabled);
-
-                t.CoreCount = result.Core.Count;
-                t.CoreBytes = result.Core.Sum(c => c.Bytes);
-                t.MustRetrieveCount = result.MustRetrieve.Count;
-                t.MustRetrieveBytes = result.MustRetrieve.Sum(c => c.Bytes);
-                t.LeafCount = result.Leaves.Count;
-                t.LeafBytes = result.Leaves.Sum(c => c.Bytes);
-                t.SectionBytes = System.Text.Encoding.UTF8.GetByteCount(section);
-                telemetry = t;
-                return section;
+                result = retrieval.Retrieve(request);
             }
             catch (Exception ex)
             {
                 // Retrieval never throws by contract, but the seam must not fail a dispatch on any
-                // surprise: degrade to today's full section.
-                telemetry = t;
+                // surprise: degrade to the full section.
                 return FallBack("retrieval error: " + ex.Message);
             }
+
+            // A degraded (internally failed) result, or one with no core, is not trusted for the
+            // slimmed section: fall back to the full one. The full section names the whole tree,
+            // so it is always at least as safe as any partial set.
+            if (result == null || result.Core == null || result.Core.Count == 0)
+                return FallBack("retrieval returned no core");
+            if (result.Degraded)
+            {
+                t.Degraded = true;
+                return FallBack("retrieval degraded" + (String.IsNullOrEmpty(result.Note) ? "" : ": " + result.Note));
+            }
+
+            HashSet<string>? referenceTopics = null;
+            if (sortLeaves != null && result.Leaves != null && result.Leaves.Count > 0)
+            {
+                try
+                {
+                    ContextLeafSort sort = await sortLeaves(result.Leaves, token).ConfigureAwait(false);
+                    referenceTopics = sort?.ReferenceTopics;
+                    t.LeafSortOutcome = sort?.Outcome;
+                }
+                catch (Exception ex)
+                {
+                    // A sort only reorders reading; its failure keeps every leaf read-first.
+                    logging?.Warn("[MissionService] memory leaf sort failed; every leaf stays read-first: " + ex.Message);
+                    t.LeafSortOutcome = "error";
+                }
+            }
+
+            ContextBriefDelivery delivery = ContextBriefRenderer.RenderDelivery(result, memoryRoot, repoFolder, fetchToolEnabled, referenceTopics);
+
+            t.CoreCount = result.Core.Count;
+            t.CoreBytes = result.Core.Sum(c => c.Bytes);
+            t.MustRetrieveCount = result.MustRetrieve.Count;
+            t.MustRetrieveBytes = result.MustRetrieve.Sum(c => c.Bytes);
+            t.LeafCount = result.Leaves.Count;
+            t.LeafBytes = result.Leaves.Sum(c => c.Bytes);
+            t.ReferenceLeafCount = referenceTopics == null ? 0 : result.Leaves.Count(c => referenceTopics.Contains(c.Topic));
+            t.SectionBytes = System.Text.Encoding.UTF8.GetByteCount(delivery.Section);
+            t.FileCount = delivery.Files.Count;
+            t.FileBytes = delivery.Files.Sum(f => f.Bytes);
+            delivery.Telemetry = t;
+            return delivery;
         }
 
         /// <summary>

@@ -23,25 +23,40 @@ namespace Armada.Core.Context
         /// <summary>True when retrieval returned a degraded (fail-safe) result.</summary>
         public bool Degraded { get; set; }
 
-        /// <summary>UTF-8 bytes of the always-on core chunks shipped inline.</summary>
+        /// <summary>UTF-8 bytes of the always-on core chunks delivered.</summary>
         public int CoreBytes { get; set; }
 
-        /// <summary>Count of always-on core chunks shipped inline.</summary>
+        /// <summary>Count of always-on core chunks delivered.</summary>
         public int CoreCount { get; set; }
 
-        /// <summary>UTF-8 bytes of the matching-domain must-retrieve safety leaves shipped inline.</summary>
+        /// <summary>UTF-8 bytes of the matching-domain must-retrieve safety leaves delivered.</summary>
         public int MustRetrieveBytes { get; set; }
 
-        /// <summary>Count of matching-domain must-retrieve safety leaves shipped inline.</summary>
+        /// <summary>Count of matching-domain must-retrieve safety leaves delivered.</summary>
         public int MustRetrieveCount { get; set; }
 
-        /// <summary>UTF-8 bytes of the ranked, retrieved leaves shipped inline.</summary>
+        /// <summary>UTF-8 bytes of the ranked, retrieved leaves delivered.</summary>
         public int LeafBytes { get; set; }
 
-        /// <summary>Count of ranked, retrieved leaves shipped inline.</summary>
+        /// <summary>Count of ranked, retrieved leaves delivered.</summary>
         public int LeafCount { get; set; }
 
-        /// <summary>UTF-8 bytes of the whole rendered section, whichever path produced it.</summary>
+        /// <summary>UTF-8 bytes of the section written into the instruction file, whichever path produced it.</summary>
         public int SectionBytes { get; set; }
+
+        /// <summary>Count of memory files delivered into the dock; zero on the full-section path.</summary>
+        public int FileCount { get; set; }
+
+        /// <summary>UTF-8 bytes of the memory files delivered into the dock.</summary>
+        public int FileBytes { get; set; }
+
+        /// <summary>Count of ranked leaves delivered as reference material rather than read-first.</summary>
+        public int ReferenceLeafCount { get; set; }
+
+        /// <summary>
+        /// How the ranked leaves were sorted into read-first and reference: null when no sort ran, otherwise
+        /// the sorter's outcome (for example the rule's verdict, a gated decision, or unavailable).
+        /// </summary>
+        public string? LeafSortOutcome { get; set; }
     }
 }

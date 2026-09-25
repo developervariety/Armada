@@ -37,6 +37,7 @@ namespace Armada.Core.Services
             ["memory_review"] = "Whether a reviewed memory's salience should be lowered.",
             ["lint_finding"] = "How a Linter finding routes to the next stage.",
             ["prior_art"] = "Whether the requested work already exists before a stage begins.",
+            ["memory_relevance"] = "Whether a retrieved memory leaf applies to a mission's work, which sorts it into the brief's read-first or reference files.",
             ["change_quality"] = "A multi-dimension quality read of a focused diff: DRY, cognitive complexity, modularity, readability, and maintainability."
         };
 
