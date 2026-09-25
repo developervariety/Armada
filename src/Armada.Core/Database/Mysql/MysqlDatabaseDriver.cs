@@ -327,7 +327,7 @@ namespace Armada.Core.Database.Mysql
 
         #region Private-Methods
 
-        private static List<SchemaMigration> GetMigrations()
+        internal static List<SchemaMigration> GetMigrations()
         {
             List<string> initialStatements = new List<string>
             {

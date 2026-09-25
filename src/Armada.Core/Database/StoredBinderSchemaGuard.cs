@@ -12,8 +12,9 @@ namespace Armada.Core.Database
     /// Refuses startup when the live schema stores a column in a form the provider's stored value binder does not
     /// write. After migrations every timestamp column must hold the binder's form for it (a zone-less timestamp type,
     /// PostgreSQL TIMESTAMPTZ, or text), every column the binder names must exist, and every boolean the binder
-    /// stores as an integer must be an integer column. Backup tables are copies the code never writes and are not
-    /// checked. The refusal lists every mismatch, so one start names the whole drift.
+    /// stores as an integer must be an integer column. Only tables the provider's own schema statements create are
+    /// checked; any other table, such as an operator's backup copy, is not the code's and is ignored whatever its
+    /// name. The refusal lists every mismatch, so one start names the whole drift.
     /// </summary>
     internal static class StoredBinderSchemaGuard
     {
@@ -29,7 +30,7 @@ namespace Armada.Core.Database
         {
             if (connection == null) throw new ArgumentNullException(nameof(connection));
             Dictionary<string, string> columns = await ReadColumnTypesAsync(connection, provider, token).ConfigureAwait(false);
-            List<string> mismatches = Mismatches(StoredValueBinder.For(provider), provider, columns);
+            List<string> mismatches = Mismatches(StoredValueBinder.For(provider), provider, ProviderSchemaTables.For(provider), columns);
             if (mismatches.Count > 0)
                 throw new InvalidOperationException("Incompatible schema prerequisite stored column forms: " + String.Join("; ", mismatches)
                     + "; existing data and migration history were not replaced");
@@ -40,15 +41,16 @@ namespace Armada.Core.Database
         /// </summary>
         /// <param name="binder">Provider binder.</param>
         /// <param name="provider">Provider.</param>
+        /// <param name="schemaTables">Tables the provider's schema statements create; other tables are ignored.</param>
         /// <param name="columns">Live column types keyed "table.column".</param>
         /// <returns>The mismatches; empty when the schema matches.</returns>
-        internal static List<string> Mismatches(StoredValueBinder binder, DatabaseTypeEnum provider, IReadOnlyDictionary<string, string> columns)
+        internal static List<string> Mismatches(StoredValueBinder binder, DatabaseTypeEnum provider, ISet<string> schemaTables, IReadOnlyDictionary<string, string> columns)
         {
             List<string> mismatches = new List<string>();
             foreach (KeyValuePair<string, string> column in columns)
             {
                 string[] parts = column.Key.Split('.');
-                if (IsIgnored(parts[0]) || !parts[1].EndsWith("_utc", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!schemaTables.Contains(parts[0]) || !parts[1].EndsWith("_utc", StringComparison.OrdinalIgnoreCase)) continue;
                 StoredTimestampEnum storage = binder.TimestampStorage(parts[0], parts[1]);
                 string type = column.Value.ToLowerInvariant();
                 bool zoned = type == "timestamp with time zone";
@@ -83,11 +85,6 @@ namespace Armada.Core.Database
         #endregion
 
         #region Private-Methods
-
-        private static bool IsIgnored(string table)
-        {
-            return table.Contains("_backup_", StringComparison.OrdinalIgnoreCase);
-        }
 
         private static async Task<Dictionary<string, string>> ReadColumnTypesAsync(DbConnection connection, DatabaseTypeEnum provider, CancellationToken token)
         {

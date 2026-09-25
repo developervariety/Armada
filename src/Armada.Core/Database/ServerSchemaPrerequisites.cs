@@ -20,6 +20,16 @@ namespace Armada.Core.Database
     {
         private const string _RepairId = "fork-operational-prerequisites-v1";
 
+        /// <summary>
+        /// Creates the PostgreSQL repair ledger.
+        /// </summary>
+        internal const string PostgresqlSchemaRepairsTable = "CREATE TABLE IF NOT EXISTS schema_repairs (id TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_utc TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);";
+
+        /// <summary>
+        /// Creates the SQL Server repair ledger.
+        /// </summary>
+        internal const string SqlServerSchemaRepairsTable = "IF OBJECT_ID(N'dbo.schema_repairs', N'U') IS NULL CREATE TABLE dbo.schema_repairs (id NVARCHAR(128) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_utc DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME());";
+
         internal static async Task EnsureAsync(DbConnection connection, DatabaseTypeEnum provider, CancellationToken token)
         {
             string[] statements = provider switch
@@ -31,8 +41,8 @@ namespace Armada.Core.Database
             using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
             {
                 await ExecuteAsync(connection, transaction, provider == DatabaseTypeEnum.Postgresql
-                    ? "CREATE TABLE IF NOT EXISTS schema_repairs (id TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_utc TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);"
-                    : "IF OBJECT_ID(N'dbo.schema_repairs', N'U') IS NULL CREATE TABLE dbo.schema_repairs (id NVARCHAR(128) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_utc DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME());", token).ConfigureAwait(false);
+                    ? PostgresqlSchemaRepairsTable
+                    : SqlServerSchemaRepairsTable, token).ConfigureAwait(false);
                 string checksum = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(String.Join("\n", statements))));
                 List<Dictionary<string, string?>> ledger = await QueryAsync(connection, transaction,
                     "SELECT checksum FROM schema_repairs WHERE id = @name;", _RepairId, null, token).ConfigureAwait(false);

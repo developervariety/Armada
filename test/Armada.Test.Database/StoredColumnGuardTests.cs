@@ -9,8 +9,9 @@ namespace Armada.Test.Database
     using Armada.Core.Settings;
 
     /// <summary>
-    /// Startup refuses a schema whose timestamp column is stored in a form the provider's binder does not write, and
-    /// names the column; once the column matches again, startup proceeds.
+    /// Startup refuses a schema whose timestamp column, in a table the provider's schema statements create, is stored
+    /// in a form the provider's binder does not write, and names the column; once the column matches again, startup
+    /// proceeds. A table the schema statements do not create is ignored whatever its name and columns.
     /// </summary>
     internal sealed class StoredColumnGuardTests
     {
@@ -24,15 +25,7 @@ namespace Armada.Test.Database
 
         internal async Task VerifyAsync(CancellationToken token)
         {
-            // Each provider's default timestamp form for tenants, and a column type that does not hold it.
-            string driftedType = _Settings.Type switch
-            {
-                DatabaseTypeEnum.Sqlite => "DATETIME",
-                DatabaseTypeEnum.Postgresql => "TEXT",
-                DatabaseTypeEnum.Mysql => "TEXT",
-                DatabaseTypeEnum.SqlServer => "DATETIME2",
-                _ => throw new NotSupportedException()
-            };
+            string driftedType = DriftedType();
             await ExecuteAsync("ALTER TABLE tenants ADD " + (_Settings.Type == DatabaseTypeEnum.SqlServer ? "" : "COLUMN ") + _Column + " " + driftedType + " NULL;", token).ConfigureAwait(false);
             string? refusal = null;
             try
@@ -52,6 +45,39 @@ namespace Armada.Test.Database
             DatabaseAssert.True(refusal!.Contains("Incompatible schema prerequisite", StringComparison.Ordinal) && refusal.Contains("tenants." + _Column, StringComparison.Ordinal),
                 "The refusal is a schema prerequisite refusal naming the column: " + refusal);
             using (DatabaseDriver restored = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false)) { }
+        }
+
+        /// <summary>
+        /// A table no schema statement creates, holding a timestamp column in a form the binder does not write, does
+        /// not block startup.
+        /// </summary>
+        internal async Task VerifyUnknownTableIgnoredAsync(CancellationToken token)
+        {
+            string table = "captains_bak_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            await ExecuteAsync("CREATE TABLE " + table + " (id VARCHAR(64) NOT NULL, quarantine_until_utc " + DriftedType() + " NULL);", token).ConfigureAwait(false);
+            try
+            {
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false)) { }
+            }
+            finally
+            {
+                await ExecuteAsync("DROP TABLE " + table + ";", token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// A column type that does not hold each provider's default timestamp form.
+        /// </summary>
+        private string DriftedType()
+        {
+            return _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => "DATETIME",
+                DatabaseTypeEnum.Postgresql => "TEXT",
+                DatabaseTypeEnum.Mysql => "TEXT",
+                DatabaseTypeEnum.SqlServer => "DATETIME2",
+                _ => throw new NotSupportedException()
+            };
         }
 
         private async Task ExecuteAsync(string sql, CancellationToken token)

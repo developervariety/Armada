@@ -113,7 +113,9 @@ upstream integrations and excludes changes already present at that baseline.
   converted to TIMESTAMPTZ (migration 114). After migrations, startup compares
   every timestamp and integer-boolean column the binder writes with the live
   schema and refuses with an "Incompatible schema prerequisite" error that lists
-  each mismatched column; backup tables are not checked.
+  each mismatched column. Only tables the provider's own schema statements
+  (migrations, operational prerequisites and ledgers) create are checked; any
+  other table, such as an operator's backup copy, is ignored whatever its name.
 - **Stored rows read through shared column readers:** every provider reads
   tenants, users, credentials, fleets, vessels, signals, events, captains,
   missions, mission summaries and history points, merge entries, landing jobs,

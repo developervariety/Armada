@@ -35,6 +35,15 @@ namespace Armada.Core.Database.Sqlite
         #region Internal-Members
 
         /// <summary>
+        /// Creates the migration ledger.
+        /// </summary>
+        internal const string SchemaMigrationsTable = @"CREATE TABLE IF NOT EXISTS schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        description TEXT NOT NULL,
+                        applied_utc TEXT NOT NULL
+                    );";
+
+        /// <summary>
         /// How this provider's stored values convert to model values. SQLite stores booleans as
         /// integers where 1 is true, and timestamps as ISO 8601 text.
         /// </summary>
@@ -128,11 +137,7 @@ namespace Armada.Core.Database.Sqlite
                 // Create migration tracking table
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"CREATE TABLE IF NOT EXISTS schema_migrations (
-                        version INTEGER PRIMARY KEY,
-                        description TEXT NOT NULL,
-                        applied_utc TEXT NOT NULL
-                    );";
+                    cmd.CommandText = SchemaMigrationsTable;
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 

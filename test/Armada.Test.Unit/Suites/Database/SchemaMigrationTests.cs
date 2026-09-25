@@ -1,5 +1,9 @@
 namespace Armada.Test.Unit.Suites.Database
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Test.Common;
@@ -13,6 +17,32 @@ namespace Armada.Test.Unit.Suites.Database
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Schema tables derived from each provider's statements include every table the binder names", () =>
+            {
+                foreach (Armada.Core.Enums.DatabaseTypeEnum provider in new[] { Armada.Core.Enums.DatabaseTypeEnum.Sqlite, Armada.Core.Enums.DatabaseTypeEnum.Postgresql,
+                    Armada.Core.Enums.DatabaseTypeEnum.Mysql, Armada.Core.Enums.DatabaseTypeEnum.SqlServer })
+                {
+                    HashSet<string> tables = ProviderSchemaTables.For(provider);
+                    StoredValueBinder binder = StoredValueBinder.For(provider);
+                    List<string> missing = new List<string>();
+                    foreach (string column in binder.NamedTimestamps.Keys.Concat(binder.IntegerBooleanColumns))
+                    {
+                        string table = column.Split('.')[0];
+                        if (!tables.Contains(table)) missing.Add(table);
+                    }
+
+                    // Tables every provider writes through the binder's default forms.
+                    foreach (string table in new[] { "tenants", "users", "fleets", "vessels", "captains", "missions", "voyages", "docks", "schema_migrations" })
+                    {
+                        if (!tables.Contains(table)) missing.Add(table);
+                    }
+
+                    AssertTrue(missing.Count == 0, provider + " schema statements do not create " + String.Join(", ", missing.Distinct()));
+                }
+
+                return Task.CompletedTask;
+            });
+
             await RunTest("Skipped migration rule lists unapplied known versions below the applied maximum", () =>
             {
                 List<SchemaMigration> known = new List<SchemaMigration>

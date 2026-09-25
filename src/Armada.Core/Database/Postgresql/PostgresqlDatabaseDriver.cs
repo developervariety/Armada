@@ -33,6 +33,15 @@ namespace Armada.Core.Database.Postgresql
         #region Internal-Members
 
         /// <summary>
+        /// Creates the migration ledger.
+        /// </summary>
+        internal const string SchemaMigrationsTable = @"CREATE TABLE IF NOT EXISTS schema_migrations (
+                            version INTEGER PRIMARY KEY,
+                            description TEXT NOT NULL,
+                            applied_utc TIMESTAMP NOT NULL
+                        );";
+
+        /// <summary>
         /// How this provider's stored values convert to model values. PostgreSQL stores booleans as
         /// native booleans, and timestamps as TEXT, TIMESTAMP or TIMESTAMPTZ depending on the column.
         /// </summary>
@@ -184,11 +193,7 @@ namespace Armada.Core.Database.Postgresql
                     using (NpgsqlCommand cmd = new NpgsqlCommand())
                     {
                         cmd.Connection = conn;
-                        cmd.CommandText = @"CREATE TABLE IF NOT EXISTS schema_migrations (
-                            version INTEGER PRIMARY KEY,
-                            description TEXT NOT NULL,
-                            applied_utc TIMESTAMP NOT NULL
-                        );";
+                        cmd.CommandText = SchemaMigrationsTable;
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 

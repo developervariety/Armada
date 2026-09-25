@@ -14,6 +14,21 @@ namespace Armada.Core.Database.Mysql
     /// </summary>
     internal sealed class MysqlMigrationRunner
     {
+        /// <summary>
+        /// Creates the per-statement migration journal.
+        /// </summary>
+        internal const string SchemaMigrationStatementsTable = @"CREATE TABLE IF NOT EXISTS schema_migration_statements (
+                version INT NOT NULL, ordinal INT NOT NULL, checksum VARCHAR(64) NOT NULL,
+                completed_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                PRIMARY KEY (version, ordinal));";
+
+        /// <summary>
+        /// Creates the repair ledger.
+        /// </summary>
+        internal const string SchemaRepairsTable = @"CREATE TABLE IF NOT EXISTS schema_repairs (
+                id VARCHAR(128) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL,
+                applied_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6));";
+
         private readonly MySqlConnection _Connection;
         private readonly MysqlSchemaCompatibility _Compatibility;
         private readonly Action<int, int>? _Checkpoint;
@@ -27,18 +42,13 @@ namespace Armada.Core.Database.Mysql
 
         internal async Task InitializeJournalAsync(CancellationToken token)
         {
-            await _Compatibility.ExecuteSqlAsync(@"CREATE TABLE IF NOT EXISTS schema_migration_statements (
-                version INT NOT NULL, ordinal INT NOT NULL, checksum VARCHAR(64) NOT NULL,
-                completed_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-                PRIMARY KEY (version, ordinal));", token).ConfigureAwait(false);
+            await _Compatibility.ExecuteSqlAsync(SchemaMigrationStatementsTable, token).ConfigureAwait(false);
         }
 
         internal async Task EnsurePrerequisitesAsync(CancellationToken token)
         {
             await _Compatibility.EnsureUniqueContractsAsync(token).ConfigureAwait(false);
-            await _Compatibility.ExecuteSqlAsync(@"CREATE TABLE IF NOT EXISTS schema_repairs (
-                id VARCHAR(128) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL,
-                applied_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6));", token).ConfigureAwait(false);
+            await _Compatibility.ExecuteSqlAsync(SchemaRepairsTable, token).ConfigureAwait(false);
             const string id = "fork-operational-prerequisites-v1";
             string checksum = Hash(String.Join("\n", ForkOperationalSchema.Statements));
             using (MySqlCommand command = _Connection.CreateCommand())
