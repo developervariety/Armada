@@ -181,8 +181,18 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(args.Contains("--max-tokens"));
                 AssertFalse(args.Contains("--system-prompt"));
                 AssertFalse(args.Contains("--approval-policy"));
-                AssertEqual("test prompt", args[args.Count - 1], "Mux takes the prompt as the trailing positional argument");
-                AssertTrue(runtime.UsesPromptStdin());
+            });
+
+            await RunTest("A Prompt Longer Than The Windows Command Line Limit Is Delivered On Stdin", () =>
+            {
+                // Windows caps a whole command line at 32,767 characters. `mux print` reads its prompt
+                // from stdin only when no prompt argument is given, so the argument must be absent.
+                string prompt = "Role: You are an Armada worker agent. Mission: " + new string('x', 40000);
+                InspectableMuxRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args("C:/worktree", prompt, "gpt-5.4-mini", "C:/logs/final.txt");
+                AssertTrue(runtime.UsesPromptStdin(), "the prompt must reach Mux on stdin");
+                AssertFalse(args.Any(arg => arg.Contains("Mission: ")), "no argument may carry the prompt");
+                AssertTrue(String.Join(" ", args).Length < 8191, "the command line must stay inside the cmd.exe limit");
             });
 
             await RunTest("BuildArguments Defaults To Exec Mode", () =>

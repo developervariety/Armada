@@ -174,10 +174,15 @@ namespace Armada.Runtimes
                 args.Add("--dangerously-skip-permissions");
             }
 
-            args.Add(prompt);
-
             return args;
         }
+
+        /// <summary>
+        /// Claude Code in <c>--print</c> mode reads its prompt from stdin when no prompt argument is
+        /// given. The prompt never goes on the command line, which Windows caps at 32,767 characters
+        /// (8,191 through cmd.exe, which runs the npm .cmd shim); a mission brief exceeds both.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         /// <summary>
         /// Capture Claude Code's exact aggregated result usage.

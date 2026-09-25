@@ -553,6 +553,8 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Whether the runtime expects the prompt to be written to stdin instead of passed as a CLI argument.
+        /// A mission brief exceeds the Windows command-line limit (32,767 characters, 8,191 through the
+        /// cmd.exe that runs an npm .cmd shim), so a runtime whose CLI reads stdin must return true.
         /// </summary>
         protected virtual bool UsePromptStdin => false;
 
@@ -772,8 +774,8 @@ namespace Armada.Runtimes
             // prompt text in their CLI arguments, so the header would otherwise lose the
             // role/persona preamble and mission instructions. Echo the prompt parameter for
             // those runtimes so the mission log always shows which role the captain is
-            // running as, matching what Claude/Codex expose through their positional prompt
-            // argument.
+            // running as. A runtime that passes the prompt as an argument shows it from the
+            // argument list.
             string firstFlag = "";
             string promptContent;
             if (UsePromptStdin)

@@ -25,6 +25,8 @@ namespace Armada.Test.Runtimes.Suites
 
             public bool StdinRedirected => RedirectStdin;
 
+            public bool PromptViaStdin => UsePromptStdin;
+
             public bool StderrWrittenToLogFile => WriteStderrToLogFile;
 
             public void FeedUsage(int processId, string line) => HandleRawOutputLine(processId, line);
@@ -41,10 +43,17 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("RedirectStdin Returns False", () =>
+            await RunTest("A Prompt Longer Than The Windows Command Line Limit Is Delivered On Stdin", () =>
             {
+                // Windows caps a whole command line at 32,767 characters and cmd.exe, which runs the
+                // npm .cmd shim, at 8,191; a mission brief routinely exceeds both.
+                string prompt = "Role: You are an Armada worker agent. Mission: " + new string('x', 40000);
                 InspectableCodexRuntime runtime = CreateRuntime();
-                AssertFalse(runtime.StdinRedirected, "Codex prompt is a CLI arg; stdin pipe must not be opened");
+                List<string> args = runtime.Args(prompt, "gpt-5.4", Path.Combine(Path.GetTempPath(), "final.txt"));
+                AssertTrue(runtime.StdinRedirected && runtime.PromptViaStdin, "the prompt must reach Codex on stdin");
+                AssertEqual("-", args[args.Count - 1], "Codex reads its instructions from stdin when the prompt argument is '-'");
+                AssertFalse(args.Any(arg => arg.Contains("Mission: ")), "no argument may carry the prompt");
+                AssertTrue(String.Join(" ", args).Length < 8191, "the command line must stay inside the cmd.exe limit");
             });
 
             await RunTest("BuildArguments Uses Json Flag WithReadableTransformation", () =>
@@ -113,7 +122,6 @@ namespace Armada.Test.Runtimes.Suites
                     AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
                 else
                     AssertTrue(args.Contains("--full-auto"));
-                AssertEqual("test prompt", args[args.Count - 1]);
             });
 
             await RunTest("BuildArguments Dangerous Uses Dangerous Flag", () =>
@@ -123,24 +131,12 @@ namespace Armada.Test.Runtimes.Suites
                 List<string> args = runtime.Args("test prompt");
                 AssertEqual("exec", args[0]);
                 AssertTrue(args.Contains("--dangerously-bypass-approvals-and-sandbox"));
-                AssertEqual("test prompt", args[args.Count - 1]);
             });
 
             await RunTest("ValidateReasoningEffort_High_ReturnsNull", () =>
             {
                 string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.Codex, "high");
                 AssertNull(error, "high must be accepted for Codex");
-            });
-
-            await RunTest("BuildArguments_PromptContainsRolePreamble", () =>
-            {
-                string rolePreamble = "Role: You are an Armada worker agent.";
-                string prompt = rolePreamble + " Mission: test objective. Branch: main.";
-                InspectableCodexRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args(prompt);
-                string lastArg = args[args.Count - 1];
-                AssertTrue(lastArg.Contains(rolePreamble), "Codex prompt argument must contain the role preamble so the captain knows its role");
-                AssertTrue(lastArg.Contains("Mission: test objective"), "Codex prompt argument must contain the mission instructions");
             });
 
             await RunTest("ValidateReasoningEffort_Xhigh_ReturnsError", () =>

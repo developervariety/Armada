@@ -99,8 +99,8 @@ namespace Armada.Runtimes
                 args.Add(model);
             }
 
-            args.Add("-p");
-            args.Add(prompt);
+            // No -p: Gemini runs headless when stdin is not a terminal and takes the piped
+            // text as the prompt (see UsePromptStdin).
             args.Add("--approval-mode");
             args.Add(ApprovalMode);
             args.Add("--output-format");
@@ -108,6 +108,13 @@ namespace Armada.Runtimes
 
             return args;
         }
+
+        /// <summary>
+        /// Gemini reads its prompt from stdin when stdin is not a terminal. The prompt never goes on
+        /// the command line, which Windows caps at 32,767 characters (8,191 through cmd.exe, which
+        /// runs the npm .cmd shim); a mission brief exceeds both.
+        /// </summary>
+        protected override bool UsePromptStdin => true;
 
         /// <summary>
         /// Capture Gemini CLI's exact terminal per-model statistics.

@@ -52,14 +52,15 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Build single-shot arguments for jchristn/Mux (`mux print &lt;prompt&gt;`). Uses the
-        /// `print` SUBCOMMAND (not the `--print` flag, which enters the interactive REPL and
-        /// fails headless on Console.KeyAvailable). The prompt is passed as the trailing
-        /// positional argument. `-w` sets the tool-execution directory, `--yolo` auto-approves
-        /// tool calls, and `--config-dir`/`--endpoint` select the OpenAI-compatible backend.
+        /// Build single-shot arguments for jchristn/Mux (`mux print`). Uses the `print` SUBCOMMAND
+        /// (not the `--print` flag, which enters the interactive REPL and fails headless on
+        /// Console.KeyAvailable). No prompt argument is added: `mux print` reads the prompt from
+        /// stdin only when the argument is absent, and the command line cannot carry a mission
+        /// brief on Windows (32,767 characters). `-w` sets the tool-execution directory, `--yolo`
+        /// auto-approves tool calls, and `--config-dir`/`--endpoint` select the OpenAI-compatible
+        /// backend.
         /// </summary>
         /// <param name="workingDirectory">Tool-execution directory passed as -w.</param>
-        /// <param name="prompt">Prompt delivered as the trailing positional argument.</param>
         /// <param name="model">Optional model override.</param>
         /// <param name="finalMessageFilePath">Optional path for --output-last-message.</param>
         /// <param name="options">Captain runtime options selecting the backend.</param>
@@ -68,14 +69,12 @@ namespace Armada.Core.Services
         /// <returns>Argument list for the Mux CLI.</returns>
         public static List<string> BuildPrintArguments(
             string workingDirectory,
-            string prompt,
             string? model,
             string? finalMessageFilePath,
             MuxCaptainOptions? options,
             bool showThinking = false)
         {
             if (String.IsNullOrWhiteSpace(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
-            if (String.IsNullOrWhiteSpace(prompt)) throw new ArgumentNullException(nameof(prompt));
 
             List<string> args = new List<string>
             {
@@ -118,9 +117,6 @@ namespace Armada.Core.Services
                 args.Add("--output-last-message");
                 args.Add(finalMessageFilePath!);
             }
-
-            // jchristn/Mux takes the prompt as the trailing positional argument.
-            args.Add(prompt);
 
             return args;
         }

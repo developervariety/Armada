@@ -19,6 +19,8 @@ namespace Armada.Test.Runtimes.Suites
 
             public string Command() => GetCommand();
 
+            public bool PromptViaStdin => UsePromptStdin;
+
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);
 
@@ -36,12 +38,22 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("BuildArguments Uses Prompt And ApprovalMode", () =>
+            await RunTest("A Prompt Longer Than The Windows Command Line Limit Is Delivered On Stdin", () =>
+            {
+                // Windows caps a whole command line at 32,767 characters and cmd.exe, which runs the
+                // npm .cmd shim, at 8,191; a mission brief routinely exceeds both.
+                string prompt = "Role: You are an Armada worker agent. Mission: " + new string('x', 40000);
+                InspectableGeminiRuntime runtime = CreateRuntime();
+                List<string> args = runtime.Args(prompt, "gemini-2.5-pro");
+                AssertTrue(runtime.PromptViaStdin, "the prompt must reach Gemini on stdin");
+                AssertFalse(args.Any(arg => arg.Contains("Mission: ")), "no argument may carry the prompt");
+                AssertTrue(String.Join(" ", args).Length < 8191, "the command line must stay inside the cmd.exe limit");
+            });
+
+            await RunTest("BuildArguments Uses ApprovalMode And Stream Json", () =>
             {
                 InspectableGeminiRuntime runtime = CreateRuntime();
                 List<string> args = runtime.Args("test prompt");
-                AssertEqual("-p", args[0]);
-                AssertEqual("test prompt", args[1]);
                 AssertTrue(args.Contains("--approval-mode"));
                 AssertTrue(args.Contains("yolo"));
                 AssertTrue(args.Contains("stream-json"));

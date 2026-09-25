@@ -22,6 +22,8 @@ namespace Armada.Test.Runtimes.Suites
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
 
+            public bool PromptViaStdin => UsePromptStdin;
+
             public ProcessStartInfo StartInfoWithEnvironment(Captain? captain, string? existingThinkingBudget = null)
             {
                 ProcessStartInfo startInfo = new ProcessStartInfo();
@@ -102,15 +104,16 @@ namespace Armada.Test.Runtimes.Suites
                 AssertNull(error, "high must be accepted for ClaudeCode");
             });
 
-            await RunTest("BuildArguments_PromptContainsRolePreamble", () =>
+            await RunTest("A Prompt Longer Than The Windows Command Line Limit Is Delivered On Stdin", () =>
             {
-                string rolePreamble = "Role: You are an Armada worker agent.";
-                string prompt = rolePreamble + " Mission: test objective. Branch: main.";
+                // Windows caps a whole command line at 32,767 characters and cmd.exe, which runs the
+                // npm .cmd shim, at 8,191; a mission brief routinely exceeds both.
+                string prompt = "Role: You are an Armada worker agent. Mission: " + new string('x', 40000);
                 InspectableClaudeCodeRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args(prompt);
-                string lastArg = args[args.Count - 1];
-                AssertTrue(lastArg.Contains(rolePreamble), "Claude Code prompt argument must contain the role preamble so the captain knows its role");
-                AssertTrue(lastArg.Contains("Mission: test objective"), "Claude Code prompt argument must contain the mission instructions");
+                List<string> args = runtime.Args(prompt, "sonnet");
+                AssertTrue(runtime.PromptViaStdin, "the prompt must reach Claude Code on stdin");
+                AssertFalse(args.Any(arg => arg.Contains("Mission: ")), "no argument may carry the prompt");
+                AssertTrue(String.Join(" ", args).Length < 8191, "the command line must stay inside the cmd.exe limit");
             });
 
             await RunTest("ValidateReasoningEffort_Xhigh_ReturnsError", () =>

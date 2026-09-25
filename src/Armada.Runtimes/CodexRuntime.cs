@@ -17,7 +17,7 @@ namespace Armada.Runtimes
     /// Per-invocation reasoning effort: when <c>CaptainRuntimeOptions.ReasoningEffort</c> is set
     /// for a captain, Codex CLI receives <c>-c model_reasoning_effort=&lt;value&gt;</c> on each call.
     /// Accepted values: low|medium|high. The flag is injected before
-    /// <c>--output-last-message</c> and the prompt argument so Codex parses it as a config
+    /// <c>--output-last-message</c> and the stdin prompt marker so Codex parses it as a config
     /// override rather than prompt text.
     ///
     /// ReasoningEffort is silently ignored if absent from the captain's RuntimeOptionsJson,
@@ -178,11 +178,11 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Codex receives its prompt as a CLI argument, not via stdin. Suppressing the stdin pipe
-        /// prevents Codex from detecting a piped context and printing "Reading additional input
-        /// from stdin..." to stderr on every invocation.
+        /// Codex exec reads its instructions from stdin when the prompt argument is <c>-</c>. The
+        /// prompt never goes on the command line, which Windows caps at 32,767 characters (8,191
+        /// through cmd.exe, which runs the npm .cmd shim); a mission brief exceeds both.
         /// </summary>
-        protected override bool RedirectStdin => false;
+        protected override bool UsePromptStdin => true;
 
         /// <summary>
         /// Codex exec streams its ENTIRE human-readable working transcript (session header,
@@ -292,7 +292,7 @@ namespace Armada.Runtimes
             // Forward per-captain reasoning effort to Codex CLI as a per-invocation
             // config override. Codex CLI accepts -c model_reasoning_effort=<value>
             // for low|medium|high. Position before --output-last-message and
-            // the prompt argument so Codex parses it as a config flag rather than
+            // the stdin prompt marker so Codex parses it as a config flag rather than
             // part of the prompt text. Null reasoningEffort preserves existing args
             // exactly (regression guard for captains without RuntimeOptionsJson).
             string? reasoningEffort = CaptainRuntimeOptions.GetReasoningEffort(captain);
@@ -308,7 +308,8 @@ namespace Armada.Runtimes
                 args.Add(finalMessageFilePath);
             }
 
-            args.Add(prompt);
+            // "-" tells Codex to read the prompt from stdin (see UsePromptStdin).
+            args.Add("-");
 
             return args;
         }

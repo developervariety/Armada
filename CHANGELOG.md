@@ -90,6 +90,12 @@ upstream integrations and excludes changes already present at that baseline.
   never expired. The purge summary names each kept class
   (`kept_incident_latest`, `kept_runbook_latest`, `kept_tombstones`,
   `kept_reversals`, `kept_dispatch_attempts`) with its count.
+- **Every CLI captain receives its prompt on stdin:** Claude Code, Codex
+  (`exec -`), Gemini and Mux no longer pass the brief as a command-line
+  argument, joining Cursor and OpenCode. A brief routinely exceeds the Windows
+  command-line limit (32,767 characters, 8,191 through the cmd.exe that runs an
+  npm `.cmd` shim), which made a Windows launch fail. Mux had sent the prompt
+  both ways and ignored stdin.
 - **A captain that ends BLOCKED and keeps running is finished:** the stall
   nudge is withheld and the process is stopped after the terminal-marker grace
   period, so the stage fails with its question instead of being told to

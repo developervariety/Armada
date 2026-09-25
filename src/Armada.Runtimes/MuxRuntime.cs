@@ -91,12 +91,12 @@ namespace Armada.Runtimes
             Captain? captain)
         {
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
-            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options, ShowThinking);
+            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, model, finalMessageFilePath, options, ShowThinking);
         }
 
         /// <summary>
-        /// Current Mux accepts piped instructions. Using stdin keeps long Armada
-        /// prompts out of the Windows command line.
+        /// `mux print` reads the prompt from stdin when no prompt argument is given, which keeps a
+        /// mission brief off the Windows command line (32,767 characters).
         /// </summary>
         protected override bool UsePromptStdin => true;
 
