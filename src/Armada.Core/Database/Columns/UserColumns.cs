@@ -32,5 +32,26 @@ namespace Armada.Core.Database
             user.LastUpdateUtc = row.Utc("last_update_utc");
             return user;
         }
+
+        /// <summary>
+        /// Bind every stored users column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the users table.</param>
+        /// <param name="user">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, UserMaster user)
+        {
+            parameters
+                .Text("id", user.Id)
+                .Text("tenant_id", user.TenantId)
+                .Text("email", user.Email)
+                .Text("first_name", user.FirstName)
+                .Text("last_name", user.LastName)
+                .Bool("is_admin", user.IsAdmin)
+                .Bool("is_tenant_admin", user.IsTenantAdmin)
+                .Bool("is_protected", user.IsProtected)
+                .Bool("active", user.Active)
+                .Utc("created_utc", user.CreatedUtc)
+                .Utc("last_update_utc", user.LastUpdateUtc);
+        }
     }
 }
