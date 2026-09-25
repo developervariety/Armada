@@ -84,7 +84,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
         public async Task<ObjectiveRefinementSession?> ReadAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
-            return await ReadInternalAsync("SELECT * FROM objective_refinement_sessions WHERE id = @id;", cmd => cmd.Parameters.AddWithValue("@id", id), token).ConfigureAwait(false);
+            return await ReadInternalAsync("SELECT * FROM objective_refinement_sessions WHERE id = @id;", cmd => StoredValueBinder.Value(cmd, "@id", id), token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -94,8 +94,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             return await ReadInternalAsync("SELECT * FROM objective_refinement_sessions WHERE tenant_id = @tenant_id AND id = @id;", cmd =>
             {
-                cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                cmd.Parameters.AddWithValue("@id", id);
+                StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                StoredValueBinder.Value(cmd, "@id", id);
             }, token).ConfigureAwait(false);
         }
 
@@ -107,9 +107,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             return await ReadInternalAsync("SELECT * FROM objective_refinement_sessions WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;", cmd =>
             {
-                cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                cmd.Parameters.AddWithValue("@user_id", userId);
-                cmd.Parameters.AddWithValue("@id", id);
+                StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                StoredValueBinder.Value(cmd, "@user_id", userId);
+                StoredValueBinder.Value(cmd, "@id", id);
             }, token).ConfigureAwait(false);
         }
 
@@ -123,7 +123,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM objective_refinement_sessions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -139,7 +139,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
         public async Task<List<ObjectiveRefinementSession>> EnumerateAsync(string tenantId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
-            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE tenant_id = @tenant_id ORDER BY last_update_utc DESC;", cmd => cmd.Parameters.AddWithValue("@tenant_id", tenantId), token).ConfigureAwait(false);
+            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE tenant_id = @tenant_id ORDER BY last_update_utc DESC;", cmd => StoredValueBinder.Value(cmd, "@tenant_id", tenantId), token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -149,8 +149,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (String.IsNullOrWhiteSpace(userId)) throw new ArgumentNullException(nameof(userId));
             return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE tenant_id = @tenant_id AND user_id = @user_id ORDER BY last_update_utc DESC;", cmd =>
             {
-                cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                cmd.Parameters.AddWithValue("@user_id", userId);
+                StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                StoredValueBinder.Value(cmd, "@user_id", userId);
             }, token).ConfigureAwait(false);
         }
 
@@ -158,20 +158,20 @@ namespace Armada.Core.Database.Sqlite.Implementations
         public async Task<List<ObjectiveRefinementSession>> EnumerateByObjectiveAsync(string objectiveId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
-            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE objective_id = @objective_id ORDER BY created_utc DESC;", cmd => cmd.Parameters.AddWithValue("@objective_id", objectiveId), token).ConfigureAwait(false);
+            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE objective_id = @objective_id ORDER BY created_utc DESC;", cmd => StoredValueBinder.Value(cmd, "@objective_id", objectiveId), token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
         public async Task<List<ObjectiveRefinementSession>> EnumerateByCaptainAsync(string captainId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentNullException(nameof(captainId));
-            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE captain_id = @captain_id ORDER BY last_update_utc DESC;", cmd => cmd.Parameters.AddWithValue("@captain_id", captainId), token).ConfigureAwait(false);
+            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE captain_id = @captain_id ORDER BY last_update_utc DESC;", cmd => StoredValueBinder.Value(cmd, "@captain_id", captainId), token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
         public async Task<List<ObjectiveRefinementSession>> EnumerateByStatusAsync(ObjectiveRefinementSessionStatusEnum status, CancellationToken token = default)
         {
-            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE status = @status ORDER BY last_update_utc DESC;", cmd => cmd.Parameters.AddWithValue("@status", status.ToString()), token).ConfigureAwait(false);
+            return await EnumerateInternalAsync("SELECT * FROM objective_refinement_sessions WHERE status = @status ORDER BY last_update_utc DESC;", cmd => StoredValueBinder.Value(cmd, "@status", status.ToString()), token).ConfigureAwait(false);
         }
 
         private async Task<ObjectiveRefinementSession?> ReadInternalAsync(string sql, Action<SqliteCommand> parameterize, CancellationToken token)
@@ -217,21 +217,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
         private static void Bind(SqliteCommand cmd, ObjectiveRefinementSession session)
         {
-            cmd.Parameters.AddWithValue("@id", session.Id);
-            cmd.Parameters.AddWithValue("@objective_id", session.ObjectiveId);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)session.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)session.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@captain_id", session.CaptainId);
-            cmd.Parameters.AddWithValue("@fleet_id", (object?)session.FleetId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)session.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", session.Title);
-            cmd.Parameters.AddWithValue("@status", session.Status.ToString());
-            cmd.Parameters.AddWithValue("@process_id", session.ProcessId.HasValue ? (object)session.ProcessId.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@failure_reason", (object?)session.FailureReason ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(session.CreatedUtc));
-            cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.StartedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.CompletedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(session.LastUpdateUtc));
+            ObjectiveRefinementSessionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "objective_refinement_sessions"), session);
         }
     }
 }

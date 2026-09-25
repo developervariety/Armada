@@ -83,7 +83,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT TOP 1 * FROM objective_refinement_messages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -105,7 +105,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM objective_refinement_messages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -121,7 +121,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM objective_refinement_messages WHERE objective_refinement_session_id = @session_id;";
-                    cmd.Parameters.AddWithValue("@session_id", objectiveRefinementSessionId);
+                    StoredValueBinder.Value(cmd, "@session_id", objectiveRefinementSessionId);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -133,7 +133,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrWhiteSpace(objectiveRefinementSessionId)) throw new ArgumentNullException(nameof(objectiveRefinementSessionId));
             return await EnumerateAsync(
                 "SELECT * FROM objective_refinement_messages WHERE objective_refinement_session_id = @session_id ORDER BY sequence ASC, created_utc ASC;",
-                cmd => cmd.Parameters.AddWithValue("@session_id", objectiveRefinementSessionId),
+                cmd => StoredValueBinder.Value(cmd, "@session_id", objectiveRefinementSessionId),
                 token).ConfigureAwait(false);
         }
 
@@ -143,7 +143,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
             return await EnumerateAsync(
                 "SELECT * FROM objective_refinement_messages WHERE objective_id = @objective_id ORDER BY created_utc ASC, sequence ASC;",
-                cmd => cmd.Parameters.AddWithValue("@objective_id", objectiveId),
+                cmd => StoredValueBinder.Value(cmd, "@objective_id", objectiveId),
                 token).ConfigureAwait(false);
         }
 
@@ -170,17 +170,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
 
         private static void Bind(SqlCommand cmd, ObjectiveRefinementMessage message)
         {
-            cmd.Parameters.AddWithValue("@id", message.Id);
-            cmd.Parameters.AddWithValue("@objective_refinement_session_id", message.ObjectiveRefinementSessionId);
-            cmd.Parameters.AddWithValue("@objective_id", message.ObjectiveId);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)message.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)message.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@role", message.Role);
-            cmd.Parameters.AddWithValue("@sequence", message.Sequence);
-            cmd.Parameters.AddWithValue("@content", message.Content);
-            cmd.Parameters.AddWithValue("@is_selected", message.IsSelected);
-            cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(message.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(message.LastUpdateUtc));
+            ObjectiveRefinementMessageColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "objective_refinement_messages"), message);
         }
     }
 }
