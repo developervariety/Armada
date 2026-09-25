@@ -33,6 +33,62 @@ namespace Armada.Core.Database
             }
         }
 
+        /// <summary>
+        /// Bind every stored objectives column, each in the form its provider stores it; list and document columns are stored as JSON.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the objectives table.</param>
+        /// <param name="objective">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Objective objective)
+        {
+            parameters
+                .Text("id", objective.Id)
+                .Text("tenant_id", objective.TenantId)
+                .Text("user_id", objective.UserId)
+                .Text("title", objective.Title)
+                .Text("description", objective.Description)
+                .Text("status", objective.Status.ToString())
+                .Text("kind", objective.Kind.ToString())
+                .Text("category", objective.Category)
+                .Text("priority", objective.Priority.ToString())
+                .Int("rank", objective.Rank)
+                .Bool("auto_dispatch_enabled", objective.AutoDispatchEnabled)
+                .Text("start_from_ref", objective.StartFromRef)
+                .Text("backlog_state", objective.BacklogState.ToString())
+                .Text("effort", objective.Effort.ToString())
+                .Text("owner", objective.Owner)
+                .Text("target_version", objective.TargetVersion)
+                .Utc("due_utc", objective.DueUtc)
+                .Text("parent_objective_id", objective.ParentObjectiveId)
+                .Text("blocked_by_objective_ids_json", ObjectivePersistenceHelper.Serialize(objective.BlockedByObjectiveIds))
+                .Text("refinement_summary", objective.RefinementSummary)
+                .Text("preparation_json", ObjectivePersistenceHelper.Serialize(objective.Preparation))
+                .Text("suggested_pipeline_id", objective.SuggestedPipelineId)
+                .Text("suggested_playbooks_json", ObjectivePersistenceHelper.Serialize(objective.SuggestedPlaybooks))
+                .Text("tags_json", ObjectivePersistenceHelper.Serialize(objective.Tags))
+                .Text("acceptance_criteria_json", ObjectivePersistenceHelper.Serialize(objective.AcceptanceCriteria))
+                .Text("non_goals_json", ObjectivePersistenceHelper.Serialize(objective.NonGoals))
+                .Text("rollout_constraints_json", ObjectivePersistenceHelper.Serialize(objective.RolloutConstraints))
+                .Text("evidence_links_json", ObjectivePersistenceHelper.Serialize(objective.EvidenceLinks))
+                .Text("fleet_ids_json", ObjectivePersistenceHelper.Serialize(objective.FleetIds))
+                .Text("vessel_ids_json", ObjectivePersistenceHelper.Serialize(objective.VesselIds))
+                .Text("planning_session_ids_json", ObjectivePersistenceHelper.Serialize(objective.PlanningSessionIds))
+                .Text("refinement_session_ids_json", ObjectivePersistenceHelper.Serialize(objective.RefinementSessionIds))
+                .Text("voyage_ids_json", ObjectivePersistenceHelper.Serialize(objective.VoyageIds))
+                .Text("mission_ids_json", ObjectivePersistenceHelper.Serialize(objective.MissionIds))
+                .Text("check_run_ids_json", ObjectivePersistenceHelper.Serialize(objective.CheckRunIds))
+                .Text("release_ids_json", ObjectivePersistenceHelper.Serialize(objective.ReleaseIds))
+                .Text("deployment_ids_json", ObjectivePersistenceHelper.Serialize(objective.DeploymentIds))
+                .Text("incident_ids_json", ObjectivePersistenceHelper.Serialize(objective.IncidentIds))
+                .Text("source_provider", objective.SourceProvider)
+                .Text("source_type", objective.SourceType)
+                .Text("source_id", objective.SourceId)
+                .Text("source_url", objective.SourceUrl)
+                .Utc("source_updated_utc", objective.SourceUpdatedUtc)
+                .Utc("created_utc", objective.CreatedUtc)
+                .Utc("last_update_utc", objective.LastUpdateUtc)
+                .Utc("completed_utc", objective.CompletedUtc);
+        }
+
         private static Objective ReadRow(StoredRow row, string id)
         {
             Objective objective = new Objective

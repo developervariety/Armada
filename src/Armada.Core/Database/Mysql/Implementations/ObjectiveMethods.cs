@@ -117,7 +117,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             return await ReadInternalAsync(
                 "SELECT * FROM objectives WHERE id = @id;",
-                cmd => cmd.Parameters.AddWithValue("@id", id),
+                cmd => StoredValueBinder.Value(cmd, "@id", id),
                 token).ConfigureAwait(false);
         }
 
@@ -130,8 +130,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 "SELECT * FROM objectives WHERE tenant_id = @tenant_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -146,9 +146,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 "SELECT * FROM objectives WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -159,7 +159,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             await ExecuteDeleteAsync(
                 "DELETE FROM objectives WHERE id = @id;",
-                cmd => cmd.Parameters.AddWithValue("@id", id),
+                cmd => StoredValueBinder.Value(cmd, "@id", id),
                 token).ConfigureAwait(false);
         }
 
@@ -172,8 +172,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 "DELETE FROM objectives WHERE tenant_id = @tenant_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -193,7 +193,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             return await EnumerateInternalAsync(
                 "SELECT * FROM objectives WHERE tenant_id = @tenant_id ORDER BY `rank` ASC, priority ASC, last_update_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@tenant_id", tenantId),
+                cmd => StoredValueBinder.Value(cmd, "@tenant_id", tenantId),
                 token).ConfigureAwait(false);
         }
 
@@ -206,8 +206,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 "SELECT * FROM objectives WHERE tenant_id = @tenant_id AND user_id = @user_id ORDER BY `rank` ASC, priority ASC, last_update_utc DESC;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
                 },
                 token).ConfigureAwait(false);
         }
@@ -237,7 +237,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM objectives WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false) ?? 0L);
                     return count > 0;
                 }
@@ -303,52 +303,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         {
             objective.NormalizeTenancy();
 
-            cmd.Parameters.AddWithValue("@id", objective.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)objective.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)objective.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", objective.Title);
-            cmd.Parameters.AddWithValue("@description", (object?)objective.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", objective.Status.ToString());
-            cmd.Parameters.AddWithValue("@kind", objective.Kind.ToString());
-            cmd.Parameters.AddWithValue("@category", (object?)objective.Category ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@priority", objective.Priority.ToString());
-            cmd.Parameters.AddWithValue("@rank", objective.Rank);
-            cmd.Parameters.AddWithValue("@auto_dispatch_enabled", objective.AutoDispatchEnabled ? 1 : 0);
-            cmd.Parameters.AddWithValue("@start_from_ref", (object?)objective.StartFromRef ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@backlog_state", objective.BacklogState.ToString());
-            cmd.Parameters.AddWithValue("@effort", objective.Effort.ToString());
-            cmd.Parameters.AddWithValue("@owner", (object?)objective.Owner ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@target_version", (object?)objective.TargetVersion ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@due_utc", objective.DueUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(objective.DueUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@parent_objective_id", (object?)objective.ParentObjectiveId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@blocked_by_objective_ids_json", ObjectivePersistenceHelper.Serialize(objective.BlockedByObjectiveIds));
-            cmd.Parameters.AddWithValue("@refinement_summary", (object?)objective.RefinementSummary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@preparation_json", ObjectivePersistenceHelper.Serialize(objective.Preparation));
-            cmd.Parameters.AddWithValue("@suggested_pipeline_id", (object?)objective.SuggestedPipelineId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@suggested_playbooks_json", ObjectivePersistenceHelper.Serialize(objective.SuggestedPlaybooks));
-            cmd.Parameters.AddWithValue("@tags_json", ObjectivePersistenceHelper.Serialize(objective.Tags));
-            cmd.Parameters.AddWithValue("@acceptance_criteria_json", ObjectivePersistenceHelper.Serialize(objective.AcceptanceCriteria));
-            cmd.Parameters.AddWithValue("@non_goals_json", ObjectivePersistenceHelper.Serialize(objective.NonGoals));
-            cmd.Parameters.AddWithValue("@rollout_constraints_json", ObjectivePersistenceHelper.Serialize(objective.RolloutConstraints));
-            cmd.Parameters.AddWithValue("@evidence_links_json", ObjectivePersistenceHelper.Serialize(objective.EvidenceLinks));
-            cmd.Parameters.AddWithValue("@fleet_ids_json", ObjectivePersistenceHelper.Serialize(objective.FleetIds));
-            cmd.Parameters.AddWithValue("@vessel_ids_json", ObjectivePersistenceHelper.Serialize(objective.VesselIds));
-            cmd.Parameters.AddWithValue("@planning_session_ids_json", ObjectivePersistenceHelper.Serialize(objective.PlanningSessionIds));
-            cmd.Parameters.AddWithValue("@refinement_session_ids_json", ObjectivePersistenceHelper.Serialize(objective.RefinementSessionIds));
-            cmd.Parameters.AddWithValue("@voyage_ids_json", ObjectivePersistenceHelper.Serialize(objective.VoyageIds));
-            cmd.Parameters.AddWithValue("@mission_ids_json", ObjectivePersistenceHelper.Serialize(objective.MissionIds));
-            cmd.Parameters.AddWithValue("@check_run_ids_json", ObjectivePersistenceHelper.Serialize(objective.CheckRunIds));
-            cmd.Parameters.AddWithValue("@release_ids_json", ObjectivePersistenceHelper.Serialize(objective.ReleaseIds));
-            cmd.Parameters.AddWithValue("@deployment_ids_json", ObjectivePersistenceHelper.Serialize(objective.DeploymentIds));
-            cmd.Parameters.AddWithValue("@incident_ids_json", ObjectivePersistenceHelper.Serialize(objective.IncidentIds));
-            cmd.Parameters.AddWithValue("@source_provider", (object?)objective.SourceProvider ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_type", (object?)objective.SourceType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_id", (object?)objective.SourceId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_url", (object?)objective.SourceUrl ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_updated_utc", objective.SourceUpdatedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(objective.SourceUpdatedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(objective.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(objective.LastUpdateUtc));
-            cmd.Parameters.AddWithValue("@completed_utc", objective.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(objective.CompletedUtc.Value) : DBNull.Value);
+            ObjectiveColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "objectives"), objective);
         }
     }
 }
