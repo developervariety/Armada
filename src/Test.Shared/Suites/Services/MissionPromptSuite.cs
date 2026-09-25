@@ -669,7 +669,7 @@ namespace Test.Shared.Suites.Services
 
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, ".armada", "instructions", "CLAUDE.md"));
                         AssertFalse(content.Contains("## Existing Project Instructions"), "Empty sanitized instructions should not be wrapped");
                     }
                     finally

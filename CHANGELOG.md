@@ -103,6 +103,11 @@ upstream integrations and excludes changes already present at that baseline.
   voyage detail pages) open it once while the load keeps failing and again
   only after a load succeeds. Request History tracks its summary apart from
   its list. The Incidents search box uses the shared search debounce.
+- **The shared prompt case for sanitized existing instructions reads the
+  generated file:** it read the dock-root `CLAUDE.md` the test itself wrote, so
+  it passed even when sanitization was skipped. It now reads
+  `.armada/instructions/CLAUDE.md`, and the identical unit-runner copy is
+  removed.
 - **Unit-runner database and service cases that a shared case already runs
   are removed:** 361 unit cases and 4 runtime cases repeated a shared case with
   the same setup, action and assertions. The shared copy runs in the same gate,
