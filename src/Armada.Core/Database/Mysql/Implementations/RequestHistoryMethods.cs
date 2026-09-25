@@ -83,7 +83,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
                 List<string> conditions = new List<string> { "id = @id" };
-                List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                 ApplyQueryFilters(query, conditions, parameters);
 
                 RequestHistoryEntry? entry = null;
@@ -104,7 +104,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM request_history_detail WHERE request_history_id = @id LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -199,7 +199,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
                 List<string> conditions = new List<string> { "id = @id" };
-                List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                 ApplyQueryFilters(query, conditions, parameters);
 
                 using (MySqlCommand cmd = conn.CreateCommand())
@@ -236,39 +236,12 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         private static void BindEntry(MySqlCommand cmd, RequestHistoryEntry entry)
         {
-            cmd.Parameters.AddWithValue("@id", entry.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@credential_id", (object?)entry.CredentialId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@principal_display", (object?)entry.PrincipalDisplay ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@auth_method", (object?)entry.AuthMethod ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@method", entry.Method);
-            cmd.Parameters.AddWithValue("@route", entry.Route);
-            cmd.Parameters.AddWithValue("@route_template", (object?)entry.RouteTemplate ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@query_string", (object?)entry.QueryString ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status_code", entry.StatusCode);
-            cmd.Parameters.AddWithValue("@duration_ms", entry.DurationMs);
-            cmd.Parameters.AddWithValue("@request_size_bytes", entry.RequestSizeBytes);
-            cmd.Parameters.AddWithValue("@response_size_bytes", entry.ResponseSizeBytes);
-            cmd.Parameters.AddWithValue("@request_content_type", (object?)entry.RequestContentType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@response_content_type", (object?)entry.ResponseContentType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@is_success", entry.IsSuccess ? 1 : 0);
-            cmd.Parameters.AddWithValue("@client_ip", (object?)entry.ClientIp ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@correlation_id", (object?)entry.CorrelationId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", entry.CreatedUtc);
+            RequestHistoryColumns.WriteEntry(MysqlDatabaseDriver.StoredBinder.For(cmd, "request_history"), entry);
         }
 
         private static void BindDetail(MySqlCommand cmd, RequestHistoryDetail detail)
         {
-            cmd.Parameters.AddWithValue("@request_history_id", detail.RequestHistoryId);
-            cmd.Parameters.AddWithValue("@path_params_json", (object?)detail.PathParamsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@query_params_json", (object?)detail.QueryParamsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@request_headers_json", (object?)detail.RequestHeadersJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@response_headers_json", (object?)detail.ResponseHeadersJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@request_body_text", (object?)detail.RequestBodyText ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@response_body_text", (object?)detail.ResponseBodyText ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@request_body_truncated", detail.RequestBodyTruncated ? 1 : 0);
-            cmd.Parameters.AddWithValue("@response_body_truncated", detail.ResponseBodyTruncated ? 1 : 0);
+            RequestHistoryColumns.WriteDetail(MysqlDatabaseDriver.StoredBinder.For(cmd, "request_history_details"), detail);
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)
@@ -283,12 +256,12 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!string.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new MySqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!string.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new MySqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@user_id", query.UserId));
             }
             if (query.ExcludedUserIds != null && query.ExcludedUserIds.Count > 0)
             {
@@ -303,42 +276,42 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!string.IsNullOrWhiteSpace(query.CredentialId))
             {
                 conditions.Add("credential_id = @credential_id");
-                parameters.Add(new MySqlParameter("@credential_id", query.CredentialId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@credential_id", query.CredentialId));
             }
             if (!string.IsNullOrWhiteSpace(query.Principal))
             {
                 conditions.Add("principal_display LIKE @principal");
-                parameters.Add(new MySqlParameter("@principal", "%" + query.Principal + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@principal", "%" + query.Principal + "%"));
             }
             if (!string.IsNullOrWhiteSpace(query.Method))
             {
                 conditions.Add("UPPER(method) = @method");
-                parameters.Add(new MySqlParameter("@method", query.Method.ToUpperInvariant()));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@method", query.Method.ToUpperInvariant()));
             }
             if (!string.IsNullOrWhiteSpace(query.Route))
             {
                 conditions.Add("route LIKE @route");
-                parameters.Add(new MySqlParameter("@route", "%" + query.Route + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@route", "%" + query.Route + "%"));
             }
             if (query.StatusCode.HasValue)
             {
                 conditions.Add("status_code = @status_code");
-                parameters.Add(new MySqlParameter("@status_code", query.StatusCode.Value));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@status_code", query.StatusCode.Value));
             }
             if (query.IsSuccess.HasValue)
             {
                 conditions.Add("is_success = @is_success");
-                parameters.Add(new MySqlParameter("@is_success", query.IsSuccess.Value ? 1 : 0));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Boolean(new MySqlParameter(), "@is_success", "request_history", "is_success", query.IsSuccess.Value));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new MySqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@from_utc", "request_history", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new MySqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@to_utc", "request_history", "created_utc", query.ToUtc.Value));
             }
         }
     }

@@ -80,7 +80,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
             {
                 List<string> conditions = new List<string> { "id = @id" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                 ApplyQueryFilters(query, conditions, parameters);
 
                 RequestHistoryEntry? entry = null;
@@ -103,7 +103,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM request_history_detail WHERE request_history_id = @id LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -196,7 +196,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
             {
                 List<string> conditions = new List<string> { "id = @id" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                 ApplyQueryFilters(query, conditions, parameters);
 
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
@@ -233,40 +233,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         private static void BindEntry(NpgsqlCommand cmd, RequestHistoryEntry entry)
         {
-            cmd.Parameters.AddWithValue("@id", entry.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@credential_id", (object?)entry.CredentialId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@principal_display", (object?)entry.PrincipalDisplay ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@auth_method", (object?)entry.AuthMethod ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@method", entry.Method);
-            cmd.Parameters.AddWithValue("@route", entry.Route);
-            cmd.Parameters.AddWithValue("@route_template", (object?)entry.RouteTemplate ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@query_string", (object?)entry.QueryString ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status_code", entry.StatusCode);
-            cmd.Parameters.AddWithValue("@duration_ms", entry.DurationMs);
-            cmd.Parameters.AddWithValue("@request_size_bytes", entry.RequestSizeBytes);
-            cmd.Parameters.AddWithValue("@response_size_bytes", entry.ResponseSizeBytes);
-            cmd.Parameters.AddWithValue("@request_content_type", (object?)entry.RequestContentType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@response_content_type", (object?)entry.ResponseContentType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@is_success", entry.IsSuccess);
-            cmd.Parameters.AddWithValue("@client_ip", (object?)entry.ClientIp ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@correlation_id", (object?)entry.CorrelationId ?? DBNull.Value);
-            // created_utc is TEXT compared against ISO-8601 bounds, so it is stored in that form.
-            cmd.Parameters.AddWithValue("@created_utc", ToIso8601(entry.CreatedUtc));
+            RequestHistoryColumns.WriteEntry(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "request_history"), entry);
         }
 
         private static void BindDetail(NpgsqlCommand cmd, RequestHistoryDetail detail)
         {
-            cmd.Parameters.AddWithValue("@request_history_id", detail.RequestHistoryId);
-            cmd.Parameters.AddWithValue("@path_params_json", (object?)detail.PathParamsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@query_params_json", (object?)detail.QueryParamsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@request_headers_json", (object?)detail.RequestHeadersJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@response_headers_json", (object?)detail.ResponseHeadersJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@request_body_text", (object?)detail.RequestBodyText ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@response_body_text", (object?)detail.ResponseBodyText ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@request_body_truncated", detail.RequestBodyTruncated);
-            cmd.Parameters.AddWithValue("@response_body_truncated", detail.ResponseBodyTruncated);
+            RequestHistoryColumns.WriteDetail(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "request_history_details"), detail);
         }
 
         private static void ApplyQueryFilters(RequestHistoryQuery? query, List<string> conditions, List<NpgsqlParameter> parameters)
@@ -276,12 +248,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (!string.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new NpgsqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!string.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new NpgsqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@user_id", query.UserId));
             }
             if (query.ExcludedUserIds != null && query.ExcludedUserIds.Count > 0)
             {
@@ -296,32 +268,32 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (!string.IsNullOrWhiteSpace(query.CredentialId))
             {
                 conditions.Add("credential_id = @credential_id");
-                parameters.Add(new NpgsqlParameter("@credential_id", query.CredentialId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@credential_id", query.CredentialId));
             }
             if (!string.IsNullOrWhiteSpace(query.Principal))
             {
                 conditions.Add("principal_display ILIKE @principal");
-                parameters.Add(new NpgsqlParameter("@principal", "%" + query.Principal + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@principal", "%" + query.Principal + "%"));
             }
             if (!string.IsNullOrWhiteSpace(query.Method))
             {
                 conditions.Add("UPPER(method) = @method");
-                parameters.Add(new NpgsqlParameter("@method", query.Method.ToUpperInvariant()));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@method", query.Method.ToUpperInvariant()));
             }
             if (!string.IsNullOrWhiteSpace(query.Route))
             {
                 conditions.Add("route ILIKE @route");
-                parameters.Add(new NpgsqlParameter("@route", "%" + query.Route + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@route", "%" + query.Route + "%"));
             }
             if (query.StatusCode.HasValue)
             {
                 conditions.Add("status_code = @status_code");
-                parameters.Add(new NpgsqlParameter("@status_code", query.StatusCode.Value));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@status_code", query.StatusCode.Value));
             }
             if (query.IsSuccess.HasValue)
             {
                 conditions.Add("is_success = @is_success");
-                parameters.Add(new NpgsqlParameter("@is_success", query.IsSuccess.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Boolean(new NpgsqlParameter(), "@is_success", "request_history", "is_success", query.IsSuccess.Value));
             }
             if (query.FromUtc.HasValue)
             {
@@ -329,18 +301,14 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 // The schema stores created_utc as ISO-8601 TEXT (matching the other *_utc
                 // columns). Binding a raw DateTime makes PostgreSQL look for a text >= timestamp
                 // operator that does not exist (42883) and the summary/rollback flows fail.
-                parameters.Add(new NpgsqlParameter("@from_utc", ToIso8601(query.FromUtc.Value)));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@from_utc", "request_history", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", ToIso8601(query.ToUtc.Value)));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@to_utc", "request_history", "created_utc", query.ToUtc.Value));
             }
         }
 
-        private static string ToIso8601(DateTime value)
-        {
-            return value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
-        }
     }
 }

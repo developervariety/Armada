@@ -42,6 +42,36 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Bind every stored request_history column an entry holds, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the request_history table.</param>
+        /// <param name="entry">Row to bind.</param>
+        internal static void WriteEntry(StoredParameters parameters, RequestHistoryEntry entry)
+        {
+            parameters
+                .Text("id", entry.Id)
+                .Text("tenant_id", entry.TenantId)
+                .Text("user_id", entry.UserId)
+                .Text("credential_id", entry.CredentialId)
+                .Text("principal_display", entry.PrincipalDisplay)
+                .Text("auth_method", entry.AuthMethod)
+                .Text("method", entry.Method)
+                .Text("route", entry.Route)
+                .Text("route_template", entry.RouteTemplate)
+                .Text("query_string", entry.QueryString)
+                .Int("status_code", entry.StatusCode)
+                .Double("duration_ms", entry.DurationMs)
+                .Long("request_size_bytes", entry.RequestSizeBytes)
+                .Long("response_size_bytes", entry.ResponseSizeBytes)
+                .Text("request_content_type", entry.RequestContentType)
+                .Text("response_content_type", entry.ResponseContentType)
+                .Bool("is_success", entry.IsSuccess)
+                .Text("client_ip", entry.ClientIp)
+                .Text("correlation_id", entry.CorrelationId)
+                .Utc("created_utc", entry.CreatedUtc);
+        }
+
+        /// <summary>
         /// Read a request_history_detail row.
         /// </summary>
         /// <param name="record">Reader positioned on a request_history_detail row.</param>
@@ -61,6 +91,25 @@ namespace Armada.Core.Database
             detail.RequestBodyTruncated = row.Bool("request_body_truncated");
             detail.ResponseBodyTruncated = row.Bool("response_body_truncated");
             return detail;
+        }
+
+        /// <summary>
+        /// Bind every stored request_history_details column a detail holds, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the request_history_details table.</param>
+        /// <param name="detail">Row to bind.</param>
+        internal static void WriteDetail(StoredParameters parameters, RequestHistoryDetail detail)
+        {
+            parameters
+                .Text("request_history_id", detail.RequestHistoryId)
+                .Text("path_params_json", detail.PathParamsJson)
+                .Text("query_params_json", detail.QueryParamsJson)
+                .Text("request_headers_json", detail.RequestHeadersJson)
+                .Text("response_headers_json", detail.ResponseHeadersJson)
+                .Text("request_body_text", detail.RequestBodyText)
+                .Text("response_body_text", detail.ResponseBodyText)
+                .Bool("request_body_truncated", detail.RequestBodyTruncated)
+                .Bool("response_body_truncated", detail.ResponseBodyTruncated);
         }
     }
 }
