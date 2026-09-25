@@ -83,6 +83,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A Slop check with no reviewable work follows the unstamped-check rule:** on
+  a voyage that ended before any stage produced reviewable work it is cancelled
+  with the reason, like Build and UnitTest, instead of failing and raising a
+  High incident about a diff that never existed; on a live voyage it waits.
 - **Built-in template defaults reach live servers:** a committed hash history
   per built-in template lets the startup upgrader carry every row that still
   holds an earlier default forward. A unit guard fails when a default changes

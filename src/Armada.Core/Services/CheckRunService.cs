@@ -704,6 +704,16 @@ namespace Armada.Core.Services
                 }
             }
 
+            // No reviewable work: the Slop check has nothing to classify. It follows the same rule as
+            // the checkout Checks, so a voyage that ended before any stage produced reviewable work
+            // cancels the record with that reason instead of failing it and raising an incident
+            // about a diff that never existed, and a live voyage leaves it waiting.
+            if (String.IsNullOrWhiteSpace(run.CommitHash) && String.IsNullOrWhiteSpace(run.BranchName))
+            {
+                CheckRun? decided = await DecideUnstampedVoyageRecordAsync(run, token).ConfigureAwait(false);
+                if (decided != null) return decided;
+            }
+
             string? repoPath = !String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath)
                 ? vessel.LocalPath
                 : vessel.WorkingDirectory;
@@ -1278,6 +1288,16 @@ namespace Armada.Core.Services
         private async Task<CheckRun?> HandleUnstampedVoyageRecordAsync(CheckRun run, CancellationToken token)
         {
             if (!IsIsolatedCheckoutType(run.Type)) return null;
+            return await DecideUnstampedVoyageRecordAsync(run, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The unstamped-record rule itself, for any Check type whose subject is the voyage's work:
+        /// null when the record may execute, otherwise the record left Pending (a live voyage that has
+        /// not committed yet) or Canceled (a voyage that ended before any stage stamped it).
+        /// </summary>
+        private async Task<CheckRun?> DecideUnstampedVoyageRecordAsync(CheckRun run, CancellationToken token)
+        {
             if (String.IsNullOrWhiteSpace(run.VoyageId)) return null;
             if (!String.IsNullOrWhiteSpace(run.BranchName) || !String.IsNullOrWhiteSpace(run.CommitHash)) return null;
 

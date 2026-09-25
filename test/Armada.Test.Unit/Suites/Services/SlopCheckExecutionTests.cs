@@ -198,6 +198,66 @@ namespace Armada.Test.Unit.Suites.Services
                     SafeDeleteDirectory(repo);
                 }
             }).ConfigureAwait(false);
+            await RunTest("An armed Slop record on a voyage that ended with no reviewable work is cancelled, and on a live voyage it waits", async () =>
+            {
+                string repo = await CreateRepoAsync().ConfigureAwait(false);
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CheckRunService service = await CreateServiceAsync(testDb).ConfigureAwait(false);
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(CreateVessel(repo)).ConfigureAwait(false);
+
+                        foreach (VoyageStatusEnum voyageStatus in new[] { VoyageStatusEnum.Failed, VoyageStatusEnum.InProgress })
+                        {
+                            Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("slop-voyage-" + voyageStatus)
+                            {
+                                TenantId = _Tenant,
+                                UserId = _User,
+                                Status = voyageStatus
+                            }).ConfigureAwait(false);
+                            // The Worker failed its gate after committing, so nothing is under review.
+                            await testDb.Driver.Missions.CreateAsync(new Mission("Worker", "Port the widget")
+                            {
+                                TenantId = _Tenant,
+                                UserId = _User,
+                                VesselId = vessel.Id,
+                                VoyageId = voyage.Id,
+                                Status = MissionStatusEnum.Failed,
+                                BranchName = "work",
+                                CommitHash = "0123456789abcdef0123456789abcdef01234567"
+                            }).ConfigureAwait(false);
+                            CheckRun armed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                            {
+                                TenantId = _Tenant,
+                                UserId = _User,
+                                VesselId = vessel.Id,
+                                VoyageId = voyage.Id,
+                                Type = CheckRunTypeEnum.Slop,
+                                Source = CheckRunSourceEnum.Armada,
+                                Status = CheckRunStatusEnum.Pending,
+                                Label = "Slop (armed at dispatch)"
+                            }).ConfigureAwait(false);
+
+                            CheckRun run = await service.RunPendingAsync(Auth(), armed.Id).ConfigureAwait(false);
+
+                            if (voyageStatus == VoyageStatusEnum.Failed)
+                            {
+                                AssertEqual(CheckRunStatusEnum.Canceled, run.Status, "an ended voyage with no reviewable work cancels the Slop record");
+                                AssertContains("unstamped_voyage_check", run.Summary ?? String.Empty, "the cancellation names its reason");
+                            }
+                            else
+                            {
+                                AssertEqual(CheckRunStatusEnum.Pending, run.Status, "a live voyage with no reviewable work yet leaves the Slop record waiting");
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    SafeDeleteDirectory(repo);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
