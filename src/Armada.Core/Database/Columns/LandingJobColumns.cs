@@ -37,5 +37,30 @@ namespace Armada.Core.Database
             job.LastError = row.TextOrNull("last_error");
             return job;
         }
+
+        /// <summary>
+        /// Bind every stored landing_jobs column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the landing_jobs table.</param>
+        /// <param name="job">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, LandingJob job)
+        {
+            parameters
+                .Text("id", job.Id)
+                .Text("tenant_id", job.TenantId)
+                .Text("user_id", job.UserId)
+                .Text("merge_entry_id", job.MergeEntryId)
+                .Text("mission_id", job.MissionId)
+                .Text("vessel_id", job.VesselId)
+                .Text("branch_name", job.BranchName)
+                .Text("target_branch", job.TargetBranch)
+                .Text("state", job.State.ToString())
+                .Int("retry_count", job.RetryCount)
+                .Utc("created_utc", job.CreatedUtc)
+                .Utc("last_update_utc", job.LastUpdateUtc)
+                .Utc("started_utc", job.StartedUtc)
+                .Utc("completed_utc", job.CompletedUtc)
+                .Text("last_error", job.LastError);
+        }
     }
 }

@@ -14,8 +14,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #region Private-Members
 
         private NpgsqlDataSource _DataSource;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
-
         #endregion
 
         #region Constructors-and-Factories
@@ -65,7 +63,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM landing_jobs WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false)) return LandingJobColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
@@ -87,7 +85,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM landing_jobs WHERE merge_entry_id = @merge_entry_id;";
-                    cmd.Parameters.AddWithValue("@merge_entry_id", mergeEntryId);
+                    StoredValueBinder.Value(cmd, "@merge_entry_id", mergeEntryId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false)) return LandingJobColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
@@ -143,7 +141,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM landing_jobs WHERE merge_entry_id = @merge_entry_id;";
-                    cmd.Parameters.AddWithValue("@merge_entry_id", mergeEntryId);
+                    StoredValueBinder.Value(cmd, "@merge_entry_id", mergeEntryId);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -160,7 +158,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM landing_jobs WHERE state = @state ORDER BY created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@state", state.ToString());
+                    StoredValueBinder.Value(cmd, "@state", state.ToString());
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(LandingJobColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
@@ -177,26 +175,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         private static void AddParameters(NpgsqlCommand cmd, LandingJob job)
         {
-            cmd.Parameters.AddWithValue("@id", job.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)job.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)job.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@merge_entry_id", job.MergeEntryId);
-            cmd.Parameters.AddWithValue("@mission_id", (object?)job.MissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)job.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@branch_name", job.BranchName);
-            cmd.Parameters.AddWithValue("@target_branch", job.TargetBranch);
-            cmd.Parameters.AddWithValue("@state", job.State.ToString());
-            cmd.Parameters.AddWithValue("@retry_count", job.RetryCount);
-            cmd.Parameters.AddWithValue("@created_utc", ToIso8601(job.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(job.LastUpdateUtc));
-            cmd.Parameters.AddWithValue("@started_utc", job.StartedUtc.HasValue ? (object)ToIso8601(job.StartedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", job.CompletedUtc.HasValue ? (object)ToIso8601(job.CompletedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_error", (object?)job.LastError ?? DBNull.Value);
-        }
-
-        private static string ToIso8601(DateTime dt)
-        {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            LandingJobColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "landing_jobs"), job);
         }
 
         #endregion
