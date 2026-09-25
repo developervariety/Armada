@@ -62,5 +62,54 @@ namespace Armada.Core.Database
             profile.LastUpdateUtc = row.Utc("last_update_utc");
             return profile;
         }
+
+        /// <summary>
+        /// Bind every stored workflow_profiles column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the workflow_profiles table.</param>
+        /// <param name="profile">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, WorkflowProfile profile)
+        {
+            parameters
+                .Text("id", profile.Id)
+                .Text("tenant_id", profile.TenantId)
+                .Text("user_id", profile.UserId)
+                .Text("name", profile.Name)
+                .Text("description", profile.Description)
+                .Text("scope", profile.Scope.ToString())
+                .Text("fleet_id", profile.FleetId)
+                .Text("vessel_id", profile.VesselId)
+                .Bool("is_default", profile.IsDefault)
+                .Bool("active", profile.Active)
+                .Text("lint_command", profile.LintCommand)
+                .Text("build_command", profile.BuildCommand)
+                .Text("unit_test_command", profile.UnitTestCommand)
+                .Text("containerless_unit_test_command", profile.ContainerlessUnitTestCommand)
+                .Text("integration_test_command", profile.IntegrationTestCommand)
+                .Text("package_command", profile.PackageCommand)
+                .Text("publish_artifact_command", profile.PublishArtifactCommand)
+                .Text("release_versioning_command", profile.ReleaseVersioningCommand)
+                .Text("changelog_generation_command", profile.ChangelogGenerationCommand)
+                .Text("migration_command", profile.MigrationCommand)
+                .Text("security_scan_command", profile.SecurityScanCommand)
+                .Text("performance_command", profile.PerformanceCommand)
+                .Text("deployment_verification_command", profile.DeploymentVerificationCommand)
+                .Text("rollback_verification_command", profile.RollbackVerificationCommand)
+                .Text("language_hints_json", Serialize(profile.LanguageHints))
+                .Text("required_secrets_json", Serialize(profile.RequiredSecrets))
+                .Text("expected_artifacts_json", Serialize(profile.ExpectedArtifacts))
+                .Text("environments_json", Serialize(profile.Environments))
+                .Text("environment_variables_json", Serialize(profile.EnvironmentVariables))
+                .Utc("created_utc", profile.CreatedUtc)
+                .Utc("last_update_utc", profile.LastUpdateUtc);
+        }
+
+        /// <summary>
+        /// A list or map column is stored as JSON, and an absent one as its empty form.
+        /// </summary>
+        private static string Serialize<T>(T value)
+        {
+            return JsonSerializer.Serialize(value ?? System.Activator.CreateInstance<T>(), _Json);
+        }
     }
 }

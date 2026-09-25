@@ -168,7 +168,15 @@ namespace Armada.Core.Database
         /// </summary>
         internal void AddBoolean(DbCommand command, string parameterName, string table, string column, bool? value)
         {
-            DbParameter parameter = command.CreateParameter();
+            command.Parameters.Add(Boolean(command.CreateParameter(), parameterName, table, column, value));
+        }
+
+        /// <summary>
+        /// Configure a provider parameter to hold a boolean in the stored form of a column, for a command whose
+        /// parameters are collected before the command exists.
+        /// </summary>
+        internal TParameter Boolean<TParameter>(TParameter parameter, string parameterName, string table, string column, bool? value) where TParameter : DbParameter
+        {
             parameter.ParameterName = parameterName;
             if (StoresBooleanAsInteger(table, column))
             {
@@ -181,7 +189,7 @@ namespace Armada.Core.Database
                 parameter.Value = value.HasValue ? value.Value : DBNull.Value;
             }
 
-            command.Parameters.Add(parameter);
+            return parameter;
         }
 
         /// <summary>

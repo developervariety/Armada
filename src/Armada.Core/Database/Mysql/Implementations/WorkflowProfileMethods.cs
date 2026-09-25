@@ -73,7 +73,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                    List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT * FROM workflow_profiles WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
                     foreach (MySqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -150,7 +150,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                    List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM workflow_profiles WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (MySqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -243,89 +243,54 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new MySqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new MySqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@user_id", query.UserId));
             }
             if (query.Scope.HasValue)
             {
                 conditions.Add("scope = @scope");
-                parameters.Add(new MySqlParameter("@scope", query.Scope.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@scope", query.Scope.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.FleetId))
             {
                 conditions.Add("fleet_id = @fleet_id");
-                parameters.Add(new MySqlParameter("@fleet_id", query.FleetId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@fleet_id", query.FleetId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search)");
-                parameters.Add(new MySqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.Active.HasValue)
             {
                 conditions.Add("active = @active");
-                parameters.Add(new MySqlParameter("@active", query.Active.Value ? 1 : 0));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Boolean(new MySqlParameter(), "@active", "workflow_profiles", "active", query.Active.Value));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new MySqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@from_utc", "workflow_profiles", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new MySqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@to_utc", "workflow_profiles", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(MySqlCommand cmd, WorkflowProfile profile)
         {
-            cmd.Parameters.AddWithValue("@id", profile.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)profile.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)profile.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", profile.Name);
-            cmd.Parameters.AddWithValue("@description", (object?)profile.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@scope", profile.Scope.ToString());
-            cmd.Parameters.AddWithValue("@fleet_id", (object?)profile.FleetId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)profile.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@is_default", profile.IsDefault ? 1 : 0);
-            cmd.Parameters.AddWithValue("@active", profile.Active ? 1 : 0);
-            cmd.Parameters.AddWithValue("@language_hints_json", Serialize(profile.LanguageHints));
-            cmd.Parameters.AddWithValue("@lint_command", (object?)profile.LintCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@build_command", (object?)profile.BuildCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@unit_test_command", (object?)profile.UnitTestCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@containerless_unit_test_command", (object?)profile.ContainerlessUnitTestCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@integration_test_command", (object?)profile.IntegrationTestCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@e2e_test_command", (object?)profile.E2ETestCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@package_command", (object?)profile.PackageCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@publish_artifact_command", (object?)profile.PublishArtifactCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@release_versioning_command", (object?)profile.ReleaseVersioningCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@changelog_generation_command", (object?)profile.ChangelogGenerationCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@migration_command", (object?)profile.MigrationCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@security_scan_command", (object?)profile.SecurityScanCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@performance_command", (object?)profile.PerformanceCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deployment_verification_command", (object?)profile.DeploymentVerificationCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rollback_verification_command", (object?)profile.RollbackVerificationCommand ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@required_secrets_json", Serialize(profile.RequiredSecrets));
-            cmd.Parameters.AddWithValue("@expected_artifacts_json", Serialize(profile.ExpectedArtifacts));
-            cmd.Parameters.AddWithValue("@environments_json", Serialize(profile.Environments));
-            cmd.Parameters.AddWithValue("@environment_variables_json", Serialize(profile.EnvironmentVariables));
-            cmd.Parameters.AddWithValue("@created_utc", profile.CreatedUtc);
-            cmd.Parameters.AddWithValue("@last_update_utc", profile.LastUpdateUtc);
-        }
-
-        private static string Serialize<T>(T value)
-        {
-            return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
+            WorkflowProfileColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "workflow_profiles"), profile);
+            StoredValueBinder.Value(cmd, "@e2e_test_command", profile.E2ETestCommand);
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)
