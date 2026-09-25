@@ -27,6 +27,9 @@ namespace Armada.Server
         /// <summary>Container memory limit at the last beat, when the cgroup reports one.</summary>
         public long? LastContainerMemoryLimitBytes { get; set; } = null;
 
+        /// <summary>When a stop was requested; null while it runs or when it was killed without one.</summary>
+        public DateTime? StopRequestedUtc { get; set; } = null;
+
         /// <summary>When the run stopped cleanly; null while it runs or when it was killed.</summary>
         public DateTime? CleanExitUtc { get; set; } = null;
 

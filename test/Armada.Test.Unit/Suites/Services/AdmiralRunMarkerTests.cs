@@ -59,10 +59,37 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("12200 MiB", description, "the container memory at the last beat is reported");
                     AssertContains("12288 MiB limit", description, "the container limit is reported");
                     AssertContains("journalctl -k", description, "the report says where the cause is recorded");
+                    AssertContains("no stop requested", description, "a kill is reported as having had no stop request");
 
                     AdmiralRunMarker.Start(dir, lastAlive.AddMinutes(3), 203, out previous);
                     AssertNotNull(previous, "the second start after a kill reports the killed run 202, which never stopped either");
                     AssertEqual(202, previous!.ProcessId);
+                }
+                finally
+                {
+                    Directory.Delete(dir, true);
+                }
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A run that was asked to stop but did not finish is reported as an incomplete stop, not a kill", () =>
+            {
+                string dir = NewDirectory();
+                try
+                {
+                    AdmiralRunRecord? previous;
+                    AdmiralRunMarker stopping = AdmiralRunMarker.Start(dir, DateTime.UtcNow, 401, out previous);
+                    stopping.MarkStopRequested(DateTime.UtcNow);
+                    // The runtime's stop timeout ended the process before MarkCleanExit.
+
+                    AdmiralRunMarker.Start(dir, DateTime.UtcNow, 402, out previous);
+                    AssertNotNull(previous, "an unfinished stop is reported");
+                    AssertEqual(AdmiralRunMarker.StopIncompleteEventType, AdmiralRunMarker.EventTypeFor(previous!));
+                    AssertContains("did not finish stopping", AdmiralRunMarker.Describe(previous!));
+
+                    AdmiralRunMarker.Start(dir, DateTime.UtcNow, 403, out previous);
+                    AdmiralRunMarker.Start(dir, DateTime.UtcNow, 404, out previous);
+                    AssertEqual(AdmiralRunMarker.UncleanExitEventType, AdmiralRunMarker.EventTypeFor(previous!), "a run with no stop request is a kill");
                 }
                 finally
                 {

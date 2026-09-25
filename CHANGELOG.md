@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A container stop runs the admiral's shutdown sequence:** SIGTERM is
+  handled so the stop reaches `Stop` instead of the runtime exiting as soon as
+  the unloading handlers return; before, a container stop killed the admiral
+  without stopping agents or disposing the database. The run marker records
+  when a stop was requested, and a stop that does not finish is reported as
+  `admiral.stop_incomplete` rather than as an unclean exit.
 - **The inbox and Ask read failed missions as summaries:** the inbox lists
   Failed and LandingFailed missions from the summary projection, and Ask counts
   missions by status from it. Both read every full Failed row before, with its

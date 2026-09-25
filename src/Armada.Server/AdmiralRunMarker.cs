@@ -20,8 +20,11 @@ namespace Armada.Server
         /// <summary>File name of the marker inside the data directory.</summary>
         public const string FileName = "admiral-run.json";
 
-        /// <summary>Event type recorded when the previous run ended without a clean stop.</summary>
+        /// <summary>Event type recorded when the previous run ended with no stop requested.</summary>
         public const string UncleanExitEventType = "admiral.unclean_exit";
+
+        /// <summary>Event type recorded when the previous run was asked to stop but did not finish stopping.</summary>
+        public const string StopIncompleteEventType = "admiral.stop_incomplete";
 
         /// <summary>Full path of the marker file.</summary>
         public string Path { get; }
@@ -100,6 +103,26 @@ namespace Armada.Server
             }
         }
 
+        /// <summary>Record that a stop was requested, before the shutdown sequence runs.</summary>
+        /// <param name="nowUtc">Current time.</param>
+        public void MarkStopRequested(DateTime nowUtc)
+        {
+            lock (_Lock)
+            {
+                _Current.StopRequestedUtc = nowUtc;
+                Write();
+            }
+        }
+
+        /// <summary>The event type that reports a previous run: a stop that did not finish, or a kill.</summary>
+        /// <param name="previous">The previous run's record.</param>
+        /// <returns>The event type.</returns>
+        public static string EventTypeFor(AdmiralRunRecord previous)
+        {
+            if (previous == null) throw new ArgumentNullException(nameof(previous));
+            return previous.StopRequestedUtc != null ? StopIncompleteEventType : UncleanExitEventType;
+        }
+
         /// <summary>Mark this run as stopped cleanly.</summary>
         /// <param name="nowUtc">Current time.</param>
         public void MarkCleanExit(DateTime nowUtc)
@@ -119,9 +142,17 @@ namespace Armada.Server
         public static string Describe(AdmiralRunRecord previous)
         {
             if (previous == null) throw new ArgumentNullException(nameof(previous));
+            if (previous.StopRequestedUtc != null)
+            {
+                return "The previous admiral run (pid " + previous.ProcessId.ToString(CultureInfo.InvariantCulture)
+                    + ", started " + previous.StartUtc.ToString("o", CultureInfo.InvariantCulture)
+                    + ") was asked to stop at " + previous.StopRequestedUtc.Value.ToString("o", CultureInfo.InvariantCulture)
+                    + " but did not finish stopping; the container runtime's stop timeout most likely ended it.";
+            }
+
             string text = "The previous admiral run (pid " + previous.ProcessId.ToString(CultureInfo.InvariantCulture)
                 + ", started " + previous.StartUtc.ToString("o", CultureInfo.InvariantCulture)
-                + ") ended without a clean stop. It was last known alive at "
+                + ") ended with no stop requested. It was last known alive at "
                 + previous.LastAliveUtc.ToString("o", CultureInfo.InvariantCulture);
             if (previous.LastManagedHeapBytes.HasValue)
                 text += " with a managed heap of " + Megabytes(previous.LastManagedHeapBytes.Value);

@@ -4,6 +4,7 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.IO;
     using System.Net.Http;
+    using System.Runtime.InteropServices;
     using System.Runtime.Loader;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -249,6 +250,28 @@ namespace Armada.Server
                 }
             };
 
+            // A container stop sends SIGTERM. The runtime's default turns it into process exit as soon
+            // as the unloading handlers return, before this thread reaches Stop, so the shutdown
+            // sequence never ran on a container stop. Cancel the default and let the wait below end.
+            PosixSignalRegistration? sigterm = null;
+            try
+            {
+                sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+                {
+                    context.Cancel = true;
+                    if (!_ShuttingDown)
+                    {
+                        _ShuttingDown = true;
+                        _Logging.Info("[Program] SIGTERM received; stopping");
+                        waitHandle.Set();
+                    }
+                });
+            }
+            catch (PlatformNotSupportedException)
+            {
+                // The unloading handler above still ends the wait where SIGTERM cannot be handled.
+            }
+
             bool waitHandleSignal = false;
             do
             {
@@ -258,6 +281,7 @@ namespace Armada.Server
 
             _Server.Stop();
             _Logging.Info("[Program] stopped at " + DateTime.UtcNow.ToString("o"));
+            sigterm?.Dispose();
         }
 
         private static void InitializeLogging()

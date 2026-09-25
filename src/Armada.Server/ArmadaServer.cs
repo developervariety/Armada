@@ -1224,6 +1224,7 @@ namespace Armada.Server
             }
 
             _Logging.Info(_Header + "stopping");
+            RunStopStep("run marker stop request", () => _RunMarker?.MarkStopRequested(DateTime.UtcNow));
             try
             {
                 RunStopStep("REST API stop", () =>
@@ -2172,7 +2173,7 @@ namespace Armada.Server
             _Logging.Warn(_Header + description);
             try
             {
-                ArmadaEvent evt = new ArmadaEvent(AdmiralRunMarker.UncleanExitEventType, description)
+                ArmadaEvent evt = new ArmadaEvent(AdmiralRunMarker.EventTypeFor(previous), description)
                 {
                     EntityType = "admiral"
                 };
