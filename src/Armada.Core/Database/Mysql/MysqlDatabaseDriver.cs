@@ -116,7 +116,7 @@ namespace Armada.Core.Database.Mysql
             Memories = new MemoryMethods(_ConnectionString);
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
-            WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
+            WorkflowProfiles = new WorkflowProfileMethods(_Stored);
             Environments = new DeploymentEnvironmentMethods(_Stored);
             CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(_Stored);

@@ -402,7 +402,7 @@ namespace Armada.Core.Database.Sqlite
             Memories = new MemoryMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
-            WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
+            WorkflowProfiles = new WorkflowProfileMethods(_Stored);
             Environments = new DeploymentEnvironmentMethods(_Stored);
             CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(_Stored);

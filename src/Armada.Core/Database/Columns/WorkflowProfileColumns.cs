@@ -86,6 +86,7 @@ namespace Armada.Core.Database
                 .Text("unit_test_command", profile.UnitTestCommand)
                 .Text("containerless_unit_test_command", profile.ContainerlessUnitTestCommand)
                 .Text("integration_test_command", profile.IntegrationTestCommand)
+                .Text("e2e_test_command", profile.E2ETestCommand)
                 .Text("package_command", profile.PackageCommand)
                 .Text("publish_artifact_command", profile.PublishArtifactCommand)
                 .Text("release_versioning_command", profile.ReleaseVersioningCommand)

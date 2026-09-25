@@ -89,6 +89,20 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(ReleaseMethods.Table, new Release());
             });
 
+            await RunTest("WorkflowProfile scope conditions keep their text, order and parameters on every provider", () =>
+            {
+                string postgresql = "tenant_id = @tenant_id AND user_id = @user_id AND scope = @scope AND fleet_id = @fleet_id AND vessel_id = @vessel_id AND (name ILIKE @search OR COALESCE(description, '') ILIKE @search) AND active = @active AND created_utc >= @from_utc AND created_utc <= @to_utc";
+                string others = "tenant_id = @tenant_id AND user_id = @user_id AND scope = @scope AND fleet_id = @fleet_id AND vessel_id = @vessel_id AND (LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search) AND active = @active AND created_utc >= @from_utc AND created_utc <= @to_utc";
+                WorkflowProfileQuery everyFilter = new WorkflowProfileQuery
+                {
+                    TenantId = "ten_x", UserId = "usr_x", Scope = WorkflowProfileScopeEnum.Vessel, FleetId = "flt_x", VesselId = "vsl_x", Search = "Find", Active = true,
+                    FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => p == DatabaseTypeEnum.Postgresql ? postgresql : others, p => WorkflowProfileMethods.Scope(WorkflowProfileMethods.Table.Filter(), everyFilter, p), p => WorkflowProfileMethods.Scope(WorkflowProfileMethods.Table.Filter(), new WorkflowProfileQuery(), p));
+                AssertEqual("is_default DESC, last_update_utc DESC, name ASC", WorkflowProfileMethods.Order);
+                AssertTableMatchesWriter(WorkflowProfileMethods.Table, new WorkflowProfile());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)
