@@ -120,8 +120,8 @@ namespace Armada.Core.Database
                 .Text("provider_name", query.ProviderName)
                 .Text("external_id", query.ExternalId)
                 .Text("environment_name", query.EnvironmentName)
-                .Time("created_utc", ">=", "@from_utc", query.FromUtc?.ToUniversalTime())
-                .Time("created_utc", "<=", "@to_utc", query.ToUtc?.ToUniversalTime());
+                .Time("created_utc", ">=", "@from_utc", query.FromUtc)
+                .Time("created_utc", "<=", "@to_utc", query.ToUtc);
         }
 
         #endregion
