@@ -29,5 +29,24 @@ namespace Armada.Core.Database
             credential.LastUpdateUtc = row.Utc("last_update_utc");
             return credential;
         }
+
+        /// <summary>
+        /// Bind every stored credentials column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the credentials table.</param>
+        /// <param name="credential">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Credential credential)
+        {
+            parameters
+                .Text("id", credential.Id)
+                .Text("tenant_id", credential.TenantId)
+                .Text("user_id", credential.UserId)
+                .Text("name", credential.Name)
+                .Text("bearer_token", credential.BearerToken)
+                .Bool("active", credential.Active)
+                .Bool("is_protected", credential.IsProtected)
+                .Utc("created_utc", credential.CreatedUtc)
+                .Utc("last_update_utc", credential.LastUpdateUtc);
+        }
     }
 }
