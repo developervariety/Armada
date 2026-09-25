@@ -111,7 +111,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.VesselFromReader(reader);
+                            return VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -134,7 +134,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.VesselFromReader(reader);
+                            return VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -252,7 +252,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -276,7 +276,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -335,7 +335,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -377,7 +377,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.VesselFromReader(reader);
+                            return VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -417,7 +417,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -461,7 +461,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
                 return EnumerationResult<Vessel>.Create(query, results, totalCount);
@@ -484,7 +484,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.VesselFromReader(reader);
+                            return VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -508,7 +508,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -552,7 +552,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.VesselFromReader(reader);
+                            return VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -596,7 +596,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -641,7 +641,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
                 return EnumerationResult<Vessel>.Create(query, results, totalCount);
@@ -676,28 +676,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             if (entries == null || entries.Count == 0) return null;
             return JsonSerializer.Serialize(entries);
-        }
-
-        /// <summary>
-        /// Deserialize protected paths from a stored JSON column value. Returns
-        /// null on null/empty/'[]' input and never throws on bad data -- a parse
-        /// failure is treated as "no protection" rather than a hard read error,
-        /// since this column is optional metadata.
-        /// </summary>
-        internal static List<string>? DeserializeProtectedPaths(object? raw)
-        {
-            if (raw == null || raw == DBNull.Value) return null;
-            string? json = raw.ToString();
-            if (String.IsNullOrWhiteSpace(json)) return null;
-            try
-            {
-                List<string>? list = JsonSerializer.Deserialize<List<string>>(json);
-                return (list != null && list.Count > 0) ? list : null;
-            }
-            catch
-            {
-                return null;
-            }
         }
 
         #endregion

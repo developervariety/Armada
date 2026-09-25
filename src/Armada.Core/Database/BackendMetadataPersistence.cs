@@ -42,16 +42,6 @@ namespace Armada.Core.Database
             Add(command, "private_identifier_denylist_json", JsonSerializer.Serialize(vessel.PrivateIdentifierDenylist ?? new List<string>()));
         }
 
-        internal static void ReadVessel(DbDataReader reader, Vessel vessel)
-        {
-            vessel.SecretScanEnabled = Convert.ToBoolean(reader["secret_scan_enabled"]);
-            vessel.ProtectedPathPatterns = ReadList(reader["protected_path_patterns_json"]);
-            vessel.PrivateIdentifierDenylist = ReadList(reader["private_identifier_denylist_json"]);
-        }
-
-        private static List<string> ReadList(object value) => value == DBNull.Value ? new List<string>()
-            : JsonSerializer.Deserialize<List<string>>((string)value) ?? throw new InvalidOperationException("Stored patterns must be a JSON array.");
-
         private static string? TierName(CaptainTierEnum? tier)
         {
             if (!tier.HasValue) return null;

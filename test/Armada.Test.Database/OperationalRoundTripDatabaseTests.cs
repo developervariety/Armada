@@ -1777,6 +1777,99 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyVesselsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? vesselId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("vessel-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "vessel-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "vessel-round-trip", token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                Vessel vessel = new Vessel("round-trip-vessel-" + suffix + "-ユニコード", "https://example.test/repo-" + suffix + ".git")
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    FleetId = fleet.Id,
+                    LocalPath = "/repos/" + suffix + ".git",
+                    WorkingDirectory = "/work/" + suffix,
+                    GitHubTokenOverride = "token-" + suffix,
+                    DefaultBranch = "trunk-" + suffix,
+                    ProjectContext = "Project context ユニコード",
+                    StyleGuide = "Style guide ユニコード",
+                    EnableModelContext = false,
+                    ModelContext = "Model context ユニコード",
+                    LandingMode = LandingModeEnum.MergeQueue,
+                    BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalAndRemote,
+                    ArchitectMaxMissionsPerVoyage = 9,
+                    AllowConcurrentMissions = true,
+                    RequirePassingChecksToLand = true,
+                    ProtectedBranchPatterns = new List<string> { "main", "release/*" },
+                    ReleaseBranchPrefix = "rel-" + suffix + "/",
+                    HotfixBranchPrefix = "fix-" + suffix + "/",
+                    RequirePullRequestForProtectedBranches = true,
+                    RequireMergeQueueForReleaseBranches = true,
+                    DefaultPipelineId = "ppl_" + suffix,
+                    ProtectedPaths = new List<string> { "**/CLAUDE.md", "secrets/**" },
+                    AutoLandPredicate = "{\"maxFiles\":3}",
+                    DefaultPlaybooks = "[{\"playbookId\":\"pbk_" + suffix + "\",\"deliveryMode\":\"InstructionWithReference\"}]",
+                    SiblingRepos = "[{\"name\":\"sibling\"}]",
+                    AutoLandCalibrationLandedCount = 4,
+                    SecretScanEnabled = true,
+                    ProtectedPathPatterns = new List<string> { "*.pem" },
+                    PrivateIdentifierDenylist = new List<string> { "private-name" },
+                    Active = false,
+                    CreatedUtc = baseUtc.AddMinutes(-5)
+                };
+                Vessel created = await _Driver.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
+                vesselId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Vessel");
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Vessel by tenant");
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "Vessel by tenant and user");
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadByNameAsync(tenant.Id, created.Name, token).ConfigureAwait(false), "Vessel by name");
+                List<Vessel> byFleet = await _Driver.Vessels.EnumerateByFleetAsync(fleet.Id, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(created, byFleet.Find(item => item.Id == created.Id), "Vessel by fleet");
+
+                created.LocalPath = null;
+                created.WorkingDirectory = null;
+                created.GitHubTokenOverride = null;
+                created.ProjectContext = null;
+                created.StyleGuide = null;
+                created.EnableModelContext = true;
+                created.ModelContext = null;
+                created.LandingMode = null;
+                created.BranchCleanupPolicy = null;
+                created.ArchitectMaxMissionsPerVoyage = null;
+                created.AllowConcurrentMissions = false;
+                created.RequirePassingChecksToLand = false;
+                created.ProtectedBranchPatterns = new List<string>();
+                created.RequirePullRequestForProtectedBranches = false;
+                created.RequireMergeQueueForReleaseBranches = false;
+                created.DefaultPipelineId = null;
+                created.ProtectedPaths = null;
+                created.AutoLandPredicate = null;
+                created.DefaultPlaybooks = null;
+                created.SiblingRepos = null;
+                created.AutoLandCalibrationLandedCount = 0;
+                created.SecretScanEnabled = false;
+                created.ProtectedPathPatterns = new List<string>();
+                created.PrivateIdentifierDenylist = new List<string>();
+                created.Active = true;
+                Vessel updated = await _Driver.Vessels.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Vessel");
+                }
+            }
+            finally
+            {
+                if (vesselId != null && !_NoCleanup) await _Driver.Vessels.DeleteAsync(vesselId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

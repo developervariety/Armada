@@ -113,7 +113,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VesselFromReader(reader);
+                            return VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -137,7 +137,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VesselFromReader(reader);
+                            return VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -258,7 +258,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -317,7 +317,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -342,7 +342,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -386,7 +386,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VesselFromReader(reader);
+                            return VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -428,7 +428,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -474,7 +474,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
                 return EnumerationResult<Vessel>.Create(query, results, totalCount);
@@ -498,7 +498,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VesselFromReader(reader);
+                            return VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -523,7 +523,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -569,7 +569,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return VesselFromReader(reader);
+                            return VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -615,7 +615,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -662,7 +662,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(VesselFromReader(reader));
+                            results.Add(VesselColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
                 return EnumerationResult<Vessel>.Create(query, results, totalCount);
@@ -690,54 +690,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         #region Private-Methods
 
-        private static Vessel VesselFromReader(NpgsqlDataReader reader)
-        {
-            Vessel vessel = new Vessel();
-            vessel.Id = reader["id"].ToString()!;
-            vessel.TenantId = NullableString(reader["tenant_id"]);
-            vessel.UserId = NullableString(reader["user_id"]);
-            vessel.FleetId = NullableString(reader["fleet_id"]);
-            vessel.Name = reader["name"].ToString()!;
-            vessel.RepoUrl = NullableString(reader["repo_url"]);
-            vessel.LocalPath = NullableString(reader["local_path"]);
-            vessel.WorkingDirectory = NullableString(reader["working_directory"]);
-            vessel.GitHubTokenOverride = NullableString(reader["github_token_override"]);
-            vessel.ProjectContext = NullableString(reader["project_context"]);
-            vessel.StyleGuide = NullableString(reader["style_guide"]);
-            try { vessel.EnableModelContext = Convert.ToBoolean(reader["enable_model_context"]); }
-            catch { vessel.EnableModelContext = true; }
-            vessel.ModelContext = NullableString(reader["model_context"]);
-            string? landingModeStr = NullableString(reader["landing_mode"]);
-            if (!String.IsNullOrEmpty(landingModeStr) && Enum.TryParse<LandingModeEnum>(landingModeStr, out LandingModeEnum lm))
-                vessel.LandingMode = lm;
-            string? branchCleanupStr = NullableString(reader["branch_cleanup_policy"]);
-            if (!String.IsNullOrEmpty(branchCleanupStr) && Enum.TryParse<BranchCleanupPolicyEnum>(branchCleanupStr, out BranchCleanupPolicyEnum bcp))
-                vessel.BranchCleanupPolicy = bcp;
-            try { vessel.AllowConcurrentMissions = (bool)reader["allow_concurrent_missions"]; }
-            catch { vessel.AllowConcurrentMissions = false; }
-            try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
-            try { vessel.ProtectedPaths = DeserializeProtectedPaths(reader["protected_paths"]); } catch { }
-            try { vessel.AutoLandPredicate = reader["auto_land_predicate"] as string; } catch { }
-            try { vessel.AutoLandCalibrationLandedCount = Convert.ToInt32(reader["auto_land_calibration_landed_count"]); } catch { vessel.AutoLandCalibrationLandedCount = 0; }
-            try { vessel.DefaultPlaybooks = reader["default_playbooks"] as string; } catch { }
-            try { vessel.SiblingRepos = reader["sibling_repos"] as string; } catch { }
-            try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
-            VesselPreviewPersistence.Read(reader, vessel);
-            BackendMetadataPersistence.ReadVessel(reader, vessel);
-            vessel.DefaultBranch = reader["default_branch"].ToString()!;
-            vessel.Active = (bool)reader["active"];
-            vessel.CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]);
-            vessel.LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);
-            return vessel;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
         /// <summary>
         /// Serialize a vessel's protected-paths glob list for storage. Returns null
         /// when the list is null or empty so the column stores NULL rather than '[]'.
@@ -746,26 +698,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         {
             if (entries == null || entries.Count == 0) return null;
             return JsonSerializer.Serialize(entries);
-        }
-
-        /// <summary>
-        /// Deserialize protected paths from a stored JSON column value. Returns
-        /// null on null/empty/'[]' input and never throws on bad data.
-        /// </summary>
-        internal static List<string>? DeserializeProtectedPaths(object? raw)
-        {
-            if (raw == null || raw == DBNull.Value) return null;
-            string? json = raw.ToString();
-            if (String.IsNullOrWhiteSpace(json)) return null;
-            try
-            {
-                List<string>? list = JsonSerializer.Deserialize<List<string>>(json);
-                return (list != null && list.Count > 0) ? list : null;
-            }
-            catch
-            {
-                return null;
-            }
         }
 
         #endregion

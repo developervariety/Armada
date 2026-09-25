@@ -123,6 +123,11 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
+- **Vessels read through a shared column reader:** the four provider copies of
+  the vessel mapper, and the separate branch-preview and secret-scan readers,
+  become one reader, and the nine columns read inside empty catch blocks are
+  read as present. Stored protected-path JSON that does not parse raises
+  `StoredRowException` instead of reading as no protected paths.
 - **Missions read through a shared column reader:** the four provider copies
   of the mission mapper become one reader, and the 24 columns read inside empty
   catch blocks are read as present. On SQL Server the last recovery action time

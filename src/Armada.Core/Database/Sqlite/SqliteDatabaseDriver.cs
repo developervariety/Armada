@@ -339,52 +339,6 @@ namespace Armada.Core.Database.Sqlite
         }
 
         /// <summary>
-        /// Convert a SqliteDataReader row to a Vessel model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>Vessel instance.</returns>
-        internal static Vessel VesselFromReader(SqliteDataReader reader)
-        {
-            Vessel vessel = new Vessel();
-            vessel.Id = reader["id"].ToString()!;
-            vessel.TenantId = NullableString(reader["tenant_id"]);
-            vessel.UserId = NullableString(reader["user_id"]);
-            vessel.FleetId = NullableString(reader["fleet_id"]);
-            vessel.Name = reader["name"].ToString()!;
-            vessel.RepoUrl = NullableString(reader["repo_url"]);
-            vessel.LocalPath = NullableString(reader["local_path"]);
-            vessel.WorkingDirectory = NullableString(reader["working_directory"]);
-            try { vessel.GitHubTokenOverride = NullableString(reader["github_token_override"]); } catch { }
-            vessel.ProjectContext = NullableString(reader["project_context"]);
-            vessel.StyleGuide = NullableString(reader["style_guide"]);
-            try { vessel.EnableModelContext = Convert.ToInt64(reader["enable_model_context"]) == 1; }
-            catch { vessel.EnableModelContext = true; }
-            vessel.ModelContext = NullableString(reader["model_context"]);
-            string? landingModeStr = NullableString(reader["landing_mode"]);
-            if (!String.IsNullOrEmpty(landingModeStr) && Enum.TryParse<LandingModeEnum>(landingModeStr, out LandingModeEnum lm))
-                vessel.LandingMode = lm;
-            string? branchCleanupStr = NullableString(reader["branch_cleanup_policy"]);
-            if (!String.IsNullOrEmpty(branchCleanupStr) && Enum.TryParse<BranchCleanupPolicyEnum>(branchCleanupStr, out BranchCleanupPolicyEnum bcp))
-                vessel.BranchCleanupPolicy = bcp;
-            try { vessel.AllowConcurrentMissions = Convert.ToInt64(reader["allow_concurrent_missions"]) == 1; }
-            catch { vessel.AllowConcurrentMissions = false; }
-            try { vessel.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
-            try { vessel.ProtectedPaths = Implementations.VesselMethods.DeserializeProtectedPaths(reader["protected_paths"]); } catch { }
-            try { vessel.AutoLandPredicate = reader["auto_land_predicate"] as string; } catch { }
-            try { vessel.AutoLandCalibrationLandedCount = Convert.ToInt32(reader["auto_land_calibration_landed_count"]); } catch { vessel.AutoLandCalibrationLandedCount = 0; }
-            try { vessel.DefaultPlaybooks = reader["default_playbooks"] as string; } catch { }
-            try { vessel.SiblingRepos = reader["sibling_repos"] as string; } catch { }
-            try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
-            VesselPreviewPersistence.Read(reader, vessel);
-            BackendMetadataPersistence.ReadVessel(reader, vessel);
-            vessel.DefaultBranch = reader["default_branch"].ToString()!;
-            vessel.Active = Convert.ToInt64(reader["active"]) == 1;
-            vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            vessel.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return vessel;
-        }
-
-        /// <summary>
         /// Convert a SqliteDataReader row to a PlanningSession model.
         /// </summary>
         internal static PlanningSession PlanningSessionFromReader(SqliteDataReader reader)
