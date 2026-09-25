@@ -2262,6 +2262,34 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyCoordinationLeasesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string name = "round-trip-lease-" + Guid.NewGuid().ToString("N").Substring(0, 12) + "-ユニコード";
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("lease-round-trip", token: token).ConfigureAwait(false);
+                DateTime before = DateTime.UtcNow.AddSeconds(-1);
+                DatabaseAssert.True(await _Driver.CoordinationLeases.TryAcquireAsync(name, "holder-ユニコード", TimeSpan.FromMinutes(7), tenant.Id, token).ConfigureAwait(false), "Acquire lease");
+                CoordinationLease acquired = DatabaseAssert.NotNull(await _Driver.CoordinationLeases.ReadAsync(name, token).ConfigureAwait(false), "Lease read");
+                DatabaseAssert.Equal(name, acquired.Name, "CoordinationLease.Name");
+                DatabaseAssert.Equal("holder-ユニコード", acquired.Holder, "CoordinationLease.Holder");
+                DatabaseAssert.Equal(tenant.Id, acquired.TenantId, "CoordinationLease.TenantId");
+                DatabaseAssert.True(acquired.AcquiredUtc.Kind == DateTimeKind.Utc && acquired.AcquiredUtc >= before && acquired.AcquiredUtc <= DateTime.UtcNow.AddSeconds(1),
+                    "Lease acquisition reads back as the UTC instant it was written, got " + acquired.AcquiredUtc.ToString("O"));
+                DatabaseAssert.UtcInstant(acquired.AcquiredUtc.AddMinutes(7), acquired.ExpiresUtc, "CoordinationLease.ExpiresUtc is the acquisition plus the time to live");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(acquired, await reopened.CoordinationLeases.ReadAsync(name, token).ConfigureAwait(false), "Reopened CoordinationLease");
+                }
+            }
+            finally
+            {
+                if (!_NoCleanup) await _Driver.CoordinationLeases.ReleaseAsync(name, "holder-ユニコード", token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

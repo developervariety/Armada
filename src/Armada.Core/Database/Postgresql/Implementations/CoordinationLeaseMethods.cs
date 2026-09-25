@@ -153,7 +153,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return LeaseFromReader(reader);
+                            return CoordinationLeaseColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -183,24 +183,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
 
         #region Private-Methods
-
-        private static CoordinationLease LeaseFromReader(NpgsqlDataReader reader)
-        {
-            CoordinationLease lease = new CoordinationLease();
-            lease.Name = reader["name"].ToString()!;
-            lease.Holder = reader["holder"].ToString()!;
-            lease.TenantId = NullableString(reader["tenant_id"]);
-            lease.AcquiredUtc = DateTime.SpecifyKind((DateTime)reader["acquired_utc"], DateTimeKind.Utc);
-            lease.ExpiresUtc = DateTime.SpecifyKind((DateTime)reader["expires_utc"], DateTimeKind.Utc);
-            return lease;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
 
         #endregion
     }

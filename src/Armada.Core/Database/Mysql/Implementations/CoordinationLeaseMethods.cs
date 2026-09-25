@@ -137,7 +137,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return CoordinationLeaseFromReader(reader);
+                            return CoordinationLeaseColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -171,27 +171,11 @@ namespace Armada.Core.Database.Mysql.Implementations
             return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        }
-
         private static string? NullableString(object value)
         {
             if (value == null || value == DBNull.Value) return null;
             string str = value.ToString()!;
             return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static CoordinationLease CoordinationLeaseFromReader(MySqlDataReader reader)
-        {
-            CoordinationLease lease = new CoordinationLease();
-            lease.Name = reader["name"].ToString()!;
-            lease.Holder = reader["holder"].ToString()!;
-            lease.TenantId = NullableString(reader["tenant_id"]);
-            lease.AcquiredUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["acquired_utc"]), DateTimeKind.Utc);
-            lease.ExpiresUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["expires_utc"]), DateTimeKind.Utc);
-            return lease;
         }
 
         #endregion

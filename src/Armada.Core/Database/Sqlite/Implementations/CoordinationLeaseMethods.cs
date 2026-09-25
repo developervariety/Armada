@@ -153,7 +153,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return LeaseFromReader(reader);
+                            return CoordinationLeaseColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -181,22 +181,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
         #endregion
 
         #region Private-Methods
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to a CoordinationLease model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>CoordinationLease instance.</returns>
-        private static CoordinationLease LeaseFromReader(SqliteDataReader reader)
-        {
-            CoordinationLease lease = new CoordinationLease();
-            lease.Name = reader["name"].ToString()!;
-            lease.Holder = reader["holder"].ToString()!;
-            lease.TenantId = SqliteDatabaseDriver.NullableString(reader["tenant_id"]);
-            lease.AcquiredUtc = SqliteDatabaseDriver.FromIso8601(reader["acquired_utc"].ToString()!);
-            lease.ExpiresUtc = SqliteDatabaseDriver.FromIso8601(reader["expires_utc"].ToString()!);
-            return lease;
-        }
 
         #endregion
     }

@@ -157,7 +157,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return _FromReader(reader);
+                            return CoordinationLeaseColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -199,24 +199,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             SqlParameter parameter = new SqlParameter(name, SqlDbType.DateTime2);
             parameter.Value = value;
             return parameter;
-        }
-
-        /// <summary>
-        /// Map a data reader row to a coordination lease.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>The lease.</returns>
-        private static CoordinationLease _FromReader(SqlDataReader reader)
-        {
-            CoordinationLease lease = new CoordinationLease();
-            lease.Name = reader["name"].ToString()!;
-            lease.Holder = reader["holder"].ToString()!;
-            lease.TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]);
-            DateTime? acquired = SqlServerDatabaseDriver.NullableDateTime(reader["acquired_utc"]);
-            DateTime? expires = SqlServerDatabaseDriver.NullableDateTime(reader["expires_utc"]);
-            if (acquired.HasValue) lease.AcquiredUtc = acquired.Value;
-            if (expires.HasValue) lease.ExpiresUtc = expires.Value;
-            return lease;
         }
 
         #endregion
