@@ -173,6 +173,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A captain Stalled with no mission returns to Idle after the stall threshold, and one with a mission stays", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.StallThresholdMinutes = 10;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, settings, new StubGitService());
+
+                    Captain orphaned = await testDb.Driver.Captains.CreateAsync(new Captain("stalled-no-mission")).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateStateAsync(orphaned.Id, CaptainStateEnum.Stalled).ConfigureAwait(false);
+                    Captain holding = await testDb.Driver.Captains.CreateAsync(new Captain("stalled-with-mission")).ConfigureAwait(false);
+                    holding.CurrentMissionId = "msn_still_owned";
+                    holding.State = CaptainStateEnum.Stalled;
+                    await testDb.Driver.Captains.UpdateAsync(holding).ConfigureAwait(false);
+
+                    int early = await service.RecoverStalledCaptainsAsync(CancellationToken.None, DateTime.UtcNow.AddMinutes(2)).ConfigureAwait(false);
+                    AssertEqual(0, early, "a captain stalled for less than the threshold is left alone");
+                    AssertEqual(CaptainStateEnum.Stalled, (await testDb.Driver.Captains.ReadAsync(orphaned.Id).ConfigureAwait(false))!.State);
+
+                    int recovered = await service.RecoverStalledCaptainsAsync(CancellationToken.None, DateTime.UtcNow.AddMinutes(11)).ConfigureAwait(false);
+                    AssertEqual(1, recovered, "only the captain with no mission is recovered");
+                    AssertEqual(CaptainStateEnum.Idle, (await testDb.Driver.Captains.ReadAsync(orphaned.Id).ConfigureAwait(false))!.State, "the orphaned captain returns to Idle");
+                    AssertEqual(CaptainStateEnum.Stalled, (await testDb.Driver.Captains.ReadAsync(holding.Id).ConfigureAwait(false))!.State, "a captain that still owns a mission stays Stalled");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("captain.stall_recovered", 10).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "the recovery is recorded");
+                    AssertEqual(orphaned.Id, events[0].EntityId);
+                }
+            });
+
             await RunTest("ArmadaSettings MaxInterruptedExitRedispatchAttempts ClampsToRangeAndDefaultsToTwo", () =>
             {
                 ArmadaSettings settings = new ArmadaSettings();

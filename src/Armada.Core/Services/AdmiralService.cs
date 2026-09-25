@@ -1508,6 +1508,45 @@ namespace Armada.Core.Services
                 token).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Returns a captain to Idle once it has been Stalled for the stall threshold with no current
+        /// mission and no live process. A requeue after a transient failure and a non-retryable
+        /// runtime failure both leave the captain Stalled with its mission already requeued or failed,
+        /// and nothing else ever moves it back, so the captain dropped out of routing until an operator
+        /// intervened. A captain that fails again is stalled again, so the threshold bounds the cost of
+        /// a captain that keeps failing. Quarantined captains are a separate state and are not touched.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <param name="nowUtc">The current time; supplied by tests.</param>
+        /// <returns>The number of captains returned to Idle.</returns>
+        internal async Task<int> RecoverStalledCaptainsAsync(CancellationToken token = default, DateTime? nowUtc = null)
+        {
+            List<Captain> stalled = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+            if (stalled.Count == 0) return 0;
+
+            DateTime now = nowUtc ?? DateTime.UtcNow;
+            TimeSpan threshold = TimeSpan.FromMinutes(_Settings.StallThresholdMinutes);
+            int recovered = 0;
+            foreach (Captain captain in stalled)
+            {
+                if (!String.IsNullOrEmpty(captain.CurrentMissionId)) continue;
+                if (captain.ProcessId.HasValue && ProcessSupervisor.IsTrackedProcessAlive(captain.ProcessId.Value, null)) continue;
+
+                TimeSpan stalledFor = now - captain.LastUpdateUtc;
+                if (stalledFor < threshold) continue;
+
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                recovered++;
+                string minutes = Math.Floor(stalledFor.TotalMinutes).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+                _Logging.Info(_Header + "captain " + captain.Id + " returned to Idle after " + minutes + " minute(s) Stalled with no mission");
+                await EmitEventAsync("captain.stall_recovered",
+                    "Captain " + captain.Name + " returned to Idle after " + minutes + " minute(s) Stalled with no mission and no process.",
+                    entityType: "captain", entityId: captain.Id, captainId: captain.Id, token: token).ConfigureAwait(false);
+            }
+
+            return recovered;
+        }
+
         /// <inheritdoc />
         public async Task CleanupStaleCaptainsAsync(CancellationToken token = default)
         {
@@ -2324,6 +2363,9 @@ namespace Armada.Core.Services
             {
                 HealthLoopMaintenanceStep.EveryCycles("quarantine restore", () => 1,
                     async token => await _CaptainQuarantine.RestoreExpiredQuarantinesAsync(token).ConfigureAwait(false)),
+
+                HealthLoopMaintenanceStep.EveryCycles("stalled captain recovery", () => 1,
+                    async token => await RecoverStalledCaptainsAsync(token).ConfigureAwait(false)),
 
                 HealthLoopMaintenanceStep.EveryCycles("working captain health checks", () => 1,
                     async token => await HealthCheckWorkingCaptainsAsync(token).ConfigureAwait(false)),

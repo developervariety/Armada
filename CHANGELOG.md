@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A Stalled captain with no mission returns to Idle:** the health loop
+  releases a captain that has been Stalled for the stall threshold with no
+  current mission and no live process, and records `captain.stall_recovered`.
+  Before, nothing moved it back and it dropped out of routing until an operator
+  intervened.
 - **A Slop check with no reviewable work follows the unstamped-check rule:** on
   a voyage that ended before any stage produced reviewable work it is cancelled
   with the reason, like Build and UnitTest, instead of failing and raising a
