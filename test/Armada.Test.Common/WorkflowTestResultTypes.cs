@@ -2,13 +2,6 @@ namespace Armada.Test.Common
 {
     using Armada.Core.Models;
 
-    public class TenantPairResult
-    {
-        public string TenantA { get; set; } = string.Empty;
-
-        public string TenantB { get; set; } = string.Empty;
-    }
-
     public class TenantUserResult
     {
         public string TenantId { get; set; } = string.Empty;

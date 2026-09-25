@@ -319,18 +319,6 @@ namespace Armada.Test.Runtimes.Suites
                 }
             });
 
-            await RunTest("StartAsync Valid Command Returns ProcessId", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                string tempDir = Path.GetTempPath();
-
-                int pid = await runtime.StartAsync(tempDir, "test prompt");
-                AssertTrue(pid > 0);
-
-                // Wait briefly for process to finish (dotnet --version exits quickly)
-                await Task.Delay(2000);
-            });
-
             await RunTest("StartAsync Without Stdin Redirect Does Not Configure StdinEncoding", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
@@ -341,75 +329,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(pid > 0);
 
                 await Task.Delay(1000);
-            });
-
-            await RunTest("OnOutputReceived Fires For Output", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                string tempDir = Path.GetTempPath();
-
-                List<string> outputLines = new List<string>();
-                runtime.OnOutputReceived += (pid, line) =>
-                {
-                    lock (outputLines)
-                    {
-                        outputLines.Add(line);
-                    }
-                };
-
-                int pid = await runtime.StartAsync(tempDir, "test prompt");
-
-                // Wait for process to complete and events to fire
-                await Task.Delay(3000);
-
-                AssertTrue(outputLines.Count > 0, "Expected at least one output line");
-            });
-
-            await RunTest("OnOutputReceived Preserves Utf8 Stderr Content", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                string tempDir = Path.GetTempPath();
-                string expected = "I\u2019m";
-
-                if (OperatingSystem.IsWindows())
-                {
-                    runtime.CommandOverride = "powershell";
-                    runtime.ArgsOverride = new List<string>
-                    {
-                        "-Command",
-                        "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); " +
-                        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " +
-                        "[Console]::Error.WriteLine('I' + [char]0x2019 + 'm')"
-                    };
-                }
-                else
-                {
-                    runtime.CommandOverride = "bash";
-                    runtime.ArgsOverride = new List<string>
-                    {
-                        "-lc",
-                        "printf 'I\\342\\200\\231m\\n' 1>&2"
-                    };
-                }
-
-                List<string> outputLines = new List<string>();
-                runtime.OnOutputReceived += (pid, line) =>
-                {
-                    lock (outputLines)
-                    {
-                        outputLines.Add(line);
-                    }
-                };
-
-                await runtime.StartAsync(tempDir, "test prompt");
-                await Task.Delay(2000);
-
-                lock (outputLines)
-                {
-                    AssertTrue(
-                        outputLines.Contains(expected),
-                        "Expected UTF-8 stderr content to be preserved; captured: [" + String.Join(" | ", outputLines) + "]");
-                }
             });
 
             await RunTest("WriteStderrToLogFile False Suppresses Log File But Preserves OnOutputReceived", async () =>
@@ -517,22 +436,6 @@ namespace Armada.Test.Runtimes.Suites
                 {
                     try { if (File.Exists(logFilePath)) File.Delete(logFilePath); } catch { }
                 }
-            });
-
-            await RunTest("OnProcessStarted Fires WithPid", async () =>
-            {
-                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                string tempDir = Path.GetTempPath();
-
-                int startedPid = 0;
-                runtime.OnProcessStarted += pid => startedPid = pid;
-
-                int pid = await runtime.StartAsync(tempDir, "test prompt");
-
-                AssertTrue(pid > 0, "Expected a valid PID");
-                AssertEqual(pid, startedPid, "OnProcessStarted should fire with the launched process PID");
-
-                await Task.Delay(1000);
             });
 
             await RunTest("UsePromptStdin_LogsPromptContentWithRolePreamble", async () =>

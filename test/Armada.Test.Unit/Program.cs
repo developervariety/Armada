@@ -51,7 +51,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new EmbeddingClientFactorySelectionTests());
 
             // Previously compiled suites are explicit registrations until discovery parity is proved.
-            runner.AddSuite(new RequestHistoryDatabaseTests());
             runner.AddSuite(new ObjectiveModelTests());
             runner.AddSuite(new ObjectiveRefinementModelTests());
             runner.AddSuite(new DeploymentEnvironmentServiceTests());
@@ -61,25 +60,12 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ReviewGateTests());
 
             // Database tests
-            runner.AddSuite(new FleetDatabaseTests());
             runner.AddSuite(new DefinitionOfDoneFailureClassifierTests());
             runner.AddSuite(new FailedTestNameExtractorTests());
             runner.AddSuite(new VesselDatabaseTests());
-            runner.AddSuite(new VesselTests());
             runner.AddSuite(new CaptainDatabaseTests());
-            runner.AddSuite(new CaptainTests());
             runner.AddSuite(new MissionDatabaseTests());
             runner.AddSuite(new MissionAssignmentStatePersistenceTests());
-            runner.AddSuite(new VoyageDatabaseTests());
-            runner.AddSuite(new DockDatabaseTests());
-            runner.AddSuite(new SignalDatabaseTests());
-            runner.AddSuite(new EventDatabaseTests());
-            runner.AddSuite(new EventTests());
-            runner.AddSuite(new EnumerationTests());
-            runner.AddSuite(new ForeignKeyTests());
-            runner.AddSuite(new ConcurrentAccessTests());
-            runner.AddSuite(new DatabaseInitializationTests());
-            runner.AddSuite(new PlanningSessionDatabaseTests());
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new PostgresBooleanColumnTypeTests());
             runner.AddSuite(new McpEnumerateChecksProjectionTests());
@@ -89,16 +75,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ObjectiveTenantNormalizationTests());
             runner.AddSuite(new ObjectiveAutoDispatchTests());
             runner.AddSuite(new SchemaMigrationV38RoundTripTests());
-            runner.AddSuite(new EdgeCaseTests());
-            runner.AddSuite(new TenantMethodsTests());
-            runner.AddSuite(new UserMethodsTests());
-            runner.AddSuite(new CredentialMethodsTests());
-            runner.AddSuite(new TenantFencingTests());
-            runner.AddSuite(new EntityTenantScopedTests());
-            runner.AddSuite(new DefaultSeedingTests());
-            runner.AddSuite(new TenantScopedEnumerationTests());
-            runner.AddSuite(new TenantScopedPaginationTests());
-            runner.AddSuite(new TenantScopedPaginationTests2());
 
             // Model tests
             runner.AddSuite(new FleetModelTests());
@@ -160,7 +136,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SiblingLaneAdmissionTests());
             runner.AddSuite(new FleetCapacityAdmissionTests());
             runner.AddSuite(new TestOwnershipResolverTests());
-            runner.AddSuite(new SequentialDispatchTests());
             runner.AddSuite(new MissionStatusTransitionTests());
             runner.AddSuite(new CaptainPersonaMatchingTests());
             runner.AddSuite(new ProjectProfileBriefInjectionTests());

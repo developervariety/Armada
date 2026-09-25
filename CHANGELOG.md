@@ -103,6 +103,14 @@ upstream integrations and excludes changes already present at that baseline.
   voyage detail pages) open it once while the load keeps failing and again
   only after a load succeeds. Request History tracks its summary apart from
   its list. The Incidents search box uses the shared search debounce.
+- **Unit-runner database and service cases that a shared case already runs
+  are removed:** 361 unit cases and 4 runtime cases repeated a shared case with
+  the same setup, action and assertions. The shared copy runs in the same gate,
+  under the NUnit and xUnit adapters, and against the server database providers.
+  Twenty-five unit suites that held only such cases are removed with their
+  registrations and shard weights. The shared end-to-end cases and their
+  automated-runner copies both stay, because the two harnesses differ in server
+  lifecycle and database provider.
 - **A captain that ends BLOCKED and keeps running is finished:** the stall
   nudge is withheld and the process is stopped after the terminal-marker grace
   period, so the stage fails with its question instead of being told to

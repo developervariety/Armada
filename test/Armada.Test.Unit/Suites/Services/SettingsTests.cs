@@ -10,49 +10,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("ArmadaSettings DefaultValues AreCorrect", () =>
-            {
-                ArmadaSettings settings = new ArmadaSettings();
-                AssertEqual(Constants.DefaultAdmiralPort, settings.AdmiralPort);
-                AssertEqual(Constants.DefaultMcpPort, settings.McpPort);
-                AssertEqual(Constants.DefaultHeartbeatIntervalSeconds, settings.HeartbeatIntervalSeconds);
-                AssertEqual(Constants.DefaultStallThresholdMinutes, settings.StallThresholdMinutes);
-                AssertEqual(Constants.DefaultMaxRecoveryAttempts, settings.MaxRecoveryAttempts);
-                AssertEqual(Constants.DefaultMaxLogFileSizeBytes, settings.MaxLogFileSizeBytes);
-                AssertEqual(Constants.DefaultMaxLogFileCount, settings.MaxLogFileCount);
-                AssertEqual(Constants.DefaultDataRetentionDays, settings.DataRetentionDays);
-                AssertFalse(settings.AutoCreatePullRequests);
-                AssertNull(settings.ApiKey);
-            });
-
-            await RunTest("ArmadaSettings SaveAndLoad RoundTrip", async () =>
-            {
-                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_settings_" + Guid.NewGuid().ToString("N") + ".json");
-
-                try
-                {
-                    ArmadaSettings original = new ArmadaSettings();
-                    original.AdmiralPort = 9000;
-                    original.McpPort = 9001;
-                    original.HeartbeatIntervalSeconds = 60;
-                    original.DataRetentionDays = 90;
-                    original.ApiKey = "test-key-123";
-
-                    await original.SaveAsync(tempFile);
-
-                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
-                    AssertEqual(9000, loaded.AdmiralPort);
-                    AssertEqual(9001, loaded.McpPort);
-                    AssertEqual(60, loaded.HeartbeatIntervalSeconds);
-                    AssertEqual(90, loaded.DataRetentionDays);
-                    AssertEqual("test-key-123", loaded.ApiKey);
-                }
-                finally
-                {
-                    if (File.Exists(tempFile)) File.Delete(tempFile);
-                }
-            });
-
             await RunTest("ArmadaSettings ApplyHotReloadableFrom BranchCleanupSweepIntervalCycles TakesEffectWithoutRestart", () =>
             {
                 // The health loop reads the cadence on every cycle and the sweep reads the retention window on
@@ -139,45 +96,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ArmadaSettings NewSettings HaveCorrectDefaults", () =>
-            {
-                ArmadaSettings settings = new ArmadaSettings();
-                AssertNull(settings.DefaultRuntime);
-                AssertTrue(settings.Notifications);
-                AssertTrue(settings.TerminalBell);
-                AssertEqual(Constants.DefaultIdleCaptainTimeoutSeconds, settings.IdleCaptainTimeoutSeconds);
-                AssertNotNull(settings.RemoteControl);
-                AssertFalse(settings.RemoteControl.Enabled);
-                AssertEqual(Constants.DefaultRemoteConnectTimeoutSeconds, settings.RemoteControl.ConnectTimeoutSeconds);
-                AssertEqual(Constants.DefaultRemoteHeartbeatIntervalSeconds, settings.RemoteControl.HeartbeatIntervalSeconds);
-                AssertEqual(Constants.DefaultRemoteTunnelPassword, settings.RemoteControl.Password);
-            });
-
-            await RunTest("ArmadaSettings NewSettings RoundTripSaveLoad", async () =>
-            {
-                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_settings_new_" + Guid.NewGuid().ToString("N") + ".json");
-
-                try
-                {
-                    ArmadaSettings original = new ArmadaSettings();
-                    original.DefaultRuntime = "ClaudeCode";
-                    original.Notifications = false;
-                    original.TerminalBell = false;
-                    original.IdleCaptainTimeoutSeconds = 120;
-
-                    await original.SaveAsync(tempFile);
-
-                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
-                    AssertEqual("ClaudeCode", loaded.DefaultRuntime);
-                    AssertFalse(loaded.Notifications);
-                    AssertFalse(loaded.TerminalBell);
-                    AssertEqual(120, loaded.IdleCaptainTimeoutSeconds);
-                }
-                finally
-                {
-                    if (File.Exists(tempFile)) File.Delete(tempFile);
-                }
-            });
         }
     }
 }

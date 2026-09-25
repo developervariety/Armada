@@ -321,31 +321,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ValidateCaptainModelAsync returns timeout error when runtime does not exit", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                using (CursorShimScope shim = CursorShimScope.Create())
-                {
-                    // The hang-model shim blocks longer than this ceiling but far shorter than the 30 s
-                    // production ceiling, under which the validation would succeed and never reach the
-                    // timeout path. Drive a short ceiling instead of making the fake runtime outlast 30 seconds.
-                    AgentLifecycleHandler handler = CreateHandler(
-                        testDb.Driver, out _, TimeSpan.FromSeconds(1));
-                    Captain captain = new Captain("timeout-captain", AgentRuntimeEnum.Cursor)
-                    {
-                        Model = "hang-model"
-                    };
-
-                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
-                    string args = await WaitForRecordedArgsAsync(shim.ArgsFile, "hang-model").ConfigureAwait(false);
-
-                    AssertNotNull(error, "Timed-out validation should return an error");
-                    AssertContains("hang-model", error!, "Error should include requested model");
-                    AssertContains("timed out", error!, "Error should report validation timeout");
-                    AssertContains("--model", args, "Timed-out validation should still launch runtime with model flag");
-                }
-            });
-
             await RunTest("CursorShimScope on Windows uses temp override and restores environment", () =>
             {
                 if (!OperatingSystem.IsWindows())
@@ -2044,28 +2019,6 @@ namespace Armada.Test.Unit.Suites.Services
             ArmadaSettings settings = new ArmadaSettings();
             settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_lifecycle_logs_" + Guid.NewGuid().ToString("N"));
             return settings;
-        }
-
-        private static async Task<string> WaitForRecordedArgsAsync(string argsFile, string? expectedSubstring = null)
-        {
-            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-
-            while (DateTime.UtcNow < deadline)
-            {
-                if (File.Exists(argsFile))
-                {
-                    string contents = await File.ReadAllTextAsync(argsFile).ConfigureAwait(false);
-                    if (!String.IsNullOrWhiteSpace(contents) &&
-                        (String.IsNullOrEmpty(expectedSubstring) || contents.Contains(expectedSubstring, StringComparison.Ordinal)))
-                    {
-                        return contents;
-                    }
-                }
-
-                await Task.Delay(50).ConfigureAwait(false);
-            }
-
-            throw new TimeoutException("Timed out waiting for runtime shim args file: " + argsFile);
         }
 
         private static async Task<string> WaitForFileContainsAsync(string path, string expectedSubstring)

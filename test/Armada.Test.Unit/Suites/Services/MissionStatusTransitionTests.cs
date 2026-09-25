@@ -175,39 +175,6 @@ namespace Armada.Test.Unit.Suites.Services
                         "A mission that reached WorkProduced must not still report why an earlier attempt failed");
                 }
             });
-
-            // === AdmiralService Status Counting ===
-
-            await RunTest("GetStatusAsync counts WorkProduced and LandingFailed", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    SqliteDatabaseDriver db = testDb.Driver;
-                    StubGitService git = new StubGitService();
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-
-                    IDockService dockService = new DockService(logging, db, settings, git);
-                    ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
-                    IVoyageService voyageService = new VoyageService(logging, db);
-                    AdmiralService admiral = new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
-
-                    Mission wp = new Mission("WorkProduced mission");
-                    wp.Status = MissionStatusEnum.WorkProduced;
-                    await db.Missions.CreateAsync(wp);
-
-                    Mission lf = new Mission("LandingFailed mission");
-                    lf.Status = MissionStatusEnum.LandingFailed;
-                    await db.Missions.CreateAsync(lf);
-
-                    ArmadaStatus status = await admiral.GetStatusAsync();
-                    Assert(status.MissionsByStatus.ContainsKey("WorkProduced"), "Should include WorkProduced in status");
-                    Assert(status.MissionsByStatus.ContainsKey("LandingFailed"), "Should include LandingFailed in status");
-                    AssertEqual(1, status.MissionsByStatus["WorkProduced"], "WorkProduced count");
-                    AssertEqual(1, status.MissionsByStatus["LandingFailed"], "LandingFailed count");
-                }
-            });
         }
     }
 }

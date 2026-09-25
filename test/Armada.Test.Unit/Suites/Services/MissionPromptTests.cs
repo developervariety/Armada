@@ -1209,40 +1209,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("GenerateClaudeMdAsync omits ModelContext when disabled", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        Vessel vessel = new Vessel("DisabledModelContextVessel", "https://github.com/test/repo");
-                        vessel.EnableModelContext = false;
-                        vessel.ModelContext = "This should not appear.";
-
-                        Mission mission = new Mission();
-                        mission.Title = "Task";
-                        mission.Description = "Do something.";
-
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
-
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertFalse(content.Contains("## Model Context"), "Should not contain Model Context when disabled");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            });
-
             await RunTest("Template-resolved CLAUDE.md de-duplicates shared context sections", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

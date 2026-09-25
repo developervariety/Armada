@@ -13,35 +13,6 @@ namespace Armada.Test.Unit.Suites.Database
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("InitializeAsync idempotent run twice", async () =>
-            {
-                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_" + Guid.NewGuid().ToString("N") + ".db");
-                string connectionString = $"Data Source={tempFile}";
-
-                try
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    SqliteDatabaseDriver driver1 = new SqliteDatabaseDriver(connectionString, logging);
-                    await driver1.InitializeAsync();
-                    int v1 = await driver1.GetSchemaVersionAsync();
-                    driver1.Dispose();
-
-                    SqliteDatabaseDriver driver2 = new SqliteDatabaseDriver(connectionString, logging);
-                    await driver2.InitializeAsync();
-                    int v2 = await driver2.GetSchemaVersionAsync();
-                    driver2.Dispose();
-
-                    AssertEqual(v1, v2);
-                    AssertTrue(v1 >= 1);
-                }
-                finally
-                {
-                    try { File.Delete(tempFile); } catch { }
-                }
-            });
-
             await RunTest("Skipped migration rule lists unapplied known versions below the applied maximum", () =>
             {
                 List<SchemaMigration> known = new List<SchemaMigration>
@@ -134,26 +105,6 @@ namespace Armada.Test.Unit.Suites.Database
                 }
             });
 
-            await RunTest("GetSchemaVersionAsync fresh database returns zero", async () =>
-            {
-                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_" + Guid.NewGuid().ToString("N") + ".db");
-                string connectionString = $"Data Source={tempFile}";
-
-                try
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    SqliteDatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
-                    int version = await driver.GetSchemaVersionAsync();
-                    AssertEqual(0, version);
-                    driver.Dispose();
-                }
-                finally
-                {
-                    try { File.Delete(tempFile); } catch { }
-                }
-            });
         }
     }
 }

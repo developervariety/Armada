@@ -3,14 +3,11 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
-    using System.Text.RegularExpressions;
     using Armada.Core;
     using Armada.Test.Common;
 
     public class ReleaseVersionTests : TestSuite
     {
-        private static readonly string[] _StaleReleaseVersions = { "0.8.0", "0.7.0", "0.6.0", "0.5.0", "0.4.0", "0.3.0" };
-
         public override string Name => "Release Version";
 
         protected override async Task RunTestsAsync()
@@ -58,24 +55,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("call \"%SCRIPT_DIR%\\resolve-framework.bat\" %*", removeMcpBatContents, "remove-mcp.bat should resolve the Windows framework override");
                 AssertContains("%ARMADA_DOTNET_FRAMEWORK_ARGS% -- mcp remove --yes", removeMcpBatContents, "remove-mcp.bat should honor the resolved framework override");
             });
-
-            await RunTest("Release Surface Extractors Fail Closed When Health Samples Drift", () =>
-            {
-                string restApiContents = ReadRepositoryFile("docs", "REST_API.md");
-                string postmanContents = ReadRepositoryFile("Armada.postman_collection.json");
-
-                AssertThrows<Exception>(
-                    () => ExtractRestHealthResponseSample(
-                        restApiContents.Replace("#### GET /api/v1/status/health", "#### GET /api/v1/status", StringComparison.Ordinal)),
-                    "REST API extractor should fail when the health section heading is missing");
-                AssertThrows<Exception>(
-                    () => ExtractPostmanHealthyResponseBody(
-                        Regex.Replace(postmanContents, @"""name"":\s*""Healthy""", "\"name\": \"HealthyExample\"")),
-                    "Postman extractor should fail when the healthy response example is missing");
-                AssertThrows<Exception>(
-                    () => AssertNoStaleVersionSurfaces("Version: 0.4.0", "synthetic release surface", staleVersion => staleVersion),
-                    "Stale release helper should fail when a prior version literal is present");
-            });
         }
 
         private static string FindRepositoryRoot()
@@ -93,22 +72,6 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
-        }
-
-        private void AssertNoStaleVersionSurfaces(string contents, string surfaceName, Func<string, string> staleSurfaceFactory)
-        {
-            foreach (string staleVersion in _StaleReleaseVersions)
-            {
-                string staleSurface = staleSurfaceFactory(staleVersion);
-                AssertFalse(
-                    contents.Contains(staleSurface, StringComparison.Ordinal),
-                    surfaceName + " should not contain stale release literal " + staleSurface);
-            }
-        }
-
-        private static string ReadRepositoryFile(params string[] relativePath)
-        {
-            return File.ReadAllText(Path.Combine(FindRepositoryRoot(), Path.Combine(relativePath)));
         }
 
         private static string RunCommandAndCaptureOutput(string fileName, string arguments, string workingDirectory, IDictionary<string, string>? environmentVariables = null)
@@ -146,34 +109,6 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             return stdout;
-        }
-
-        private static string ExtractRestHealthResponseSample(string restApiContents)
-        {
-            Match match = Regex.Match(
-                restApiContents,
-                @"#### GET /api/v1/status/health[\s\S]*?```json\s*(?<body>\{[\s\S]*?\})\s*```");
-
-            if (!match.Success)
-            {
-                throw new Exception("Could not locate the REST API health response sample.");
-            }
-
-            return match.Groups["body"].Value;
-        }
-
-        private static string ExtractPostmanHealthyResponseBody(string postmanContents)
-        {
-            Match match = Regex.Match(
-                postmanContents,
-                @"""name"":\s*""Healthy""[\s\S]*?""body"":\s*""(?<body>(?:\\.|[^""\\])*)""");
-
-            if (!match.Success)
-            {
-                throw new Exception("Could not locate the Postman health response body.");
-            }
-
-            return Regex.Unescape(match.Groups["body"].Value);
         }
     }
 }

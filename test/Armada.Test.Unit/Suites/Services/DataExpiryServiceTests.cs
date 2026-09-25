@@ -97,29 +97,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("PurgeExpiredDataAsync RemovesOldEvents", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    SqliteDatabaseDriver db = testDb.Driver;
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    ArmadaEvent oldEvent = new ArmadaEvent("test.event", "Old event");
-                    oldEvent.CreatedUtc = DateTime.UtcNow.AddDays(-60);
-                    await db.Events.CreateAsync(oldEvent);
-
-                    ArmadaEvent recentEvent = new ArmadaEvent("test.event", "Recent event");
-                    await db.Events.CreateAsync(recentEvent);
-
-                    DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
-                    await service.PurgeExpiredDataAsync();
-
-                    AssertNull(await db.Events.ReadAsync(oldEvent.Id));
-                    AssertNotNull(await db.Events.ReadAsync(recentEvent.Id));
-                }
-            });
-
             await RunTest("PurgeExpiredDataAsync RemovesProductionFactsOlderThanTheirRetention", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
