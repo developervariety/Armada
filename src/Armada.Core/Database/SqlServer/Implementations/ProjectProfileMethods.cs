@@ -16,10 +16,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
     public class ProjectProfileMethods : IProjectProfileMethods
     {
         private readonly SqlServerDatabaseDriver _Driver;
-        private static readonly JsonSerializerOptions _Json = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
 
         /// <summary>
         /// Instantiate.
@@ -67,7 +63,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@id", id) };
+                    List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT TOP 1 * FROM project_profiles WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -129,7 +125,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@id", id) };
+                    List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM project_profiles WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -167,8 +163,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText = "SELECT * FROM project_profiles" + whereClause
                         + " ORDER BY is_default DESC, last_update_utc DESC, name ASC OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY;";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@offset", query.Offset);
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", query.Offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -223,74 +219,53 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@user_id", query.UserId));
             }
             if (query.Scope.HasValue)
             {
                 conditions.Add("scope = @scope");
-                parameters.Add(new SqlParameter("@scope", query.Scope.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@scope", query.Scope.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.FleetId))
             {
                 conditions.Add("fleet_id = @fleet_id");
-                parameters.Add(new SqlParameter("@fleet_id", query.FleetId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@fleet_id", query.FleetId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search)");
-                parameters.Add(new SqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.Active.HasValue)
             {
                 conditions.Add("active = @active");
-                parameters.Add(new SqlParameter("@active", query.Active.Value));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Boolean(new SqlParameter(), "@active", "project_profiles", "active", query.Active.Value));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqlParameter("@from_utc", SqlServerDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@from_utc", "project_profiles", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqlParameter("@to_utc", SqlServerDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@to_utc", "project_profiles", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(SqlCommand cmd, ProjectProfile profile)
         {
-            cmd.Parameters.AddWithValue("@id", profile.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)profile.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)profile.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", profile.Name);
-            cmd.Parameters.AddWithValue("@description", (object?)profile.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@scope", profile.Scope.ToString());
-            cmd.Parameters.AddWithValue("@fleet_id", (object?)profile.FleetId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)profile.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@is_default", profile.IsDefault);
-            cmd.Parameters.AddWithValue("@active", profile.Active);
-            cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)profile.DefaultPipelineId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)profile.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@persona_overrides_json", Serialize(profile.PersonaOverrides));
-            cmd.Parameters.AddWithValue("@skills_json", Serialize(profile.Skills));
-            cmd.Parameters.AddWithValue("@authorization_policy", (object?)profile.AuthorizationPolicy ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(profile.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(profile.LastUpdateUtc));
-        }
-
-        private static string Serialize<T>(T value)
-        {
-            return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
+            ProjectProfileColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "project_profiles"), profile);
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

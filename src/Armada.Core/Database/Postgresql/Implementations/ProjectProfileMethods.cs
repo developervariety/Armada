@@ -16,10 +16,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
     public class ProjectProfileMethods : IProjectProfileMethods
     {
         private readonly PostgresqlDatabaseDriver _Driver;
-        private static readonly JsonSerializerOptions _Json = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
 
         /// <summary>
         /// Instantiate.
@@ -67,7 +63,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT * FROM project_profiles WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -129,7 +125,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM project_profiles WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -168,8 +164,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.CommandText = "SELECT * FROM project_profiles" + whereClause
                         + " ORDER BY is_default DESC, last_update_utc DESC, name ASC LIMIT @page_size OFFSET @offset;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
-                    cmd.Parameters.AddWithValue("@offset", offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", offset);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -224,74 +220,53 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new NpgsqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new NpgsqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@user_id", query.UserId));
             }
             if (query.Scope.HasValue)
             {
                 conditions.Add("scope = @scope");
-                parameters.Add(new NpgsqlParameter("@scope", query.Scope.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@scope", query.Scope.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.FleetId))
             {
                 conditions.Add("fleet_id = @fleet_id");
-                parameters.Add(new NpgsqlParameter("@fleet_id", query.FleetId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@fleet_id", query.FleetId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new NpgsqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(name ILIKE @search OR COALESCE(description, '') ILIKE @search)");
-                parameters.Add(new NpgsqlParameter("@search", "%" + query.Search + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@search", "%" + query.Search + "%"));
             }
             if (query.Active.HasValue)
             {
                 conditions.Add("active = @active");
-                parameters.Add(new NpgsqlParameter("@active", query.Active.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Boolean(new NpgsqlParameter(), "@active", "project_profiles", "active", query.Active.Value));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc::timestamptz >= @from_utc");
-                parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@from_utc", "project_profiles", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc::timestamptz <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@to_utc", "project_profiles", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(NpgsqlCommand cmd, ProjectProfile profile)
         {
-            cmd.Parameters.AddWithValue("@id", profile.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)profile.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)profile.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", profile.Name);
-            cmd.Parameters.AddWithValue("@description", (object?)profile.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@scope", profile.Scope.ToString());
-            cmd.Parameters.AddWithValue("@fleet_id", (object?)profile.FleetId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)profile.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@is_default", profile.IsDefault);
-            cmd.Parameters.AddWithValue("@active", profile.Active);
-            cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)profile.DefaultPipelineId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)profile.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@persona_overrides_json", Serialize(profile.PersonaOverrides));
-            cmd.Parameters.AddWithValue("@skills_json", Serialize(profile.Skills));
-            cmd.Parameters.AddWithValue("@authorization_policy", (object?)profile.AuthorizationPolicy ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", profile.CreatedUtc);
-            cmd.Parameters.AddWithValue("@last_update_utc", profile.LastUpdateUtc);
-        }
-
-        private static string Serialize<T>(T value)
-        {
-            return JsonSerializer.Serialize(value ?? Activator.CreateInstance<T>(), _Json);
+            ProjectProfileColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "project_profiles"), profile);
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

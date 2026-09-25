@@ -47,5 +47,40 @@ namespace Armada.Core.Database
             profile.AuthorizationPolicy = row.NullableText("authorization_policy");
             return profile;
         }
+
+        /// <summary>
+        /// Bind every stored project_profiles column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the project_profiles table.</param>
+        /// <param name="profile">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, ProjectProfile profile)
+        {
+            parameters
+                .Text("id", profile.Id)
+                .Text("tenant_id", profile.TenantId)
+                .Text("user_id", profile.UserId)
+                .Text("name", profile.Name)
+                .Text("description", profile.Description)
+                .Text("fleet_id", profile.FleetId)
+                .Text("vessel_id", profile.VesselId)
+                .Bool("is_default", profile.IsDefault)
+                .Bool("active", profile.Active)
+                .Text("default_pipeline_id", profile.DefaultPipelineId)
+                .Text("workflow_profile_id", profile.WorkflowProfileId)
+                .Utc("created_utc", profile.CreatedUtc)
+                .Utc("last_update_utc", profile.LastUpdateUtc)
+                .Text("scope", profile.Scope.ToString())
+                .Text("persona_overrides_json", Serialize(profile.PersonaOverrides))
+                .Text("skills_json", Serialize(profile.Skills))
+                .Text("authorization_policy", profile.AuthorizationPolicy);
+        }
+
+        /// <summary>
+        /// A list column is stored as JSON, and an absent one as its empty form.
+        /// </summary>
+        private static string Serialize<T>(T value)
+        {
+            return JsonSerializer.Serialize(value ?? System.Activator.CreateInstance<T>(), _Json);
+        }
     }
 }
