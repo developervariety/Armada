@@ -91,6 +91,11 @@ upstream integrations and excludes changes already present at that baseline.
   scope, playbooks and description to make room for memory. The new
   `memory_relevance` typed decision sorts retrieved leaves into read-first and
   reference files without removing any.
+- **Long mission descriptions are delivered whole:** a description over the
+  metadata cap is still embedded as its head and newest handoff block, and the
+  full text is written under `_briefing/mission/` as bounded files the elision
+  marker names. `captainInstructionByteBudget` defaults to `0`, so the total
+  budget backstop no longer elides mission text unless an operator sets a budget.
 - **A watcher's reconciliation snapshot reads only linked Checks:** the global
   and scoped snapshots read Check runs by the id of each included voyage and
   mission. Before, they read every Check run created since the oldest active

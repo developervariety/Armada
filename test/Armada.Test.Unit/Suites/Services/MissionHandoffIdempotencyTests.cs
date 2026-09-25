@@ -1,5 +1,9 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using Armada.Core.Context;
     using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Test.Common;
@@ -321,6 +325,40 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Wire the landed recovery rows through the reset path", bounded, "the head brief must survive");
                 AssertContains("recovery rows now reach the runner", bounded, "the newest handoff diff must survive");
                 AssertContains("elided to fit the captain brief", bounded, "the elision must be visible to the captain");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("An oversized description is delivered whole as bounded files that the elision marker names", async () =>
+            {
+                string head = "## Mission brief\nWire the landed recovery rows through the reset path.\n";
+                System.Text.StringBuilder middle = new System.Text.StringBuilder();
+                for (int i = 0; i < 900; i++) middle.Append("Middle context line " + i + " that the bounded copy elides.\n");
+                string tail = "\n\n---\n## Prior Stage Output\n```diff\n+recovery rows now reach the runner\n```\n";
+                string full = head + middle.ToString() + tail;
+
+                List<ContextBriefFile> files = MissionService.BuildMissionDescriptionFiles(full);
+                AssertTrue(files.Count > 1, "a long description is split across files");
+                foreach (ContextBriefFile f in files)
+                {
+                    AssertTrue(f.Bytes <= BriefFilePacker.MaxFileBytes, f.RelativePath + " fits the byte bound");
+                    AssertTrue(f.Content.Split('\n').Length - 1 <= BriefFilePacker.MaxFileLines, f.RelativePath + " fits the line bound");
+                    AssertTrue(f.RelativePath.StartsWith(MissionService.MissionDescriptionFolder + "/"), "files live under the mission folder");
+                }
+
+                string joined = String.Join("\n", files.Select(f => f.Content));
+                for (int i = 0; i < 900; i++)
+                    AssertContains("Middle context line " + i + " ", joined, "middle line " + i + " survives in the files");
+                AssertContains("recovery rows now reach the runner", joined, "the tail survives in the files");
+
+                string bounded = MissionService.BoundMetadataDescription(full, files);
+                AssertTrue(bounded.Length <= MissionService._MaxMetadataDescriptionChars + 400, "the embedded copy stays bounded");
+                AssertContains("`" + files[0].RelativePath + "`", bounded, "the marker names the first file");
+                AssertContains("`" + files[files.Count - 1].RelativePath + "`", bounded, "the marker names the last file");
+                AssertFalse(bounded.Contains("Middle context line 450 "), "the embedded copy still elides the middle");
+
+                AssertEqual(0, MissionService.BuildMissionDescriptionFiles("## Mission brief\nA modest scope.").Count, "a fitting description writes no files");
+                AssertEqual(0, MissionService.BuildMissionDescriptionFiles(null).Count, "a null description writes no files");
 
                 await Task.CompletedTask;
             });

@@ -36,14 +36,11 @@ namespace Armada.Core.Context
         /// <summary>Dock-relative folder the memory files are written to.</summary>
         public const string MemoryFolder = "_briefing/memory";
 
-        /// <summary>
-        /// Largest memory file, in UTF-8 bytes. Runtimes that read a file through a shell or a read tool
-        /// truncate a single result near 10 KiB or 256 lines, so a file stays under both bounds.
-        /// </summary>
-        public const int MaxFileBytes = 9000;
+        /// <summary>Largest memory file, in UTF-8 bytes. See <see cref="BriefFilePacker.MaxFileBytes"/>.</summary>
+        public const int MaxFileBytes = BriefFilePacker.MaxFileBytes;
 
-        /// <summary>Largest memory file, in lines. See <see cref="MaxFileBytes"/>.</summary>
-        public const int MaxFileLines = 200;
+        /// <summary>Largest memory file, in lines. See <see cref="BriefFilePacker.MaxFileLines"/>.</summary>
+        public const int MaxFileLines = BriefFilePacker.MaxFileLines;
 
         #endregion
 
@@ -200,15 +197,15 @@ namespace Armada.Core.Context
                 currentTopics.Clear();
             }
 
-            int headerBytes = Encoding.UTF8.GetByteCount("# " + heading + "\n") + 64;
-            int headerLines = 2;
+            int headerBytes = BriefFilePacker.HeaderBytes(heading);
+            int headerLines = BriefFilePacker.HeaderLines;
 
             for (int i = 0; i < renders.Count; i++)
             {
                 string render = renders[i];
                 string topic = chunks[i].Topic;
 
-                if (Fits(current.ToString() + render, headerBytes, headerLines))
+                if (BriefFilePacker.Fits(current.ToString() + render, headerBytes, headerLines))
                 {
                     current.Append(render);
                     currentTopics.Add(topic);
@@ -216,7 +213,7 @@ namespace Armada.Core.Context
                 }
 
                 Flush();
-                if (Fits(render, headerBytes, headerLines))
+                if (BriefFilePacker.Fits(render, headerBytes, headerLines))
                 {
                     current.Append(render);
                     currentTopics.Add(topic);
@@ -224,7 +221,7 @@ namespace Armada.Core.Context
                 }
 
                 // One chunk larger than a file: split it on line boundaries into consecutive parts.
-                foreach (string part in SplitOnLines(render, headerBytes, headerLines))
+                foreach (string part in BriefFilePacker.Split(render, heading))
                 {
                     current.Append(part);
                     currentTopics.Add(topic);
@@ -233,53 +230,6 @@ namespace Armada.Core.Context
             }
 
             Flush();
-        }
-
-        private static bool Fits(string text, int headerBytes, int headerLines)
-        {
-            return Encoding.UTF8.GetByteCount(text) + headerBytes <= MaxFileBytes
-                && CountLines(text) + headerLines <= MaxFileLines;
-        }
-
-        private static List<string> SplitOnLines(string text, int headerBytes, int headerLines)
-        {
-            List<string> parts = new List<string>();
-            StringBuilder part = new StringBuilder();
-            string[] lines = text.Split('\n');
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string line = i < lines.Length - 1 ? lines[i] + "\n" : lines[i];
-                if (line.Length == 0) continue;
-
-                // A single line longer than a file is cut at the byte bound; the rest follows in the next part.
-                while (!Fits(line, headerBytes, headerLines))
-                {
-                    if (part.Length > 0)
-                    {
-                        parts.Add(part.ToString());
-                        part.Clear();
-                    }
-                    int take = Math.Max(1, (MaxFileBytes - headerBytes) / 4);
-                    parts.Add(line.Substring(0, Math.Min(take, line.Length)) + "\n");
-                    line = line.Substring(Math.Min(take, line.Length));
-                }
-
-                if (!Fits(part.ToString() + line, headerBytes, headerLines))
-                {
-                    parts.Add(part.ToString());
-                    part.Clear();
-                }
-                part.Append(line);
-            }
-            if (part.Length > 0) parts.Add(part.ToString());
-            return parts;
-        }
-
-        private static int CountLines(string text)
-        {
-            int count = 0;
-            foreach (char ch in text) if (ch == '\n') count++;
-            return count;
         }
 
         private static string RenderChunk(ContextChunk c, bool isSafety)

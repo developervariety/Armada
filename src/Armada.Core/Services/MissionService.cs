@@ -3076,7 +3076,7 @@ namespace Armada.Core.Services
                     _Logging, token).ConfigureAwait(false);
                 memorySlimming = memoryDelivery.Telemetry;
                 memoryFiles = memoryDelivery.Files;
-                await WriteMemoryFilesAsync(worktreePath, memoryFiles, token).ConfigureAwait(false);
+                await WriteBriefFilesAsync(worktreePath, ContextBriefRenderer.MemoryFolder, memoryFiles, token).ConfigureAwait(false);
                 content += ledger.Track("mission.ai_memory", memoryDelivery.Section);
                 content += "\n";
 
@@ -3122,7 +3122,13 @@ namespace Armada.Core.Services
             // metadata module embeds it, and so do the persona templates that restate the objective,
             // so bounding only one of them leaves the other free to carry an arbitrarily long
             // persisted description into the brief. The full description stays in the mission record.
-            string boundedDescription = BoundMetadataDescription(mission.Description);
+            //
+            // When the description is too long to embed whole, the full text is written into the dock as
+            // bounded files and the elision marker names them, so the middle is cut from the brief but
+            // never from what the captain can read.
+            List<ContextBriefFile> descriptionFiles = BuildMissionDescriptionFiles(mission.Description);
+            await WriteBriefFilesAsync(worktreePath, MissionDescriptionFolder, descriptionFiles, token).ConfigureAwait(false);
+            string boundedDescription = BoundMetadataDescription(mission.Description, descriptionFiles);
             templateParams["MissionDescription"] = boundedDescription;
 
             string personaPrompt = mission.IsReadOnlyMode
@@ -3272,6 +3278,17 @@ namespace Armada.Core.Services
 
                 // The memory files the brief lists are part of what the captain was sent; keep them beside
                 // the instruction snapshot so a review can read exactly what was delivered.
+                string descriptionSnapshotDir = Path.Combine(instructionsSnapshotDir, mission.Id + ".mission");
+                if (Directory.Exists(descriptionSnapshotDir)) Directory.Delete(descriptionSnapshotDir, true);
+                if (descriptionFiles.Count > 0)
+                {
+                    Directory.CreateDirectory(descriptionSnapshotDir);
+                    foreach (ContextBriefFile descriptionFile in descriptionFiles)
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(descriptionSnapshotDir, Path.GetFileName(descriptionFile.RelativePath)), descriptionFile.Content).ConfigureAwait(false);
+                    }
+                }
+
                 string memorySnapshotDir = Path.Combine(instructionsSnapshotDir, mission.Id + ".memory");
                 if (Directory.Exists(memorySnapshotDir)) Directory.Delete(memorySnapshotDir, true);
                 if (memoryFiles.Count > 0)
@@ -3550,27 +3567,47 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Writes the delivered memory files into the dock, replacing any left by an earlier mission in the
-        /// same dock. With no files it only removes the stale folder, so a full-section brief never sits
-        /// beside another mission's memory.
+        /// Dock-relative folder the full mission description is written to when the brief carries only a
+        /// bounded copy of it.
+        /// </summary>
+        internal const string MissionDescriptionFolder = "_briefing/mission";
+
+        /// <summary>
+        /// Writes brief files into one dock folder, replacing any left by an earlier mission in the same
+        /// dock. With no files it only removes the stale folder, so a brief never sits beside another
+        /// mission's files.
         /// </summary>
         /// <param name="worktreePath">Dock worktree path.</param>
-        /// <param name="files">Files to write; may be empty.</param>
+        /// <param name="folder">Dock-relative folder, using forward slashes.</param>
+        /// <param name="files">Files to write; may be empty. Each path must lie under <paramref name="folder"/>.</param>
         /// <param name="token">Cancellation token.</param>
-        internal static async Task WriteMemoryFilesAsync(string worktreePath, List<ContextBriefFile> files, CancellationToken token = default)
+        internal static async Task WriteBriefFilesAsync(string worktreePath, string folder, List<ContextBriefFile> files, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) return;
 
-            string folder = Path.Combine(worktreePath, ContextBriefRenderer.MemoryFolder.Replace('/', Path.DirectorySeparatorChar));
-            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            string folderPath = Path.Combine(worktreePath, folder.Replace('/', Path.DirectorySeparatorChar));
+            if (Directory.Exists(folderPath)) Directory.Delete(folderPath, true);
             if (files == null || files.Count == 0) return;
 
-            Directory.CreateDirectory(folder);
+            Directory.CreateDirectory(folderPath);
             foreach (ContextBriefFile file in files)
             {
                 string path = Path.Combine(worktreePath, file.RelativePath.Replace('/', Path.DirectorySeparatorChar));
                 await File.WriteAllTextAsync(path, file.Content, token).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// The full mission description as bounded files, when it is too long to embed whole. Empty when the
+        /// description fits the metadata module, so a short description never produces files.
+        /// </summary>
+        /// <param name="description">Persisted mission description.</param>
+        /// <returns>The files, in reading order; empty when the description fits.</returns>
+        internal static List<ContextBriefFile> BuildMissionDescriptionFiles(string? description)
+        {
+            if (String.IsNullOrEmpty(description) || description.Length <= _MaxMetadataDescriptionChars)
+                return new List<ContextBriefFile>();
+            return BriefFilePacker.Pack(MissionDescriptionFolder, "description", "Full mission description", description);
         }
 
         /// <summary>
@@ -7245,11 +7282,32 @@ namespace Armada.Core.Services
         /// <returns>A bounded copy fit for the metadata module.</returns>
         internal static string BoundMetadataDescription(string? description)
         {
+            return BoundMetadataDescription(description, null);
+        }
+
+        /// <summary>
+        /// Bounds the description embedded in the mission.metadata module, naming the dock files that hold
+        /// the full text when there are any.
+        /// </summary>
+        /// <param name="description">Persisted mission description.</param>
+        /// <param name="fullTextFiles">Dock files holding the full description, in order; null or empty when none were written.</param>
+        /// <returns>A bounded copy fit for the metadata module.</returns>
+        internal static string BoundMetadataDescription(string? description, List<ContextBriefFile>? fullTextFiles)
+        {
             if (String.IsNullOrEmpty(description)) return "No additional description provided.";
 
             if (description.Length <= _MaxMetadataDescriptionChars) return description;
 
-            const string marker = "\n\n...(middle of the mission description elided to fit the captain brief; the full description is in the mission record)\n";
+            string marker = "\n\n...(middle of the mission description elided to fit the captain brief; the full description is in the mission record)\n";
+            if (fullTextFiles != null && fullTextFiles.Count > 0)
+            {
+                string files = fullTextFiles.Count == 1
+                    ? "`" + fullTextFiles[0].RelativePath + "`"
+                    : "`" + fullTextFiles[0].RelativePath + "` to `" + fullTextFiles[fullTextFiles.Count - 1].RelativePath + "` ("
+                        + fullTextFiles.Count + " files)";
+                marker = "\n\n...(middle of the mission description elided here. The full description is in " + files
+                    + " in your working directory. Read them in full, in order, before you start; each fits one read.)\n";
+            }
             return BoundDescriptionWithCriteria(description, _MaxMetadataDescriptionChars, _MaxMetadataDescriptionHeadChars, marker);
         }
 

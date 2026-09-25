@@ -463,9 +463,11 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Byte budget for a generated captain instruction file. Exceeding it does not block the mission;
-        /// it emits a warning and is recorded in the mission.prompt_budget telemetry event, so an oversized
-        /// brief cannot ship unnoticed. Set to 0 to disable the warning. Must be >= 0.
+        /// Byte budget for a generated captain instruction file. When it is above 0, a brief over the budget
+        /// is logged, and the total-budget backstop elides content modules and the embedded description to
+        /// fit. 0 (the default) disables both: memory and an oversized description are delivered as bounded
+        /// dock files, so no mission text is cut to fit a total. Every brief's size is still recorded in the
+        /// mission.prompt_budget telemetry event. Must be >= 0.
         /// </summary>
         public int CaptainInstructionByteBudget
         {
@@ -996,7 +998,7 @@ namespace Armada.Core.Settings
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _MaxConcurrentCaptainWorkloads = 0;
-        private int _CaptainInstructionByteBudget = 32768;
+        private int _CaptainInstructionByteBudget = 0;
         private string? _AiMemoryRoot = null;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();

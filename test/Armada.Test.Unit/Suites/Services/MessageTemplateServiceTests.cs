@@ -14,6 +14,10 @@ namespace Armada.Test.Unit.Suites.Services
     {
         public override string Name => "Message Template Service";
 
+        // The launch prompt plus commit instructions is sent on every launch, so it stays small whatever the
+        // instruction-file budget is set to.
+        private const int _LaunchPromptCapBytes = 32768;
+
         private MessageTemplateService CreateService()
         {
             LoggingModule logging = new LoggingModule();
@@ -89,11 +93,11 @@ namespace Armada.Test.Unit.Suites.Services
                     int instructionBytes = System.Text.Encoding.UTF8.GetByteCount(instructions);
                     int deliveredBytes = System.Text.Encoding.UTF8.GetByteCount(delivered);
                     Console.WriteLine("COMMIT-BUDGET preamble=" + preambleBytes + " instructions=" + instructionBytes
-                        + " launchWithInstructions=" + deliveredBytes + " budget=" + armadaSettings.CaptainInstructionByteBudget);
+                        + " launchWithInstructions=" + deliveredBytes + " cap=" + _LaunchPromptCapBytes);
 
                     AssertTrue(instructionBytes <= 1024, "commit instructions are " + instructionBytes + " bytes, over the 1024-byte cap for this block");
-                    AssertTrue(deliveredBytes <= armadaSettings.CaptainInstructionByteBudget,
-                        "launch prompt with commit instructions is " + deliveredBytes + " bytes, over the " + armadaSettings.CaptainInstructionByteBudget + " byte budget");
+                    AssertTrue(deliveredBytes <= _LaunchPromptCapBytes,
+                        "launch prompt with commit instructions is " + deliveredBytes + " bytes, over the " + _LaunchPromptCapBytes + " byte cap");
                 }
             });
         }

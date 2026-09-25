@@ -215,6 +215,13 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
   pointer to `armada_fetch_context` for anything else by topic. It never tells
   the captain to read every file under `shared/`. A copy of the delivered files
   is kept beside the instruction snapshot, under `<mission id>.memory/`.
+- **The mission description follows the same rule.** A description longer than
+  the metadata cap (12,000 characters) is embedded as its head and newest
+  handoff block, and the full text is written under `_briefing/mission/` in the
+  same bounded files; the elision marker names them. A copy is kept under
+  `<mission id>.mission/`. The instruction-file byte budget
+  (`captainInstructionByteBudget`) defaults to `0`, which records every brief's
+  size but never elides mission text to fit a total.
 - **Fail-safe.** When no context index was built, or retrieval returns a
   degraded (fail-safe) result or no core, the section falls back to the full
   read-every-file memory section and logs a warning. A failure therefore

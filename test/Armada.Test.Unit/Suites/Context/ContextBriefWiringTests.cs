@@ -189,21 +189,21 @@ namespace Armada.Test.Unit.Suites.Context
                 AssertFalse(on.Telemetry.FellBack, "a failed sort is not a retrieval fallback");
             });
 
-            await RunTest("WriteMemoryFiles_ReplacesAnEarlierMissionsFiles", async () =>
+            await RunTest("WriteBriefFiles_ReplacesAnEarlierMissionsFiles", async () =>
             {
                 string dock = Path.Combine(Path.GetTempPath(), "armada-memfiles-" + Guid.NewGuid().ToString("N"));
                 try
                 {
                     ContextBriefFile stale = new ContextBriefFile { RelativePath = ContextBriefRenderer.MemoryFolder + "/09-reference.md", Content = "stale" };
-                    await MissionService.WriteMemoryFilesAsync(dock, new List<ContextBriefFile> { stale });
+                    await MissionService.WriteBriefFilesAsync(dock, ContextBriefRenderer.MemoryFolder, new List<ContextBriefFile> { stale });
                     ContextBriefFile fresh = new ContextBriefFile { RelativePath = ContextBriefRenderer.MemoryFolder + "/01-core.md", Content = "fresh" };
-                    await MissionService.WriteMemoryFilesAsync(dock, new List<ContextBriefFile> { fresh });
+                    await MissionService.WriteBriefFilesAsync(dock, ContextBriefRenderer.MemoryFolder, new List<ContextBriefFile> { fresh });
 
                     string folder = Path.Combine(dock, "_briefing", "memory");
                     AssertFalse(File.Exists(Path.Combine(folder, "09-reference.md")), "an earlier mission's memory file is removed");
                     AssertEqual("fresh", File.ReadAllText(Path.Combine(folder, "01-core.md")), "the new file is written");
 
-                    await MissionService.WriteMemoryFilesAsync(dock, new List<ContextBriefFile>());
+                    await MissionService.WriteBriefFilesAsync(dock, ContextBriefRenderer.MemoryFolder, new List<ContextBriefFile>());
                     AssertFalse(Directory.Exists(folder), "a brief with no memory files leaves no memory folder");
                 }
                 finally

@@ -811,6 +811,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         LoggingModule logging = CreateLogging();
                         ArmadaSettings settings = CreateSettings();
+                        settings.CaptainInstructionByteBudget = 32768; // exercises the backstop, which is off by default
                         StubGitService git = new StubGitService();
                         IPromptTemplateService templateService;
                         MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
@@ -1001,6 +1002,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.CaptainInstructionByteBudget = 32768; // exercises the backstop, which is off by default
                     StubGitService git = new StubGitService();
                     IPromptTemplateService templateService;
                     MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
