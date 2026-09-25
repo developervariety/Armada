@@ -336,11 +336,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
                         {
-                            results.Add(new SelectedPlaybook
-                            {
-                                PlaybookId = reader["playbook_id"].ToString() ?? String.Empty,
-                                DeliveryMode = ParseDeliveryMode(reader["delivery_mode"])
-                            });
+                            results.Add(VoyagePlaybookColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                         }
                     }
                 }
@@ -493,14 +489,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@active", playbook.Active ? 1 : 0);
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(playbook.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(playbook.LastUpdateUtc));
-        }
-
-        private static PlaybookDeliveryModeEnum ParseDeliveryMode(object value)
-        {
-            string text = value?.ToString() ?? String.Empty;
-            if (Enum.TryParse(text, true, out PlaybookDeliveryModeEnum mode))
-                return mode;
-            return PlaybookDeliveryModeEnum.InlineFullContent;
         }
 
         private static async Task DeleteVoyageSelectionsByPlaybookAsync(SqliteConnection conn, SqliteTransaction tx, string playbookId, CancellationToken token)

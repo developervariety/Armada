@@ -330,11 +330,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
                         {
-                            results.Add(new SelectedPlaybook
-                            {
-                                PlaybookId = reader["playbook_id"].ToString() ?? String.Empty,
-                                DeliveryMode = ParseDeliveryMode(reader["delivery_mode"])
-                            });
+                            results.Add(VoyagePlaybookColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                         }
                     }
                 }
@@ -485,14 +481,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@active", playbook.Active);
             cmd.Parameters.AddWithValue("@created_utc", playbook.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", playbook.LastUpdateUtc);
-        }
-
-        private static PlaybookDeliveryModeEnum ParseDeliveryMode(object value)
-        {
-            string text = value?.ToString() ?? String.Empty;
-            if (Enum.TryParse(text, true, out PlaybookDeliveryModeEnum mode))
-                return mode;
-            return PlaybookDeliveryModeEnum.InlineFullContent;
         }
 
         private static async Task DeleteVoyageSelectionsByPlaybookAsync(MySqlConnection conn, MySqlTransaction tx, string playbookId, CancellationToken token)

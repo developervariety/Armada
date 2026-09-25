@@ -930,13 +930,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             }
         }
 
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
         /// <summary>Serialize prestaged files for storage. Null on empty.</summary>
         internal static string? SerializePrestagedFiles(List<PrestagedFile>? entries)
         {

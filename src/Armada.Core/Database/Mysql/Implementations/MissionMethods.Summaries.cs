@@ -390,12 +390,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
                         {
-                            results.Add(new MissionHistoryPoint
-                            {
-                                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                                Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!),
-                                VesselId = NullableString(reader["vessel_id"])
-                            });
+                            results.Add(MissionHistoryPointColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                         }
                     }
                 }

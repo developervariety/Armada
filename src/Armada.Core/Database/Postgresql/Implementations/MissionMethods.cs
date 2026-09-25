@@ -796,13 +796,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return JsonSerializer.Serialize(entries);
         }
 
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
         #endregion
     }
 }

@@ -390,12 +390,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
                         {
-                            results.Add(new MissionHistoryPoint
-                            {
-                                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                                Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!),
-                                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"])
-                            });
+                            results.Add(MissionHistoryPointColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                         }
                     }
                 }

@@ -83,6 +83,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Mission history points and voyage playbook selections read through shared
+  column readers:** the four provider copies of each projection become one
+  reader.
 - **Coordination leases read through a shared column reader:** the four
   provider copies of the lease mapper become one reader.
 - **Planning sessions and messages read through shared column readers:** the

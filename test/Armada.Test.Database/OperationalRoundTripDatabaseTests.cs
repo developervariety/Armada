@@ -2290,6 +2290,66 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyMissionHistoryPointsAndVoyagePlaybooksAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            List<string> playbookIds = new List<string>();
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("projection-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "projection-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "projection-round-trip", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "projection-round-trip", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "projection-round-trip", token).ConfigureAwait(false);
+                Voyage voyage = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "projection-round-trip", token).ConfigureAwait(false);
+
+                // Sub-second digits and a date far from the host's daylight-saving rules make a host-offset read visible.
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                Mission first = await fixture.CreateMissionAsync(tenant.Id, user.Id, voyage.Id, vessel.Id, captain.Id, "projection-first", token,
+                    configure: item => { item.CreatedUtc = baseUtc; item.Status = MissionStatusEnum.Failed; }).ConfigureAwait(false);
+                Mission second = await fixture.CreateMissionAsync(tenant.Id, user.Id, voyage.Id, vessel.Id, captain.Id, "projection-second", token,
+                    configure: item => { item.CreatedUtc = baseUtc.AddMinutes(1); item.Status = MissionStatusEnum.Complete; }).ConfigureAwait(false);
+                List<MissionHistoryPoint> points = await _Driver.Missions.EnumerateHistoryPointsAsync(tenant.Id,
+                    new MissionHistoryQuery { FromUtc = baseUtc.AddHours(-1), ToUtc = baseUtc.AddHours(1), VesselId = vessel.Id }, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2, points.Count, "History points in the window");
+                Mission[] expected = new[] { first, second };
+                for (int i = 0; i < expected.Length; i++)
+                {
+                    DatabaseAssert.UtcInstant(expected[i].CreatedUtc, points[i].CreatedUtc, "MissionHistoryPoint[" + i + "].CreatedUtc");
+                    DatabaseAssert.Equal(expected[i].Status, points[i].Status, "MissionHistoryPoint[" + i + "].Status");
+                    DatabaseAssert.Equal(vessel.Id, points[i].VesselId, "MissionHistoryPoint[" + i + "].VesselId");
+                }
+
+                List<SelectedPlaybook> selections = new List<SelectedPlaybook>();
+                foreach (PlaybookDeliveryModeEnum mode in new[] { PlaybookDeliveryModeEnum.AttachIntoWorktree, PlaybookDeliveryModeEnum.InstructionWithReference })
+                {
+                    Playbook playbook = await _Driver.Playbooks.CreateAsync(new Playbook
+                    {
+                        TenantId = tenant.Id,
+                        UserId = user.Id,
+                        FileName = "projection-" + mode + "-" + Guid.NewGuid().ToString("N").Substring(0, 12) + ".md",
+                        Content = "# Playbook"
+                    }, token).ConfigureAwait(false);
+                    playbookIds.Add(playbook.Id);
+                    selections.Add(new SelectedPlaybook { PlaybookId = playbook.Id, DeliveryMode = mode });
+                }
+
+                await _Driver.Playbooks.SetVoyageSelectionsAsync(voyage.Id, selections, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    List<SelectedPlaybook> read = await reopened.Playbooks.GetVoyageSelectionsAsync(voyage.Id, token).ConfigureAwait(false);
+                    DatabaseAssert.Equal(selections.Count, read.Count, "Voyage playbook selections");
+                    for (int i = 0; i < selections.Count; i++)
+                        DatabaseAssert.AllProperties(selections[i], read[i], "Voyage playbook selection[" + i + "]");
+                }
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+                if (!_NoCleanup) foreach (string id in playbookIds) await _Driver.Playbooks.DeleteAsync(id, token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
