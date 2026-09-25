@@ -88,6 +88,12 @@ upstream integrations and excludes changes already present at that baseline.
   call without a model and logs why. Startup warns when the summarizer is on
   without a model or without a chat endpoint, since an empty base URL sends
   completions to the embedding endpoint.
+- **Automated-runner MCP and WebSocket cases carry the checks their shared
+  copies made:** MCP entity-create helpers fail on a tool error payload and a
+  merge-queue or dispatch job that never finishes, the tool list must name the
+  check-run and release tools, every listed tool (not only `armada_` tools)
+  needs a description, an input schema and a unique name, the merge-queue tool
+  case waits for its job, and the empty mission list must deserialize.
 - **Dispatch refuses a captain assignment the captain can never take:** a
   `captainAssignments` entry whose captain's `AllowedPersonas`, runtime or tier
   excludes the stage persona, or whose captain is absent, in another tenant or

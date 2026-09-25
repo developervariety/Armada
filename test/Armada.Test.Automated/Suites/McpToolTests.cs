@@ -122,6 +122,9 @@ namespace Armada.Test.Automated.Suites
                     "armada_status",
                     "armada_stop_server",
                     "armada_enumerate",
+                    "get_check_run",
+                    "run_check",
+                    "retry_check_run",
                     "armada_get_fleet",
                     "armada_create_fleet",
                     "armada_update_fleet",
@@ -152,7 +155,9 @@ namespace Armada.Test.Automated.Suites
                     "armada_get_merge_entry",
                     "armada_enqueue_merge",
                     "armada_cancel_merge",
-                    "armada_process_merge_queue"
+                    "armada_process_merge_queue",
+                    "get_release",
+                    "create_release"
                 };
 
                 foreach (string name in expected)
@@ -168,7 +173,6 @@ namespace Armada.Test.Automated.Suites
                 foreach (JsonElement tool in tools.EnumerateArray())
                 {
                     string name = tool.GetProperty("name").GetString()!;
-                    if (!name.StartsWith("armada_")) continue;
                     Assert(tool.TryGetProperty("description", out JsonElement desc), "Tool " + name + " should have a description");
                     AssertFalse(string.IsNullOrEmpty(desc.GetString()), "Tool " + name + " description should not be empty");
                 }
@@ -181,7 +185,6 @@ namespace Armada.Test.Automated.Suites
                 foreach (JsonElement tool in tools.EnumerateArray())
                 {
                     string name = tool.GetProperty("name").GetString()!;
-                    if (!name.StartsWith("armada_")) continue;
                     Assert(tool.TryGetProperty("inputSchema", out JsonElement schema), "Tool " + name + " should have an inputSchema");
                     AssertEqual("object", schema.GetProperty("type").GetString());
                 }
@@ -195,7 +198,6 @@ namespace Armada.Test.Automated.Suites
                 foreach (JsonElement tool in tools.EnumerateArray())
                 {
                     string name = tool.GetProperty("name").GetString()!;
-                    if (!name.StartsWith("armada_")) continue;
                     toolNames.Add(name);
                 }
                 AssertEqual(toolNames.Count, toolNames.Distinct().Count());
@@ -1893,6 +1895,7 @@ namespace Armada.Test.Automated.Suites
             {
                 JsonElement result = await CallToolAsync("armada_process_merge_queue", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
+                await AwaitJobResultTextAsync(GetToolResultText(result)).ConfigureAwait(false);
             }).ConfigureAwait(false);
         }
 
@@ -2073,7 +2076,7 @@ namespace Armada.Test.Automated.Suites
                 await Task.Delay(250).ConfigureAwait(false);
             }
 
-            return statusText;
+            throw new TimeoutException("MCP job " + jobId + " did not finish; last status: " + statusText);
         }
 
         /// <summary>
@@ -2106,7 +2109,7 @@ namespace Armada.Test.Automated.Suites
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             JsonElement result = await CallToolAsync("armada_create_fleet", new { name = uniqueName }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = global::Test.Shared.Infrastructure.McpToolResults.RequireSuccess("armada_create_fleet", GetToolResultText(result));
             Fleet fleet = JsonHelper.Deserialize<Fleet>(text);
             return fleet.Id;
         }
@@ -2120,7 +2123,7 @@ namespace Armada.Test.Automated.Suites
                 repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
                 fleetId = fleetId
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = global::Test.Shared.Infrastructure.McpToolResults.RequireSuccess("armada_add_vessel", GetToolResultText(result));
             Vessel vessel = JsonHelper.Deserialize<Vessel>(text);
             return vessel.Id;
         }
@@ -2133,7 +2136,7 @@ namespace Armada.Test.Automated.Suites
                 name = uniqueName,
                 runtime = "ClaudeCode"
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = global::Test.Shared.Infrastructure.McpToolResults.RequireSuccess("armada_create_captain", GetToolResultText(result));
             Captain captain = JsonHelper.Deserialize<Captain>(text);
             return captain.Id;
         }
@@ -2152,7 +2155,7 @@ namespace Armada.Test.Automated.Suites
                 description = "Test mission for MCP",
                 vesselId = vesselId
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = global::Test.Shared.Infrastructure.McpToolResults.RequireSuccess("armada_create_mission", GetToolResultText(result));
             MissionCreateResponse createResponse = JsonHelper.Deserialize<MissionCreateResponse>(text);
 
             // When mission stays Pending (no captain available), the response wraps
@@ -2197,7 +2200,7 @@ namespace Armada.Test.Automated.Suites
                     new { title = "VoyageMission1", description = "Desc1" }
                 }
             }).ConfigureAwait(false);
-            string text = await AwaitJobResultTextAsync(GetToolResultText(result)).ConfigureAwait(false);
+            string text = global::Test.Shared.Infrastructure.McpToolResults.RequireSuccess("armada_dispatch", await AwaitJobResultTextAsync(GetToolResultText(result)).ConfigureAwait(false));
             Voyage voyage = JsonHelper.Deserialize<Voyage>(text);
             return voyage.Id;
         }

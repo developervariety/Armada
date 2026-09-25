@@ -642,6 +642,8 @@ namespace Armada.Test.Automated.Suites
                 JsonElement resp = await WsCommandAsync("list_missions").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_missions", resp.GetProperty("action").GetString());
+                EnumerationResult<Mission> data = DeserializeData<EnumerationResult<Mission>>(resp);
+                AssertNotNull(data);
             }).ConfigureAwait(false);
 
             await RunTest("CreateMission_ReturnsCreatedMission", async () =>
