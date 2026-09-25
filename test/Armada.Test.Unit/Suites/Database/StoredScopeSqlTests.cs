@@ -64,6 +64,18 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(DeploymentMethods.Table, new Deployment());
             });
 
+            await RunTest("DeploymentEnvironment scope conditions keep their text, order and parameters on every provider", () =>
+            {
+                string expected = "tenant_id = @tenant_id AND user_id = @user_id AND vessel_id = @vessel_id AND kind = @kind AND is_default = @is_default_filter AND active = @active_filter AND (LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search OR LOWER(COALESCE(configuration_source, '')) LIKE @search OR LOWER(COALESCE(base_url, '')) LIKE @search OR LOWER(COALESCE(health_endpoint, '')) LIKE @search)";
+                DeploymentEnvironmentQuery everyFilter = new DeploymentEnvironmentQuery
+                {
+                    TenantId = "ten_x", UserId = "usr_x", VesselId = "vsl_x", Kind = EnvironmentKindEnum.Staging, IsDefault = true, Active = false, Search = "Find"
+                };
+                AssertScope(p => expected, p => DeploymentEnvironmentMethods.Scope(DeploymentEnvironmentMethods.Table.Filter(), everyFilter, p), p => DeploymentEnvironmentMethods.Scope(DeploymentEnvironmentMethods.Table.Filter(), new DeploymentEnvironmentQuery(), p));
+                AssertEqual("is_default DESC, active DESC, name ASC, created_utc DESC", DeploymentEnvironmentMethods.Order);
+                AssertTableMatchesWriter(DeploymentEnvironmentMethods.Table, new DeploymentEnvironment());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)
