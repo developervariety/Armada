@@ -57,7 +57,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                    List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT * FROM skills WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
                     foreach (MySqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -113,7 +113,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                    List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM skills WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (MySqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -205,53 +205,43 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new MySqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new MySqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.Category))
             {
                 conditions.Add("category = @category");
-                parameters.Add(new MySqlParameter("@category", query.Category));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@category", query.Category));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search)");
-                parameters.Add(new MySqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.Active.HasValue)
             {
                 conditions.Add("active = @active");
-                parameters.Add(new MySqlParameter("@active", query.Active.Value ? 1 : 0));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Boolean(new MySqlParameter(), "@active", "skills", "active", query.Active.Value));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new MySqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@from_utc", "skills", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new MySqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@to_utc", "skills", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(MySqlCommand cmd, Skill skill)
         {
-            cmd.Parameters.AddWithValue("@id", skill.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)skill.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)skill.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", skill.Name);
-            cmd.Parameters.AddWithValue("@description", (object?)skill.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@category", (object?)skill.Category ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@content", (object?)skill.Content ?? String.Empty);
-            cmd.Parameters.AddWithValue("@is_built_in", skill.IsBuiltIn ? 1 : 0);
-            cmd.Parameters.AddWithValue("@active", skill.Active ? 1 : 0);
-            cmd.Parameters.AddWithValue("@created_utc", skill.CreatedUtc);
-            cmd.Parameters.AddWithValue("@last_update_utc", skill.LastUpdateUtc);
+            SkillColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "skills"), skill);
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)

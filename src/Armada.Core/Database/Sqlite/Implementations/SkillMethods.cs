@@ -57,7 +57,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using SqliteCommand cmd = conn.CreateCommand();
 
             List<string> conditions = new List<string> { "id = @id" };
-            List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@id", id) };
+            List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@id", id) };
             ApplyQueryFilters(query, conditions, parameters);
             cmd.CommandText = "SELECT * FROM skills WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
             foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -102,7 +102,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             await conn.OpenAsync(token).ConfigureAwait(false);
             using SqliteCommand cmd = conn.CreateCommand();
             List<string> conditions = new List<string> { "id = @id" };
-            List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@id", id) };
+            List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@id", id) };
             ApplyQueryFilters(query, conditions, parameters);
             cmd.CommandText = "DELETE FROM skills WHERE " + String.Join(" AND ", conditions) + ";";
             foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -182,53 +182,43 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqliteParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqliteParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.Category))
             {
                 conditions.Add("category = @category");
-                parameters.Add(new SqliteParameter("@category", query.Category));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@category", query.Category));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search)");
-                parameters.Add(new SqliteParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.Active.HasValue)
             {
                 conditions.Add("active = @active");
-                parameters.Add(new SqliteParameter("@active", query.Active.Value ? 1 : 0));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Boolean(new SqliteParameter(), "@active", "skills", "active", query.Active.Value));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqliteParameter("@from_utc", SqliteDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@from_utc", "skills", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqliteParameter("@to_utc", SqliteDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@to_utc", "skills", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(SqliteCommand cmd, Skill skill)
         {
-            cmd.Parameters.AddWithValue("@id", skill.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)skill.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)skill.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", skill.Name);
-            cmd.Parameters.AddWithValue("@description", (object?)skill.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@category", (object?)skill.Category ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@content", (object?)skill.Content ?? String.Empty);
-            cmd.Parameters.AddWithValue("@is_built_in", skill.IsBuiltIn ? 1 : 0);
-            cmd.Parameters.AddWithValue("@active", skill.Active ? 1 : 0);
-            cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(skill.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(skill.LastUpdateUtc));
+            SkillColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "skills"), skill);
         }
 
     }

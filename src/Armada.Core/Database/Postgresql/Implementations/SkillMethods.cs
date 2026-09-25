@@ -57,7 +57,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT * FROM skills WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -113,7 +113,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM skills WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -151,8 +151,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.CommandText = "SELECT * FROM skills" + whereClause + " ORDER BY name ASC LIMIT @page_size OFFSET @offset;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
-                    cmd.Parameters.AddWithValue("@offset", offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", offset);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -207,53 +207,43 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new NpgsqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new NpgsqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.Category))
             {
                 conditions.Add("category = @category");
-                parameters.Add(new NpgsqlParameter("@category", query.Category));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@category", query.Category));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(name ILIKE @search OR COALESCE(description, '') ILIKE @search)");
-                parameters.Add(new NpgsqlParameter("@search", "%" + query.Search + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@search", "%" + query.Search + "%"));
             }
             if (query.Active.HasValue)
             {
                 conditions.Add("active = @active");
-                parameters.Add(new NpgsqlParameter("@active", query.Active.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Boolean(new NpgsqlParameter(), "@active", "skills", "active", query.Active.Value));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc::timestamptz >= @from_utc");
-                parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@from_utc", "skills", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc::timestamptz <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@to_utc", "skills", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(NpgsqlCommand cmd, Skill skill)
         {
-            cmd.Parameters.AddWithValue("@id", skill.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)skill.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)skill.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", skill.Name);
-            cmd.Parameters.AddWithValue("@description", (object?)skill.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@category", (object?)skill.Category ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@content", (object?)skill.Content ?? String.Empty);
-            cmd.Parameters.AddWithValue("@is_built_in", skill.IsBuiltIn);
-            cmd.Parameters.AddWithValue("@active", skill.Active);
-            cmd.Parameters.AddWithValue("@created_utc", skill.CreatedUtc);
-            cmd.Parameters.AddWithValue("@last_update_utc", skill.LastUpdateUtc);
+            SkillColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "skills"), skill);
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

@@ -33,5 +33,26 @@ namespace Armada.Core.Database
                 LastUpdateUtc = row.Utc("last_update_utc")
             };
         }
+
+        /// <summary>
+        /// Bind every stored skills column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the skills table.</param>
+        /// <param name="skill">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Skill skill)
+        {
+            parameters
+                .Text("id", skill.Id)
+                .Text("tenant_id", skill.TenantId)
+                .Text("user_id", skill.UserId)
+                .Text("name", skill.Name)
+                .Text("description", skill.Description)
+                .Text("category", skill.Category)
+                .Text("content", skill.Content ?? String.Empty)
+                .Bool("is_built_in", skill.IsBuiltIn)
+                .Bool("active", skill.Active)
+                .Utc("created_utc", skill.CreatedUtc)
+                .Utc("last_update_utc", skill.LastUpdateUtc);
+        }
     }
 }
