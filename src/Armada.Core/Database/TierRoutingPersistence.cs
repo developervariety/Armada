@@ -51,18 +51,6 @@ namespace Armada.Core.Database
 
         #region Internal-Methods
 
-        /// <summary>Bind persona routing fields for an insert or update.</summary>
-        /// <param name="command">Command to bind.</param>
-        /// <param name="persona">Persona whose minimum tier is stored.</param>
-        internal static void AddPersona(DbCommand command, Persona persona)
-        {
-            DbParameter minimumTier = command.CreateParameter();
-            minimumTier.ParameterName = "@" + MinimumTierColumn;
-            minimumTier.DbType = DbType.String;
-            minimumTier.Value = persona.MinimumTier.HasValue ? persona.MinimumTier.Value.ToString() : DBNull.Value;
-            command.Parameters.Add(minimumTier);
-        }
-
         #endregion
     }
 }

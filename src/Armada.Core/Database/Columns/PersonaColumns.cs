@@ -36,5 +36,29 @@ namespace Armada.Core.Database
             persona.LastUpdateUtc = row.Utc("last_update_utc");
             return persona;
         }
+
+        /// <summary>
+        /// Bind every stored personas column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the personas table.</param>
+        /// <param name="persona">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Persona persona)
+        {
+            parameters
+                .Text("id", persona.Id)
+                .Text("tenant_id", persona.TenantId)
+                .Text("user_id", persona.UserId)
+                .Text("name", persona.Name)
+                .Text("description", persona.Description)
+                .Text("prompt_template_name", persona.PromptTemplateName)
+                .Text("default_captain_id", persona.DefaultCaptainId)
+                .Bool("is_built_in", persona.IsBuiltIn)
+                .Text("default_playbooks", persona.DefaultPlaybooks)
+                .Bool("active", persona.Active)
+                .Utc("created_utc", persona.CreatedUtc)
+                .Utc("last_update_utc", persona.LastUpdateUtc)
+                .Text("ownership_scope", persona.OwnershipScope.ToString())
+                .Text(TierRoutingPersistence.MinimumTierColumn, persona.MinimumTier?.ToString());
+        }
     }
 }

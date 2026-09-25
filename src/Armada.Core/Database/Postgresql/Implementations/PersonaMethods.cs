@@ -61,20 +61,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, ownership_scope, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, minimum_tier, created_utc, last_update_utc)
                         VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @minimum_tier, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", persona.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ownership_scope", persona.OwnershipScope.ToString());
-                    cmd.Parameters.AddWithValue("@name", persona.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
-                    cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
-                    TierRoutingPersistence.AddPersona(cmd, persona);
-                    cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn);
-                    cmd.Parameters.AddWithValue("@default_playbooks", (object?)persona.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@active", persona.Active);
-                    cmd.Parameters.AddWithValue("@created_utc", persona.CreatedUtc);
-                    cmd.Parameters.AddWithValue("@last_update_utc", persona.LastUpdateUtc);
+                    PersonaColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "personas"), persona);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -94,7 +81,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM personas WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -118,7 +105,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM personas WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -143,8 +130,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM personas WHERE tenant_id = @tenant_id AND name = @name;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -182,19 +169,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         active = @active,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", persona.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ownership_scope", persona.OwnershipScope.ToString());
-                    cmd.Parameters.AddWithValue("@name", persona.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
-                    cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
-                    TierRoutingPersistence.AddPersona(cmd, persona);
-                    cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn);
-                    cmd.Parameters.AddWithValue("@default_playbooks", (object?)persona.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@active", persona.Active);
-                    cmd.Parameters.AddWithValue("@last_update_utc", persona.LastUpdateUtc);
+                    PersonaColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "personas"), persona);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -214,7 +189,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM personas WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -258,12 +233,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "personas", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "personas", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -311,7 +286,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT COUNT(*) FROM personas WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -330,7 +305,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT COUNT(*) FROM personas WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
