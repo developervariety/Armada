@@ -263,6 +263,18 @@ namespace Armada.Test.Runtimes.Suites
                 AssertContains("rate limited", nested, "an error object's message is kept");
             });
 
+            await RunTest("A Mux Error Event Keyed By eventType Reaches The Mission Log", () =>
+            {
+                InspectableMuxRuntime runtime = CreateRuntime();
+                // The shape Mux emits: the event name is in eventType, not type.
+                string line = "{\"contractVersion\":2,\"eventType\":\"error\",\"code\":\"llm_error\",\"errorCode\":\"llm_error\","
+                    + "\"message\":\"LLM request failed with status 429: All eligible endpoints are at capacity.\"}";
+                string rendered = runtime.TransformLine(line);
+                AssertContains("status 429", rendered, "the provider's error text is kept");
+                AssertContains("at capacity", rendered, "the whole message is kept");
+                AssertTrue(ProviderQuotaLimitDetector.IsThrottleOrOverloadSignal(rendered), "the rendered record reads as a throttle, so the captain is benched");
+            });
+
             await RunTest("ApplyEnvironment Maps BaseUrl And Sets No Config Variable", () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();

@@ -313,7 +313,8 @@ namespace Armada.Runtimes
                 JsonElement root = document.RootElement;
                 if (root.ValueKind != JsonValueKind.Object) return false;
 
-                string? type = ReadText(root, "type");
+                // Most runtimes name the event in "type"; Mux names it in "eventType".
+                string? type = ReadText(root, "type") ?? ReadText(root, "eventType");
                 bool failure;
                 if (String.Equals(type, "error", StringComparison.OrdinalIgnoreCase)
                     || String.Equals(type, "turn.failed", StringComparison.OrdinalIgnoreCase))

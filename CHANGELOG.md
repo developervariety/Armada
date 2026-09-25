@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A Mux error event reaches the mission log:** Mux names its event in
+  `eventType`, and the structured failure reader recognised only `type`, so a
+  Mux provider failure (for example an HTTP 429 from a proxy at capacity) left
+  an empty mission log and never reached the throttle detector. The reader
+  accepts either field.
 - **Stored rows read through shared column readers:** every provider reads
   tenants, users, credentials, fleets, vessels, signals, events, captains,
   missions, mission summaries and history points, merge entries, landing jobs,
