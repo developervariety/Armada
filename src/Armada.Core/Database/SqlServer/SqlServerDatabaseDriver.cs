@@ -153,7 +153,7 @@ namespace Armada.Core.Database.SqlServer
             Skills = new SkillMethods(this);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(_Stored);
-            ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
+            ModelEndpoints = new ModelEndpointMethods(_Stored);
         }
 
         #endregion

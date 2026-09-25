@@ -132,6 +132,24 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Whether any row matches a filter.
+        /// </summary>
+        /// <param name="filter">Conditions; none tests for any row at all.</param>
+        /// <param name="token">Cancellation token.</param>
+        internal async Task<bool> AnyAsync(StoredFilter filter, CancellationToken token)
+        {
+            RequireSameTable(filter);
+            using (DbConnection connection = await Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = Dialect.SelectAny(Table.Name, filter.Where);
+                filter.Bind(command, Dialect.Binder);
+                object? result = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
+                return result != null && result != DBNull.Value;
+            }
+        }
+
+        /// <summary>
         /// Count the rows that match a filter.
         /// </summary>
         internal async Task<long> CountAsync(StoredFilter filter, CancellationToken token)

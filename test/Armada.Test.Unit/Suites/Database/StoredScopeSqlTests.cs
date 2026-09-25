@@ -152,6 +152,16 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(PromptTemplateMethods.Table, new PromptTemplate());
             });
 
+            await RunTest("ModelEndpoint key conditions keep their text and the whole row is written", () =>
+            {
+                AssertEqual("tenant_id = @tenant_id AND user_id = @user_id AND id = @id",
+                    ModelEndpointMethods.Table.Filter().Key("tenant_id", "ten_x").Key("user_id", "usr_x").Key("id", "mep_x").Conjunction);
+                AssertEqual("created_utc DESC", ModelEndpointMethods.Order);
+                AssertContains("WHERE id = @id AND last_update_utc = @expected_last_update_utc;", ModelEndpointMethods.HealthSql);
+                AssertContains("created_utc = @created_utc", ModelEndpointMethods.Table.UpdateSql, "An update rewrites the creation time, as the previous method sets did");
+                AssertTableMatchesWriter(ModelEndpointMethods.Table, new ModelEndpoint());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)
@@ -159,6 +169,7 @@ namespace Armada.Test.Unit.Suites.Database
                     StoredDialect dialect = Dialect(provider);
                     bool sqlServer = provider == DatabaseTypeEnum.SqlServer;
                     AssertEqual(sqlServer ? "SELECT TOP 1 * FROM t WHERE id = @id;" : "SELECT * FROM t WHERE id = @id LIMIT 1;", dialect.SelectFirst("t", "id = @id"), provider + " first row");
+                    AssertEqual(sqlServer ? "SELECT TOP 1 1 FROM t;" : "SELECT 1 FROM t LIMIT 1;", dialect.SelectAny("t", String.Empty), provider + " any row");
                     AssertEqual(sqlServer
                         ? " ORDER BY created_utc DESC OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY;"
                         : " ORDER BY created_utc DESC LIMIT @page_size OFFSET @offset;", dialect.OrderAndPage("created_utc DESC"), provider + " page");

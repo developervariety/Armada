@@ -126,7 +126,7 @@ namespace Armada.Core.Database.Mysql
             Skills = new SkillMethods(_ConnectionString);
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
             TokenUsage = new TokenUsageMethods(_Stored);
-            ModelEndpoints = new ModelEndpointMethods(_ConnectionString);
+            ModelEndpoints = new ModelEndpointMethods(_Stored);
         }
 
         #endregion

@@ -8,7 +8,7 @@ namespace Armada.Core.Database
 
     /// <summary>
     /// What one provider needs to run the shared method sets: how to open a connection, how its stored values bind
-    /// and read, and the few statement shapes whose syntax differs between providers (first row, paging).
+    /// and read, and the few statement shapes whose syntax differs between providers (first row, any row, paging).
     /// Everything else in a shared statement is the same text on every provider.
     /// </summary>
     internal sealed class StoredDialect
@@ -72,6 +72,18 @@ namespace Armada.Core.Database
             return Provider == DatabaseTypeEnum.SqlServer
                 ? "SELECT TOP 1 * FROM " + table + " WHERE " + where + ";"
                 : "SELECT * FROM " + table + " WHERE " + where + " LIMIT 1;";
+        }
+
+        /// <summary>
+        /// A statement that returns one row when any row of a table matches, and none otherwise.
+        /// </summary>
+        /// <param name="table">Table to test.</param>
+        /// <param name="where">A WHERE clause with a leading space, or an empty string.</param>
+        internal string SelectAny(string table, string where)
+        {
+            return Provider == DatabaseTypeEnum.SqlServer
+                ? "SELECT TOP 1 1 FROM " + table + where + ";"
+                : "SELECT 1 FROM " + table + where + " LIMIT 1;";
         }
 
         /// <summary>
