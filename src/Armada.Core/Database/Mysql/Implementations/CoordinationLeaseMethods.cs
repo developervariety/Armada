@@ -57,18 +57,18 @@ namespace Armada.Core.Database.Mysql.Implementations
                             tenant_id = IF(expires_utc <= @now, VALUES(tenant_id), tenant_id),
                             acquired_utc = IF(expires_utc <= @now, VALUES(acquired_utc), acquired_utc),
                             expires_utc = IF(expires_utc <= @now, VALUES(expires_utc), expires_utc);";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@tenant", (object?)tenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@now", ToDatabaseTimestamp(now));
-                    cmd.Parameters.AddWithValue("@exp", ToDatabaseTimestamp(expires));
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    StoredValueBinder.Value(cmd, "@tenant", tenantId);
+                    MysqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
+                    MysqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@exp", "expires_utc", expires);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT holder FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
                     string? currentHolder = NullableString(result!);
                     return string.Equals(currentHolder, holder, StringComparison.Ordinal);
@@ -93,10 +93,10 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.CommandText = @"UPDATE coordination_leases
                         SET expires_utc = @newExp
                         WHERE name = @name AND holder = @holder AND expires_utc > @now;";
-                    cmd.Parameters.AddWithValue("@newExp", ToDatabaseTimestamp(newExpires));
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@now", ToDatabaseTimestamp(now));
+                    MysqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@newExp", "expires_utc", newExpires);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    MysqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -115,8 +115,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE name = @name AND holder = @holder;";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -133,7 +133,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -156,7 +156,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE expires_utc <= @now;";
-                    cmd.Parameters.AddWithValue("@now", ToDatabaseTimestamp(now));
+                    MysqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -165,11 +165,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #endregion
 
         #region Private-Methods
-
-        private static DateTime ToDatabaseTimestamp(DateTime dt)
-        {
-            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
-        }
 
         private static string? NullableString(object value)
         {

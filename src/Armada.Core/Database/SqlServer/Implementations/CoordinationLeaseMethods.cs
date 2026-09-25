@@ -75,11 +75,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         WHEN NOT MATCHED THEN
                             INSERT (name, holder, tenant_id, acquired_utc, expires_utc)
                             VALUES (@name, @holder, @tenant_id, @now, @expires);";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)tenantId ?? DBNull.Value);
-                    cmd.Parameters.Add(_DateTime2("@now", now));
-                    cmd.Parameters.Add(_DateTime2("@expires", expires));
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@expires", "expires_utc", expires);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -88,7 +88,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT holder FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
                     if (result == null || result == DBNull.Value) return false;
                     return string.Equals(result.ToString(), holder, StringComparison.Ordinal);
@@ -113,10 +113,10 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText = @"UPDATE coordination_leases
                         SET expires_utc = @expires
                         WHERE name = @name AND holder = @holder AND expires_utc > @now;";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.Add(_DateTime2("@now", now));
-                    cmd.Parameters.Add(_DateTime2("@expires", expires));
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@expires", "expires_utc", expires);
                     int affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return affected > 0;
                 }
@@ -135,8 +135,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE name = @name AND holder = @holder;";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -153,7 +153,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -176,29 +176,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE expires_utc <= @now;";
-                    cmd.Parameters.Add(_DateTime2("@now", now));
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     int affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return affected;
                 }
             }
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        /// <summary>
-        /// Build a DATETIME2-typed SQL parameter so lease expiry comparisons are exact rather than
-        /// subject to the reduced precision of the default DATETIME inference.
-        /// </summary>
-        /// <param name="name">Parameter name.</param>
-        /// <param name="value">UTC value.</param>
-        /// <returns>The parameter.</returns>
-        private static SqlParameter _DateTime2(string name, DateTime value)
-        {
-            SqlParameter parameter = new SqlParameter(name, SqlDbType.DateTime2);
-            parameter.Value = value;
-            return parameter;
         }
 
         #endregion

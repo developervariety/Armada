@@ -656,7 +656,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         }
 
         #endregion
-
     }
 }
 

@@ -69,12 +69,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                             acquired_utc = EXCLUDED.acquired_utc,
                             expires_utc = EXCLUDED.expires_utc
                         WHERE coordination_leases.expires_utc <= @now;";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)tenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@acquired_utc", now);
-                    cmd.Parameters.AddWithValue("@expires_utc", expires);
-                    cmd.Parameters.AddWithValue("@now", now);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@acquired_utc", "acquired_utc", now);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@expires_utc", "expires_utc", expires);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -82,7 +82,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT holder FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
                     if (result == null || result == DBNull.Value) return false;
                     return string.Equals(result.ToString(), holder, StringComparison.Ordinal);
@@ -107,10 +107,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"UPDATE coordination_leases SET expires_utc = @new_expires
                         WHERE name = @name AND holder = @holder AND expires_utc > @now;";
-                    cmd.Parameters.AddWithValue("@new_expires", newExpires);
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@now", now);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@new_expires", "expires_utc", newExpires);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -130,8 +130,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE name = @name AND holder = @holder;";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -149,7 +149,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -173,16 +173,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE expires_utc <= @now;";
-                    cmd.Parameters.AddWithValue("@now", now);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected;
                 }
             }
         }
-
-        #endregion
-
-        #region Private-Methods
 
         #endregion
     }

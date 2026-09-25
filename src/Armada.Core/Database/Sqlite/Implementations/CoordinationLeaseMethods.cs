@@ -56,8 +56,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
             DateTime now = DateTime.UtcNow;
             DateTime expires = now.Add(ttl);
-            string nowIso = SqliteDatabaseDriver.ToIso8601(now);
-            string expiresIso = SqliteDatabaseDriver.ToIso8601(expires);
 
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
@@ -72,19 +70,19 @@ namespace Armada.Core.Database.Sqlite.Implementations
                                 acquired_utc = excluded.acquired_utc,
                                 expires_utc = excluded.expires_utc
                             WHERE coordination_leases.expires_utc <= @now;";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)tenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@acquired_utc", nowIso);
-                    cmd.Parameters.AddWithValue("@expires_utc", expiresIso);
-                    cmd.Parameters.AddWithValue("@now", nowIso);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@acquired_utc", "acquired_utc", now);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@expires_utc", "expires_utc", expires);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT holder FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
                     if (result == null || result == DBNull.Value) return false;
                     return String.Equals(result.ToString(), holder, StringComparison.Ordinal);
@@ -99,8 +97,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (String.IsNullOrEmpty(holder)) throw new ArgumentNullException(nameof(holder));
 
             DateTime now = DateTime.UtcNow;
-            string nowIso = SqliteDatabaseDriver.ToIso8601(now);
-            string newExpiresIso = SqliteDatabaseDriver.ToIso8601(now.Add(ttl));
+            DateTime newExpires = now.Add(ttl);
 
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
@@ -109,10 +106,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 {
                     cmd.CommandText = @"UPDATE coordination_leases SET expires_utc = @new_expires
                             WHERE name = @name AND holder = @holder AND expires_utc > @now;";
-                    cmd.Parameters.AddWithValue("@new_expires", newExpiresIso);
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@now", nowIso);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@new_expires", "expires_utc", newExpires);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -131,8 +128,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE name = @name AND holder = @holder;";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    cmd.Parameters.AddWithValue("@holder", holder);
+                    StoredValueBinder.Value(cmd, "@name", name);
+                    StoredValueBinder.Value(cmd, "@holder", holder);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -149,7 +146,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_leases WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -164,7 +161,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
         /// <inheritdoc />
         public async Task<int> PurgeExpiredAsync(CancellationToken token = default)
         {
-            string nowIso = SqliteDatabaseDriver.ToIso8601(DateTime.UtcNow);
+            DateTime now = DateTime.UtcNow;
 
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
@@ -172,15 +169,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE expires_utc <= @now;";
-                    cmd.Parameters.AddWithValue("@now", nowIso);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
                     return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
         }
-
-        #endregion
-
-        #region Private-Methods
 
         #endregion
     }

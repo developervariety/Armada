@@ -655,6 +655,5 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         #endregion
-
     }
 }
