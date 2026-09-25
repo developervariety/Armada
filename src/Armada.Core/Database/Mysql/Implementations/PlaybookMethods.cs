@@ -57,7 +57,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM playbooks WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -81,8 +81,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM playbooks WHERE tenant_id = @tenant_id AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -106,8 +106,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM playbooks WHERE tenant_id = @tenant_id AND file_name = @file_name;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@file_name", fileName);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@file_name", fileName);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -163,7 +163,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     {
                         cmd.Transaction = tx;
                         cmd.CommandText = "DELETE FROM playbooks WHERE id = @id;";
-                        cmd.Parameters.AddWithValue("@id", id);
+                        StoredValueBinder.Value(cmd, "@id", id);
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -212,7 +212,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM playbooks WHERE tenant_id = @tenant_id ORDER BY file_name;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -242,7 +242,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM playbooks WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = Convert.ToInt64((await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!);
                     return count > 0;
                 }
@@ -261,8 +261,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM playbooks WHERE tenant_id = @tenant_id AND file_name = @file_name;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@file_name", fileName);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@file_name", fileName);
                     long count = Convert.ToInt64((await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!);
                     return count > 0;
                 }
@@ -284,7 +284,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     {
                         deleteCmd.Transaction = tx;
                         deleteCmd.CommandText = "DELETE FROM voyage_playbooks WHERE voyage_id = @voyage_id;";
-                        deleteCmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                        StoredValueBinder.Value(deleteCmd, "@voyage_id", voyageId);
                         await deleteCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -297,10 +297,10 @@ namespace Armada.Core.Database.Mysql.Implementations
                             insertCmd.CommandText = @"INSERT INTO voyage_playbooks
                                 (voyage_id, playbook_id, selection_order, delivery_mode)
                                 VALUES (@voyage_id, @playbook_id, @selection_order, @delivery_mode);";
-                            insertCmd.Parameters.AddWithValue("@voyage_id", voyageId);
-                            insertCmd.Parameters.AddWithValue("@playbook_id", selection.PlaybookId);
-                            insertCmd.Parameters.AddWithValue("@selection_order", i);
-                            insertCmd.Parameters.AddWithValue("@delivery_mode", selection.DeliveryMode.ToString());
+                            StoredValueBinder.Value(insertCmd, "@voyage_id", voyageId);
+                            StoredValueBinder.Value(insertCmd, "@playbook_id", selection.PlaybookId);
+                            StoredValueBinder.Value(insertCmd, "@selection_order", i);
+                            StoredValueBinder.Value(insertCmd, "@delivery_mode", selection.DeliveryMode.ToString());
                             await insertCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         }
                     }
@@ -325,7 +325,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         FROM voyage_playbooks
                         WHERE voyage_id = @voyage_id
                         ORDER BY selection_order;";
-                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -354,7 +354,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     {
                         deleteCmd.Transaction = tx;
                         deleteCmd.CommandText = "DELETE FROM mission_playbook_snapshots WHERE mission_id = @mission_id;";
-                        deleteCmd.Parameters.AddWithValue("@mission_id", missionId);
+                        StoredValueBinder.Value(deleteCmd, "@mission_id", missionId);
                         await deleteCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -367,17 +367,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                             insertCmd.CommandText = @"INSERT INTO mission_playbook_snapshots
                                 (mission_id, playbook_id, selection_order, file_name, description, content, delivery_mode, resolved_path, worktree_relative_path, source_last_update_utc)
                                 VALUES (@mission_id, @playbook_id, @selection_order, @file_name, @description, @content, @delivery_mode, @resolved_path, @worktree_relative_path, @source_last_update_utc);";
-                            insertCmd.Parameters.AddWithValue("@mission_id", missionId);
-                            insertCmd.Parameters.AddWithValue("@playbook_id", (object?)snapshot.PlaybookId ?? DBNull.Value);
-                            insertCmd.Parameters.AddWithValue("@selection_order", i);
-                            insertCmd.Parameters.AddWithValue("@file_name", snapshot.FileName ?? String.Empty);
-                            insertCmd.Parameters.AddWithValue("@description", (object?)snapshot.Description ?? DBNull.Value);
-                            insertCmd.Parameters.AddWithValue("@content", snapshot.Content ?? String.Empty);
-                            insertCmd.Parameters.AddWithValue("@delivery_mode", snapshot.DeliveryMode.ToString());
-                            insertCmd.Parameters.AddWithValue("@resolved_path", (object?)snapshot.ResolvedPath ?? DBNull.Value);
-                            insertCmd.Parameters.AddWithValue("@worktree_relative_path", (object?)snapshot.WorktreeRelativePath ?? DBNull.Value);
-                            insertCmd.Parameters.AddWithValue("@source_last_update_utc",
-                                snapshot.SourceLastUpdateUtc.HasValue ? snapshot.SourceLastUpdateUtc.Value : DBNull.Value);
+                            PlaybookColumns.WriteSnapshot(MysqlDatabaseDriver.StoredBinder.For(insertCmd, "mission_playbook_snapshots"), snapshot);
+                            StoredValueBinder.Value(insertCmd, "@mission_id", missionId);
+                            StoredValueBinder.Value(insertCmd, "@selection_order", i);
                             await insertCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         }
                     }
@@ -402,7 +394,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         FROM mission_playbook_snapshots
                         WHERE mission_id = @mission_id
                         ORDER BY selection_order;";
-                    cmd.Parameters.AddWithValue("@mission_id", missionId);
+                    StoredValueBinder.Value(cmd, "@mission_id", missionId);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -428,17 +420,17 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (!String.IsNullOrEmpty(tenantId))
                 {
                     conditions.Add("tenant_id = @tenant_id");
-                    parameters.Add(new MySqlParameter("@tenant_id", tenantId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@tenant_id", tenantId));
                 }
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_after", "playbooks", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_before", "playbooks", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + String.Join(" AND ", conditions) : "";
@@ -472,15 +464,7 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         private static void AddPlaybookParameters(MySqlCommand cmd, Playbook playbook)
         {
-            cmd.Parameters.AddWithValue("@id", playbook.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)playbook.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)playbook.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@file_name", playbook.FileName);
-            cmd.Parameters.AddWithValue("@description", (object?)playbook.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@content", playbook.Content);
-            cmd.Parameters.AddWithValue("@active", playbook.Active);
-            cmd.Parameters.AddWithValue("@created_utc", playbook.CreatedUtc);
-            cmd.Parameters.AddWithValue("@last_update_utc", playbook.LastUpdateUtc);
+            PlaybookColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "playbooks"), playbook);
         }
 
         private static async Task DeleteVoyageSelectionsByPlaybookAsync(MySqlConnection conn, MySqlTransaction tx, string playbookId, CancellationToken token)
@@ -489,7 +473,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             {
                 cmd.Transaction = tx;
                 cmd.CommandText = "DELETE FROM voyage_playbooks WHERE playbook_id = @playbook_id;";
-                cmd.Parameters.AddWithValue("@playbook_id", playbookId);
+                StoredValueBinder.Value(cmd, "@playbook_id", playbookId);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
@@ -500,7 +484,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             {
                 cmd.Transaction = tx;
                 cmd.CommandText = "DELETE FROM mission_playbook_snapshots WHERE playbook_id = @playbook_id;";
-                cmd.Parameters.AddWithValue("@playbook_id", playbookId);
+                StoredValueBinder.Value(cmd, "@playbook_id", playbookId);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }

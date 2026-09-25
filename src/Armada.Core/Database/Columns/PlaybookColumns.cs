@@ -1,5 +1,6 @@
 namespace Armada.Core.Database
 {
+    using System;
     using System.Data;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -33,6 +34,25 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Bind every stored playbooks column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the playbooks table.</param>
+        /// <param name="playbook">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Playbook playbook)
+        {
+            parameters
+                .Text("id", playbook.Id)
+                .Text("tenant_id", playbook.TenantId)
+                .Text("user_id", playbook.UserId)
+                .Text("file_name", playbook.FileName)
+                .Text("description", playbook.Description)
+                .Text("content", playbook.Content)
+                .Bool("active", playbook.Active)
+                .Utc("created_utc", playbook.CreatedUtc)
+                .Utc("last_update_utc", playbook.LastUpdateUtc);
+        }
+
+        /// <summary>
         /// Read a mission_playbook_snapshots row. An unrecognised stored delivery mode reads as inline full content.
         /// </summary>
         /// <param name="record">Reader positioned on a mission_playbook_snapshots row.</param>
@@ -52,6 +72,25 @@ namespace Armada.Core.Database
                 WorktreeRelativePath = row.NullableText("worktree_relative_path"),
                 SourceLastUpdateUtc = row.NullableUtc("source_last_update_utc")
             };
+        }
+
+        /// <summary>
+        /// Bind the stored mission_playbook_snapshots columns a snapshot holds, each in the form its provider stores
+        /// it. The mission and selection order are bound by the statement that writes them.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the mission_playbook_snapshots table.</param>
+        /// <param name="snapshot">Snapshot to bind.</param>
+        internal static void WriteSnapshot(StoredParameters parameters, MissionPlaybookSnapshot snapshot)
+        {
+            parameters
+                .Text("playbook_id", snapshot.PlaybookId)
+                .Text("file_name", snapshot.FileName ?? String.Empty)
+                .Text("description", snapshot.Description)
+                .Text("content", snapshot.Content ?? String.Empty)
+                .Text("delivery_mode", snapshot.DeliveryMode.ToString())
+                .Text("resolved_path", snapshot.ResolvedPath)
+                .Text("worktree_relative_path", snapshot.WorktreeRelativePath)
+                .Utc("source_last_update_utc", snapshot.SourceLastUpdateUtc);
         }
     }
 }
