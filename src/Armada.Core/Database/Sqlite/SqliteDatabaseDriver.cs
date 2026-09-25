@@ -411,7 +411,7 @@ namespace Armada.Core.Database.Sqlite
             ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
             Skills = new SkillMethods(this, _Settings, _Logging);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
-            TokenUsage = new TokenUsageMethods(this, _Settings, _Logging);
+            TokenUsage = new TokenUsageMethods(_Stored);
             ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
         }
 

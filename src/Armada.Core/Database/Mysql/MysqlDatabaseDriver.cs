@@ -125,7 +125,7 @@ namespace Armada.Core.Database.Mysql
             ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
             Skills = new SkillMethods(_ConnectionString);
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
-            TokenUsage = new TokenUsageMethods(_ConnectionString);
+            TokenUsage = new TokenUsageMethods(_Stored);
             ModelEndpoints = new ModelEndpointMethods(_ConnectionString);
         }
 

@@ -103,6 +103,20 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(WorkflowProfileMethods.Table, new WorkflowProfile());
             });
 
+            await RunTest("TokenUsage scope conditions keep their text, order and parameters on every provider", () =>
+            {
+                string expected = "tenant_id = @tenant_id AND user_id = @user_id AND model = @model AND runtime = @runtime AND source = @source AND vessel_id = @vessel_id"
+                    + " AND captain_id = @captain_id AND source_id = @source_id AND created_utc >= @from_utc AND created_utc <= @to_utc";
+                TokenUsageQuery everyFilter = new TokenUsageQuery
+                {
+                    TenantId = "ten_x", UserId = "usr_x", Model = "model", Runtime = "runtime", Source = "mission", VesselId = "vsl_x", CaptainId = "cpt_x", SourceId = "msn_x",
+                    FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => expected, p => TokenUsageMethods.Scope(TokenUsageMethods.Table.Filter(), everyFilter), p => TokenUsageMethods.Scope(TokenUsageMethods.Table.Filter(), new TokenUsageQuery()));
+                AssertEqual("created_utc DESC", TokenUsageMethods.Order);
+                AssertTableMatchesWriter(TokenUsageMethods.Table, new TokenUsageRecord());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)

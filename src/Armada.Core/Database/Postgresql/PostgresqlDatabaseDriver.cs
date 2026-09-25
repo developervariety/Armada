@@ -423,7 +423,7 @@ namespace Armada.Core.Database.Postgresql
             Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_Settings);
-            TokenUsage = new TokenUsageMethods(_DataSource);
+            TokenUsage = new TokenUsageMethods(_Stored);
             ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
             ProjectProfiles = new ProjectProfileMethods(this);
             Skills = new SkillMethods(this);
