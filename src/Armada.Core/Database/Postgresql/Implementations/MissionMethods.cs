@@ -803,24 +803,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             return string.IsNullOrEmpty(str) ? null : str;
         }
 
-        private static int? NullableInt(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt32(value);
-        }
-
-        private static long? NullableLong(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt64(value);
-        }
-
-        private static DateTime? NullableDateTime(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return PostgresqlDatabaseDriver.ReadUtc(value);
-        }
-
         #endregion
     }
 }

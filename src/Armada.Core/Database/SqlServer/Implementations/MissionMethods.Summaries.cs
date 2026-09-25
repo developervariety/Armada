@@ -34,7 +34,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -102,7 +102,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -178,7 +178,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -265,7 +265,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                         using (SqlDataReader reader = await selectCmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                         {
                             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                                results.Add(MissionSummaryFromReader(reader));
+                                results.Add(MissionSummaryColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                         }
 
                         return EnumerationResult<MissionSummary>.Create(query, results, totalCount);
@@ -290,7 +290,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionSummaryFromReader(reader));
+                            results.Add(MissionSummaryColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -315,7 +315,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionSummaryFromReader(reader));
+                            results.Add(MissionSummaryColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -450,65 +450,6 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
         {
             List<string> conditionList = new List<string>(conditions);
             return conditionList.Count > 0 ? " WHERE " + String.Join(" AND ", conditionList) : String.Empty;
-        }
-
-        private static MissionSummary MissionSummaryFromReader(SqlDataReader reader)
-        {
-            Mission admission = new Mission();
-            MissionAdmissionPersistence.Read(reader, admission);
-            MissionSummary summary = new MissionSummary
-            {
-                LastAdmissionObservation = admission.LastAdmissionObservation,
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]),
-                VoyageId = SqlServerDatabaseDriver.NullableString(reader["voyage_id"]),
-                VesselId = SqlServerDatabaseDriver.NullableString(reader["vessel_id"]),
-                CaptainId = SqlServerDatabaseDriver.NullableString(reader["captain_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!),
-                Priority = Convert.ToInt32(reader["priority"]),
-                ParentMissionId = SqlServerDatabaseDriver.NullableString(reader["parent_mission_id"]),
-                BranchName = SqlServerDatabaseDriver.NullableString(reader["branch_name"]),
-                DockId = SqlServerDatabaseDriver.NullableString(reader["dock_id"]),
-                ProcessId = reader["process_id"] == DBNull.Value ? null : Convert.ToInt32(reader["process_id"]),
-                PrUrl = SqlServerDatabaseDriver.NullableString(reader["pr_url"]),
-                CommitHash = SqlServerDatabaseDriver.NullableString(reader["commit_hash"]),
-                Persona = SqlServerDatabaseDriver.NullableString(reader["persona"]),
-                DependsOnMissionId = SqlServerDatabaseDriver.NullableString(reader["depends_on_mission_id"]),
-                FailureReason = SqlServerDatabaseDriver.NullableString(reader["failure_reason"]),
-                ReconciledUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["reconciled_utc"]),
-                ReconciledReason = SqlServerDatabaseDriver.NullableString(reader["reconciled_reason"]),
-                RequiresReview = reader["requires_review"] != DBNull.Value && Convert.ToBoolean(reader["requires_review"]),
-                ReviewComment = SqlServerDatabaseDriver.NullableString(reader["review_comment"]),
-                ReviewedByUserId = SqlServerDatabaseDriver.NullableString(reader["reviewed_by_user_id"]),
-                ReviewRequestedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["review_requested_utc"]),
-                ReviewedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["reviewed_utc"]),
-                DescriptionLength = Convert.ToInt32(reader["description_length"]),
-                DiffSnapshotLength = Convert.ToInt32(reader["diff_snapshot_length"]),
-                AgentOutputLength = Convert.ToInt32(reader["agent_output_length"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                StartedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
-                CompletedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
-                TotalRuntimeMs = reader["total_runtime_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["total_runtime_ms"]),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
-            };
-
-            string? reviewDenyAction = SqlServerDatabaseDriver.NullableString(reader["review_deny_action"]);
-            if (!String.IsNullOrEmpty(reviewDenyAction) &&
-                Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
-            {
-                summary.ReviewDenyAction = parsed;
-            }
-
-            string? assignmentState = SqlServerDatabaseDriver.NullableString(reader["mission_assignment_state"]);
-            if (!String.IsNullOrEmpty(assignmentState) &&
-                Enum.TryParse(assignmentState, true, out MissionAssignmentStateEnum assignmentParsed))
-            {
-                summary.AssignmentState = assignmentParsed;
-            }
-
-            return summary;
         }
     }
 }

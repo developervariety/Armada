@@ -34,7 +34,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -102,7 +102,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -178,7 +178,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -265,7 +265,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                         using (MySqlDataReader reader = await selectCmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                         {
                             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                                results.Add(MissionSummaryFromReader(reader));
+                                results.Add(MissionSummaryColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                         }
 
                         return EnumerationResult<MissionSummary>.Create(query, results, totalCount);
@@ -290,7 +290,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionSummaryFromReader(reader));
+                            results.Add(MissionSummaryColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -315,7 +315,7 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionSummaryFromReader(reader));
+                            results.Add(MissionSummaryColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -450,65 +450,6 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
         {
             List<string> conditionList = new List<string>(conditions);
             return conditionList.Count > 0 ? " WHERE " + String.Join(" AND ", conditionList) : String.Empty;
-        }
-
-        private static MissionSummary MissionSummaryFromReader(MySqlDataReader reader)
-        {
-            Mission admission = new Mission();
-            MissionAdmissionPersistence.Read(reader, admission);
-            MissionSummary summary = new MissionSummary
-            {
-                LastAdmissionObservation = admission.LastAdmissionObservation,
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                VoyageId = NullableString(reader["voyage_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                CaptainId = NullableString(reader["captain_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!),
-                Priority = Convert.ToInt32(reader["priority"]),
-                ParentMissionId = NullableString(reader["parent_mission_id"]),
-                BranchName = NullableString(reader["branch_name"]),
-                DockId = NullableString(reader["dock_id"]),
-                ProcessId = reader["process_id"] == DBNull.Value ? null : Convert.ToInt32(reader["process_id"]),
-                PrUrl = NullableString(reader["pr_url"]),
-                CommitHash = NullableString(reader["commit_hash"]),
-                Persona = NullableString(reader["persona"]),
-                DependsOnMissionId = NullableString(reader["depends_on_mission_id"]),
-                FailureReason = NullableString(reader["failure_reason"]),
-                ReconciledUtc = FromIso8601Nullable(reader["reconciled_utc"]),
-                ReconciledReason = NullableString(reader["reconciled_reason"]),
-                RequiresReview = reader["requires_review"] != DBNull.Value && Convert.ToInt64(reader["requires_review"]) == 1,
-                ReviewComment = NullableString(reader["review_comment"]),
-                ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]),
-                ReviewRequestedUtc = FromIso8601Nullable(reader["review_requested_utc"]),
-                ReviewedUtc = FromIso8601Nullable(reader["reviewed_utc"]),
-                DescriptionLength = Convert.ToInt32(reader["description_length"]),
-                DiffSnapshotLength = Convert.ToInt32(reader["diff_snapshot_length"]),
-                AgentOutputLength = Convert.ToInt32(reader["agent_output_length"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                StartedUtc = FromIso8601Nullable(reader["started_utc"]),
-                CompletedUtc = FromIso8601Nullable(reader["completed_utc"]),
-                TotalRuntimeMs = reader["total_runtime_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["total_runtime_ms"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            string? reviewDenyAction = NullableString(reader["review_deny_action"]);
-            if (!String.IsNullOrEmpty(reviewDenyAction) &&
-                Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
-            {
-                summary.ReviewDenyAction = parsed;
-            }
-
-            string? assignmentState = NullableString(reader["mission_assignment_state"]);
-            if (!String.IsNullOrEmpty(assignmentState) &&
-                Enum.TryParse(assignmentState, true, out MissionAssignmentStateEnum assignmentParsed))
-            {
-                summary.AssignmentState = assignmentParsed;
-            }
-
-            return summary;
         }
     }
 }

@@ -123,6 +123,10 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
+- **Mission summaries read through a shared column reader:** the four provider
+  copies of the summary mapper become one reader, which reads the summary's
+  timestamps, booleans and tolerated enum names by the same rules as a full
+  mission read.
 - **Harbor runner enrollments read by column name:** the four provider copies
   of the enrollment mapper, which read columns by position, become one shared
   reader that reads each column by name.

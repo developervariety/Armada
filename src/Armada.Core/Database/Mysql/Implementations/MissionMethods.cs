@@ -917,20 +917,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
-        }
-
-        private static DateTime? FromIso8601Nullable(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            if (value is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
-            string str = value.ToString()!;
-            if (string.IsNullOrEmpty(str)) return null;
-            return FromIso8601(str);
-        }
-
         private async Task TouchVoyageAsync(MySqlConnection conn, string? voyageId, DateTime lastUpdateUtc, CancellationToken token)
         {
             if (String.IsNullOrEmpty(voyageId)) return;
@@ -949,18 +935,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (value == null || value == DBNull.Value) return null;
             string str = value.ToString()!;
             return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static int? NullableInt(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt32(value);
-        }
-
-        private static long? NullableLong(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            return Convert.ToInt64(value);
         }
 
         /// <summary>Serialize prestaged files for storage. Null on empty.</summary>

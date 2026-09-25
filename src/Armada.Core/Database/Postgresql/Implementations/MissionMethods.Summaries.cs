@@ -35,7 +35,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -104,7 +104,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -181,7 +181,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MissionSummaryFromReader(reader);
+                            return MissionSummaryColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -270,7 +270,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                         using (NpgsqlDataReader reader = await selectCmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                         {
                             while (await reader.ReadAsync(token).ConfigureAwait(false))
-                                results.Add(MissionSummaryFromReader(reader));
+                                results.Add(MissionSummaryColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                         }
 
                         return EnumerationResult<MissionSummary>.Create(query, results, totalCount);
@@ -296,7 +296,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionSummaryFromReader(reader));
+                            results.Add(MissionSummaryColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -322,7 +322,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MissionSummaryFromReader(reader));
+                            results.Add(MissionSummaryColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -459,65 +459,6 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
         {
             List<string> conditionList = new List<string>(conditions);
             return conditionList.Count > 0 ? " WHERE " + String.Join(" AND ", conditionList) : String.Empty;
-        }
-
-        private static MissionSummary MissionSummaryFromReader(NpgsqlDataReader reader)
-        {
-            Mission admission = new Mission();
-            MissionAdmissionPersistence.Read(reader, admission);
-            MissionSummary summary = new MissionSummary
-            {
-                LastAdmissionObservation = admission.LastAdmissionObservation,
-                Id = reader["id"].ToString() ?? String.Empty,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                VoyageId = NullableString(reader["voyage_id"]),
-                VesselId = NullableString(reader["vessel_id"]),
-                CaptainId = NullableString(reader["captain_id"]),
-                Title = reader["title"].ToString() ?? String.Empty,
-                Status = Enum.Parse<MissionStatusEnum>(reader["status"].ToString()!),
-                Priority = Convert.ToInt32(reader["priority"]),
-                ParentMissionId = NullableString(reader["parent_mission_id"]),
-                BranchName = NullableString(reader["branch_name"]),
-                DockId = NullableString(reader["dock_id"]),
-                ProcessId = NullableInt(reader["process_id"]),
-                PrUrl = NullableString(reader["pr_url"]),
-                CommitHash = NullableString(reader["commit_hash"]),
-                Persona = NullableString(reader["persona"]),
-                DependsOnMissionId = NullableString(reader["depends_on_mission_id"]),
-                FailureReason = NullableString(reader["failure_reason"]),
-                ReconciledUtc = NullableDateTime(reader["reconciled_utc"]),
-                ReconciledReason = NullableString(reader["reconciled_reason"]),
-                RequiresReview = reader["requires_review"] != DBNull.Value && Convert.ToBoolean(reader["requires_review"]),
-                ReviewComment = NullableString(reader["review_comment"]),
-                ReviewedByUserId = NullableString(reader["reviewed_by_user_id"]),
-                ReviewRequestedUtc = NullableDateTime(reader["review_requested_utc"]),
-                ReviewedUtc = NullableDateTime(reader["reviewed_utc"]),
-                DescriptionLength = Convert.ToInt32(reader["description_length"]),
-                DiffSnapshotLength = Convert.ToInt32(reader["diff_snapshot_length"]),
-                AgentOutputLength = Convert.ToInt32(reader["agent_output_length"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                StartedUtc = NullableDateTime(reader["started_utc"]),
-                CompletedUtc = NullableDateTime(reader["completed_utc"]),
-                TotalRuntimeMs = NullableLong(reader["total_runtime_ms"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-
-            string? reviewDenyAction = NullableString(reader["review_deny_action"]);
-            if (!String.IsNullOrEmpty(reviewDenyAction) &&
-                Enum.TryParse(reviewDenyAction, true, out ReviewDenyActionEnum parsed))
-            {
-                summary.ReviewDenyAction = parsed;
-            }
-
-            string? assignmentState = NullableString(reader["mission_assignment_state"]);
-            if (!String.IsNullOrEmpty(assignmentState) &&
-                Enum.TryParse(assignmentState, true, out MissionAssignmentStateEnum assignmentParsed))
-            {
-                summary.AssignmentState = assignmentParsed;
-            }
-
-            return summary;
         }
     }
 }
