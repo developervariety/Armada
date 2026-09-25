@@ -124,6 +124,10 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 201;
                     return incident;
                 }
+                catch (IncidentRootCauseRefusedException refused)
+                {
+                    return RootCauseRefusal(req, refused);
+                }
                 catch (InvalidOperationException ex)
                 {
                     req.Http.Response.StatusCode = 400;
@@ -133,7 +137,8 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Incidents")
                 .WithSummary("Create an incident")
-                .WithDescription("Creates an operational incident tied to current delivery entities. Every linked id (deployment, rollback deployment, release, check run, environment, vessel, mission, voyage) must name a record visible to the caller; otherwise 400 and nothing is created.")
+                .WithDescription("Creates an operational incident tied to current delivery entities. Every linked id (deployment, rollback deployment, release, check run, environment, vessel, mission, voyage) must name a record visible to the caller; otherwise 400 and nothing is created. "
+                    + "The root cause supplied at create is kept as the opened reason. Creating an incident already Closed needs a root cause, or 400 with code incident_root_cause_required.")
                 .WithRequestBody(OpenApiJson.BodyFor<IncidentUpsertRequest>("Incident create request", true))
                 .WithResponse(201, OpenApiJson.For<Incident>("Created incident"))
                 .WithSecurity("ApiKey"));
@@ -153,6 +158,10 @@ namespace Armada.Server.Routes
                     await LinkObjectivesAsync(ctx, incident, request.ObjectiveIds).ConfigureAwait(false);
                     return incident;
                 }
+                catch (IncidentRootCauseRefusedException refused)
+                {
+                    return RootCauseRefusal(req, refused);
+                }
                 catch (InvalidOperationException ex)
                 {
                     req.Http.Response.StatusCode = ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ? 404 : 400;
@@ -166,7 +175,9 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Incidents")
                 .WithSummary("Update an incident")
-                .WithDescription("Updates incident status, impact, root cause, recovery, and postmortem details. A supplied linked id that names a record the caller may not see returns 404 and nothing changes.")
+                .WithDescription("Updates incident status, impact, root cause, recovery, and postmortem details. A supplied linked id that names a record the caller may not see returns 404 and nothing changes. "
+                    + "Setting status Closed, or changing the root cause of a closed incident, needs a non-empty root cause that differs (after trimming) from the text the incident was opened with; "
+                    + "otherwise 400 with code incident_root_cause_required or incident_root_cause_unchanged and nothing changes. A written cause is stored with its author (rootCauseWrittenBy) and time (rootCauseWrittenUtc).")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Incident ID (inc_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<IncidentUpsertRequest>("Incident update request", true))
                 .WithResponse(200, OpenApiJson.For<Incident>("Updated incident"))
@@ -198,6 +209,17 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
+        }
+
+        private static ApiErrorResponse RootCauseRefusal(ApiRequest req, IncidentRootCauseRefusedException refused)
+        {
+            req.Http.Response.StatusCode = 400;
+            return new ApiErrorResponse
+            {
+                Error = ApiResultEnum.BadRequest,
+                Message = refused.Message,
+                Data = new { refused.Code }
+            };
         }
 
         private static IncidentQuery BuildQueryFromRequest(ApiRequest req)

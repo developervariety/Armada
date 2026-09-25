@@ -253,6 +253,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Title = "Already handled",
                         Status = IncidentStatusEnum.Closed,
+                        RootCause = "Handled by an operator",
                         Severity = IncidentSeverityEnum.Critical
                     }).ConfigureAwait(false);
 

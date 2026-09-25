@@ -162,6 +162,7 @@ namespace Test.Shared.Suites.Services
                     Incident updated = await incidents.UpdateAsync(auth, created.Id, new IncidentUpsertRequest
                     {
                         Status = IncidentStatusEnum.Closed,
+                        RootCause = "Release build dropped the checkout route",
                         RecoveryNotes = "Rollback completed successfully",
                         Postmortem = "Root cause confirmed and corrected",
                         MitigatedUtc = DateTime.UtcNow.AddMinutes(-8),

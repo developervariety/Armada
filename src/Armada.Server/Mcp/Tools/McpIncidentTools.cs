@@ -130,14 +130,23 @@ namespace Armada.Server.Mcp.Tools
                     {
                         return (object)new { Error = ex.Message };
                     }
-                    Incident incident = await incidentService.CreateAsync(auth, request).ConfigureAwait(false);
+                    Incident incident;
+                    try
+                    {
+                        incident = await incidentService.CreateAsync(auth, request).ConfigureAwait(false);
+                    }
+                    catch (IncidentRootCauseRefusedException refused)
+                    {
+                        return RootCauseRefusal(refused);
+                    }
                     await LinkObjectiveIdsAsync(auth, objectiveService, request.ObjectiveIds, incident.Id).ConfigureAwait(false);
                     return (object)incident;
                 });
 
             register(
                 "armada_update_incident",
-                "Update an operational incident's status, severity, impact, recovery notes, root cause, postmortem, or delivery links.",
+                "Update an operational incident's status, severity, impact, recovery notes, root cause, postmortem, or delivery links. "
+                + "Setting status Closed follows the armada_close_incident root-cause rule and returns the same refusal codes.",
                 BuildIncidentUpdateSchema(),
                 async (args) =>
                 {
@@ -164,6 +173,10 @@ namespace Armada.Server.Mcp.Tools
                         await LinkObjectiveIdsAsync(auth, objectiveService, update.ObjectiveIds, incident.Id).ConfigureAwait(false);
                         return (object)incident;
                     }
+                    catch (IncidentRootCauseRefusedException refused)
+                    {
+                        return RootCauseRefusal(refused);
+                    }
                     catch (InvalidOperationException ex)
                     {
                         return (object)new { Error = ex.Message };
@@ -172,7 +185,9 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_close_incident",
-                "Close one operational incident while preserving its delivery links. Optional recovery notes, root cause, and postmortem fields are appended through the incident update surface.",
+                "Close one operational incident while preserving its delivery links. rootCause is the cause you determined: it must be non-empty and must differ "
+                + "(after trimming) from the text the incident was opened with, or the close is refused with Code incident_root_cause_required or "
+                + "incident_root_cause_unchanged. The cause is stored with you as its author and the time. Optional recovery notes and postmortem are applied through the incident update surface.",
                 new
                 {
                     type = "object",
@@ -180,11 +195,11 @@ namespace Armada.Server.Mcp.Tools
                     {
                         incidentId = new { type = "string", description = "Incident ID (inc_ prefix)" },
                         recoveryNotes = new { type = "string", description = "Optional recovery notes" },
-                        rootCause = new { type = "string", description = "Optional root-cause notes" },
+                        rootCause = new { type = "string", description = "Root cause you determined; must differ from the opened reason (the automatic text the incident was opened with)" },
                         postmortem = new { type = "string", description = "Optional postmortem notes" },
                         closedUtc = new { type = "string", description = "Optional closure timestamp in UTC; defaults to now" }
                     },
-                    required = new[] { "incidentId" }
+                    required = new[] { "incidentId", "rootCause" }
                 },
                 async (args) =>
                 {
@@ -203,6 +218,10 @@ namespace Armada.Server.Mcp.Tools
                             ClosedUtc = request.ClosedUtc ?? DateTime.UtcNow
                         }).ConfigureAwait(false);
                         return (object)incident;
+                    }
+                    catch (IncidentRootCauseRefusedException refused)
+                    {
+                        return RootCauseRefusal(refused);
                     }
                     catch (InvalidOperationException ex)
                     {
@@ -238,6 +257,11 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = ex.Message };
                     }
                 });
+        }
+
+        private static object RootCauseRefusal(IncidentRootCauseRefusedException refused)
+        {
+            return new { Error = refused.Message, refused.Code };
         }
 
         private static object BuildIncidentUpsertSchema(bool requireTitle)
@@ -300,7 +324,7 @@ namespace Armada.Server.Mcp.Tools
                     rollbackDeploymentId = new { type = "string", description = "Optional rollback deployment ID" },
                     objectiveIds = new { type = "array", items = new { type = "string" }, description = "Optional objective IDs to link" },
                     impact = new { type = "string", description = "Optional impact summary" },
-                    rootCause = new { type = "string", description = "Optional root-cause notes" },
+                    rootCause = new { type = "string", description = "Optional root cause you determined; required, and different from the opened reason, when status becomes Closed" },
                     regressionPurpose = new { type = "string", description = "Optional post-land regression class: None, Consumer, or Ledger" },
                     regressionCause = new { type = "string", description = "Optional regression cause: Unclassified, LandedChange, PreExisting, Environment, or NotRegression" },
                     regressionObjectiveId = new { type = "string", description = "Optional objective (obj_ prefix) whose landed change the regression is attributed to; blank clears it" },

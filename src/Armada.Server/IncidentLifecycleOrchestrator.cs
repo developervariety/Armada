@@ -467,7 +467,7 @@ namespace Armada.Server
             CancellationToken token)
         {
             DateTime now = DateTime.UtcNow;
-            Incident updated = await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+            Incident updated = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
             {
                 Status = status,
                 Severity = severity,

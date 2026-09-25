@@ -185,12 +185,17 @@ Record:
 
 Use `armada_close_incident` only when linked evidence supports closure. Do not
 close an incident only because a captain or operator says that the work is
-done.
+done. The close requires `rootCause`: the cause you determined. The text the
+incident was opened with (`OpenedReason`, often a copied failure reason) is
+refused as `incident_root_cause_unchanged`, and an empty cause as
+`incident_root_cause_required`. The accepted cause is stored with its author
+and time.
 
 When incident lifecycle automation is enabled, newer passing Checks,
 successful rescue missions, shipped releases, verified deployments, and
 completed rollbacks can mitigate or close linked incidents after the quiet
-period. A newer matching failure can reopen an incident.
+period. A newer matching failure can reopen an incident. Such a close sets
+`ClosedAutomatically`, and its root cause stays automatic.
 
 ## 8. Runbooks
 

@@ -1300,6 +1300,13 @@ export interface Incident {
   rollbackDeploymentId: string | null;
   impact: string | null;
   rootCause: string | null;
+  /** Text the incident was opened with; for a system-opened incident, its automatic reading. */
+  openedReason?: string | null;
+  /** Who wrote the current root cause. Null means the root cause is automatic, not a verified cause. */
+  rootCauseWrittenBy?: string | null;
+  rootCauseWrittenUtc?: string | null;
+  /** True when a system path closed or rolled back the incident. */
+  closedAutomatically?: boolean;
   recoveryNotes: string | null;
   postmortem: string | null;
   detectedUtc: string;

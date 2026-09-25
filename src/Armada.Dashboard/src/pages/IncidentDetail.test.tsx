@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { WebSocketMessage } from '../types/models';
@@ -52,7 +52,7 @@ vi.mock('../api/client', async () => (await import('../test/clientMock')).withAl
 }));
 
 import {
-  getIncident, listDeployments, listEnvironments, listReleases, listRunbookExecutions, listVessels,
+  getIncident, listDeployments, listEnvironments, listReleases, listRunbookExecutions, listVessels, updateIncident,
 } from '../api/client';
 import IncidentDetail from './IncidentDetail';
 
@@ -105,4 +105,34 @@ test('does not overwrite unsaved edits with a live change, and says the record c
   emitChange('Server title');
   expect(screen.getByDisplayValue('My edit')).toBeInTheDocument();
   expect(screen.getByText(/changed on the server/)).toBeInTheDocument();
+});
+
+test('the close dialog asks for the root cause and shows the server refusal', async () => {
+  vi.mocked(getIncident).mockResolvedValue({
+    ...incident('Mission failed: build'),
+    rootCause: 'DoD gate failed: classification=TestFail',
+    openedReason: 'DoD gate failed: classification=TestFail',
+    rootCauseWrittenBy: null,
+  } as never);
+  vi.mocked(updateIncident).mockRejectedValue(
+    new Error('incident_root_cause_unchanged: the root cause is the text the incident was opened with.'),
+  );
+  renderPage();
+  await screen.findByDisplayValue('Mission failed: build');
+  expect(screen.getByText('Automatic reading, not confirmed by a person.')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Close Incident' }));
+  const dialog = screen.getByRole('dialog', { name: 'Close Incident' });
+  expect(within(dialog).getByText('Opened with: DoD gate failed: classification=TestFail')).toBeInTheDocument();
+  const cause = within(dialog).getByLabelText('Root Cause') as HTMLTextAreaElement;
+  expect(cause.value).toBe('');
+
+  fireEvent.change(cause, { target: { value: 'DoD gate failed: classification=TestFail' } });
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close Incident' }));
+  });
+
+  expect(updateIncident).toHaveBeenCalledWith('inc_1', { status: 'Closed', rootCause: 'DoD gate failed: classification=TestFail' });
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('incident_root_cause_unchanged');
+  expect(screen.getByRole('dialog', { name: 'Close Incident' })).toBeInTheDocument();
 });

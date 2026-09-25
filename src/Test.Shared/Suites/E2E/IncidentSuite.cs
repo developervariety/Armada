@@ -178,6 +178,7 @@ namespace Test.Shared.Suites.E2E
                         JsonHelper.ToJsonContent(new
                         {
                             Status = IncidentStatusEnum.Closed,
+                            RootCause = "Release configuration pointed at the retired pool",
                             RecoveryNotes = "Rollback completed successfully",
                             Postmortem = "Root cause confirmed and fixed"
                         })).ConfigureAwait(false);

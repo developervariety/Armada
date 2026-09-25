@@ -1166,6 +1166,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Title = "Newer closed incident " + i,
                         Status = IncidentStatusEnum.Closed,
+                        RootCause = "Closed by an operator",
                         MissionId = failed.Id,
                         VesselId = vessel.Id
                     }).ConfigureAwait(false);
@@ -1263,6 +1264,16 @@ namespace Armada.Test.Unit.Suites.Services
                     PageSize = 100
                 }).ConfigureAwait(false)).Objects;
                 AssertEqual(0, active.Count, "Every active incident of a cancelled-voyage mission is closed, not only the first page.");
+                List<Incident> closedIncidents = (await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    Status = IncidentStatusEnum.Closed,
+                    PageNumber = 1,
+                    PageSize = 100
+                }).ConfigureAwait(false)).Objects;
+                AssertEqual(30, closedIncidents.Count);
+                AssertTrue(closedIncidents.All(item => item.ClosedAutomatically && item.RootCauseWrittenBy == null),
+                    "Recovery records each close as automatic, with no person-written cause.");
             }).ConfigureAwait(false);
 
             await RunTest("Recovery policy gates are released once no application holds them", async () =>

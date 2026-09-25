@@ -130,9 +130,35 @@ namespace Armada.Core.Models
         public string? Impact { get; set; } = null;
 
         /// <summary>
-        /// Optional root-cause notes.
+        /// Optional root-cause notes. The cause is person-written only when
+        /// <see cref="RootCauseWrittenBy"/> is set; otherwise it is the automatic text the incident
+        /// was opened with.
         /// </summary>
         public string? RootCause { get; set; } = null;
+
+        /// <summary>
+        /// Root-cause text the incident was opened with, kept unchanged. For an incident a system path
+        /// opened, this is its automatic reading (for example a mission failure reason). Null when the
+        /// incident was opened without a root cause.
+        /// </summary>
+        public string? OpenedReason { get; set; } = null;
+
+        /// <summary>
+        /// Person or operator who wrote the current <see cref="RootCause"/> through a caller-facing
+        /// surface. Null means the root cause is automatic and not a verified cause.
+        /// </summary>
+        public string? RootCauseWrittenBy { get; set; } = null;
+
+        /// <summary>
+        /// When <see cref="RootCauseWrittenBy"/> wrote the current root cause.
+        /// </summary>
+        public DateTime? RootCauseWrittenUtc { get; set; } = null;
+
+        /// <summary>
+        /// True when a system path (incident lifecycle or autonomous recovery) closed or rolled back the
+        /// incident, rather than a person or operator. Cleared when the incident leaves a terminal status.
+        /// </summary>
+        public bool ClosedAutomatically { get; set; } = false;
 
         /// <summary>
         /// Optional recovery notes.

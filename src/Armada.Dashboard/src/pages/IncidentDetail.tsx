@@ -32,6 +32,7 @@ import { useNotifications } from '../context/NotificationContext';
 import { RESYNC_MESSAGE_TYPE, useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
+import IncidentCloseDialog from '../components/incidents/IncidentCloseDialog';
 import MissionRecoveryPanel from '../components/shared/MissionRecoveryPanel';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -173,6 +174,11 @@ export default function IncidentDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
+  const [closeDialog, setCloseDialog] = useState<{ open: boolean; submitting: boolean; refusal: string | null }>({
+    open: false,
+    submitting: false,
+    refusal: null,
+  });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
     open: false,
     title: '',
@@ -422,6 +428,23 @@ export default function IncidentDetail() {
     }
   }
 
+  async function handleCloseIncident(writtenRootCause: string) {
+    if (!incident || !canManage) return;
+    setCloseDialog((current) => ({ ...current, submitting: true, refusal: null }));
+    try {
+      const updated = await updateIncident(incident.id, { status: 'Closed', rootCause: writtenRootCause });
+      applyIncident(updated);
+      setCloseDialog({ open: false, submitting: false, refusal: null });
+      pushToast('success', t('Incident "{{title}}" closed.', { title: updated.title }));
+    } catch (err: unknown) {
+      setCloseDialog((current) => ({
+        ...current,
+        submitting: false,
+        refusal: err instanceof Error ? err.message : t('Close failed.'),
+      }));
+    }
+  }
+
   function handleDelete() {
     if (!incident || !canManage) return;
     setConfirm({
@@ -543,6 +566,9 @@ export default function IncidentDetail() {
             {!createMode && incident && (
               <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: incident })}>{t('View JSON')}</button>
             )}
+            {!createMode && canManage && incident && incident.status !== 'Closed' && (
+              <button className="btn btn-sm" onClick={() => setCloseDialog({ open: true, submitting: false, refusal: null })}>{t('Close Incident')}</button>
+            )}
             {!createMode && canManage && (
               <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
             )}
@@ -552,6 +578,16 @@ export default function IncidentDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <IncidentCloseDialog
+        open={closeDialog.open}
+        openedReason={incident?.openedReason ?? null}
+        writtenRootCause={incident?.rootCauseWrittenBy ? incident.rootCause : null}
+        t={t}
+        submitting={closeDialog.submitting}
+        refusal={closeDialog.refusal}
+        onSubmit={(value) => { void handleCloseIncident(value); }}
+        onCancel={() => setCloseDialog({ open: false, submitting: false, refusal: null })}
+      />
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
@@ -682,6 +718,19 @@ export default function IncidentDetail() {
             <div className="detail-field detail-field-full">
               <span className="detail-label">{t('Root Cause')}</span>
               <textarea rows={3} value={rootCause} onChange={(event) => setRootCause(event.target.value)} disabled={!canManage} />
+              {!createMode && incident && (
+                <span className="text-dim" style={{ fontSize: '0.8rem' }}>
+                  {incident.rootCauseWrittenBy
+                    ? t('Written by {{author}} {{when}}', {
+                      author: incident.rootCauseWrittenBy,
+                      when: incident.rootCauseWrittenUtc ? formatRelativeTime(incident.rootCauseWrittenUtc) : '',
+                    })
+                    : incident.rootCause
+                      ? t('Automatic reading, not confirmed by a person.')
+                      : t('No root cause recorded.')}
+                  {incident.closedAutomatically ? ` ${t('Closed automatically.')}` : ''}
+                </span>
+              )}
             </div>
 
             <div className="detail-field detail-field-full">

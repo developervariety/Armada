@@ -375,7 +375,7 @@ namespace Armada.Server
 
             string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
             string holdDetail = "dispatch_hold engaged by " + holder + " at " + hold.SetByUtc.ToString("u") + ": " + hold.Reason;
-            await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+            await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
             {
                 RecoveryNotes = AppendNote(incident.RecoveryNotes,
                     "Autonomous rescue deferred: " + holdDetail + ". No rescue was dispatched and no recovery attempt was spent; "
@@ -738,7 +738,7 @@ namespace Armada.Server
             foreach (Incident incident in active.Where(item =>
                 (item.Summary ?? String.Empty).Contains("no live missions", StringComparison.OrdinalIgnoreCase)))
             {
-                await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
                 {
                     Status = IncidentStatusEnum.Closed,
                     ClosedUtc = DateTime.UtcNow
@@ -1067,7 +1067,7 @@ namespace Armada.Server
                 // auto-rescue block. Only complete, identical sets reach here.
                 if (repeated.IsRepeated)
                 {
-                    incident = await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    incident = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
                     {
                         RecoveryNotes = AppendNote(incident.RecoveryNotes,
                             "Repeated identical test failure: the rescue failed its definition-of-done gate on the same "
@@ -1102,7 +1102,7 @@ namespace Armada.Server
                 {
                     const string missingTipReason = "start_from_ref_missing: Armada could not find a durable reviewed commit for the reviewer rescue.";
                     await MarkPolicyBlockedAsync(latest, token).ConfigureAwait(false);
-                    await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
                     {
                         RecoveryNotes = AppendNote(incident.RecoveryNotes,
                             "Autonomous rescue blocked: " + missingTipReason)
@@ -1129,7 +1129,7 @@ namespace Armada.Server
                 latest.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(latest, token).ConfigureAwait(false);
 
-                await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
                 {
                     RecoveryNotes = AppendNote(incident.RecoveryNotes,
                         "Autonomous rescue mission dispatched: " + rescue.Id +
@@ -1571,7 +1571,7 @@ namespace Armada.Server
 
             foreach (Incident incident in active)
             {
-                Incident updated = await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                Incident updated = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
                 {
                     Status = IncidentStatusEnum.Closed,
                     RecoveryNotes = AppendNote(incident.RecoveryNotes, note),
@@ -1598,7 +1598,7 @@ namespace Armada.Server
 
             if (active != null)
             {
-                return await _Incidents.UpdateAsync(auth, active.Id, new IncidentUpsertRequest
+                return await _Incidents.UpdateAutomaticallyAsync(auth, active.Id, new IncidentUpsertRequest
                 {
                     Summary = BuildIncidentSummary(mission, decision),
                     Severity = decision.DispatchRescue ? IncidentSeverityEnum.Medium : IncidentSeverityEnum.High,

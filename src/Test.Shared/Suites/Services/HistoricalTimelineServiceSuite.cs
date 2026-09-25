@@ -333,6 +333,7 @@ namespace Test.Shared.Suites.Services
                         Title = "Incident With Postmortem",
                         Summary = "Rollback and review required",
                         Status = IncidentStatusEnum.Closed,
+                        RootCause = "Release shipped a bad migration",
                         Severity = IncidentSeverityEnum.Critical,
                         EnvironmentId = environment.Id,
                         EnvironmentName = environment.Name,

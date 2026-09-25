@@ -1105,6 +1105,25 @@ transcript and removes it from the backlog item's links, as
 `DELETE /api/v1/objective-refinement-sessions/{id}` does. An active session is
 stopped first. A session outside the caller's scope returns `not_found`.
 
+### Incidents
+
+`armada_close_incident` requires `rootCause`: the cause the operator
+determined. It must be non-empty and, after trimming, must differ from the
+incident's `OpenedReason`, the text the incident was opened with. For an
+incident a system path opened, that text is an automatic reading, such as a
+mission failure reason. `armada_update_incident` with `status` `Closed`, or
+with a changed root cause on a closed incident, applies the same rule, and so
+does `armada_create_incident` for an incident created `Closed`. A refusal
+returns `Error` and `Code`: `incident_root_cause_required` or
+`incident_root_cause_unchanged`. Nothing changes. REST `PUT` and `POST
+/api/v1/incidents` use the same rule and codes (`REST_API.md`, "Incidents").
+
+An accepted cause is stored with its author in `RootCauseWrittenBy` and the
+time in `RootCauseWrittenUtc`. `OpenedReason` keeps the automatic text. A null
+`RootCauseWrittenBy` means that the cause is automatic. A close by the incident
+lifecycle or by autonomous recovery sets `ClosedAutomatically` and never counts
+as person-written.
+
 ## Client Names
 
 MCP clients can add a transport prefix to tool names in their own UI or prompt

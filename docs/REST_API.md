@@ -42,6 +42,7 @@
   - [Workspace](#workspace)
   - [Planning Sessions](#planning-sessions)
   - [Inbox](#inbox)
+  - [Incidents](#incidents)
   - [Background Jobs](#background-jobs)
   - [Backup and Restore](#backup-and-restore)
 - [Data Types](#data-types)
@@ -4076,6 +4077,48 @@ captains, merges and incidents, so a narrower caller receives `403`.
 
 ```bash
 curl http://localhost:7890/api/v1/inbox
+```
+
+---
+
+### Incidents
+
+`GET`, `POST /enumerate`, `POST`, `PUT` and `DELETE` under `/api/v1/incidents`
+list, read, create, update and delete operational incidents. This section states
+the root-cause contract that `POST` and `PUT` share with the MCP incident tools.
+
+An incident keeps two root-cause texts. `OpenedReason` is the root cause it was
+opened with, kept unchanged. A system path opens an incident with an automatic
+reading, such as a mission failure reason. `RootCause` is the current cause.
+`RootCauseWrittenBy` and `RootCauseWrittenUtc` name the person or operator who
+wrote the current cause and when. When `RootCauseWrittenBy` is `null`, the root
+cause is automatic and is not a verified cause.
+
+A `PUT` that sets `Status` to `Closed`, or that changes the root cause of a
+closed incident, needs a root cause the caller wrote. The server trims the text
+and refuses the request with `400` in these cases, and nothing changes:
+
+| Code | When |
+|---|---|
+| `incident_root_cause_required` | No root cause is supplied and no person has written one, or the supplied text is empty. |
+| `incident_root_cause_unchanged` | The supplied text equals `OpenedReason`. |
+
+The refusal `Message` starts with the code, and its `Data` carries it as `Code`.
+A `PUT` that supplies a root cause that passes the rule records the caller as
+`RootCauseWrittenBy`, whether or not it closes the incident. A later close can
+then omit the root cause. A `POST` keeps the supplied root cause as
+`OpenedReason`. A `POST` that creates an incident already `Closed` needs a root
+cause, or it is refused with `incident_root_cause_required`.
+
+The incident lifecycle and autonomous recovery close incidents without a
+written cause. Such a close or rollback sets `ClosedAutomatically` to `true`,
+and a cause a system path supplies never sets `RootCauseWrittenBy`. The flag
+returns to `false` when the incident leaves `Closed` or `RolledBack`.
+
+```bash
+curl -X PUT http://localhost:7890/api/v1/incidents/inc_abc123 \
+  -H "Content-Type: application/json" \
+  -d '{"status":"Closed","rootCause":"The gate host ran out of disk space."}'
 ```
 
 ---

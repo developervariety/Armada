@@ -52,6 +52,7 @@ namespace Armada.Test.Unit.Suites.Services
                     VesselId = vessel.Id,
                     CheckRunId = failed.Id,
                     DetectedUtc = DateTime.UtcNow.AddMinutes(-4),
+                    RootCause = "Automated check command failed or could not run.",
                     RecoveryNotes = "Initial failed check."
                 }).ConfigureAwait(false);
 
@@ -81,6 +82,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(closed != null, "Expected closed incident to be readable.");
                 AssertEqual(IncidentStatusEnum.Closed, closed!.Status);
                 AssertTrue(closed.ClosedUtc.HasValue, "Expected closure timestamp.");
+                AssertTrue(closed.ClosedAutomatically, "The lifecycle sweep records its close as automatic.");
+                AssertNull(closed.RootCauseWrittenBy, "The automatic cause is not person-written.");
+                AssertEqual("Automated check command failed or could not run.", closed.OpenedReason);
             }).ConfigureAwait(false);
 
             await RunTest("Completed rescue mission mitigates linked failed-mission incident", async () =>
@@ -505,6 +509,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         Title = "Closed incident " + i,
                         Status = IncidentStatusEnum.Closed,
+                        RootCause = "Closed by an operator",
                         Severity = IncidentSeverityEnum.Low,
                         VesselId = vessel.Id,
                         DetectedUtc = DateTime.UtcNow.AddMinutes(-2),

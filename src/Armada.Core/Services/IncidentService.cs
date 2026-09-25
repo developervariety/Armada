@@ -217,6 +217,20 @@ namespace Armada.Core.Services
             };
 
             RegressionLinkRules.RequirePurposeForLinks(incident.RegressionPurpose, incident.RegressionCause, incident.RegressionObjectiveId, incident.RegressionLandedCommit);
+
+            // The root cause an incident opens with is its opened reason, not a verified cause. An
+            // incident created already Closed is closed by its creator, so its cause must be written.
+            if (incident.Status == IncidentStatusEnum.Closed)
+            {
+                string? refusal = IncidentRootCauseRule.Evaluate(incident.RootCause, null);
+                if (refusal != null) throw new IncidentRootCauseRefusedException(refusal);
+                StampRootCauseAuthor(auth, incident);
+            }
+            else
+            {
+                incident.OpenedReason = incident.RootCause;
+            }
+
             ApplyLifecycleTimestamps(incident);
             await WriteSnapshotAsync(auth, incident, token).ConfigureAwait(false);
             OnIncidentChanged?.Invoke(incident);
@@ -224,9 +238,28 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Update an incident.
+        /// Update an incident on behalf of a person or operator. Every caller-facing surface uses this
+        /// method. A supplied root cause that differs from the opened reason is recorded as written by
+        /// the caller. Closing the incident, or changing the root cause of a closed incident, is refused
+        /// with <see cref="IncidentRootCauseRefusedException"/> unless the root cause in force is one the
+        /// caller wrote (<see cref="IncidentRootCauseRule"/>).
         /// </summary>
-        public async Task<Incident> UpdateAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
+        public Task<Incident> UpdateAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
+        {
+            return UpdateCoreAsync(auth, id, request, false, token);
+        }
+
+        /// <summary>
+        /// Update an incident from a system path (incident lifecycle, autonomous recovery). The root-cause
+        /// rule does not apply, a close or rollback is recorded as automatic, and any root cause the
+        /// request supplies is recorded as automatic, never as person-written.
+        /// </summary>
+        public Task<Incident> UpdateAutomaticallyAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
+        {
+            return UpdateCoreAsync(auth, id, request, true, token);
+        }
+
+        private async Task<Incident> UpdateCoreAsync(AuthContext auth, string id, IncidentUpsertRequest request, bool automatic, CancellationToken token)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -234,6 +267,8 @@ namespace Armada.Core.Services
 
             Incident incident = await ReadAsync(auth, id, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Incident not found.");
+            IncidentStatusEnum previousStatus = incident.Status;
+            string? previousRootCause = incident.RootCause;
 
             incident.Title = Normalize(request.Title) ?? incident.Title;
             incident.Summary = request.Summary != null ? Normalize(request.Summary) : incident.Summary;
@@ -261,6 +296,7 @@ namespace Armada.Core.Services
             incident.LastUpdateUtc = DateTime.UtcNow;
 
             RegressionLinkRules.RequirePurposeForLinks(incident.RegressionPurpose, incident.RegressionCause, incident.RegressionObjectiveId, incident.RegressionLandedCommit);
+            ApplyRootCauseAuthorship(auth, incident, previousStatus, previousRootCause, request.RootCause != null, automatic);
             ApplyLifecycleTimestamps(incident);
             await WriteSnapshotAsync(auth, incident, token).ConfigureAwait(false);
             OnIncidentChanged?.Invoke(incident);
@@ -474,6 +510,11 @@ namespace Armada.Core.Services
             incident.TenantId = incident.TenantId ?? snapshot.TenantId;
             incident.UserId = incident.UserId ?? snapshot.UserId;
             incident.LastUpdateUtc = incident.LastUpdateUtc == default ? snapshot.CreatedUtc : incident.LastUpdateUtc;
+
+            // A snapshot written before opened reasons were kept carries only its root cause. Unless a
+            // person is recorded as its author, that cause is the text the incident was opened with.
+            if (incident.OpenedReason == null && incident.RootCauseWrittenBy == null)
+                incident.OpenedReason = incident.RootCause;
             return incident;
         }
 
@@ -493,6 +534,54 @@ namespace Armada.Core.Services
         {
             return String.Equals(item.EntityType, IncidentEntityType, StringComparison.OrdinalIgnoreCase)
                 && String.Equals(item.EventType, SnapshotEventType, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void ApplyRootCauseAuthorship(
+            AuthContext auth,
+            Incident incident,
+            IncidentStatusEnum previousStatus,
+            string? previousRootCause,
+            bool rootCauseSupplied,
+            bool automatic)
+        {
+            bool rootCauseChanged = !String.Equals(incident.RootCause, previousRootCause, StringComparison.Ordinal);
+            if (rootCauseChanged)
+            {
+                incident.RootCauseWrittenBy = null;
+                incident.RootCauseWrittenUtc = null;
+                if (!automatic && IncidentRootCauseRule.Evaluate(incident.RootCause, incident.OpenedReason) == null)
+                    StampRootCauseAuthor(auth, incident);
+            }
+
+            bool wasTerminal = IsTerminal(previousStatus);
+            bool isTerminal = IsTerminal(incident.Status);
+            if (!isTerminal)
+                incident.ClosedAutomatically = false;
+            else if (!wasTerminal || previousStatus != incident.Status)
+                incident.ClosedAutomatically = automatic;
+
+            if (automatic || incident.Status != IncidentStatusEnum.Closed) return;
+            if (previousStatus == IncidentStatusEnum.Closed && !rootCauseChanged) return;
+
+            // A cause is person-written only once it is stamped, and it is stamped only when it passes
+            // the rule. A close that supplies no cause over an automatic one therefore names the missing
+            // cause; a supplied cause that fails names the rule's own reason.
+            if (incident.RootCauseWrittenBy != null) return;
+            string refusal = rootCauseSupplied
+                ? IncidentRootCauseRule.Evaluate(incident.RootCause, incident.OpenedReason) ?? IncidentRootCauseRule.RequiredCode
+                : IncidentRootCauseRule.RequiredCode;
+            throw new IncidentRootCauseRefusedException(refusal);
+        }
+
+        private static void StampRootCauseAuthor(AuthContext auth, Incident incident)
+        {
+            incident.RootCauseWrittenBy = Normalize(auth.UserId) ?? Normalize(auth.PrincipalDisplay) ?? Normalize(auth.CredentialId) ?? "unknown";
+            incident.RootCauseWrittenUtc = DateTime.UtcNow;
+        }
+
+        private static bool IsTerminal(IncidentStatusEnum status)
+        {
+            return status == IncidentStatusEnum.Closed || status == IncidentStatusEnum.RolledBack;
         }
 
         private static void ApplyLifecycleTimestamps(Incident incident)

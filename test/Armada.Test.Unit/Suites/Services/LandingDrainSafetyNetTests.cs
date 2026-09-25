@@ -816,6 +816,8 @@ namespace Armada.Test.Unit.Suites.Services
                 Incident? closed = await incidents.ReadAsync(auth, openIncident.Id).ConfigureAwait(false);
                 AssertNotNull(closed);
                 AssertEqual(IncidentStatusEnum.Closed, closed!.Status, "Open stuck-voyage incident must close when voyage completes.");
+                AssertTrue(closed.ClosedAutomatically, "The landing drain records its close as automatic.");
+                AssertNull(closed.RootCauseWrittenBy, "An automatic close carries no person-written cause.");
             }).ConfigureAwait(false);
 
             // The quiet clock must anchor on real forward progress (mission start/completion), NOT on

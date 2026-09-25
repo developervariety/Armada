@@ -95,6 +95,12 @@ upstream integrations and excludes changes already present at that baseline.
   board-note triage, follow-up routing, log watch, change quality and the
   merge-queue leak scan. The ids are record links only and never enter the
   transmitted state, so the state hash and egress are unchanged.
+- **Closing an incident needs a root cause the closer wrote:** REST, MCP and
+  the dashboard close dialog refuse an empty cause
+  (`incident_root_cause_required`) or the text the incident was opened with
+  (`incident_root_cause_unchanged`). The opened text stays in `OpenedReason`;
+  a written cause records `RootCauseWrittenBy` and `RootCauseWrittenUtc`.
+  Lifecycle and recovery closes are allowed and set `ClosedAutomatically`.
 - **The code-index summarizer names no model by default:** its model setting
   is empty until an operator sets one, and the HTTP inference client makes no
   call without a model and logs why. Startup warns when the summarizer is on
