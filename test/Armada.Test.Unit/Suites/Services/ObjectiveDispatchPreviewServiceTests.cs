@@ -1186,6 +1186,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Objective objective = harness.CreateReadyObjective("facts-sibling-preview");
                     objective.Description = "The sibling must be at or after aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.";
+                    harness.Git.RevisionCommitShas[harness.RepositoryDirectory + "|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] = new string('a', 40);
                     harness.Git.IsAncestorResult = true;
 
                     ObjectiveDispatchPreview passResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
@@ -1196,6 +1197,13 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreview failResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     AssertEqual(PreflightFactStatusEnum.Fail, failResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 11).Status,
                         "a sibling tip behind the cited commit fails question 11");
+
+                    // A commit the sibling does not hold is the vessel's own (a start commit, a preserved
+                    // tip), never evidence of a stale sibling.
+                    objective.Description = "Continue from bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, the preserved tip.";
+                    ObjectiveDispatchPreview ownCommitResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Unknown, ownCommitResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 11).Status,
+                        "a cited commit no sibling holds does not fail question 11");
                 }
             }).ConfigureAwait(false);
 

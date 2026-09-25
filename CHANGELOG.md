@@ -83,6 +83,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **The sibling-tip preflight fact judges only a sibling's own commits:** a
+  commit the brief cites is compared with a sibling tip only when that sibling
+  holds it. Before, a brief citing the vessel's own commits (a start commit, a
+  preserved tip) failed question 11 as a stale sibling.
 - **A container stop runs the admiral's shutdown sequence:** SIGTERM is
   handled so the stop reaches `Stop` instead of the runtime exiting as soon as
   the unloading handlers return; before, a container stop killed the admiral

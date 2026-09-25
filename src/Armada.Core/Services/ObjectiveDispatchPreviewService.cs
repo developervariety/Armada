@@ -487,6 +487,7 @@ namespace Armada.Core.Services
 
             bool anyFail = false;
             bool anyUnknown = false;
+            bool anyCompared = false;
             try
             {
                 foreach (SiblingRepo sibling in siblings)
@@ -498,6 +499,13 @@ namespace Armada.Core.Services
                     if (siblingTip == null) { anyUnknown = true; continue; }
                     foreach (string commit in citedCommits)
                     {
+                        // A cited commit is judged against a sibling only when it is that sibling's commit.
+                        // A brief cites the vessel's own commits too (a start commit, a preserved tip), and
+                        // an ancestry probe of a commit the sibling does not hold answers "no", which read
+                        // as a stale sibling for every continuation.
+                        if (NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(siblingRepo, commit, token).ConfigureAwait(false)) == null)
+                            continue;
+                        anyCompared = true;
                         bool? ancestor = await _Git.TryIsAncestorAsync(siblingRepo, commit, siblingTip, token).ConfigureAwait(false);
                         if (ancestor == false) anyFail = true;
                         else if (ancestor == null) anyUnknown = true;
@@ -515,6 +523,11 @@ namespace Armada.Core.Services
             {
                 fact.Status = PreflightFactStatusEnum.Fail;
                 fact.Detail = "A declared sibling tip is behind a commit the description cites (dock.sibling_stale).";
+            }
+            else if (!anyCompared && !anyUnknown)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "No commit the description cites belongs to a declared sibling, so there is no sibling tip to compare.";
             }
             else if (anyUnknown)
             {
