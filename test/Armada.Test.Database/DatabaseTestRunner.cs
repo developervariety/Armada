@@ -114,6 +114,17 @@ namespace Armada.Test.Database
             await RunTest("TokenUsage_InputBuckets_Create_Legacy_Reopen", "Operational", () => new TokenUsageInputBucketsDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
             await RunTest("TokenUsage_Counts_Above_32_Bit_Round_Trip", "Operational", () => new TokenUsageInputBucketsDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyWideCountsAsync(token), token);
             await RunTest("Captain_PreferenceRank_And_Persona_Specialist_Create_Update_Reopen", "Operational", () => new TierRoutingDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
+            ScopedReadMatrixDatabaseTests scopedReads = new ScopedReadMatrixDatabaseTests(_Driver, _Settings, _NoCleanup);
+            await RunTest("CheckRun_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyCheckRunsAsync(token), token);
+            await RunTest("Deployment_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyDeploymentsAsync(token), token);
+            await RunTest("DeploymentEnvironment_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyDeploymentEnvironmentsAsync(token), token);
+            await RunTest("Release_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyReleasesAsync(token), token);
+            await RunTest("WorkflowProfile_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyWorkflowProfilesAsync(token), token);
+            await RunTest("Memory_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyMemoriesAsync(token), token);
+            await RunTest("ModelEndpoint_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyModelEndpointsAsync(token), token);
+            await RunTest("PromptTemplate_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyPromptTemplatesAsync(token), token);
+            await RunTest("TokenUsage_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyTokenUsageAsync(token), token);
+            await RunTest("RequestHistory_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyRequestHistoryAsync(token), token);
 
             Console.WriteLine("--- Tenant/User/Credential ---");
             await RunTest("Tenant_Create_Read_Update_Enumerate", "Auth", () => TestTenantCrudAsync(token), token);
