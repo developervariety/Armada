@@ -195,6 +195,7 @@ namespace Armada.Server
         private Task _ModelEndpointHealthTask = null!;
         private Task? _HarborJobExpiryTask = null;
         private int _StopRequested = 0;
+        private AdmiralRunMarker? _RunMarker = null;
         private int _HealthCheckCycles = 0;
         private TimeSpan? _HealthLoopInterval = null;
         private DateTime _StartUtc = DateTime.UtcNow;
@@ -1040,6 +1041,10 @@ namespace Armada.Server
             // warning and never breaks startup (fail-open).
             GenerateContextIndex();
 
+            // Leave evidence of how this run ends, and report a previous run that ended without a
+            // clean stop: a kill by the OOM killer or the container runtime runs no shutdown code.
+            await StartRunMarkerAsync().ConfigureAwait(false);
+
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
             _ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token);
@@ -1256,6 +1261,7 @@ namespace Armada.Server
             }
             finally
             {
+                RunStopStep("run marker clean exit", () => _RunMarker?.MarkCleanExit(DateTime.UtcNow));
                 RunStopStep("database dispose", () => _Database?.Dispose());
                 RunStopStep("stop notification", () => OnStopping?.Invoke());
             }
@@ -2156,6 +2162,43 @@ namespace Armada.Server
             }
         }
 
+        private async Task StartRunMarkerAsync()
+        {
+            AdmiralRunRecord? previous;
+            _RunMarker = AdmiralRunMarker.Start(_Settings.DataDirectory, DateTime.UtcNow, Environment.ProcessId, out previous);
+            if (previous == null) return;
+
+            string description = AdmiralRunMarker.Describe(previous);
+            _Logging.Warn(_Header + description);
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(AdmiralRunMarker.UncleanExitEventType, description)
+                {
+                    EntityType = "admiral"
+                };
+                await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record the unclean-exit event: " + ex.Message);
+            }
+        }
+
+        private void BeatRunMarker()
+        {
+            try
+            {
+                long? containerMemory;
+                long? containerLimit;
+                AdmiralRunMarker.ReadContainerMemory(out containerMemory, out containerLimit);
+                _RunMarker?.Beat(DateTime.UtcNow, GC.GetTotalMemory(false), containerMemory, containerLimit);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "run marker beat failed: " + ex.Message);
+            }
+        }
+
         private async Task HealthCheckLoopAsync(CancellationToken token)
         {
             // Reset captains left in Working state with dead processes from previous server run
@@ -2251,6 +2294,7 @@ namespace Armada.Server
                 try
                 {
                     await Task.Delay(_HealthLoopInterval ?? TimeSpan.FromSeconds(_Settings.HeartbeatIntervalSeconds), token).ConfigureAwait(false);
+                    BeatRunMarker();
 
                     // The health check and each sweep trigger run as separate isolated steps: one that
                     // throws on every tick must not stop the other sweeps, the cycle count, or the

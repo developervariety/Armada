@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **An admiral run that ends without a clean stop leaves evidence:** each run
+  keeps `admiral-run.json` in the data directory with its start, its process id,
+  and, every health tick, the time and the managed heap and container memory. A
+  clean stop marks it. The next start reports a run with no clean mark in the
+  log and as an `admiral.unclean_exit` event, with the last alive time and
+  memory, since a kill by the OOM killer or the container runtime runs no
+  shutdown code.
 - **A Stalled captain with no mission returns to Idle:** the health loop
   releases a captain that has been Stalled for the stall threshold with no
   current mission and no live process, and records `captain.stall_recovered`.
