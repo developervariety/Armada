@@ -59,32 +59,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, model_endpoint_id, api_key, api_base_url, system_instructions, allowed_personas, preferred_persona, runtime_options_json, default_playbooks, state, current_mission_id, current_dock_id, process_id, process_started_utc, recovery_attempts, last_heartbeat_utc, quarantine_until_utc, quarantine_reason, created_utc, last_update_utc, tier, preference_rank)
                         VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @model_endpoint_id, @api_key, @api_base_url, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @default_playbooks, @state, @current_mission_id, @current_dock_id, @process_id, @process_started_utc, @recovery_attempts, @last_heartbeat_utc, @quarantine_until_utc, @quarantine_reason, @created_utc, @last_update_utc, @tier, @preference_rank);";
-                    cmd.Parameters.AddWithValue("@id", captain.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@name", captain.Name);
-                    cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
-                    BackendMetadataPersistence.AddCaptain(cmd, captain);
-                    cmd.Parameters.AddWithValue("@model", (object?)captain.Model ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@model_endpoint_id", (object?)captain.ModelEndpointId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@api_key", (object?)captain.ApiKey ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@api_base_url", (object?)captain.ApiBaseUrl ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@system_instructions", (object?)captain.SystemInstructions ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@allowed_personas", (object?)captain.AllowedPersonas ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@runtime_options_json", (object?)captain.RuntimeOptionsJson ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@default_playbooks", (object?)captain.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@state", captain.State.ToString());
-                    cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_id", captain.ProcessId.HasValue ? (object)captain.ProcessId.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_started_utc", captain.ProcessStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(captain.ProcessStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@recovery_attempts", captain.RecoveryAttempts);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(captain.LastHeartbeatUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(captain.QuarantineUntilUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@quarantine_reason", (object?)captain.QuarantineReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(captain.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(captain.LastUpdateUtc));
+                    CaptainColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains"), captain);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -103,7 +78,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -126,7 +101,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -172,31 +147,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         quarantine_reason = @quarantine_reason,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", captain.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@name", captain.Name);
-                    cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
-                    BackendMetadataPersistence.AddCaptain(cmd, captain);
-                    cmd.Parameters.AddWithValue("@model", (object?)captain.Model ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@model_endpoint_id", (object?)captain.ModelEndpointId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@api_key", (object?)captain.ApiKey ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@api_base_url", (object?)captain.ApiBaseUrl ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@system_instructions", (object?)captain.SystemInstructions ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@allowed_personas", (object?)captain.AllowedPersonas ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@runtime_options_json", (object?)captain.RuntimeOptionsJson ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@default_playbooks", (object?)captain.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@state", captain.State.ToString());
-                    cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_id", captain.ProcessId.HasValue ? (object)captain.ProcessId.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_started_utc", captain.ProcessStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(captain.ProcessStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@recovery_attempts", captain.RecoveryAttempts);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(captain.LastHeartbeatUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(captain.QuarantineUntilUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@quarantine_reason", (object?)captain.QuarantineReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(captain.LastUpdateUtc));
+                    CaptainColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains"), captain);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -209,7 +160,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
-            await DeleteCaptainAndSignalReferencesAsync("id = @id", token, new SqlParameter("@id", id)).ConfigureAwait(false);
+            await DeleteCaptainAndSignalReferencesAsync("id = @id", token, StoredValueBinder.Parameter(new SqlParameter(), "@id", id)).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -275,7 +226,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE state = @state ORDER BY name;";
-                    cmd.Parameters.AddWithValue("@state", state.ToString());
+                    StoredValueBinder.Value(cmd, "@state", state.ToString());
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -298,9 +249,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE captains SET state = @state, last_update_utc = @last_update_utc WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@state", state.ToString());
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(DateTime.UtcNow));
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    StoredValueBinder.Value(cmd, "@state", state.ToString());
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", DateTime.UtcNow);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -319,9 +270,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE captains SET last_heartbeat_utc = @last_heartbeat_utc, last_update_utc = @last_update_utc WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", SqlServerDatabaseDriver.ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_heartbeat_utc", "last_heartbeat_utc", now);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", now);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -346,9 +297,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE captains SET last_process_alive_utc = @last_process_alive_utc, last_update_utc = @last_update_utc WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_process_alive_utc", SqlServerDatabaseDriver.ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_process_alive_utc", "last_process_alive_utc", now);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", now);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -369,17 +320,17 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_after", "captains", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_before", "captains", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
                     conditions.Add("state = @state");
-                    parameters.Add(new SqlParameter("@state", query.Status));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@state", query.Status));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -424,7 +375,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM captains WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     int count = Convert.ToInt32(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
                     return count > 0;
                 }
@@ -443,8 +394,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -462,7 +413,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
-            await DeleteCaptainAndSignalReferencesAsync("tenant_id = @tenantId AND id = @id", token, new SqlParameter("@tenantId", tenantId), new SqlParameter("@id", id)).ConfigureAwait(false);
+            await DeleteCaptainAndSignalReferencesAsync("tenant_id = @tenantId AND id = @id", token, StoredValueBinder.Parameter(new SqlParameter(), "@tenantId", tenantId), StoredValueBinder.Parameter(new SqlParameter(), "@id", id)).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -477,7 +428,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId ORDER BY name;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -501,8 +452,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId AND name = @name;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -526,8 +477,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId AND state = @state ORDER BY name;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@state", state.ToString());
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@state", state.ToString());
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -551,10 +502,10 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE captains SET state = @state, last_update_utc = @last_update_utc WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@state", state.ToString());
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(DateTime.UtcNow));
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    StoredValueBinder.Value(cmd, "@state", state.ToString());
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", DateTime.UtcNow);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -574,10 +525,10 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE captains SET last_heartbeat_utc = @last_heartbeat_utc, last_update_utc = @last_update_utc WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", SqlServerDatabaseDriver.ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_heartbeat_utc", "last_heartbeat_utc", now);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", now);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -595,8 +546,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM captains WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     int count = Convert.ToInt32(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
                     return count > 0;
                 }
@@ -625,14 +576,14 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         last_heartbeat_utc = @last_heartbeat_utc,
                         last_update_utc = @last_update_utc
                         WHERE (tenant_id = @tenantId OR (@unownedIsDefault = 1 AND tenant_id IS NULL)) AND id = @id AND state = 'Idle';";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@unownedIsDefault", String.Equals(tenantId, Armada.Core.Constants.DefaultTenantId, StringComparison.Ordinal) ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@id", captainId);
-                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
-                    cmd.Parameters.AddWithValue("@current_mission_id", missionId);
-                    cmd.Parameters.AddWithValue("@current_dock_id", dockId);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", SqlServerDatabaseDriver.ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@unownedIsDefault", String.Equals(tenantId, Armada.Core.Constants.DefaultTenantId, StringComparison.Ordinal) ? 1 : 0);
+                    StoredValueBinder.Value(cmd, "@id", captainId);
+                    StoredValueBinder.Value(cmd, "@state", CaptainStateEnum.Working.ToString());
+                    StoredValueBinder.Value(cmd, "@current_mission_id", missionId);
+                    StoredValueBinder.Value(cmd, "@current_dock_id", dockId);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_heartbeat_utc", "last_heartbeat_utc", now);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", now);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -650,17 +601,17 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
                 List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@tenantId", tenantId) };
+                List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@tenantId", tenantId) };
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_after", "captains", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_before", "captains", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -703,9 +654,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -724,7 +675,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
-            await DeleteCaptainAndSignalReferencesAsync("tenant_id = @tenantId AND user_id = @userId AND id = @id", token, new SqlParameter("@tenantId", tenantId), new SqlParameter("@userId", userId), new SqlParameter("@id", id)).ConfigureAwait(false);
+            await DeleteCaptainAndSignalReferencesAsync("tenant_id = @tenantId AND user_id = @userId AND id = @id", token, StoredValueBinder.Parameter(new SqlParameter(), "@tenantId", tenantId), StoredValueBinder.Parameter(new SqlParameter(), "@userId", userId), StoredValueBinder.Parameter(new SqlParameter(), "@id", id)).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -740,8 +691,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM captains WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY name;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -767,19 +718,19 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
                 List<SqlParameter> parameters = new List<SqlParameter>
                 {
-                    new SqlParameter("@tenantId", tenantId),
-                    new SqlParameter("@userId", userId)
+                    StoredValueBinder.Parameter(new SqlParameter(), "@tenantId", tenantId),
+                    StoredValueBinder.Parameter(new SqlParameter(), "@userId", userId)
                 };
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_after", "captains", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_before", "captains", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -830,12 +781,12 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         WHERE id = @id AND state IN ('Idle', 'Quarantined')
                         AND current_mission_id IS NULL AND current_dock_id IS NULL AND process_id IS NULL
                         AND (@preserve_stronger_hold = 0 OR state = 'Idle' OR (quarantine_until_utc IS NOT NULL AND (@quarantine_until_utc IS NULL OR quarantine_until_utc < @quarantine_until_utc)));";
-                    cmd.Parameters.AddWithValue("@id", captainId);
-                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Quarantined.ToString());
-                    cmd.Parameters.AddWithValue("@quarantine_until_utc", untilUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(untilUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@quarantine_reason", reason.Trim());
-                    cmd.Parameters.AddWithValue("@preserve_stronger_hold", preserveStrongerHold);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    StoredValueBinder.Value(cmd, "@id", captainId);
+                    StoredValueBinder.Value(cmd, "@state", CaptainStateEnum.Quarantined.ToString());
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@quarantine_until_utc", "quarantine_until_utc", untilUtc);
+                    StoredValueBinder.Value(cmd, "@quarantine_reason", reason.Trim());
+                    StoredValueBinder.Value(cmd, "@preserve_stronger_hold", preserveStrongerHold);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", now);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -860,9 +811,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         quarantine_reason = NULL,
                         last_update_utc = @last_update_utc
                         WHERE id = @id AND state = 'Quarantined';";
-                    cmd.Parameters.AddWithValue("@id", captainId);
-                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Idle.ToString());
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    StoredValueBinder.Value(cmd, "@id", captainId);
+                    StoredValueBinder.Value(cmd, "@state", CaptainStateEnum.Idle.ToString());
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", now);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -888,11 +839,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         last_update_utc = @last_update_utc
                         WHERE id = @id AND state = 'Quarantined' AND quarantine_until_utc IS NOT NULL"
                         + (expiredAtOrBeforeUtc.HasValue ? " AND quarantine_until_utc <= @cutoff" : "") + ";";
-                    cmd.Parameters.AddWithValue("@id", captainId);
-                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Idle.ToString());
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
+                    StoredValueBinder.Value(cmd, "@id", captainId);
+                    StoredValueBinder.Value(cmd, "@state", CaptainStateEnum.Idle.ToString());
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@last_update_utc", "last_update_utc", now);
                     if (expiredAtOrBeforeUtc.HasValue)
-                        cmd.Parameters.AddWithValue("@cutoff", SqlServerDatabaseDriver.ToIso8601(expiredAtOrBeforeUtc.Value));
+                        SqlServerDatabaseDriver.StoredBinder.For(cmd, "captains").Utc("@cutoff", "quarantine_until_utc", expiredAtOrBeforeUtc.Value);
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }

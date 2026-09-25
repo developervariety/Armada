@@ -11,23 +11,10 @@ namespace Armada.Core.Database
     /// <summary>Persist model metadata without changing routing or landing policy.</summary>
     internal static class BackendMetadataPersistence
     {
-        internal static void AddCaptain(DbCommand command, Captain captain)
-        {
-            Add(command, "tier", TierName(captain.Tier));
-            TierRoutingPersistence.AddCaptain(command, captain);
-        }
-
         internal static void AddVoyage(DbCommand command, Voyage voyage)
         {
             Add(command, "source_planning_session_id", voyage.SourcePlanningSessionId);
             Add(command, "source_planning_message_id", voyage.SourcePlanningMessageId);
-        }
-
-        private static string? TierName(CaptainTierEnum? tier)
-        {
-            if (!tier.HasValue) return null;
-            if (!Enum.IsDefined(tier.Value)) throw new ArgumentOutOfRangeException(nameof(tier));
-            return tier.Value.ToString();
         }
 
         private static void Add(DbCommand command, string name, string? value)

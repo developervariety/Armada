@@ -51,5 +51,44 @@ namespace Armada.Core.Database
             captain.LastUpdateUtc = row.Utc("last_update_utc");
             return captain;
         }
+
+        /// <summary>
+        /// Bind every stored captains column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the captains table.</param>
+        /// <param name="captain">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Captain captain)
+        {
+            if (captain.Tier.HasValue && !System.Enum.IsDefined(captain.Tier.Value)) throw new System.ArgumentOutOfRangeException(nameof(captain), "Captain tier is not a defined member.");
+            parameters
+                .Text("id", captain.Id)
+                .Text("tenant_id", captain.TenantId)
+                .Text("user_id", captain.UserId)
+                .Text("name", captain.Name)
+                .Text("runtime", captain.Runtime.ToString())
+                .Text("model", captain.Model)
+                .Text("model_endpoint_id", captain.ModelEndpointId)
+                .Text("api_key", captain.ApiKey)
+                .Text("api_base_url", captain.ApiBaseUrl)
+                .Text("system_instructions", captain.SystemInstructions)
+                .Text("allowed_personas", captain.AllowedPersonas)
+                .Text("preferred_persona", captain.PreferredPersona)
+                .Text("runtime_options_json", captain.RuntimeOptionsJson)
+                .Text("tier", captain.Tier?.ToString())
+                .Int(TierRoutingPersistence.PreferenceRankColumn, captain.PreferenceRank)
+                .Text("state", captain.State.ToString())
+                .Text("current_mission_id", captain.CurrentMissionId)
+                .Text("current_dock_id", captain.CurrentDockId)
+                .Int("process_id", captain.ProcessId)
+                .Utc("process_started_utc", captain.ProcessStartedUtc)
+                .Int("recovery_attempts", captain.RecoveryAttempts)
+                .Utc("last_heartbeat_utc", captain.LastHeartbeatUtc)
+                .Utc("last_process_alive_utc", captain.LastProcessAliveUtc)
+                .Utc("quarantine_until_utc", captain.QuarantineUntilUtc)
+                .Text("quarantine_reason", captain.QuarantineReason)
+                .Text("default_playbooks", captain.DefaultPlaybooks)
+                .Utc("created_utc", captain.CreatedUtc)
+                .Utc("last_update_utc", captain.LastUpdateUtc);
+        }
     }
 }

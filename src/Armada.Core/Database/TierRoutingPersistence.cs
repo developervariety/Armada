@@ -51,18 +51,6 @@ namespace Armada.Core.Database
 
         #region Internal-Methods
 
-        /// <summary>Bind the captain preference rank for an insert or update.</summary>
-        /// <param name="command">Command to bind.</param>
-        /// <param name="captain">Captain whose rank is stored.</param>
-        internal static void AddCaptain(DbCommand command, Captain captain)
-        {
-            DbParameter rank = command.CreateParameter();
-            rank.ParameterName = "@" + PreferenceRankColumn;
-            rank.DbType = DbType.Int32;
-            rank.Value = captain.PreferenceRank;
-            command.Parameters.Add(rank);
-        }
-
         /// <summary>Bind persona routing fields for an insert or update.</summary>
         /// <param name="command">Command to bind.</param>
         /// <param name="persona">Persona whose minimum tier is stored.</param>

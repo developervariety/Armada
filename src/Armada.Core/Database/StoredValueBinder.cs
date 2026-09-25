@@ -235,6 +235,11 @@ namespace Armada.Core.Database
         /// <summary>Add a 64-bit integer parameter; null binds as a database null.</summary>
         internal static void Value(DbCommand command, string parameterName, long? value) => Add(command, parameterName, DbType.Int64, value);
 
+        /// <summary>
+        /// Add a boolean flag a statement tests but does not store; a stored boolean is bound by its column instead.
+        /// </summary>
+        internal static void Value(DbCommand command, string parameterName, bool? value) => Add(command, parameterName, DbType.Boolean, value);
+
         /// <summary>Add a double-precision parameter; null binds as a database null.</summary>
         internal static void Value(DbCommand command, string parameterName, double? value) => Add(command, parameterName, DbType.Double, value);
 
