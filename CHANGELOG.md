@@ -83,6 +83,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Planning sessions and messages read through shared column readers:** the
+  four provider copies of each mapper become one reader. Stored selected-playbook
+  JSON that does not parse raises `StoredRowException` instead of reading as no
+  playbooks.
 - **Data expiry keeps the records that live only as events:** the newest
   snapshot of every incident, open or closed, and of every runbook execution
   survives the retention cutoff whatever its age, while their older snapshots

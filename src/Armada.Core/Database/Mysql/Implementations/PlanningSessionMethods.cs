@@ -222,7 +222,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return PlanningSessionColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -243,7 +243,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(PlanningSessionColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -274,40 +274,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)MemoryRows.AsUtc(session.StartedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)MemoryRows.AsUtc(session.CompletedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@last_update_utc", MemoryRows.AsUtc(session.LastUpdateUtc));
-        }
-
-        private static PlanningSession FromReader(MySqlDataReader reader)
-        {
-            PlanningSession session = new PlanningSession
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                CaptainId = reader["captain_id"].ToString()!,
-                VesselId = reader["vessel_id"].ToString()!,
-                FleetId = NullableString(reader["fleet_id"]),
-                DockId = NullableString(reader["dock_id"]),
-                BranchName = NullableString(reader["branch_name"]),
-                Title = reader["title"].ToString()!,
-                Status = Enum.Parse<PlanningSessionStatusEnum>(reader["status"].ToString()!),
-                PipelineId = NullableString(reader["pipeline_id"]),
-                ObjectiveId = NullableString(reader["objective_id"]),
-                ProcessId = reader["process_id"] == DBNull.Value ? null : Convert.ToInt32(reader["process_id"]),
-                FailureReason = NullableString(reader["failure_reason"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                StartedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
-                CompletedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-            session.DeserializeSelectedPlaybooks(NullableString(reader["selected_playbooks_json"]));
-            return session;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion

@@ -77,7 +77,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return PlanningSessionMessageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -164,7 +164,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(PlanningSessionMessageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -190,30 +190,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@content", message.Content);
             cmd.Parameters.AddWithValue("@is_selected_for_dispatch", message.IsSelectedForDispatch);
             cmd.Parameters.AddWithValue("@last_update_utc", MemoryRows.AsUtc(message.LastUpdateUtc));
-        }
-
-        private static PlanningSessionMessage FromReader(NpgsqlDataReader reader)
-        {
-            return new PlanningSessionMessage
-            {
-                Id = reader["id"].ToString()!,
-                PlanningSessionId = reader["planning_session_id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Role = reader["role"].ToString()!,
-                Sequence = Convert.ToInt32(reader["sequence"]),
-                Content = NullableString(reader["content"]) ?? String.Empty,
-                IsSelectedForDispatch = Convert.ToBoolean(reader["is_selected_for_dispatch"]),
-                CreatedUtc = PostgresqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = PostgresqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion

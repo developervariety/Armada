@@ -185,6 +185,7 @@ namespace Armada.Test.Database
             await RunTest("Pipeline_Every_Property_With_Stages_Create_Update_Reopen", "Operational", () => roundTrips.VerifyPipelinesAsync(token), token);
             await RunTest("Dock_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyDocksAsync(token), token);
             await RunTest("Voyage_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyVoyagesAsync(token), token);
+            await RunTest("PlanningSession_And_Message_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyPlanningSessionsAsync(token), token);
             await RunTest("Mission_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyMissionsAsync(token), token);
             await RunTest("Vessel_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyVesselsAsync(token), token);
             await RunTest("MergeEntry_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyMergeEntriesAsync(token), token);

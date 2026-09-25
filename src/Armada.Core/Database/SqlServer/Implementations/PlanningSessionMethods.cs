@@ -227,7 +227,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return PlanningSessionColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -248,7 +248,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(PlanningSessionColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -281,33 +281,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             AddUtc(cmd, "@last_update_utc", session.LastUpdateUtc);
         }
 
-        private static PlanningSession FromReader(SqlDataReader reader)
-        {
-            PlanningSession session = new PlanningSession
-            {
-                Id = reader["id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                CaptainId = reader["captain_id"].ToString()!,
-                VesselId = reader["vessel_id"].ToString()!,
-                FleetId = NullableString(reader["fleet_id"]),
-                DockId = NullableString(reader["dock_id"]),
-                BranchName = NullableString(reader["branch_name"]),
-                Title = reader["title"].ToString()!,
-                Status = Enum.Parse<PlanningSessionStatusEnum>(reader["status"].ToString()!),
-                PipelineId = NullableString(reader["pipeline_id"]),
-                ObjectiveId = NullableString(reader["objective_id"]),
-                ProcessId = reader["process_id"] == DBNull.Value ? null : Convert.ToInt32(reader["process_id"]),
-                FailureReason = NullableString(reader["failure_reason"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["created_utc"]),
-                StartedUtc = SqlServerDatabaseDriver.FromDatabaseTimestampNullable(reader["started_utc"]),
-                CompletedUtc = SqlServerDatabaseDriver.FromDatabaseTimestampNullable(reader["completed_utc"]),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["last_update_utc"])
-            };
-            session.DeserializeSelectedPlaybooks(NullableString(reader["selected_playbooks_json"]));
-            return session;
-        }
-
         /// <summary>
         /// Bind a timestamp as DATETIME2, so the value keeps its full fraction; an untyped DateTime binds as
         /// DATETIME and rounds to about three milliseconds.
@@ -316,13 +289,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             SqlParameter parameter = cmd.Parameters.Add(name, SqlDbType.DateTime2);
             parameter.Value = value.HasValue ? (object)MemoryRows.AsUtc(value.Value) : DBNull.Value;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion

@@ -2170,6 +2170,98 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyPlanningSessionsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? sessionId = null;
+            string? messageId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("planning-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "planning-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "planning-round-trip", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "planning-round-trip", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "planning-round-trip", token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+
+                // Sub-second digits and a date far from the host's daylight-saving rules make a host-offset read visible.
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                PlanningSession session = new PlanningSession
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    CaptainId = captain.Id,
+                    VesselId = vessel.Id,
+                    FleetId = fleet.Id,
+                    DockId = "dck_planning_" + suffix,
+                    BranchName = "armada/planning-" + suffix,
+                    Title = "Planning ユニコード",
+                    Status = PlanningSessionStatusEnum.Failed,
+                    PipelineId = "ppl_planning_" + suffix,
+                    ObjectiveId = "obj_planning_" + suffix,
+                    SelectedPlaybooks = new List<SelectedPlaybook> { new SelectedPlaybook { PlaybookId = "pbk_" + suffix, DeliveryMode = PlaybookDeliveryModeEnum.InstructionWithReference } },
+                    ProcessId = 424242,
+                    FailureReason = "Failure reason ユニコード",
+                    CreatedUtc = baseUtc.AddMinutes(-5),
+                    StartedUtc = baseUtc.AddMinutes(-4),
+                    CompletedUtc = baseUtc,
+                    LastUpdateUtc = baseUtc.AddMinutes(1)
+                };
+                PlanningSession createdSession = await _Driver.PlanningSessions.CreateAsync(session, token).ConfigureAwait(false);
+                sessionId = createdSession.Id;
+                DatabaseAssert.AllProperties(createdSession, await _Driver.PlanningSessions.ReadAsync(createdSession.Id, token).ConfigureAwait(false), "PlanningSession");
+                DatabaseAssert.AllProperties(createdSession, await _Driver.PlanningSessions.ReadAsync(tenant.Id, user.Id, createdSession.Id, token).ConfigureAwait(false), "PlanningSession by tenant and user");
+                List<PlanningSession> byCaptain = await _Driver.PlanningSessions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(createdSession, byCaptain.Find(item => item.Id == createdSession.Id), "PlanningSession by captain");
+
+                PlanningSessionMessage message = new PlanningSessionMessage
+                {
+                    PlanningSessionId = createdSession.Id,
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Role = "Assistant",
+                    Sequence = 7,
+                    Content = "Message content ユニコード",
+                    IsSelectedForDispatch = true,
+                    CreatedUtc = baseUtc.AddMinutes(-3),
+                    LastUpdateUtc = baseUtc.AddMinutes(-2)
+                };
+                PlanningSessionMessage createdMessage = await _Driver.PlanningSessionMessages.CreateAsync(message, token).ConfigureAwait(false);
+                messageId = createdMessage.Id;
+                DatabaseAssert.AllProperties(createdMessage, await _Driver.PlanningSessionMessages.ReadAsync(createdMessage.Id, token).ConfigureAwait(false), "PlanningSessionMessage");
+                List<PlanningSessionMessage> bySession = await _Driver.PlanningSessionMessages.EnumerateBySessionAsync(createdSession.Id, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(createdMessage, bySession.Find(item => item.Id == createdMessage.Id), "PlanningSessionMessage by session");
+
+                createdSession.FleetId = null;
+                createdSession.DockId = null;
+                createdSession.BranchName = null;
+                createdSession.Status = PlanningSessionStatusEnum.Created;
+                createdSession.PipelineId = null;
+                createdSession.ObjectiveId = null;
+                createdSession.SelectedPlaybooks = new List<SelectedPlaybook>();
+                createdSession.ProcessId = null;
+                createdSession.FailureReason = null;
+                createdSession.StartedUtc = null;
+                createdSession.CompletedUtc = null;
+                PlanningSession updatedSession = await _Driver.PlanningSessions.UpdateAsync(createdSession, token).ConfigureAwait(false);
+                createdMessage.Sequence = 0;
+                createdMessage.Content = String.Empty;
+                createdMessage.IsSelectedForDispatch = false;
+                PlanningSessionMessage updatedMessage = await _Driver.PlanningSessionMessages.UpdateAsync(createdMessage, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updatedSession, await reopened.PlanningSessions.ReadAsync(createdSession.Id, token).ConfigureAwait(false), "Reopened PlanningSession");
+                    DatabaseAssert.AllProperties(updatedMessage, await reopened.PlanningSessionMessages.ReadAsync(createdMessage.Id, token).ConfigureAwait(false), "Reopened PlanningSessionMessage");
+                }
+            }
+            finally
+            {
+                if (messageId != null && !_NoCleanup) await _Driver.PlanningSessionMessages.DeleteAsync(messageId, token).ConfigureAwait(false);
+                if (sessionId != null && !_NoCleanup) await _Driver.PlanningSessions.DeleteAsync(sessionId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

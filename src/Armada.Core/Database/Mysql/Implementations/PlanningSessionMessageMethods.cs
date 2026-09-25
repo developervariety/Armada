@@ -73,7 +73,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return PlanningSessionMessageColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -160,7 +160,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(PlanningSessionMessageColumns.Read(reader, MysqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -186,30 +186,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@content", message.Content);
             cmd.Parameters.AddWithValue("@is_selected_for_dispatch", message.IsSelectedForDispatch);
             cmd.Parameters.AddWithValue("@last_update_utc", MemoryRows.AsUtc(message.LastUpdateUtc));
-        }
-
-        private static PlanningSessionMessage FromReader(MySqlDataReader reader)
-        {
-            return new PlanningSessionMessage
-            {
-                Id = reader["id"].ToString()!,
-                PlanningSessionId = reader["planning_session_id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Role = reader["role"].ToString()!,
-                Sequence = Convert.ToInt32(reader["sequence"]),
-                Content = NullableString(reader["content"]) ?? String.Empty,
-                IsSelectedForDispatch = Convert.ToBoolean(reader["is_selected_for_dispatch"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
-            };
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion

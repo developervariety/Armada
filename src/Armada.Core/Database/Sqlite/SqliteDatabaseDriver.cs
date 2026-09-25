@@ -338,61 +338,6 @@ namespace Armada.Core.Database.Sqlite
             return Convert.ToInt64(value);
         }
 
-        /// <summary>
-        /// Convert a SqliteDataReader row to a PlanningSession model.
-        /// </summary>
-        internal static PlanningSession PlanningSessionFromReader(SqliteDataReader reader)
-        {
-            PlanningSession session = new PlanningSession();
-            session.Id = reader["id"].ToString()!;
-            session.TenantId = NullableString(reader["tenant_id"]);
-            session.UserId = NullableString(reader["user_id"]);
-            session.CaptainId = reader["captain_id"].ToString()!;
-            session.VesselId = reader["vessel_id"].ToString()!;
-            session.FleetId = NullableString(reader["fleet_id"]);
-            session.DockId = NullableString(reader["dock_id"]);
-            session.BranchName = NullableString(reader["branch_name"]);
-            session.Title = reader["title"].ToString()!;
-            session.Status = Enum.Parse<PlanningSessionStatusEnum>(reader["status"].ToString()!);
-            session.PipelineId = NullableString(reader["pipeline_id"]);
-            try { session.ObjectiveId = NullableString(reader["objective_id"]); } catch { }
-            session.DeserializeSelectedPlaybooks(NullableString(reader["selected_playbooks_json"]));
-            try
-            {
-                object processValue = reader["process_id"];
-                session.ProcessId = processValue == DBNull.Value ? null : Convert.ToInt32(processValue);
-            }
-            catch
-            {
-                session.ProcessId = null;
-            }
-            session.FailureReason = NullableString(reader["failure_reason"]);
-            session.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            session.StartedUtc = FromIso8601Nullable(reader["started_utc"]);
-            session.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            session.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return session;
-        }
-
-        /// <summary>
-        /// Convert a SqliteDataReader row to a PlanningSessionMessage model.
-        /// </summary>
-        internal static PlanningSessionMessage PlanningSessionMessageFromReader(SqliteDataReader reader)
-        {
-            PlanningSessionMessage message = new PlanningSessionMessage();
-            message.Id = reader["id"].ToString()!;
-            message.PlanningSessionId = reader["planning_session_id"].ToString()!;
-            message.TenantId = NullableString(reader["tenant_id"]);
-            message.UserId = NullableString(reader["user_id"]);
-            message.Role = reader["role"].ToString()!;
-            message.Sequence = Convert.ToInt32(reader["sequence"]);
-            message.Content = NullableString(reader["content"]) ?? String.Empty;
-            message.IsSelectedForDispatch = Convert.ToInt64(reader["is_selected_for_dispatch"]) == 1;
-            message.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            message.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return message;
-        }
-
         #endregion
 
         #region Private-Methods

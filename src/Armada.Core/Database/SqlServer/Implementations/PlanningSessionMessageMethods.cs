@@ -78,7 +78,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return FromReader(reader);
+                            return PlanningSessionMessageColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -165,7 +165,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(FromReader(reader));
+                            results.Add(PlanningSessionMessageColumns.Read(reader, SqlServerDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -193,23 +193,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             AddUtc(cmd, "@last_update_utc", message.LastUpdateUtc);
         }
 
-        private static PlanningSessionMessage FromReader(SqlDataReader reader)
-        {
-            return new PlanningSessionMessage
-            {
-                Id = reader["id"].ToString()!,
-                PlanningSessionId = reader["planning_session_id"].ToString()!,
-                TenantId = NullableString(reader["tenant_id"]),
-                UserId = NullableString(reader["user_id"]),
-                Role = reader["role"].ToString()!,
-                Sequence = Convert.ToInt32(reader["sequence"]),
-                Content = NullableString(reader["content"]) ?? String.Empty,
-                IsSelectedForDispatch = Convert.ToBoolean(reader["is_selected_for_dispatch"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["created_utc"]),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["last_update_utc"])
-            };
-        }
-
         /// <summary>
         /// Bind a timestamp as DATETIME2, so the value keeps its full fraction; an untyped DateTime binds as
         /// DATETIME and rounds to about three milliseconds.
@@ -218,13 +201,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             SqlParameter parameter = cmd.Parameters.Add(name, SqlDbType.DateTime2);
             parameter.Value = value.HasValue ? (object)MemoryRows.AsUtc(value.Value) : DBNull.Value;
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return String.IsNullOrEmpty(str) ? null : str;
         }
 
         #endregion

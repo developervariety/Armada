@@ -86,7 +86,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.PlanningSessionFromReader(reader);
+                            return PlanningSessionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -208,7 +208,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.PlanningSessionFromReader(reader);
+                            return PlanningSessionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -245,7 +245,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.PlanningSessionFromReader(reader);
+                            return PlanningSessionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -282,7 +282,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.PlanningSessionFromReader(reader));
+                            results.Add(PlanningSessionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
