@@ -47,5 +47,34 @@ namespace Armada.Core.Database
                 LastUpdateUtc = row.Utc("last_update_utc")
             };
         }
+
+        /// <summary>
+        /// Bind every stored planning_sessions column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the planning_sessions table.</param>
+        /// <param name="session">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, PlanningSession session)
+        {
+            parameters
+                .Text("id", session.Id)
+                .Text("tenant_id", session.TenantId)
+                .Text("user_id", session.UserId)
+                .Text("captain_id", session.CaptainId)
+                .Text("vessel_id", session.VesselId)
+                .Text("fleet_id", session.FleetId)
+                .Text("dock_id", session.DockId)
+                .Text("branch_name", session.BranchName)
+                .Text("title", session.Title)
+                .Text("status", session.Status.ToString())
+                .Text("pipeline_id", session.PipelineId)
+                .Text("objective_id", session.ObjectiveId)
+                .Text("selected_playbooks_json", session.SerializeSelectedPlaybooks())
+                .Int("process_id", session.ProcessId)
+                .Text("failure_reason", session.FailureReason)
+                .Utc("created_utc", session.CreatedUtc)
+                .Utc("started_utc", session.StartedUtc)
+                .Utc("completed_utc", session.CompletedUtc)
+                .Utc("last_update_utc", session.LastUpdateUtc);
+        }
     }
 }

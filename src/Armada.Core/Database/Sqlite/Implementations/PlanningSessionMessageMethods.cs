@@ -44,16 +44,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         (id, planning_session_id, tenant_id, user_id, role, sequence, content, is_selected_for_dispatch, created_utc, last_update_utc)
                         VALUES
                         (@id, @planning_session_id, @tenant_id, @user_id, @role, @sequence, @content, @is_selected_for_dispatch, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", message.Id);
-                    cmd.Parameters.AddWithValue("@planning_session_id", message.PlanningSessionId);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)message.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)message.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@role", message.Role);
-                    cmd.Parameters.AddWithValue("@sequence", message.Sequence);
-                    cmd.Parameters.AddWithValue("@content", message.Content);
-                    cmd.Parameters.AddWithValue("@is_selected_for_dispatch", message.IsSelectedForDispatch ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(message.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(message.LastUpdateUtc));
+                    PlanningSessionMessageColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "planning_session_messages"), message);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -72,7 +63,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM planning_session_messages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -105,15 +96,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         is_selected_for_dispatch = @is_selected_for_dispatch,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", message.Id);
-                    cmd.Parameters.AddWithValue("@planning_session_id", message.PlanningSessionId);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)message.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)message.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@role", message.Role);
-                    cmd.Parameters.AddWithValue("@sequence", message.Sequence);
-                    cmd.Parameters.AddWithValue("@content", message.Content);
-                    cmd.Parameters.AddWithValue("@is_selected_for_dispatch", message.IsSelectedForDispatch ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(message.LastUpdateUtc));
+                    PlanningSessionMessageColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "planning_session_messages"), message);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -132,7 +115,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM planning_session_messages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -149,7 +132,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM planning_session_messages WHERE planning_session_id = @planning_session_id;";
-                    cmd.Parameters.AddWithValue("@planning_session_id", planningSessionId);
+                    StoredValueBinder.Value(cmd, "@planning_session_id", planningSessionId);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -168,7 +151,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM planning_session_messages WHERE planning_session_id = @planning_session_id ORDER BY sequence ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@planning_session_id", planningSessionId);
+                    StoredValueBinder.Value(cmd, "@planning_session_id", planningSessionId);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))

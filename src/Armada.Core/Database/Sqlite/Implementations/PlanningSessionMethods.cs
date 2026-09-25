@@ -45,25 +45,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         (id, tenant_id, user_id, captain_id, vessel_id, fleet_id, dock_id, branch_name, title, status, pipeline_id, objective_id, selected_playbooks_json, process_id, failure_reason, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES
                         (@id, @tenant_id, @user_id, @captain_id, @vessel_id, @fleet_id, @dock_id, @branch_name, @title, @status, @pipeline_id, @objective_id, @selected_playbooks_json, @process_id, @failure_reason, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", session.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)session.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)session.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_id", session.CaptainId);
-                    cmd.Parameters.AddWithValue("@vessel_id", session.VesselId);
-                    cmd.Parameters.AddWithValue("@fleet_id", (object?)session.FleetId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@dock_id", (object?)session.DockId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@branch_name", (object?)session.BranchName ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", session.Title);
-                    cmd.Parameters.AddWithValue("@status", session.Status.ToString());
-                    cmd.Parameters.AddWithValue("@pipeline_id", (object?)session.PipelineId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@objective_id", (object?)session.ObjectiveId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@selected_playbooks_json", session.SerializeSelectedPlaybooks());
-                    cmd.Parameters.AddWithValue("@process_id", session.ProcessId.HasValue ? (object)session.ProcessId.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@failure_reason", (object?)session.FailureReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(session.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.StartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(session.LastUpdateUtc));
+                    PlanningSessionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "planning_sessions"), session);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -82,7 +64,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM planning_sessions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -124,24 +106,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", session.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)session.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)session.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_id", session.CaptainId);
-                    cmd.Parameters.AddWithValue("@vessel_id", session.VesselId);
-                    cmd.Parameters.AddWithValue("@fleet_id", (object?)session.FleetId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@dock_id", (object?)session.DockId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@branch_name", (object?)session.BranchName ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", session.Title);
-                    cmd.Parameters.AddWithValue("@status", session.Status.ToString());
-                    cmd.Parameters.AddWithValue("@pipeline_id", (object?)session.PipelineId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@objective_id", (object?)session.ObjectiveId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@selected_playbooks_json", session.SerializeSelectedPlaybooks());
-                    cmd.Parameters.AddWithValue("@process_id", session.ProcessId.HasValue ? (object)session.ProcessId.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@failure_reason", (object?)session.FailureReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.StartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(session.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(session.LastUpdateUtc));
+                    PlanningSessionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "planning_sessions"), session);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -160,7 +125,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM planning_sessions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -178,7 +143,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             return await EnumerateInternalAsync(
                 "SELECT * FROM planning_sessions WHERE captain_id = @captain_id ORDER BY last_update_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@captain_id", captainId),
+                cmd => StoredValueBinder.Value(cmd, "@captain_id", captainId),
                 token).ConfigureAwait(false);
         }
 
@@ -187,7 +152,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             return await EnumerateInternalAsync(
                 "SELECT * FROM planning_sessions WHERE status = @status ORDER BY last_update_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@status", status.ToString()),
+                cmd => StoredValueBinder.Value(cmd, "@status", status.ToString()),
                 token).ConfigureAwait(false);
         }
 
@@ -203,8 +168,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM planning_sessions WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -222,7 +187,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             return await EnumerateInternalAsync(
                 "SELECT * FROM planning_sessions WHERE tenant_id = @tenantId ORDER BY last_update_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@tenantId", tenantId),
+                cmd => StoredValueBinder.Value(cmd, "@tenantId", tenantId),
                 token).ConfigureAwait(false);
         }
 
@@ -239,9 +204,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM planning_sessions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -262,8 +227,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 "SELECT * FROM planning_sessions WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY last_update_utc DESC;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                 },
                 token).ConfigureAwait(false);
         }

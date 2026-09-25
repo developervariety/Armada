@@ -54,7 +54,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         VALUES
                         (@id, @planning_session_id, @tenant_id, @user_id, @role, @sequence, @content, @is_selected_for_dispatch, @created_utc, @last_update_utc);";
                     Bind(cmd, message);
-                    cmd.Parameters.AddWithValue("@created_utc", MemoryRows.AsUtc(message.CreatedUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -73,7 +72,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM planning_session_messages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -125,7 +124,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM planning_session_messages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -142,7 +141,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM planning_session_messages WHERE planning_session_id = @planning_session_id;";
-                    cmd.Parameters.AddWithValue("@planning_session_id", planningSessionId);
+                    StoredValueBinder.Value(cmd, "@planning_session_id", planningSessionId);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -160,7 +159,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM planning_session_messages WHERE planning_session_id = @planning_session_id ORDER BY sequence ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@planning_session_id", planningSessionId);
+                    StoredValueBinder.Value(cmd, "@planning_session_id", planningSessionId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -177,19 +176,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #region Private-Methods
 
         /// <summary>
-        /// Bind every column an update writes. The creation time is bound only by an insert.
+        /// Bind every stored column; an update statement leaves the creation time as it is.
         /// </summary>
         private static void Bind(NpgsqlCommand cmd, PlanningSessionMessage message)
         {
-            cmd.Parameters.AddWithValue("@id", message.Id);
-            cmd.Parameters.AddWithValue("@planning_session_id", message.PlanningSessionId);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)message.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)message.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@role", message.Role);
-            cmd.Parameters.AddWithValue("@sequence", message.Sequence);
-            cmd.Parameters.AddWithValue("@content", message.Content);
-            cmd.Parameters.AddWithValue("@is_selected_for_dispatch", message.IsSelectedForDispatch);
-            cmd.Parameters.AddWithValue("@last_update_utc", MemoryRows.AsUtc(message.LastUpdateUtc));
+            PlanningSessionMessageColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "planning_session_messages"), message);
         }
 
         #endregion

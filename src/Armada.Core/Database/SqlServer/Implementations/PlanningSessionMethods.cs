@@ -56,7 +56,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         VALUES
                         (@id, @tenant_id, @user_id, @captain_id, @vessel_id, @fleet_id, @dock_id, @branch_name, @title, @status, @pipeline_id, @objective_id, @selected_playbooks_json, @process_id, @failure_reason, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     Bind(cmd, session);
-                    AddUtc(cmd, "@created_utc", session.CreatedUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -70,7 +69,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
             return await ReadInternalAsync(
                 "SELECT * FROM planning_sessions WHERE id = @id;",
-                cmd => cmd.Parameters.AddWithValue("@id", id),
+                cmd => StoredValueBinder.Value(cmd, "@id", id),
                 token).ConfigureAwait(false);
         }
 
@@ -123,7 +122,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM planning_sessions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -141,7 +140,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             return await EnumerateInternalAsync(
                 "SELECT * FROM planning_sessions WHERE captain_id = @captain_id ORDER BY last_update_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@captain_id", captainId),
+                cmd => StoredValueBinder.Value(cmd, "@captain_id", captainId),
                 token).ConfigureAwait(false);
         }
 
@@ -150,7 +149,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             return await EnumerateInternalAsync(
                 "SELECT * FROM planning_sessions WHERE status = @status ORDER BY last_update_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@status", status.ToString()),
+                cmd => StoredValueBinder.Value(cmd, "@status", status.ToString()),
                 token).ConfigureAwait(false);
         }
 
@@ -163,8 +162,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 "SELECT * FROM planning_sessions WHERE tenant_id = @tenant_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -175,7 +174,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             return await EnumerateInternalAsync(
                 "SELECT * FROM planning_sessions WHERE tenant_id = @tenant_id ORDER BY last_update_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@tenant_id", tenantId),
+                cmd => StoredValueBinder.Value(cmd, "@tenant_id", tenantId),
                 token).ConfigureAwait(false);
         }
 
@@ -189,9 +188,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 "SELECT * FROM planning_sessions WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -205,8 +204,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 "SELECT * FROM planning_sessions WHERE tenant_id = @tenant_id AND user_id = @user_id ORDER BY last_update_utc DESC;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
                 },
                 token).ConfigureAwait(false);
         }
@@ -257,38 +256,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <summary>
-        /// Bind every column an update writes. The creation time is bound only by an insert.
+        /// Bind every stored column; an update statement leaves the creation time as it is.
         /// </summary>
         private static void Bind(SqlCommand cmd, PlanningSession session)
         {
-            cmd.Parameters.AddWithValue("@id", session.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)session.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)session.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@captain_id", session.CaptainId);
-            cmd.Parameters.AddWithValue("@vessel_id", session.VesselId);
-            cmd.Parameters.AddWithValue("@fleet_id", (object?)session.FleetId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@dock_id", (object?)session.DockId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@branch_name", (object?)session.BranchName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", session.Title);
-            cmd.Parameters.AddWithValue("@status", session.Status.ToString());
-            cmd.Parameters.AddWithValue("@pipeline_id", (object?)session.PipelineId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@objective_id", (object?)session.ObjectiveId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@selected_playbooks_json", session.SerializeSelectedPlaybooks());
-            cmd.Parameters.AddWithValue("@process_id", session.ProcessId.HasValue ? (object)session.ProcessId.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@failure_reason", (object?)session.FailureReason ?? DBNull.Value);
-            AddUtc(cmd, "@started_utc", session.StartedUtc);
-            AddUtc(cmd, "@completed_utc", session.CompletedUtc);
-            AddUtc(cmd, "@last_update_utc", session.LastUpdateUtc);
-        }
-
-        /// <summary>
-        /// Bind a timestamp as DATETIME2, so the value keeps its full fraction; an untyped DateTime binds as
-        /// DATETIME and rounds to about three milliseconds.
-        /// </summary>
-        private static void AddUtc(SqlCommand cmd, string name, DateTime? value)
-        {
-            SqlParameter parameter = cmd.Parameters.Add(name, SqlDbType.DateTime2);
-            parameter.Value = value.HasValue ? (object)MemoryRows.AsUtc(value.Value) : DBNull.Value;
+            PlanningSessionColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "planning_sessions"), session);
         }
 
         #endregion
