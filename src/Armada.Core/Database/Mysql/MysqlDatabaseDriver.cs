@@ -691,11 +691,6 @@ namespace Armada.Core.Database.Mysql
             };
         }
 
-        internal static DateTime ToDatabaseTimestamp(DateTime dt)
-        {
-            return dt.ToUniversalTime();
-        }
-
         internal static DateTime FromIso8601(string value)
         {
             return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();

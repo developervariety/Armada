@@ -88,7 +88,6 @@ namespace Armada.Core.Database.SqlServer
         private LoggingModule _Logging;
         private bool _Disposed = false;
 
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
         #endregion
 
@@ -296,16 +295,6 @@ namespace Armada.Core.Database.SqlServer
         #endregion
 
         #region Internal-Methods
-
-        /// <summary>
-        /// Convert a DateTime to ISO 8601 format string.
-        /// </summary>
-        /// <param name="dt">DateTime value.</param>
-        /// <returns>ISO 8601 formatted string.</returns>
-        internal static string ToIso8601(DateTime dt)
-        {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
 
         /// <summary>
         /// Parse an ISO 8601 string to DateTime.

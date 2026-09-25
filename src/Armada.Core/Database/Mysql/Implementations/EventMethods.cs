@@ -728,11 +728,6 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static DateTime ToDatabaseTimestamp(DateTime dt)
-        {
-            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
-        }
-
         private async Task<List<ArmadaEvent>> QueryEventsAsync(string sql, Action<MySqlCommand> addParams, CancellationToken token)
         {
             List<ArmadaEvent> results = new List<ArmadaEvent>();

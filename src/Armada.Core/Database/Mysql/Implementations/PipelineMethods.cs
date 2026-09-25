@@ -471,11 +471,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             return stages;
         }
 
-        private static DateTime ToDatabaseTimestamp(DateTime dt)
-        {
-            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
-        }
-
         #endregion
     }
 }
