@@ -32,6 +32,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import StatusBadge from '../components/shared/StatusBadge';
+import { useLoadError } from '../lib/useLoadError';
 
 const DEPLOYMENT_STATUSES: DeploymentStatus[] = [
   'PendingApproval',
@@ -65,7 +66,7 @@ export default function Deployments() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | DeploymentStatus>('all');
   const [verificationFilter, setVerificationFilter] = useState<'all' | DeploymentVerificationStatus>('all');
@@ -116,9 +117,9 @@ export default function Deployments() {
       setEnvironments(environmentResult);
       setReleases(releaseResult);
       setProfiles(profileResult);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load deployments.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load deployments.'));
     } finally {
       setLoading(false);
     }

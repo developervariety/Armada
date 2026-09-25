@@ -14,6 +14,7 @@ import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildEnvironmentDuplicatePayload } from '../lib/duplicates';
+import { useLoadError } from '../lib/useLoadError';
 
 const ENVIRONMENT_KINDS: EnvironmentKind[] = ['Development', 'Test', 'Staging', 'Production', 'CustomerHosted', 'Custom'];
 
@@ -26,7 +27,7 @@ export default function Environments() {
   const [environments, setEnvironments] = useState<DeploymentEnvironment[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<'all' | EnvironmentKind>('all');
   const [vesselFilter, setVesselFilter] = useState('all');
@@ -161,9 +162,9 @@ export default function Environments() {
       ]);
       setEnvironments(environmentResult);
       setVessels(vesselResult);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load environments.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load environments.'));
     } finally {
       setLoading(false);
     }

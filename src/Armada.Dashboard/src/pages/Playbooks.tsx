@@ -15,6 +15,7 @@ import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
+import { useLoadError } from '../lib/useLoadError';
 
 export default function Playbooks() {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export default function Playbooks() {
   const { pushToast } = useNotifications();
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [colFilters, setColFilters] = useState({ fileName: '', description: '' });
@@ -103,9 +104,9 @@ export default function Playbooks() {
       setLoading(true);
       const result = await listAllPlaybooks();
       setPlaybooks(result);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load playbooks.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load playbooks.'));
     } finally {
       setLoading(false);
     }

@@ -35,6 +35,8 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useServerPaging } from '../lib/useServerPaging';
+import { useLoadError } from '../lib/useLoadError';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
 
 const INCIDENT_STATUSES: IncidentStatus[] = ['Open', 'Monitoring', 'Mitigated', 'RolledBack', 'Closed'];
 const INCIDENT_SEVERITIES: IncidentSeverity[] = ['Critical', 'High', 'Medium', 'Low'];
@@ -56,10 +58,10 @@ export default function Incidents() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   // The search sent to the server; it follows the input after a short pause so typing does not send a request per key.
-  const [appliedSearch, setAppliedSearch] = useState('');
+  const appliedSearch = useDebouncedValue(search.trim());
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
   const [severityFilter, setSeverityFilter] = useState<'all' | IncidentSeverity>('all');
   // Filters and pages run on the server (a page holds at most 500), so totals cover every incident.
@@ -160,7 +162,7 @@ export default function Incidents() {
         pageSize,
         status: statusFilter === 'all' ? undefined : statusFilter,
         severity: severityFilter === 'all' ? undefined : severityFilter,
-        search: appliedSearch.trim() || undefined,
+        search: appliedSearch || undefined,
       });
       const [countResults, incidentResult] = await Promise.all([
         Promise.all(countRequests),
@@ -170,9 +172,9 @@ export default function Incidents() {
       if (!acceptPage(incidentResult)) return;
       setIncidents(incidentResult.objects || []);
       setStatusCounts(Object.fromEntries(INCIDENT_STATUSES.map((status, index) => [status, countResults[index]?.totalRecords ?? 0])));
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load incidents.'));
+      if (request.isCurrent()) loadFailed(err instanceof Error ? err.message : t('Failed to load incidents.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
@@ -196,16 +198,6 @@ export default function Incidents() {
     // Read once per page open; `t` only words the failure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setAppliedSearch((current) => {
-        if (current !== search) setPageNumber(1);
-        return search;
-      });
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [search]);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('incidents', load);
 
@@ -377,7 +369,7 @@ export default function Incidents() {
           <input
             type="text"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setPageNumber(1); }}
             placeholder={t('Search by title, summary, impact, environment, or ID...')}
           />
           <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setPageNumber(1); }}>

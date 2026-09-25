@@ -34,6 +34,7 @@ import { listDeployments, listEnvironments, listIncidents, listReleases, listVes
 import Incidents from './Incidents';
 import { deferred } from '../test/routeRace';
 import { DEFAULT_AUTO_REFRESH_SECONDS } from '../lib/useAutoRefresh';
+import { SEARCH_DEBOUNCE_MS } from '../lib/useDebouncedValue';
 
 const empty = { success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] };
 const statusTotals: Record<string, number> = { Open: 7, Monitoring: 2, Mitigated: 1, RolledBack: 3, Closed: 40 };
@@ -139,4 +140,57 @@ test('a refresh reloads the incidents but not the vessel, environment, deploymen
 
   await waitFor(() => expect(vi.mocked(listIncidents).mock.calls.length).toBeGreaterThan(pagesBefore));
   expect([listVessels, listEnvironments, listDeployments, listReleases].map(fn => vi.mocked(fn).mock.calls.length)).toEqual(lookupsBefore);
+});
+
+test('typing a search sends one request for the finished word, from the first page', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<MemoryRouter><Incidents /></MemoryRouter>);
+    expect(await screen.findByText('Incident A')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText('Next')[0]);
+    await waitFor(() => expect(listIncidents).toHaveBeenLastCalledWith(expect.objectContaining({ pageNumber: 2 })));
+
+    const box = screen.getByPlaceholderText('Search by title, summary, impact, environment, or ID...');
+    for (const value of ['d', 'di', 'disk']) fireEvent.change(box, { target: { value } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS); });
+
+    await waitFor(() => expect(listIncidents).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pageNumber: 1, search: 'disk' }),
+    ));
+    const searches = vi.mocked(listIncidents).mock.calls.map((call) => call[0]?.search).filter(Boolean);
+    expect(searches).toEqual(['disk']);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a load that keeps failing on the refresh timer opens the error once, and again only after a success', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    localStorage.clear();
+    const working = vi.mocked(listIncidents).getMockImplementation()!;
+    const tick = async () => {
+      const before = vi.mocked(listIncidents).mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(DEFAULT_AUTO_REFRESH_SECONDS * 1000); });
+      await waitFor(() => expect(vi.mocked(listIncidents).mock.calls.length).toBeGreaterThan(before));
+      await act(async () => { await Promise.resolve(); });
+    };
+    vi.mocked(listIncidents).mockRejectedValue(new Error('offline'));
+    render(<MemoryRouter><Incidents /></MemoryRouter>);
+    expect(await screen.findByText('offline')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    await tick();
+    expect(screen.queryByText('offline')).not.toBeInTheDocument();
+
+    vi.mocked(listIncidents).mockImplementation(working);
+    await tick();
+    await screen.findByText('Incident A');
+
+    vi.mocked(listIncidents).mockRejectedValue(new Error('offline'));
+    await tick();
+    expect(await screen.findByText('offline')).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });

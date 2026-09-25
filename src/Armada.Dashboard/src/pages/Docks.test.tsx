@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 vi.mock('../context/LocaleContext', () => {
   const translate = (text: string, params?: Record<string, string | number | null | undefined>) => {
@@ -46,7 +46,12 @@ function dock(index: number) {
   };
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  localStorage.clear();
   vi.mocked(listCaptains).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] });
   vi.mocked(listVessels).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] });
 });
@@ -81,4 +86,29 @@ test('a refresh keeps the selected docks that still exist and drops the ones tha
   expect(checkbox('branch-001').checked).toBe(true);
   expect(checkbox('branch-003').checked).toBe(false);
   expect(screen.getByText(/Delete Selected/)).toHaveTextContent('(1)');
+});
+
+test('a load that keeps failing on the refresh timer opens the error once, and again only after a success', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const tick = async () => {
+    const before = vi.mocked(listDocks).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    await waitFor(() => expect(vi.mocked(listDocks).mock.calls.length).toBeGreaterThan(before));
+    await act(async () => { await Promise.resolve(); });
+  };
+  vi.mocked(listDocks).mockRejectedValue(new Error('offline'));
+  render(<MemoryRouter><Docks /></MemoryRouter>);
+  expect(await screen.findByText('Failed to load docks.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+  await tick();
+  expect(screen.queryByText('Failed to load docks.')).not.toBeInTheDocument();
+
+  vi.mocked(listDocks).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 1, totalMs: 1, objects: [dock(1)] as never });
+  await tick();
+  await screen.findByText('branch-001');
+
+  vi.mocked(listDocks).mockRejectedValue(new Error('offline'));
+  await tick();
+  expect(await screen.findByText('Failed to load docks.')).toBeInTheDocument();
 });

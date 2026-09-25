@@ -20,6 +20,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildVesselDuplicatePayload } from '../lib/duplicates';
 import { useResourceTable } from '../lib/useResourceTable';
+import { useLoadError } from '../lib/useLoadError';
 
 interface VesselForm {
   name: string;
@@ -72,7 +73,7 @@ export default function Vessels() {
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [gitStatus, setGitStatus] = useState<Record<string, { ahead: number | null; behind: number | null }>>({});
 
   // Modal
@@ -131,7 +132,7 @@ export default function Vessels() {
       setVessels(vResult);
       setFleets(fResult);
       setPipelines(pResult);
-      setError('');
+      loadSucceeded();
 
       // Fetch git status for each vessel in the background (non-blocking)
       const statusMap: Record<string, { ahead: number | null; behind: number | null }> = {};
@@ -145,7 +146,7 @@ export default function Vessels() {
       }));
       setGitStatus(statusMap);
     } catch {
-      setError(t('Failed to load vessels.'));
+      loadFailed(t('Failed to load vessels.'));
     } finally {
       setLoading(false);
     }

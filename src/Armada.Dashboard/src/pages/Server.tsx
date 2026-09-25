@@ -23,6 +23,7 @@ import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useLoadError } from '../lib/useLoadError';
 
 interface HealthInfo {
   status: string;
@@ -173,7 +174,7 @@ export default function Server() {
   const savedRef = useRef<ServerSettings | null>(null);
   const [proxyContext, setProxyContext] = useState<ProxySessionContext | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [backupLoading, setBackupLoading] = useState(false);
   const [revealedRemoteField, setRevealedRemoteField] = useState<RemoteSecretField | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -237,7 +238,6 @@ export default function Server() {
 
   const loadData = useCallback(async () => {
     try {
-      setError('');
       const [h, s, proxy] = await Promise.all([
         getHealth().catch(() => null),
         getSettings().catch(() => null),
@@ -246,10 +246,11 @@ export default function Server() {
       if (h) setHealth(h as unknown as HealthInfo);
       if (s) applySavedSettings(s as unknown as ServerSettings);
       setProxyContext(proxy);
-      if (!h && !s) setError(t('Failed to load server data.'));
-      else if (!s) setError(t('Failed to load server settings. Health data is available, but configuration and backup sections could not be loaded.'));
+      if (!h && !s) loadFailed(t('Failed to load server data.'));
+      else if (!s) loadFailed(t('Failed to load server settings. Health data is available, but configuration and backup sections could not be loaded.'));
+      else loadSucceeded();
     } catch {
-      setError(t('Failed to load server data.'));
+      loadFailed(t('Failed to load server data.'));
     } finally {
       setLoading(false);
     }

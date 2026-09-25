@@ -22,6 +22,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPersonaDuplicatePayload } from '../lib/duplicates';
 import { useResourceTable } from '../lib/useResourceTable';
+import { useLoadError } from '../lib/useLoadError';
 
 export default function Personas() {
   const navigate = useNavigate();
@@ -32,7 +33,7 @@ export default function Personas() {
   const canCreate = canWrite(viewer, writeLevel);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Modal state
   const [showForm, setShowForm] = useState(false);
@@ -72,9 +73,9 @@ export default function Personas() {
       setPersonas(result);
       const templateResult = await listAllPromptTemplates();
       setTemplateNames(templateResult.map(t => t.name));
-      setError('');
+      loadSucceeded();
     } catch {
-      setError(t('Failed to load personas.'));
+      loadFailed(t('Failed to load personas.'));
     } finally {
       setLoading(false);
     }

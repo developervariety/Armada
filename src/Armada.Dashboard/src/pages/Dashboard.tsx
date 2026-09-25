@@ -26,6 +26,7 @@ import FilterBar from '../components/shared/FilterBar';
 import MissionHistoryChart from '../components/MissionHistoryChart';
 import { useLocale } from '../context/LocaleContext';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 
 interface VoyageProgress {
   voyage: {
@@ -86,7 +87,7 @@ export default function Dashboard() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   // Fleet status is a global-administrator read. A refusal is a role boundary, not a failure: it is named once
   // and the route is not requested again for this page, so a narrower session never polls into repeated 403s.
   const [statusRefused, setStatusRefused] = useState(false);
@@ -166,7 +167,8 @@ export default function Dashboard() {
       if (vesselRes) setVessels(vesselRes);
       if (fleetRes) setFleets(fleetRes);
       if (captainRes) setCaptains(captainRes);
-      if (!statusRes && !missionRes) setError(t('Failed to load dashboard data.'));
+      if (!statusRes && !missionRes) loadFailed(t('Failed to load dashboard data.'));
+      else loadSucceeded();
 
       // Voyage vessels come from the voyage's own mission summary, so a voyage whose missions are older than
       // the recent slice still shows its vessels.
@@ -189,7 +191,7 @@ export default function Dashboard() {
       if (homeLoadedRef.current) setHistoryRefreshKey((key) => key + 1);
       homeLoadedRef.current = true;
     } catch {
-      setError(t('Failed to load dashboard data.'));
+      loadFailed(t('Failed to load dashboard data.'));
     } finally {
       setLoading(false);
     }

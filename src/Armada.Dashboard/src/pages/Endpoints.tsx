@@ -25,6 +25,7 @@ import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import HealthHistogram from '../components/shared/HealthHistogram';
 import CopyButton from '../components/shared/CopyButton';
+import { useLoadError } from '../lib/useLoadError';
 
 /** Providers the server ModelProviderEnum accepts. */
 const PROVIDERS: ModelProvider[] = ['Ollama', 'OpenAI', 'OpenAICompatible', 'Anthropic', 'Gemini', 'VoyageAI'];
@@ -91,7 +92,7 @@ export default function Endpoints() {
   const { pushToast } = useNotifications();
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState('all');
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -182,9 +183,9 @@ export default function Endpoints() {
       setLoading(true);
       const result = await listModelEndpoints();
       setEndpoints(result || []);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load endpoints.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load endpoints.'));
     } finally {
       setLoading(false);
     }

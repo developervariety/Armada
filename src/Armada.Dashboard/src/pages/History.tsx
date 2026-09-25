@@ -14,6 +14,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { listAllPages } from '../lib/listAllPages';
+import { useLoadError } from '../lib/useLoadError';
 
 interface SavedHistoryView {
   id: string;
@@ -196,7 +197,7 @@ export default function History() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [objectiveFilter, setObjectiveFilter] = useState(initialQuery.get('objectiveId') || 'all');
   const [textFilter, setTextFilter] = useState(initialQuery.get('text') || '');
   const [actorFilter, setActorFilter] = useState(initialQuery.get('actor') || '');
@@ -240,9 +241,9 @@ export default function History() {
 
       setEntries(historyResult.objects || []);
       setTotalRecords(historyResult.totalRecords || 0);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load history.'));
+      if (request.isCurrent()) loadFailed(err instanceof Error ? err.message : t('Failed to load history.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }

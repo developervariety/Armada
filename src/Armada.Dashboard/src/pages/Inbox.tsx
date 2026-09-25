@@ -10,6 +10,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 
 function severityColor(severity: InboxSeverity): string {
   if (severity === 'Critical') return 'var(--danger, #ff6b6b)';
@@ -23,7 +24,7 @@ export default function Inbox() {
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   const unreadAlerts = useMemo(() => notifications.filter((n) => !n.read).slice(0, 8), [notifications]);
 
@@ -32,9 +33,9 @@ export default function Inbox() {
       setLoading(true);
       const result = await getInbox();
       setItems(result || []);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load inbox.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load inbox.'));
     } finally {
       setLoading(false);
     }

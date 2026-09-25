@@ -34,6 +34,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 import { formatBytes, parseJsonString } from '../lib/format';
+import { useLoadError } from '../lib/useLoadError';
 
 type ActivityRangeId = 'lastHour' | 'lastDay' | 'lastWeek' | 'lastMonth';
 
@@ -350,7 +351,10 @@ export default function RequestHistory() {
   const [totalMs, setTotalMs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
+  // The summary refreshes on its own request, so its failures are tracked apart from the list's: a list that loads
+  // does not close or re-arm a summary that keeps failing.
+  const { error: summaryError, setError: setSummaryError, loadFailed: summaryLoadFailed, loadSucceeded: summaryLoadSucceeded } = useLoadError();
   const [detailRecord, setDetailRecord] = useState<RequestHistoryRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RequestHistoryEntry | null>(null);
@@ -431,9 +435,9 @@ export default function RequestHistory() {
       if (!acceptPage(result)) return;
       setEntries(result.objects || []);
       setTotalMs(result.totalMs || 0);
-      setError('');
+      loadSucceeded();
     } catch (err) {
-      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load request history.'));
+      if (request.isCurrent()) loadFailed(err instanceof Error ? err.message : t('Failed to load request history.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }
@@ -446,12 +450,13 @@ export default function RequestHistory() {
       const result = await getRequestHistorySummary(summaryQuery);
       if (!request.isCurrent()) return;
       setSummary(result);
+      summaryLoadSucceeded();
     } catch (err) {
-      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load request history summary.'));
+      if (request.isCurrent()) summaryLoadFailed(err instanceof Error ? err.message : t('Failed to load request history summary.'));
     } finally {
       if (request.isCurrent()) setSummaryLoading(false);
     }
-  }, [summaryRequests, summaryQuery, t]);
+  }, [summaryRequests, summaryQuery, summaryLoadFailed, summaryLoadSucceeded, t]);
 
   const openDetail = useCallback(async (entryId: string, routePush = true) => {
     const request = detailRequests.begin(entryId);
@@ -578,7 +583,7 @@ export default function RequestHistory() {
         )}
       />
 
-      <ErrorModal error={error} onClose={() => setError('')} />
+      <ErrorModal error={error || summaryError} onClose={() => { setError(''); setSummaryError(''); }} />
 
       <div className="request-history-summary-grid">
         <div className="card request-summary-card">

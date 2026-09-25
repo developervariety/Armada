@@ -14,6 +14,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useLoadError } from '../lib/useLoadError';
 
 const RELEASE_STATUSES: ReleaseStatus[] = ['Draft', 'Candidate', 'Shipped', 'Failed', 'RolledBack'];
 
@@ -34,7 +35,7 @@ export default function Releases() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ReleaseStatus>('all');
   const [vesselFilter, setVesselFilter] = useState('all');
@@ -139,9 +140,9 @@ export default function Releases() {
       setReleases(releaseResult);
       setVessels(vesselResult);
       setProfiles(profileResult);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load releases.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load releases.'));
     } finally {
       setLoading(false);
     }

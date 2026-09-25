@@ -15,6 +15,7 @@ import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
+import { useLoadError } from '../lib/useLoadError';
 
 function splitList(value: string): string[] {
   return value
@@ -54,7 +55,7 @@ export default function WorkflowProfiles() {
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [scopeFilter, setScopeFilter] = useState<'all' | 'Global' | 'Fleet' | 'Vessel'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -97,9 +98,9 @@ export default function WorkflowProfiles() {
       setLoading(true);
       const result = await listAllWorkflowProfiles();
       setProfiles(result);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load workflow profiles.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load workflow profiles.'));
     } finally {
       setLoading(false);
     }

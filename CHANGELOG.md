@@ -96,6 +96,13 @@ upstream integrations and excludes changes already present at that baseline.
   command-line limit (32,767 characters, 8,191 through the cmd.exe that runs an
   npm `.cmd` shim), which made a Windows launch fail. Mux had sent the prompt
   both ways and ignored stdin.
+- **Every auto-refreshing dashboard page reports a failing load once:** the
+  list and detail pages that still reopened the error dialog on each failed
+  refresh (among them Dashboard, Server, Incidents, Check Runs, History,
+  Request History, Objectives, Vessels, Fleets, Docks and the fleet, dock and
+  voyage detail pages) open it once while the load keeps failing and again
+  only after a load succeeds. Request History tracks its summary apart from
+  its list. The Incidents search box uses the shared search debounce.
 - **A captain that ends BLOCKED and keeps running is finished:** the stall
   nudge is withheld and the process is stopped after the terminal-marker grace
   period, so the stage fails with its question instead of being told to

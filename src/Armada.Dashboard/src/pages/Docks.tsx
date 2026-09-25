@@ -16,6 +16,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useResourceTable } from '../lib/useResourceTable';
+import { useLoadError } from '../lib/useLoadError';
 
 export default function Docks() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export default function Docks() {
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -69,9 +70,9 @@ export default function Docks() {
       setLoading(true);
       const result = await listAllDocks();
       setDocks(result);
-      setError('');
+      loadSucceeded();
     } catch {
-      setError(t('Failed to load docks.'));
+      loadFailed(t('Failed to load docks.'));
     } finally {
       setLoading(false);
     }

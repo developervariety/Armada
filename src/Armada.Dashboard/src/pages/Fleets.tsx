@@ -19,6 +19,7 @@ import { useNotifications } from '../context/NotificationContext';
 import { buildFleetDuplicatePayload } from '../lib/duplicates';
 import { useResourceTable } from '../lib/useResourceTable';
 import { buildFleetUpdatePayload } from '../lib/fleetPayload';
+import { useLoadError } from '../lib/useLoadError';
 
 interface FleetWithCount extends Fleet {
   _vesselCount: number;
@@ -32,7 +33,7 @@ export default function Fleets() {
   const [fleets, setFleets] = useState<FleetWithCount[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Modal state
   const [showForm, setShowForm] = useState(false);
@@ -82,9 +83,9 @@ export default function Fleets() {
         _vessels: vesselsByFleet.get(f.id) ?? [],
       })));
       setVessels(vResult);
-      setError('');
+      loadSucceeded();
     } catch {
-      setError(t('Failed to load fleets.'));
+      loadFailed(t('Failed to load fleets.'));
     } finally {
       setLoading(false);
     }

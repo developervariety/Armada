@@ -42,6 +42,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
+import { useLoadError } from '../lib/useLoadError';
 
 export default function Objectives() {
   const navigate = useNavigate();
@@ -54,7 +55,7 @@ export default function Objectives() {
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | Objective['status']>('all');
   const [kindFilter, setKindFilter] = useState<'all' | Objective['kind']>('all');
@@ -97,9 +98,9 @@ export default function Objectives() {
       setObjectives(loadedObjectives);
       setFleets(fleetResult);
       setVessels(vesselResult);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load backlog.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load backlog.'));
     } finally {
       setLoading(false);
     }

@@ -31,6 +31,7 @@ import {
   formatCheckRunComparisonScope,
   formatCheckRunComparisonSummary,
 } from './checkRunComparison';
+import { useLoadError } from '../lib/useLoadError';
 
 const ALL_CHECK_TYPES: CheckRunType[] = [
   'Lint',
@@ -127,7 +128,7 @@ export default function CheckRuns() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [vesselFilter, setVesselFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Passed' | 'Failed' | 'Running' | 'Pending' | 'Canceled'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'Armada' | 'External'>('all');
@@ -179,9 +180,9 @@ export default function CheckRuns() {
       if (!acceptPage(runResult)) return;
       setRuns(runResult.objects || []);
       setSummaryCounts({ total: counts[0], passed: counts[1], failed: counts[2], running: counts[3] });
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      if (request.isCurrent()) setError(err instanceof Error ? err.message : t('Failed to load check runs.'));
+      if (request.isCurrent()) loadFailed(err instanceof Error ? err.message : t('Failed to load check runs.'));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }

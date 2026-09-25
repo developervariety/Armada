@@ -16,6 +16,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildFleetDuplicatePayload } from '../lib/duplicates';
+import { useLoadError } from '../lib/useLoadError';
 
 export default function FleetDetail() {
   const { t, formatDateTime } = useLocale();
@@ -26,7 +27,7 @@ export default function FleetDetail() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
@@ -60,13 +61,14 @@ export default function FleetDetail() {
       setVessels(vResult.filter(v => v.fleetId === id));
       setPipelines(pResult);
       request.markLoaded();
+      loadSucceeded();
     } catch (err: unknown) {
       if (!request.isCurrent()) return;
       if ((err as { status?: number } | null)?.status === 404) {
         setFleet(null);
         setNotFound(true);
       } else {
-        setError(t('Failed to load fleet.'));
+        loadFailed(t('Failed to load fleet.'));
       }
     } finally {
       if (request.isCurrent()) setLoading(false);

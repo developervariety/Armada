@@ -27,6 +27,7 @@ import { useLatestRequest } from '../lib/useLatestRequest';
 import { summarizeVoyageProgress } from '../lib/voyageProgress';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useLoadError } from '../lib/useLoadError';
 
 // ── Helper utilities ──
 
@@ -50,7 +51,7 @@ export default function VoyageDetail() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Modals
   const [diffModal, setDiffModal] = useState<{ open: boolean; title: string; rawDiff: string; loading: boolean }>({ open: false, title: '', rawDiff: '', loading: false });
@@ -103,8 +104,9 @@ export default function VoyageDetail() {
         }
       }
       request.markLoaded();
+      loadSucceeded();
     } catch (e: unknown) {
-      if (request.isCurrent()) setError(t('Failed to load voyage: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
+      if (request.isCurrent()) loadFailed(t('Failed to load voyage: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
       if (request.isCurrent()) setLoading(false);
     }

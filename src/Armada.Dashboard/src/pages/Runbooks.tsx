@@ -31,6 +31,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildRunbookDuplicatePayload } from '../lib/duplicates';
+import { useLoadError } from '../lib/useLoadError';
 
 const RUNBOOK_CHECK_TYPES: CheckRunType[] = [
   'Build',
@@ -67,7 +68,7 @@ export default function Runbooks() {
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [environments, setEnvironments] = useState<DeploymentEnvironment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [colFilters, setColFilters] = useState({ title: '' });
@@ -170,9 +171,9 @@ export default function Runbooks() {
       setExecutionCounts(new Map(perRunbook));
       setProfiles(profileResult);
       setEnvironments(environmentResult);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load runbooks.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load runbooks.'));
     } finally {
       setLoading(false);
     }

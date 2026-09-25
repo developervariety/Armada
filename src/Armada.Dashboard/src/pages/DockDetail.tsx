@@ -18,6 +18,7 @@ import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLatestRequest } from '../lib/useLatestRequest';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useLoadError } from '../lib/useLoadError';
 
 export default function DockDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
@@ -28,7 +29,7 @@ export default function DockDetail() {
   const [dock, setDock] = useState<Dock | null>(null);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [jsonView, setJsonView] = useState<{ title: string; data: unknown } | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ message: string; action: () => void } | null>(null);
 
@@ -56,6 +57,7 @@ export default function DockDetail() {
       if (!request.isCurrent()) return;
       setDock(result);
       setNotFound(false);
+      loadSucceeded();
     } catch (err: unknown) {
       if (!request.isCurrent()) return;
       // A 404 means the dock was reclaimed or never existed; say so instead of a generic failure.
@@ -63,7 +65,7 @@ export default function DockDetail() {
         setDock(null);
         setNotFound(true);
       } else {
-        setError(t('Failed to load dock.'));
+        loadFailed(t('Failed to load dock.'));
       }
     }
     listAllCaptains().then(setCaptains).catch(() => {});

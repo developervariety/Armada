@@ -22,6 +22,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPipelineDuplicatePayload } from '../lib/duplicates';
 import { useResourceTable } from '../lib/useResourceTable';
+import { useLoadError } from '../lib/useLoadError';
 
 interface StageFormEntry {
   personaName: string;
@@ -45,7 +46,7 @@ export default function Pipelines() {
   const canCreate = canWrite(viewer, writeLevel);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
 
   // Modal state
   const [showForm, setShowForm] = useState(false);
@@ -85,9 +86,9 @@ export default function Pipelines() {
       setPipelines(result);
       const personaResult = await listAllPersonas();
       setPersonaNames(personaResult.map(p => p.name));
-      setError('');
+      loadSucceeded();
     } catch {
-      setError(t('Failed to load pipelines.'));
+      loadFailed(t('Failed to load pipelines.'));
     } finally {
       setLoading(false);
     }

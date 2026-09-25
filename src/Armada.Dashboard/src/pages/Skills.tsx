@@ -14,6 +14,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
+import { useLoadError } from '../lib/useLoadError';
 
 export default function Skills() {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ export default function Skills() {
   const { pushToast } = useNotifications();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [colFilters, setColFilters] = useState({ name: '', category: '' });
@@ -93,9 +94,9 @@ export default function Skills() {
       setLoading(true);
       const result = await listAllSkills();
       setSkills(result);
-      setError('');
+      loadSucceeded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to load skills.'));
+      loadFailed(err instanceof Error ? err.message : t('Failed to load skills.'));
     } finally {
       setLoading(false);
     }
