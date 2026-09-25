@@ -79,6 +79,8 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(version, await _Driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Repeated startup schema version");
             }, token);
             await RunTest("Schema_Upgrade_Drops_Jobs_Table_Holding_Rows", "Schema", () => new SchemaVerificationTests(_Settings).VerifyJobsTableDroppedOnUpgradeAsync(token), token);
+            if (_Settings.Type == DatabaseTypeEnum.Postgresql)
+                await RunTest("Postgresql_Upgrade_Converts_Text_Planning_Times_To_Timestamptz", "Schema", () => new PlanningTimestampMigrationTests(_Settings).VerifyAsync(token), token);
 
             await RunTest("ModelEndpoint_Persistence_Scope_Unicode_Reopen", "Operational", () => TestModelEndpointPersistenceAsync(token), token);
             await RunTest("Captain_ModelEndpoint_Link_Persists_Across_Reopen", "Operational", () => TestCaptainModelEndpointLinkAsync(token), token);

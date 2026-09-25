@@ -1190,7 +1190,25 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(110, "Persist persona minimum capability tiers", PersonaMinimumTierPersistence.PostgresqlStatements),
                 new SchemaMigration(111, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.PostgresqlStatements),
                 new SchemaMigration(112, "Persist token usage input buckets and the counting rule, and widen token counts to 64-bit", TokenUsageInputBucketsPersistence.PostgresqlStatements),
-                new SchemaMigration(113, "Keep same-order pipeline stages in their submitted order", PipelineStagePositionPersistence.PostgresqlStatements)
+                new SchemaMigration(113, "Keep same-order pipeline stages in their submitted order", PipelineStagePositionPersistence.PostgresqlStatements),
+                // The planning migration creates its tables only when they are absent, so a database whose planning
+                // tables predate it holds their times as text. Each such text column becomes TIMESTAMPTZ with its
+                // stored instant; an empty text time becomes no time, and a TIMESTAMPTZ column is left as it is.
+                new SchemaMigration(114, "Store planning session and message times as TIMESTAMPTZ on databases that hold them as text",
+                    @"DO $convert$
+DECLARE
+    item record;
+BEGIN
+    FOR item IN SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND data_type = 'text'
+        AND ((table_name = 'planning_sessions' AND column_name IN ('created_utc', 'started_utc', 'completed_utc', 'last_update_utc'))
+          OR (table_name = 'planning_session_messages' AND column_name IN ('created_utc', 'last_update_utc')))
+    LOOP
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE TIMESTAMPTZ USING NULLIF(%I, '''')::timestamptz',
+            item.table_name, item.column_name, item.column_name);
+    END LOOP;
+END
+$convert$;")
             };
         }
 

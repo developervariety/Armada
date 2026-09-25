@@ -108,7 +108,9 @@ upstream integrations and excludes changes already present at that baseline.
   stores the UTC time whatever the session time zone, the PostgreSQL
   workflow-profile creation-time window compares its bounds as timestamps, and
   the mission admission and model-endpoint health compare-and-set writes match
-  the stored update time after every write path.
+  the stored update time after every write path. A PostgreSQL database whose
+  planning tables predate the planning migration has their text times
+  converted to TIMESTAMPTZ (migration 114).
 - **Stored rows read through shared column readers:** every provider reads
   tenants, users, credentials, fleets, vessels, signals, events, captains,
   missions, mission summaries and history points, merge entries, landing jobs,
