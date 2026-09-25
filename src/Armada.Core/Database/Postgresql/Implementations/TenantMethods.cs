@@ -60,12 +60,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO tenants (id, name, active, is_protected, created_utc, last_update_utc)
                         VALUES (@id, @name, @active, @is_protected, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", tenant.Id);
-                    cmd.Parameters.AddWithValue("@name", tenant.Name);
-                    cmd.Parameters.AddWithValue("@active", tenant.Active);
-                    cmd.Parameters.AddWithValue("@is_protected", tenant.IsProtected);
-                    cmd.Parameters.AddWithValue("@created_utc", tenant.CreatedUtc);
-                    cmd.Parameters.AddWithValue("@last_update_utc", tenant.LastUpdateUtc);
+                    TenantColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "tenants"), tenant);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -85,7 +80,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM tenants WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -109,7 +104,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM tenants WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -139,11 +134,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                             is_protected = @is_protected,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", tenant.Id);
-                    cmd.Parameters.AddWithValue("@name", tenant.Name);
-                    cmd.Parameters.AddWithValue("@active", tenant.Active);
-                    cmd.Parameters.AddWithValue("@is_protected", tenant.IsProtected);
-                    cmd.Parameters.AddWithValue("@last_update_utc", tenant.LastUpdateUtc);
+                    TenantColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "tenants"), tenant);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -163,7 +154,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM tenants WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -181,7 +172,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM tenants WHERE id != @system_id ORDER BY name;";
-                    cmd.Parameters.AddWithValue("@system_id", "ten_system");
+                    StoredValueBinder.Value(cmd, "@system_id", "ten_system");
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -206,17 +197,17 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 
                 conditions.Add("id != @system_id");
-                parameters.Add(new NpgsqlParameter("@system_id", "ten_system"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@system_id", "ten_system"));
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "tenants", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "tenants", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -264,7 +255,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT COUNT(*) FROM tenants WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -289,9 +280,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         #endregion
 
-        #region Private-Methods
-
-        #endregion
     }
 }
 

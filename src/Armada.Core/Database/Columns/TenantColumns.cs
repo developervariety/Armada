@@ -26,5 +26,21 @@ namespace Armada.Core.Database
             tenant.LastUpdateUtc = row.Utc("last_update_utc");
             return tenant;
         }
+
+        /// <summary>
+        /// Bind every stored tenants column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the tenants table.</param>
+        /// <param name="tenant">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, TenantMetadata tenant)
+        {
+            parameters
+                .Text("id", tenant.Id)
+                .Text("name", tenant.Name)
+                .Bool("active", tenant.Active)
+                .Bool("is_protected", tenant.IsProtected)
+                .Utc("created_utc", tenant.CreatedUtc)
+                .Utc("last_update_utc", tenant.LastUpdateUtc);
+        }
     }
 }

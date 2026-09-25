@@ -49,12 +49,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO tenants (id, name, active, is_protected, created_utc, last_update_utc)
                         VALUES (@id, @name, @active, @is_protected, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", tenant.Id);
-                    cmd.Parameters.AddWithValue("@name", tenant.Name);
-                    cmd.Parameters.AddWithValue("@active", tenant.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@is_protected", tenant.IsProtected ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(tenant.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(tenant.LastUpdateUtc));
+                    TenantColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "tenants"), tenant);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -73,7 +68,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM tenants WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -96,7 +91,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM tenants WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -125,11 +120,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                             is_protected = @is_protected,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", tenant.Id);
-                    cmd.Parameters.AddWithValue("@name", tenant.Name);
-                    cmd.Parameters.AddWithValue("@active", tenant.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@is_protected", tenant.IsProtected ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(tenant.LastUpdateUtc));
+                    TenantColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "tenants"), tenant);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -148,7 +139,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM tenants WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -165,7 +156,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM tenants WHERE id != @system_id ORDER BY name;";
-                    cmd.Parameters.AddWithValue("@system_id", "ten_system");
+                    StoredValueBinder.Value(cmd, "@system_id", "ten_system");
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -190,17 +181,17 @@ namespace Armada.Core.Database.Mysql.Implementations
                 List<MySqlParameter> parameters = new List<MySqlParameter>();
 
                 conditions.Add("id != @system_id");
-                parameters.Add(new MySqlParameter("@system_id", "ten_system"));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@system_id", "ten_system"));
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_after", "tenants", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_before", "tenants", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -245,7 +236,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM tenants WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
                     return count > 0;
                 }
