@@ -65,21 +65,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, captain_overrides_json, source_planning_session_id, source_planning_message_id)
                         VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @captain_overrides_json, @source_planning_session_id, @source_planning_message_id);";
-                    cmd.Parameters.AddWithValue("@id", voyage.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)voyage.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", voyage.Title);
-                    cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@created_utc", voyage.CreatedUtc);
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)voyage.CompletedUtc.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", voyage.LastUpdateUtc);
-                    cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)voyage.AutoPush.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)voyage.AutoCreatePullRequests.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)voyage.AutoMergePullRequests.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
-                    BackendMetadataPersistence.AddVoyage(cmd, voyage);
-                    cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
+                    VoyageColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -104,7 +90,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM voyages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -147,20 +133,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         landing_mode = @landing_mode,
                         captain_overrides_json = @captain_overrides_json
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", voyage.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)voyage.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", voyage.Title);
-                    cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)voyage.CompletedUtc.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", voyage.LastUpdateUtc);
-                    cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)voyage.AutoPush.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)voyage.AutoCreatePullRequests.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)voyage.AutoMergePullRequests.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
-                    BackendMetadataPersistence.AddVoyage(cmd, voyage);
-                    cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
+                    VoyageColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -184,7 +157,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM voyages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -237,17 +210,17 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "voyages", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "voyages", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
                     conditions.Add("status = @status");
-                    parameters.Add(new NpgsqlParameter("@status", query.Status));
+                    parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@status", query.Status));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -300,7 +273,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM voyages WHERE status = @status ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -329,7 +302,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT COUNT(*) FROM voyages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -348,8 +321,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -372,8 +345,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM voyages WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -391,7 +364,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -411,16 +384,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenantId", tenantId) };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenantId", tenantId) };
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "voyages", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "voyages", "created_utc", query.CreatedBefore.Value));
                 }
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
                 string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
@@ -460,8 +433,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND status = @status ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -484,8 +457,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT COUNT(*) FROM voyages WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -505,9 +478,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -531,9 +504,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM voyages WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -552,8 +525,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -574,16 +547,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
-                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@tenantId", tenantId), new NpgsqlParameter("@userId", userId) };
+                List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenantId", tenantId), StoredValueBinder.Parameter(new NpgsqlParameter(), "@userId", userId) };
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "voyages", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "voyages", "created_utc", query.CreatedBefore.Value));
                 }
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
                 string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";

@@ -59,22 +59,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, source_planning_session_id, source_planning_message_id, captain_overrides_json)
                             VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @source_planning_session_id, @source_planning_message_id, @captain_overrides_json);";
-                    cmd.Parameters.AddWithValue("@id", voyage.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)voyage.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", voyage.Title);
-                    cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(voyage.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(voyage.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(voyage.LastUpdateUtc));
-                    cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)(voyage.AutoPush.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)(voyage.AutoCreatePullRequests.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)(voyage.AutoMergePullRequests.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@source_planning_session_id", (object?)voyage.SourcePlanningSessionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@source_planning_message_id", (object?)voyage.SourcePlanningMessageId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
+                    VoyageColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -93,7 +78,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM voyages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -132,21 +117,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             source_planning_message_id = @source_planning_message_id,
                             captain_overrides_json = @captain_overrides_json
                             WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", voyage.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)voyage.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", voyage.Title);
-                    cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(voyage.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(voyage.LastUpdateUtc));
-                    cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)(voyage.AutoPush.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)(voyage.AutoCreatePullRequests.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)(voyage.AutoMergePullRequests.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@source_planning_session_id", (object?)voyage.SourcePlanningSessionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@source_planning_message_id", (object?)voyage.SourcePlanningMessageId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
+                    VoyageColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -165,7 +136,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM voyages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -204,7 +175,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM voyages WHERE status = @status ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -231,17 +202,17 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_after", "voyages", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_before", "voyages", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
                     conditions.Add("status = @status");
-                    parameters.Add(new SqliteParameter("@status", query.Status));
+                    parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@status", query.Status));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -286,7 +257,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM voyages WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -304,8 +275,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -327,8 +298,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM voyages WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -345,7 +316,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -365,16 +336,16 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@tenantId", tenantId) };
+                List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@tenantId", tenantId) };
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_after", "voyages", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_before", "voyages", "created_utc", query.CreatedBefore.Value));
                 }
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
                 string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
@@ -411,8 +382,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND status = @status ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -434,8 +405,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM voyages WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -454,9 +425,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -479,9 +450,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM voyages WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -499,8 +470,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM voyages WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -521,16 +492,16 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
-                List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@tenantId", tenantId), new SqliteParameter("@userId", userId) };
+                List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@tenantId", tenantId), StoredValueBinder.Parameter(new SqliteParameter(), "@userId", userId) };
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_after", "voyages", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_before", "voyages", "created_utc", query.CreatedBefore.Value));
                 }
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
                 string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";

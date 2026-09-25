@@ -38,5 +38,31 @@ namespace Armada.Core.Database
             voyage.CaptainOverridesJson = row.NullableText("captain_overrides_json");
             return voyage;
         }
+
+        /// <summary>
+        /// Bind every stored voyages column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the voyages table.</param>
+        /// <param name="voyage">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Voyage voyage)
+        {
+            parameters
+                .Text("id", voyage.Id)
+                .Text("tenant_id", voyage.TenantId)
+                .Text("user_id", voyage.UserId)
+                .Text("title", voyage.Title)
+                .Text("description", voyage.Description)
+                .Text("status", voyage.Status.ToString())
+                .Utc("created_utc", voyage.CreatedUtc)
+                .Utc("completed_utc", voyage.CompletedUtc)
+                .Utc("last_update_utc", voyage.LastUpdateUtc)
+                .Bool("auto_push", voyage.AutoPush)
+                .Bool("auto_create_pull_requests", voyage.AutoCreatePullRequests)
+                .Bool("auto_merge_pull_requests", voyage.AutoMergePullRequests)
+                .Text("landing_mode", voyage.LandingMode?.ToString())
+                .Text("source_planning_session_id", voyage.SourcePlanningSessionId)
+                .Text("source_planning_message_id", voyage.SourcePlanningMessageId)
+                .Text("captain_overrides_json", voyage.CaptainOverridesJson);
+        }
     }
 }
