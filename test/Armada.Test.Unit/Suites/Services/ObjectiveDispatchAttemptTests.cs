@@ -187,7 +187,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaEvent attemptBeyondLookBack = await SeedAsync(ObjectiveDispatchAdmission.StartedEventType, ObjectiveDispatchAdmission.AttemptEntityType,
                     now - ObjectiveDispatchAdmission.ReconciliationLookBack - TimeSpan.FromDays(1)).ConfigureAwait(false);
                 ArmadaEvent oldUntyped = await SeedAsync("mission.created", null, now.AddDays(-3)).ConfigureAwait(false);
-                ArmadaEvent oldOtherEntity = await SeedAsync("incident.snapshot", "incident", now.AddDays(-3)).ConfigureAwait(false);
+                ArmadaEvent oldOtherEntity = await SeedAsync("mission.created", "mission", now.AddDays(-3)).ConfigureAwait(false);
                 ArmadaEvent recent = await SeedAsync("mission.created", null, now).ConfigureAwait(false);
 
                 SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();

@@ -19,6 +19,12 @@ namespace Armada.Core.Services
     /// </summary>
     public class ObjectiveService
     {
+        /// <summary>
+        /// Event type of an objective deletion tombstone. The tombstone stops snapshot backfill from
+        /// resurrecting a deleted objective, so it is kept whatever its age.
+        /// </summary>
+        public const string DeletedEventType = "objective.deleted";
+
         private const int _MaxPreparationClaims = 50;
         private const int _MaxPreparationIdChars = 255;
         private const int _MaxPreparationClaimTextChars = 2000;
@@ -50,7 +56,6 @@ namespace Armada.Core.Services
         private static readonly KeyedAsyncLock _VoyageLinkLocks = new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
         private readonly TimeSpan _DispatchAdmissionTtl;
         private bool _BackfillCompleted = false;
-        private const string _ObjectiveDeletedEventType = "objective.deleted";
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -1935,7 +1940,7 @@ namespace Armada.Core.Services
             ArmadaEvent tombstone = new ArmadaEvent
             {
                 TenantId = null,
-                EventType = _ObjectiveDeletedEventType,
+                EventType = DeletedEventType,
                 EntityType = "objective",
                 EntityId = id,
                 CreatedUtc = DateTime.UtcNow
@@ -1948,7 +1953,7 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<HashSet<string>> ReadTombstonedObjectiveIdsAsync(CancellationToken token)
         {
-            List<ArmadaEvent> tombstones = await _Database.Events.EnumerateByTypeAsync(_ObjectiveDeletedEventType, 5000, token).ConfigureAwait(false);
+            List<ArmadaEvent> tombstones = await _Database.Events.EnumerateByTypeAsync(DeletedEventType, 5000, token).ConfigureAwait(false);
             HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ArmadaEvent tombstone in tombstones)
             {
@@ -1969,7 +1974,7 @@ namespace Armada.Core.Services
             List<ArmadaEvent> events = await _Database.Events.EnumerateByEntityAsync("objective", id, 5000, token).ConfigureAwait(false);
             return events.Any(item =>
                 String.Equals(item.EntityType, "objective", StringComparison.OrdinalIgnoreCase)
-                && String.Equals(item.EventType, _ObjectiveDeletedEventType, StringComparison.OrdinalIgnoreCase));
+                && String.Equals(item.EventType, DeletedEventType, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -1980,7 +1985,7 @@ namespace Armada.Core.Services
             List<ArmadaEvent> events = await _Database.Events.EnumerateByEntityAsync("objective", id, 5000, token).ConfigureAwait(false);
             foreach (ArmadaEvent tombstone in events.Where(item =>
                 String.Equals(item.EntityType, "objective", StringComparison.OrdinalIgnoreCase)
-                && String.Equals(item.EventType, _ObjectiveDeletedEventType, StringComparison.OrdinalIgnoreCase)))
+                && String.Equals(item.EventType, DeletedEventType, StringComparison.OrdinalIgnoreCase)))
             {
                 await _Database.Events.DeleteAsync(tombstone.Id, token).ConfigureAwait(false);
             }

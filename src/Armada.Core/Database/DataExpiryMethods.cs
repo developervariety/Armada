@@ -35,6 +35,25 @@ namespace Armada.Core.Database
         #region Private-Members
 
         private const string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
+
+        // An incident snapshot is its incident's current record when no snapshot of the same incident is
+        // newer. The newest times are grouped in a derived table so providers that refuse to read the
+        // table they delete from in a subquery materialize it first. Snapshots written at the same
+        // instant are all kept.
+        private const string _LatestIncidentSnapshot = "COALESCE(event_type, '') = @snapshot_event_type AND COALESCE(entity_type, '') = @incident_entity_type"
+            + " AND entity_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM (SELECT entity_id, MAX(created_utc) AS latest_utc FROM events"
+            + " WHERE event_type = @snapshot_event_type AND entity_type = @incident_entity_type AND entity_id IS NOT NULL GROUP BY entity_id) latest_snapshots"
+            + " WHERE latest_snapshots.entity_id = events.entity_id AND latest_snapshots.latest_utc > events.created_utc)";
+
+        // Events older than the record cutoff that retention keeps, by the kept-class name the purge
+        // summary reports.
+        private static readonly IReadOnlyList<KeyValuePair<string, string>> _KeptEventClasses = new[]
+        {
+            new KeyValuePair<string, string>("dispatch_attempts", "COALESCE(entity_type, '') = @attempt_entity_type AND created_utc >= @attempt_cutoff"),
+            new KeyValuePair<string, string>("incident_latest", _LatestIncidentSnapshot),
+            new KeyValuePair<string, string>("tombstones", "COALESCE(event_type, '') = @tombstone_event_type"),
+            new KeyValuePair<string, string>("reversals", "COALESCE(event_type, '') = @reversal_event_type")
+        };
         private readonly Func<DbConnection> _ConnectionFactory;
         private readonly DatabaseTypeEnum _Provider;
 
@@ -119,11 +138,21 @@ namespace Armada.Core.Database
                 await ExecuteAsync(connection, "signals", result, "DELETE FROM signals WHERE " + ReadColumn() + " = @true AND created_utc < @cutoff;",
                     "signals", cutoff, cutoffs, token).ConfigureAwait(false);
 
-                // Objective dispatch attempt records inside the reconciliation look-back are kept whatever
-                // the retention period, so an attempt whose process stopped before closing it stays visible.
-                await ExecuteAsync(connection, "events", result, "DELETE FROM events WHERE created_utc < @cutoff"
-                    + " AND NOT (COALESCE(entity_type, '') = @attempt_entity_type AND created_utc >= @attempt_cutoff);",
+                // Some events are the only record of something, so each kept class survives the cutoff:
+                // dispatch attempt records inside the reconciliation look-back (an attempt whose process
+                // stopped before closing it stays visible), the newest snapshot of each incident (its
+                // current record, open or closed; older snapshots of the same incident still expire),
+                // objective deletion tombstones (they stop a deleted objective being resurrected), and
+                // typed-decision reversals (the operator correction linked to its decision).
+                string anyKept = String.Join(" OR ", _KeptEventClasses.Select(item => "(" + item.Value + ")"));
+                await ExecuteAsync(connection, "events", result, "DELETE FROM events WHERE created_utc < @cutoff AND NOT (" + anyKept + ");",
                     "events", cutoff, cutoffs, token).ConfigureAwait(false);
+                foreach (KeyValuePair<string, string> keptClass in _KeptEventClasses)
+                {
+                    int kept = await CountAsync(connection, "events", "SELECT COUNT(*) FROM events WHERE created_utc < @cutoff AND (" + keptClass.Value + ");",
+                        "events", cutoff, cutoffs, token).ConfigureAwait(false);
+                    result.AddKept(keptClass.Key, kept);
+                }
 
                 await ExecuteAsync(connection, "docks", result, "DELETE FROM docks WHERE active = @false AND captain_id IS NULL AND created_utc < @cutoff;",
                     "docks", cutoff, cutoffs, token).ConfigureAwait(false);
@@ -144,14 +173,8 @@ namespace Armada.Core.Database
         private async Task ExecuteAsync(DbConnection connection, string table, DataExpiryResult? result, string sql, string timestampTable,
             DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token)
         {
-            using (DbCommand command = connection.CreateCommand())
+            using (DbCommand command = CreateCommand(connection, sql, timestampTable, cutoff, cutoffs))
             {
-                command.CommandText = sql;
-                if (sql.Contains("@cutoff", StringComparison.Ordinal)) AddTimestamp(command, "@cutoff", timestampTable, cutoff);
-                if (sql.Contains("@attempt_cutoff", StringComparison.Ordinal)) AddTimestamp(command, "@attempt_cutoff", timestampTable, cutoffs.DispatchAttemptCutoffUtc);
-                if (sql.Contains("@attempt_entity_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@attempt_entity_type", ObjectiveDispatchAdmission.AttemptEntityType);
-                if (sql.Contains("@true", StringComparison.Ordinal)) ProductionFactSql.AddBool(command, "@true", true, _Provider);
-                if (sql.Contains("@false", StringComparison.Ordinal)) ProductionFactSql.AddBool(command, "@false", false, _Provider);
                 int deleted;
                 try
                 {
@@ -163,6 +186,39 @@ namespace Armada.Core.Database
                 }
                 result?.Add(table, deleted);
             }
+        }
+
+        private async Task<int> CountAsync(DbConnection connection, string table, string sql, string timestampTable,
+            DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token)
+        {
+            using (DbCommand command = CreateCommand(connection, sql, timestampTable, cutoff, cutoffs))
+            {
+                try
+                {
+                    object? value = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                }
+                catch (DbException ex)
+                {
+                    throw new InvalidOperationException("data expiry count of kept " + table + " failed on " + _Provider + ": " + ex.Message, ex);
+                }
+            }
+        }
+
+        private DbCommand CreateCommand(DbConnection connection, string sql, string timestampTable, DateTime cutoff, DataExpiryCutoffs cutoffs)
+        {
+            DbCommand command = connection.CreateCommand();
+            command.CommandText = sql;
+            if (sql.Contains("@cutoff", StringComparison.Ordinal)) AddTimestamp(command, "@cutoff", timestampTable, cutoff);
+            if (sql.Contains("@attempt_cutoff", StringComparison.Ordinal)) AddTimestamp(command, "@attempt_cutoff", timestampTable, cutoffs.DispatchAttemptCutoffUtc);
+            if (sql.Contains("@attempt_entity_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@attempt_entity_type", ObjectiveDispatchAdmission.AttemptEntityType);
+            if (sql.Contains("@snapshot_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@snapshot_event_type", IncidentService.SnapshotEventType);
+            if (sql.Contains("@incident_entity_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@incident_entity_type", IncidentService.IncidentEntityType);
+            if (sql.Contains("@tombstone_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@tombstone_event_type", ObjectiveService.DeletedEventType);
+            if (sql.Contains("@reversal_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@reversal_event_type", TypedDecisionRecorder.EventTypeReversed);
+            if (sql.Contains("@true", StringComparison.Ordinal)) ProductionFactSql.AddBool(command, "@true", true, _Provider);
+            if (sql.Contains("@false", StringComparison.Ordinal)) ProductionFactSql.AddBool(command, "@false", false, _Provider);
+            return command;
         }
 
         /// <summary>

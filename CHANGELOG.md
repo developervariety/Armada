@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Data expiry keeps the records that live only as events:** the newest
+  snapshot of every incident, open or closed, survives the retention cutoff
+  whatever its age, while its older snapshots still expire. Objective deletion
+  tombstones and typed-decision reversals are never expired. The purge summary
+  names each kept class (`kept_incident_latest`, `kept_tombstones`,
+  `kept_reversals`, `kept_dispatch_attempts`) with its count.
 - **A captain that ends BLOCKED and keeps running is finished:** the stall
   nudge is withheld and the process is stopped after the terminal-marker grace
   period, so the stage fails with its question instead of being told to

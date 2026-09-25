@@ -16,6 +16,15 @@ namespace Armada.Core.Services
     public class IncidentService
     {
         /// <summary>
+        /// Event type of an incident snapshot. Incidents are stored only as these events, and the
+        /// newest snapshot of an incident is its current record.
+        /// </summary>
+        public const string SnapshotEventType = "incident.snapshot";
+
+        /// <summary>Entity type an incident snapshot carries.</summary>
+        public const string IncidentEntityType = "incident";
+
+        /// <summary>
         /// Optional callback invoked whenever an incident changes.
         /// </summary>
         public Action<Incident>? OnIncidentChanged { get; set; }
@@ -370,11 +379,11 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(incidentId))
             {
                 if (auth.IsAdmin)
-                    return (await _Database.Events.EnumerateByEntityAsync("incident", incidentId, 500, token).ConfigureAwait(false))
+                    return (await _Database.Events.EnumerateByEntityAsync(IncidentEntityType, incidentId, 500, token).ConfigureAwait(false))
                         .Where(IsIncidentSnapshotEvent)
                         .ToList();
                 if (auth.IsTenantAdmin)
-                    return (await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, "incident", incidentId, 500, token).ConfigureAwait(false))
+                    return (await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, IncidentEntityType, incidentId, 500, token).ConfigureAwait(false))
                         .Where(IsIncidentSnapshotEvent)
                         .ToList();
                 return (await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, new EnumerationQuery
@@ -383,9 +392,9 @@ namespace Armada.Core.Services
                     PageSize = 500
                 }, token).ConfigureAwait(false)).Objects
                     .Where(item =>
-                        String.Equals(item.EntityType, "incident", StringComparison.OrdinalIgnoreCase)
+                        String.Equals(item.EntityType, IncidentEntityType, StringComparison.OrdinalIgnoreCase)
                         && String.Equals(item.EntityId, incidentId, StringComparison.OrdinalIgnoreCase)
-                        && String.Equals(item.EventType, "incident.snapshot", StringComparison.OrdinalIgnoreCase))
+                        && String.Equals(item.EventType, SnapshotEventType, StringComparison.OrdinalIgnoreCase))
                     .ToList();
             }
 
@@ -393,7 +402,7 @@ namespace Armada.Core.Services
             {
                 PageNumber = 1,
                 PageSize = 500,
-                EventType = "incident.snapshot"
+                EventType = SnapshotEventType
             };
 
             List<ArmadaEvent> results = new List<ArmadaEvent>();
@@ -407,7 +416,7 @@ namespace Armada.Core.Services
                 else
                     page = await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, query, token).ConfigureAwait(false);
 
-                results.AddRange(page.Objects.Where(item => String.Equals(item.EntityType, "incident", StringComparison.OrdinalIgnoreCase)));
+                results.AddRange(page.Objects.Where(item => String.Equals(item.EntityType, IncidentEntityType, StringComparison.OrdinalIgnoreCase)));
                 if (page.Objects.Count < query.PageSize)
                     break;
                 query.PageNumber += 1;
@@ -418,11 +427,11 @@ namespace Armada.Core.Services
 
         private async Task WriteSnapshotAsync(AuthContext auth, Incident incident, CancellationToken token)
         {
-            ArmadaEvent snapshot = new ArmadaEvent("incident.snapshot", incident.Title)
+            ArmadaEvent snapshot = new ArmadaEvent(SnapshotEventType, incident.Title)
             {
                 TenantId = incident.TenantId,
                 UserId = auth.UserId,
-                EntityType = "incident",
+                EntityType = IncidentEntityType,
                 EntityId = incident.Id,
                 MissionId = incident.MissionId,
                 VesselId = incident.VesselId,
@@ -482,8 +491,8 @@ namespace Armada.Core.Services
 
         private static bool IsIncidentSnapshotEvent(ArmadaEvent item)
         {
-            return String.Equals(item.EntityType, "incident", StringComparison.OrdinalIgnoreCase)
-                && String.Equals(item.EventType, "incident.snapshot", StringComparison.OrdinalIgnoreCase);
+            return String.Equals(item.EntityType, IncidentEntityType, StringComparison.OrdinalIgnoreCase)
+                && String.Equals(item.EventType, SnapshotEventType, StringComparison.OrdinalIgnoreCase);
         }
 
         private static void ApplyLifecycleTimestamps(Incident incident)

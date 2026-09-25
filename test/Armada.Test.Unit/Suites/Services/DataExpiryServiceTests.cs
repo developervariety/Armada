@@ -206,7 +206,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }
 
                     AssertEqual(1, summaries.Count, "a run that deletes nothing still logs its summary");
-                    foreach (string table in new[] { "voyages=0", "missions=0", "signals=0", "events=0", "docks=0", "merge_entries=0" })
+                    foreach (string table in new[] { "voyages=0", "missions=0", "signals=0", "events=0", "docks=0", "merge_entries=0", "kept_incident_latest=0", "kept_tombstones=0", "kept_reversals=0" })
                         AssertTrue(summaries[0].Contains(table), "the summary names " + table + ": " + summaries[0]);
                 }
             });

@@ -1,6 +1,7 @@
 namespace Armada.Test.Database
 {
     using System;
+    using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -118,6 +119,53 @@ namespace Armada.Test.Database
             finally
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyDurableEventsSurviveRetentionAsync(CancellationToken token)
+        {
+            DateTime now = DateTime.UtcNow;
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            List<string> created = new List<string>();
+            try
+            {
+                string openIncident = "inc_open_" + suffix;
+                string revisedIncident = "inc_revised_" + suffix;
+                string recentIncident = "inc_recent_" + suffix;
+
+                ArmadaEvent openOnly = await CreateDurableEventAsync(created, IncidentService.SnapshotEventType, IncidentService.IncidentEntityType, openIncident, now.AddDays(-30), token).ConfigureAwait(false);
+                ArmadaEvent revisedOlder = await CreateDurableEventAsync(created, IncidentService.SnapshotEventType, IncidentService.IncidentEntityType, revisedIncident, now.AddDays(-20), token).ConfigureAwait(false);
+                ArmadaEvent revisedNewest = await CreateDurableEventAsync(created, IncidentService.SnapshotEventType, IncidentService.IncidentEntityType, revisedIncident, now.AddDays(-10), token).ConfigureAwait(false);
+                ArmadaEvent oldBeforeRecent = await CreateDurableEventAsync(created, IncidentService.SnapshotEventType, IncidentService.IncidentEntityType, recentIncident, now.AddDays(-10), token).ConfigureAwait(false);
+                ArmadaEvent recentSnapshot = await CreateDurableEventAsync(created, IncidentService.SnapshotEventType, IncidentService.IncidentEntityType, recentIncident, now, token).ConfigureAwait(false);
+                ArmadaEvent tombstone = await CreateDurableEventAsync(created, ObjectiveService.DeletedEventType, "objective", "obj_deleted_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
+                ArmadaEvent reversal = await CreateDurableEventAsync(created, TypedDecisionRecorder.EventTypeReversed, "mission", "msn_reversed_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
+                ArmadaEvent ordinary = await CreateDurableEventAsync(created, "mission.created", "mission", "msn_ordinary_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                DataExpiryResult purged = await CreateService(logging, 1, 0).PurgeExpiredDataAsync(token).ConfigureAwait(false);
+
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(openOnly.Id, token).ConfigureAwait(false), "An incident whose only snapshot is older than the cutoff keeps it");
+                DatabaseAssert.True(await _Driver.Events.ReadAsync(revisedOlder.Id, token).ConfigureAwait(false) == null, "An older snapshot of an incident with a newer one expires");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(revisedNewest.Id, token).ConfigureAwait(false), "The newest snapshot of an incident is kept whatever its age");
+                DatabaseAssert.True(await _Driver.Events.ReadAsync(oldBeforeRecent.Id, token).ConfigureAwait(false) == null, "An old snapshot superseded by a recent one expires");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(recentSnapshot.Id, token).ConfigureAwait(false), "A recent snapshot is kept");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(tombstone.Id, token).ConfigureAwait(false), "An objective deletion tombstone is kept whatever its age");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(reversal.Id, token).ConfigureAwait(false), "A typed-decision reversal is kept whatever its age");
+                DatabaseAssert.True(await _Driver.Events.ReadAsync(ordinary.Id, token).ConfigureAwait(false) == null, "An ordinary old event still expires");
+                DatabaseAssert.True(purged.Kept("incident_latest") >= 2, "The summary counts kept incident snapshots: " + purged);
+                DatabaseAssert.True(purged.Kept("tombstones") >= 1, "The summary counts kept tombstones: " + purged);
+                DatabaseAssert.True(purged.Kept("reversals") >= 1, "The summary counts kept reversals: " + purged);
+                DatabaseAssert.True(purged.ToString().Contains("kept_incident_latest=", StringComparison.Ordinal), "The summary names the kept classes: " + purged);
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    foreach (string id in created)
+                        await _Driver.Events.DeleteAsync(id, token).ConfigureAwait(false);
+                }
             }
         }
 
@@ -244,6 +292,20 @@ namespace Armada.Test.Database
                 CreatedUtc = createdUtc
             };
             return await _Driver.Events.CreateAsync(evt, token).ConfigureAwait(false);
+        }
+
+        private async Task<ArmadaEvent> CreateDurableEventAsync(List<string> created, string eventType, string entityType, string entityId, DateTime createdUtc, CancellationToken token)
+        {
+            ArmadaEvent evt = new ArmadaEvent(eventType, "expiry")
+            {
+                TenantId = null,
+                EntityType = entityType,
+                EntityId = entityId,
+                CreatedUtc = createdUtc
+            };
+            ArmadaEvent stored = await _Driver.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            created.Add(stored.Id);
+            return stored;
         }
 
         private async Task<MergeEntry> CreateMergeEntryAsync(string tenantId, string userId, string vesselId, MergeStatusEnum status, DateTime completedUtc, CancellationToken token)
