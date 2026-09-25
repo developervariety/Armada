@@ -70,7 +70,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
                 List<string> conditions = new List<string> { "id = @id" };
-                List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@id", id) };
+                List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@id", id) };
                 ApplyQueryFilters(query, conditions, parameters);
 
                 using (SqlCommand cmd = conn.CreateCommand())
@@ -117,8 +117,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText = "SELECT * FROM token_usage" + whereClause
                         + " ORDER BY created_utc DESC OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY;";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@offset", query.Offset);
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", query.Offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -192,25 +192,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
 
         private static void BindRecord(SqlCommand cmd, TokenUsageRecord record)
         {
-            cmd.Parameters.AddWithValue("@id", record.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)record.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)record.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@model", record.Model ?? string.Empty);
-            cmd.Parameters.AddWithValue("@runtime", (object?)record.Runtime ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source", record.Source ?? string.Empty);
-            cmd.Parameters.AddWithValue("@source_id", (object?)record.SourceId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)record.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@captain_id", (object?)record.CaptainId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@input_tokens", record.InputTokens);
-            cmd.Parameters.AddWithValue("@output_tokens", record.OutputTokens);
-            cmd.Parameters.AddWithValue("@uncached_input_tokens", TokenUsageBucketColumns.ToColumn(record.UncachedInputTokens));
-            cmd.Parameters.AddWithValue("@cache_read_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheReadInputTokens));
-            cmd.Parameters.AddWithValue("@cache_write_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheWriteInputTokens));
-            cmd.Parameters.AddWithValue("@usage_rule", TokenUsageBucketColumns.ToColumn(record.UsageRule));
-            cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
-            cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
-            cmd.Parameters.AddWithValue("@estimated", record.Estimated);
-            cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(record.CreatedUtc));
+            TokenUsageColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "token_usage"), record);
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)
@@ -225,52 +207,52 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (!string.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!string.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@user_id", query.UserId));
             }
             if (!string.IsNullOrWhiteSpace(query.Model))
             {
                 conditions.Add("model = @model");
-                parameters.Add(new SqlParameter("@model", query.Model));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@model", query.Model));
             }
             if (!string.IsNullOrWhiteSpace(query.Runtime))
             {
                 conditions.Add("runtime = @runtime");
-                parameters.Add(new SqlParameter("@runtime", query.Runtime));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@runtime", query.Runtime));
             }
             if (!string.IsNullOrWhiteSpace(query.Source))
             {
                 conditions.Add("source = @source");
-                parameters.Add(new SqlParameter("@source", query.Source));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@source", query.Source));
             }
             if (!string.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!string.IsNullOrWhiteSpace(query.CaptainId))
             {
                 conditions.Add("captain_id = @captain_id");
-                parameters.Add(new SqlParameter("@captain_id", query.CaptainId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@captain_id", query.CaptainId));
             }
             if (!string.IsNullOrWhiteSpace(query.SourceId))
             {
                 conditions.Add("source_id = @source_id");
-                parameters.Add(new SqlParameter("@source_id", query.SourceId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@source_id", query.SourceId));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqlParameter("@from_utc", SqlServerDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@from_utc", "token_usage", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqlParameter("@to_utc", SqlServerDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@to_utc", "token_usage", "created_utc", query.ToUtc.Value));
             }
         }
 

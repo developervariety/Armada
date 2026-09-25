@@ -70,7 +70,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
                 List<string> conditions = new List<string> { "id = @id" };
-                List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                 ApplyQueryFilters(query, conditions, parameters);
 
                 using (MySqlCommand cmd = conn.CreateCommand())
@@ -190,25 +190,7 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         private static void BindRecord(MySqlCommand cmd, TokenUsageRecord record)
         {
-            cmd.Parameters.AddWithValue("@id", record.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)record.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)record.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@model", record.Model ?? string.Empty);
-            cmd.Parameters.AddWithValue("@runtime", (object?)record.Runtime ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source", record.Source ?? string.Empty);
-            cmd.Parameters.AddWithValue("@source_id", (object?)record.SourceId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)record.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@captain_id", (object?)record.CaptainId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@input_tokens", record.InputTokens);
-            cmd.Parameters.AddWithValue("@output_tokens", record.OutputTokens);
-            cmd.Parameters.AddWithValue("@uncached_input_tokens", TokenUsageBucketColumns.ToColumn(record.UncachedInputTokens));
-            cmd.Parameters.AddWithValue("@cache_read_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheReadInputTokens));
-            cmd.Parameters.AddWithValue("@cache_write_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheWriteInputTokens));
-            cmd.Parameters.AddWithValue("@usage_rule", TokenUsageBucketColumns.ToColumn(record.UsageRule));
-            cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
-            cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
-            cmd.Parameters.AddWithValue("@estimated", record.Estimated ? 1 : 0);
-            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(record.CreatedUtc));
+            TokenUsageColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "token_usage"), record);
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)
@@ -223,52 +205,52 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!string.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new MySqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!string.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new MySqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@user_id", query.UserId));
             }
             if (!string.IsNullOrWhiteSpace(query.Model))
             {
                 conditions.Add("model = @model");
-                parameters.Add(new MySqlParameter("@model", query.Model));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@model", query.Model));
             }
             if (!string.IsNullOrWhiteSpace(query.Runtime))
             {
                 conditions.Add("runtime = @runtime");
-                parameters.Add(new MySqlParameter("@runtime", query.Runtime));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@runtime", query.Runtime));
             }
             if (!string.IsNullOrWhiteSpace(query.Source))
             {
                 conditions.Add("source = @source");
-                parameters.Add(new MySqlParameter("@source", query.Source));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@source", query.Source));
             }
             if (!string.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!string.IsNullOrWhiteSpace(query.CaptainId))
             {
                 conditions.Add("captain_id = @captain_id");
-                parameters.Add(new MySqlParameter("@captain_id", query.CaptainId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@captain_id", query.CaptainId));
             }
             if (!string.IsNullOrWhiteSpace(query.SourceId))
             {
                 conditions.Add("source_id = @source_id");
-                parameters.Add(new MySqlParameter("@source_id", query.SourceId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@source_id", query.SourceId));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new MySqlParameter("@from_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(query.FromUtc.Value)));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@from_utc", "token_usage", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new MySqlParameter("@to_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(query.ToUtc.Value)));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@to_utc", "token_usage", "created_utc", query.ToUtc.Value));
             }
         }
 

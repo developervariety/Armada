@@ -79,7 +79,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
                 List<string> conditions = new List<string> { "id = @id" };
-                List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@id", id) };
+                List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@id", id) };
                 ApplyQueryFilters(query, conditions, parameters);
 
                 using (SqliteCommand cmd = conn.CreateCommand())
@@ -200,25 +200,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
         private static void BindRecord(SqliteCommand cmd, TokenUsageRecord record)
         {
-            cmd.Parameters.AddWithValue("@id", record.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)record.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)record.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@model", record.Model ?? string.Empty);
-            cmd.Parameters.AddWithValue("@runtime", (object?)record.Runtime ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source", record.Source ?? string.Empty);
-            cmd.Parameters.AddWithValue("@source_id", (object?)record.SourceId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)record.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@captain_id", (object?)record.CaptainId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@input_tokens", record.InputTokens);
-            cmd.Parameters.AddWithValue("@output_tokens", record.OutputTokens);
-            cmd.Parameters.AddWithValue("@uncached_input_tokens", TokenUsageBucketColumns.ToColumn(record.UncachedInputTokens));
-            cmd.Parameters.AddWithValue("@cache_read_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheReadInputTokens));
-            cmd.Parameters.AddWithValue("@cache_write_input_tokens", TokenUsageBucketColumns.ToColumn(record.CacheWriteInputTokens));
-            cmd.Parameters.AddWithValue("@usage_rule", TokenUsageBucketColumns.ToColumn(record.UsageRule));
-            cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
-            cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
-            cmd.Parameters.AddWithValue("@estimated", record.Estimated ? 1 : 0);
-            cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(record.CreatedUtc));
+            TokenUsageColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "token_usage"), record);
         }
 
         private static SqliteParameter CloneParameter(SqliteParameter parameter)
@@ -233,52 +215,52 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (!string.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqliteParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@tenant_id", query.TenantId));
             }
             if (!string.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqliteParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@user_id", query.UserId));
             }
             if (!string.IsNullOrWhiteSpace(query.Model))
             {
                 conditions.Add("model = @model");
-                parameters.Add(new SqliteParameter("@model", query.Model));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@model", query.Model));
             }
             if (!string.IsNullOrWhiteSpace(query.Runtime))
             {
                 conditions.Add("runtime = @runtime");
-                parameters.Add(new SqliteParameter("@runtime", query.Runtime));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@runtime", query.Runtime));
             }
             if (!string.IsNullOrWhiteSpace(query.Source))
             {
                 conditions.Add("source = @source");
-                parameters.Add(new SqliteParameter("@source", query.Source));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@source", query.Source));
             }
             if (!string.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new SqliteParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@vessel_id", query.VesselId));
             }
             if (!string.IsNullOrWhiteSpace(query.CaptainId))
             {
                 conditions.Add("captain_id = @captain_id");
-                parameters.Add(new SqliteParameter("@captain_id", query.CaptainId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@captain_id", query.CaptainId));
             }
             if (!string.IsNullOrWhiteSpace(query.SourceId))
             {
                 conditions.Add("source_id = @source_id");
-                parameters.Add(new SqliteParameter("@source_id", query.SourceId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@source_id", query.SourceId));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqliteParameter("@from_utc", SqliteDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@from_utc", "token_usage", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqliteParameter("@to_utc", SqliteDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@to_utc", "token_usage", "created_utc", query.ToUtc.Value));
             }
         }
 
