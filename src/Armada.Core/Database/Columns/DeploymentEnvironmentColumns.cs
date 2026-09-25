@@ -52,5 +52,36 @@ namespace Armada.Core.Database
             environment.LastUpdateUtc = row.Utc("last_update_utc");
             return environment;
         }
+
+        /// <summary>
+        /// Bind every stored environments column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the environments table.</param>
+        /// <param name="environment">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, DeploymentEnvironment environment)
+        {
+            parameters
+                .Text("id", environment.Id)
+                .Text("tenant_id", environment.TenantId)
+                .Text("user_id", environment.UserId)
+                .Text("vessel_id", environment.VesselId)
+                .Text("name", environment.Name)
+                .Text("description", environment.Description)
+                .Text("kind", environment.Kind.ToString())
+                .Text("configuration_source", environment.ConfigurationSource)
+                .Text("base_url", environment.BaseUrl)
+                .Text("health_endpoint", environment.HealthEndpoint)
+                .Text("access_notes", environment.AccessNotes)
+                .Text("deployment_rules", environment.DeploymentRules)
+                .Text("verification_definitions_json", JsonSerializer.Serialize(environment.VerificationDefinitions ?? new List<DeploymentVerificationDefinition>(), _Json))
+                .Int("rollout_monitoring_window_minutes", environment.RolloutMonitoringWindowMinutes)
+                .Int("rollout_monitoring_interval_seconds", environment.RolloutMonitoringIntervalSeconds)
+                .Bool("alert_on_regression", environment.AlertOnRegression)
+                .Bool("requires_approval", environment.RequiresApproval)
+                .Bool("is_default", environment.IsDefault)
+                .Bool("active", environment.Active)
+                .Utc("created_utc", environment.CreatedUtc)
+                .Utc("last_update_utc", environment.LastUpdateUtc);
+        }
     }
 }

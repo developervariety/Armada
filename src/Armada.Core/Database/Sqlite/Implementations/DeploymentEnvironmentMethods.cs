@@ -65,7 +65,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using SqliteCommand cmd = conn.CreateCommand();
 
             List<string> conditions = new List<string> { "id = @id" };
-            List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@id", id) };
+            List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@id", id) };
             ApplyQueryFilters(query, conditions, parameters);
             cmd.CommandText = "SELECT * FROM environments WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
             foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -120,7 +120,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             await conn.OpenAsync(token).ConfigureAwait(false);
             using SqliteCommand cmd = conn.CreateCommand();
             List<string> conditions = new List<string> { "id = @id" };
-            List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@id", id) };
+            List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@id", id) };
             ApplyQueryFilters(query, conditions, parameters);
             cmd.CommandText = "DELETE FROM environments WHERE " + String.Join(" AND ", conditions) + ";";
             foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -203,63 +203,43 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqliteParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqliteParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new SqliteParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@vessel_id", query.VesselId));
             }
             if (query.Kind.HasValue)
             {
                 conditions.Add("kind = @kind");
-                parameters.Add(new SqliteParameter("@kind", query.Kind.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@kind", query.Kind.Value.ToString()));
             }
             if (query.IsDefault.HasValue)
             {
                 conditions.Add("is_default = @is_default_filter");
-                parameters.Add(new SqliteParameter("@is_default_filter", query.IsDefault.Value ? 1 : 0));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Boolean(new SqliteParameter(), "@is_default_filter", "environments", "is_default", query.IsDefault.Value));
             }
             if (query.Active.HasValue)
             {
                 conditions.Add("active = @active_filter");
-                parameters.Add(new SqliteParameter("@active_filter", query.Active.Value ? 1 : 0));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Boolean(new SqliteParameter(), "@active_filter", "environments", "active", query.Active.Value));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search OR LOWER(COALESCE(configuration_source, '')) LIKE @search OR LOWER(COALESCE(base_url, '')) LIKE @search OR LOWER(COALESCE(health_endpoint, '')) LIKE @search)");
-                parameters.Add(new SqliteParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
         }
 
         private static void AddParameters(SqliteCommand cmd, DeploymentEnvironment environment)
         {
-            cmd.Parameters.AddWithValue("@id", environment.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)environment.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)environment.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)environment.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", environment.Name);
-            cmd.Parameters.AddWithValue("@description", (object?)environment.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@kind", environment.Kind.ToString());
-            cmd.Parameters.AddWithValue("@configuration_source", (object?)environment.ConfigurationSource ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@base_url", (object?)environment.BaseUrl ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@health_endpoint", (object?)environment.HealthEndpoint ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@access_notes", (object?)environment.AccessNotes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deployment_rules", (object?)environment.DeploymentRules ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@verification_definitions_json", JsonSerializer.Serialize(environment.VerificationDefinitions ?? new List<DeploymentVerificationDefinition>(), _Json));
-            cmd.Parameters.AddWithValue("@rollout_monitoring_window_minutes", environment.RolloutMonitoringWindowMinutes);
-            cmd.Parameters.AddWithValue("@rollout_monitoring_interval_seconds", environment.RolloutMonitoringIntervalSeconds);
-            cmd.Parameters.AddWithValue("@alert_on_regression", environment.AlertOnRegression ? 1 : 0);
-            cmd.Parameters.AddWithValue("@requires_approval", environment.RequiresApproval ? 1 : 0);
-            cmd.Parameters.AddWithValue("@is_default", environment.IsDefault ? 1 : 0);
-            cmd.Parameters.AddWithValue("@active", environment.Active ? 1 : 0);
-            cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(environment.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(environment.LastUpdateUtc));
+            DeploymentEnvironmentColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "environments"), environment);
         }
     }
 }
