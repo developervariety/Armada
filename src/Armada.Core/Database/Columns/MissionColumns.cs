@@ -82,6 +82,69 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Bind every stored missions column, each in the form its provider stores it. The operator-hold reason is
+        /// stored only while the mission is held, and a prestaged-file list is stored only when it has an entry.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the missions table.</param>
+        /// <param name="mission">Mission to bind.</param>
+        internal static void Write(StoredParameters parameters, Mission mission)
+        {
+            if (mission.Tier.HasValue && !System.Enum.IsDefined(mission.Tier.Value)) throw new System.ArgumentOutOfRangeException(nameof(mission), "Mission tier is not a defined member.");
+            parameters
+                .Text("id", mission.Id)
+                .Text("tenant_id", mission.TenantId)
+                .Text("user_id", mission.UserId)
+                .Text("voyage_id", mission.VoyageId)
+                .Text("vessel_id", mission.VesselId)
+                .Text("captain_id", mission.CaptainId)
+                .Text("title", mission.Title)
+                .Text("description", mission.Description)
+                .Text("status", mission.Status.ToString())
+                .Text("mission_assignment_state", mission.AssignmentState.ToString())
+                .Int("priority", mission.Priority)
+                .Text("parent_mission_id", mission.ParentMissionId)
+                .Text("branch_name", mission.BranchName)
+                .Text("dock_id", mission.DockId)
+                .Int("process_id", mission.ProcessId)
+                .Utc("process_started_utc", mission.ProcessStartedUtc)
+                .Text("pr_url", mission.PrUrl)
+                .Text("commit_hash", mission.CommitHash)
+                .Text("diff_snapshot", mission.DiffSnapshot)
+                .Text("agent_output", mission.AgentOutput)
+                .Text("persona", mission.Persona)
+                .Text("depends_on_mission_id", mission.DependsOnMissionId)
+                .Int("stage_order", mission.StageOrder)
+                .Text("failure_reason", mission.FailureReason)
+                .Utc("reconciled_utc", mission.ReconciledUtc)
+                .Text("reconciled_reason", mission.ReconciledReason)
+                .Long("total_runtime_ms", mission.TotalRuntimeMs)
+                .Text("prestaged_files", mission.PrestagedFiles != null && mission.PrestagedFiles.Count > 0 ? JsonSerializer.Serialize(mission.PrestagedFiles) : null)
+                .Text("preferred_model", mission.PreferredModel)
+                .Text("capabilityhint", mission.CapabilityHint)
+                .Text("mission_mode", mission.Mode.ToString())
+                .Bool("requires_review", mission.RequiresReview)
+                .Text("review_deny_action", mission.ReviewDenyAction.ToString())
+                .Text("review_comment", mission.ReviewComment)
+                .Text("reviewed_by_user_id", mission.ReviewedByUserId)
+                .Utc("review_requested_utc", mission.ReviewRequestedUtc)
+                .Utc("reviewed_utc", mission.ReviewedUtc)
+                .Int("recovery_attempts", mission.RecoveryAttempts)
+                .Int("landing_retry_count", mission.LandingRetryCount)
+                .Text("start_from_ref", mission.StartFromRef)
+                .Utc("last_recovery_action_utc", mission.LastRecoveryActionUtc)
+                .Text("retry_skip_captain_ids", mission.RetrySkipCaptainIds)
+                .Text("tier", mission.Tier?.ToString())
+                .Text("requested_captain_id", mission.RequestedCaptainId)
+                .Bool(MissionOperatorHoldPersistence.HeldColumn, mission.HeldForOperatorReview)
+                .Text(MissionOperatorHoldPersistence.ReasonColumn,
+                    mission.HeldForOperatorReview && !System.String.IsNullOrWhiteSpace(mission.HeldForOperatorReviewReason) ? mission.HeldForOperatorReviewReason : null)
+                .Utc("created_utc", mission.CreatedUtc)
+                .Utc("started_utc", mission.StartedUtc)
+                .Utc("completed_utc", mission.CompletedUtc)
+                .Utc("last_update_utc", mission.LastUpdateUtc);
+        }
+
+        /// <summary>
         /// Prestaged files are stored as a JSON list; an empty list reads as none, as it is written.
         /// </summary>
         private static List<PrestagedFile>? PrestagedFiles(StoredRow row)

@@ -26,7 +26,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT " + MissionSummaryProjection.Columns + " FROM missions WHERE id = @id LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -71,7 +71,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions WHERE voyage_id = @voyage_id GROUP BY status;";
-                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -101,47 +101,47 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (!String.IsNullOrEmpty(tenantId))
             {
                 conditions.Add("tenant_id = @tenantId");
-                parameters.Add(new NpgsqlParameter("@tenantId", tenantId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenantId", tenantId));
             }
             if (!String.IsNullOrEmpty(userId))
             {
                 conditions.Add("user_id = @userId");
-                parameters.Add(new NpgsqlParameter("@userId", userId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@userId", userId));
             }
             if (query.CreatedAfter.HasValue)
             {
                 conditions.Add("created_utc > @created_after");
-                parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_after", "missions", "created_utc", query.CreatedAfter.Value));
             }
             if (query.CreatedBefore.HasValue)
             {
                 conditions.Add("created_utc < @created_before");
-                parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@created_before", "missions", "created_utc", query.CreatedBefore.Value));
             }
             if (!String.IsNullOrEmpty(query.Status))
             {
                 conditions.Add("status = @status");
-                parameters.Add(new NpgsqlParameter("@status", query.Status));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@status", query.Status));
             }
             if (!String.IsNullOrEmpty(query.VoyageId))
             {
                 conditions.Add("voyage_id = @voyage_id");
-                parameters.Add(new NpgsqlParameter("@voyage_id", query.VoyageId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@voyage_id", query.VoyageId));
             }
             if (!String.IsNullOrEmpty(query.MissionId))
             {
                 conditions.Add("id = @mission_id");
-                parameters.Add(new NpgsqlParameter("@mission_id", query.MissionId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@mission_id", query.MissionId));
             }
             if (!String.IsNullOrEmpty(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new NpgsqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrEmpty(query.CaptainId))
             {
                 conditions.Add("captain_id = @captain_id");
-                parameters.Add(new NpgsqlParameter("@captain_id", query.CaptainId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@captain_id", query.CaptainId));
             }
 
             string whereClause = conditions.Count > 0 ? " WHERE " + String.Join(" AND ", conditions) : "";

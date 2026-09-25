@@ -73,6 +73,21 @@ namespace Armada.Core.Database
         #region Internal-Methods
 
         /// <summary>
+        /// The binder of a provider, for code shared across providers that is handed the provider type.
+        /// </summary>
+        internal static StoredValueBinder For(Armada.Core.Enums.DatabaseTypeEnum provider)
+        {
+            return provider switch
+            {
+                Armada.Core.Enums.DatabaseTypeEnum.Sqlite => Sqlite.SqliteDatabaseDriver.StoredBinder,
+                Armada.Core.Enums.DatabaseTypeEnum.Postgresql => Postgresql.PostgresqlDatabaseDriver.StoredBinder,
+                Armada.Core.Enums.DatabaseTypeEnum.Mysql => Mysql.MysqlDatabaseDriver.StoredBinder,
+                Armada.Core.Enums.DatabaseTypeEnum.SqlServer => SqlServer.SqlServerDatabaseDriver.StoredBinder,
+                _ => throw new NotSupportedException("No stored value binder for " + provider + ".")
+            };
+        }
+
+        /// <summary>
         /// Start binding the parameters of one command that writes or filters one table.
         /// </summary>
         /// <param name="command">Command to add parameters to.</param>
@@ -114,7 +129,15 @@ namespace Armada.Core.Database
         /// </summary>
         internal void AddTimestamp(DbCommand command, string parameterName, string table, string column, DateTime? value)
         {
-            DbParameter parameter = command.CreateParameter();
+            command.Parameters.Add(Timestamp(command.CreateParameter(), parameterName, table, column, value));
+        }
+
+        /// <summary>
+        /// Configure a provider parameter to hold a timestamp in the stored form of a column, for a command whose
+        /// parameters are collected before the command exists.
+        /// </summary>
+        internal TParameter Timestamp<TParameter>(TParameter parameter, string parameterName, string table, string column, DateTime? value) where TParameter : DbParameter
+        {
             parameter.ParameterName = parameterName;
             StoredTimestampEnum storage = TimestampStorage(table, column);
             DateTime? instant = value.HasValue ? UtcInstant(value.Value) : (DateTime?)null;
@@ -137,7 +160,7 @@ namespace Armada.Core.Database
                     throw new InvalidOperationException("Unknown timestamp storage " + storage + " for " + table + "." + column + " on " + Provider + ".");
             }
 
-            command.Parameters.Add(parameter);
+            return parameter;
         }
 
         /// <summary>
@@ -166,12 +189,54 @@ namespace Armada.Core.Database
         /// </summary>
         internal static void Add(DbCommand command, string parameterName, DbType type, object? value)
         {
-            DbParameter parameter = command.CreateParameter();
+            command.Parameters.Add(Configure(command.CreateParameter(), parameterName, type, value));
+        }
+
+        private static TParameter Configure<TParameter>(TParameter parameter, string parameterName, DbType type, object? value) where TParameter : DbParameter
+        {
             parameter.ParameterName = parameterName;
             parameter.DbType = type;
             parameter.Value = value ?? DBNull.Value;
-            command.Parameters.Add(parameter);
+            return parameter;
         }
+
+        /// <summary>Configure a provider parameter to hold text; null binds as a database null.</summary>
+        internal static TParameter Parameter<TParameter>(TParameter parameter, string parameterName, string? value) where TParameter : DbParameter => Configure(parameter, parameterName, DbType.String, value);
+
+        /// <summary>Configure a provider parameter to hold a 32-bit integer; null binds as a database null.</summary>
+        internal static TParameter Parameter<TParameter>(TParameter parameter, string parameterName, int? value) where TParameter : DbParameter => Configure(parameter, parameterName, DbType.Int32, value);
+
+        /// <summary>Configure a provider parameter to hold a 64-bit integer; null binds as a database null.</summary>
+        internal static TParameter Parameter<TParameter>(TParameter parameter, string parameterName, long? value) where TParameter : DbParameter => Configure(parameter, parameterName, DbType.Int64, value);
+
+        /// <summary>
+        /// Add a filter value whose type is known only at run time: text or an integer. A timestamp or a boolean has
+        /// a stored form that depends on its column, so it is refused here and is bound by column instead.
+        /// </summary>
+        internal static void ValueOf(DbCommand command, string parameterName, object? value)
+        {
+            switch (value)
+            {
+                case null: Add(command, parameterName, DbType.String, null); break;
+                case string text: Add(command, parameterName, DbType.String, text); break;
+                case int number: Add(command, parameterName, DbType.Int32, number); break;
+                case long number: Add(command, parameterName, DbType.Int64, number); break;
+                case double number: Add(command, parameterName, DbType.Double, number); break;
+                default: throw new ArgumentException("A " + value.GetType().Name + " filter value is bound by its column, not by run-time type.", nameof(value));
+            }
+        }
+
+        /// <summary>Add a text parameter; null binds as a database null.</summary>
+        internal static void Value(DbCommand command, string parameterName, string? value) => Add(command, parameterName, DbType.String, value);
+
+        /// <summary>Add a 32-bit integer parameter; null binds as a database null.</summary>
+        internal static void Value(DbCommand command, string parameterName, int? value) => Add(command, parameterName, DbType.Int32, value);
+
+        /// <summary>Add a 64-bit integer parameter; null binds as a database null.</summary>
+        internal static void Value(DbCommand command, string parameterName, long? value) => Add(command, parameterName, DbType.Int64, value);
+
+        /// <summary>Add a double-precision parameter; null binds as a database null.</summary>
+        internal static void Value(DbCommand command, string parameterName, double? value) => Add(command, parameterName, DbType.Double, value);
 
         /// <summary>
         /// The UTC instant a model timestamp names. A timestamp without a kind is a UTC instant, as a stored one

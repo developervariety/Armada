@@ -17,13 +17,6 @@ namespace Armada.Core.Database
             TierRoutingPersistence.AddCaptain(command, captain);
         }
 
-        internal static void AddMission(DbCommand command, Mission mission)
-        {
-            Add(command, "tier", TierName(mission.Tier));
-            Add(command, "requested_captain_id", mission.RequestedCaptainId);
-            MissionOperatorHoldPersistence.Add(command, mission);
-        }
-
         internal static void AddVoyage(DbCommand command, Voyage voyage)
         {
             Add(command, "source_planning_session_id", voyage.SourcePlanningSessionId);

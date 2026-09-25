@@ -97,7 +97,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -171,7 +171,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                          last_update_utc = @last_update_utc
                          WHERE id = @id" + (expectedStatus.HasValue ? " AND status = @expected_status" : "") + ";";
                     AddMissionParameters(cmd, mission);
-                    if (expectedStatus.HasValue) cmd.Parameters.AddWithValue("@expected_status", expectedStatus.Value.ToString());
+                    if (expectedStatus.HasValue) StoredValueBinder.Value(cmd, "@expected_status", expectedStatus.Value.ToString());
                     affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -202,7 +202,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     lookup.Connection = conn;
                     lookup.CommandText = "SELECT voyage_id FROM missions WHERE id = @id;";
-                    lookup.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(lookup, "@id", id);
                     object? result = await lookup.ExecuteScalarAsync(token).ConfigureAwait(false);
                     if (result != null && result != DBNull.Value)
                         voyageId = result.ToString();
@@ -212,8 +212,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "UPDATE missions SET admission_revision = admission_revision + 1, last_update_utc = @last_update_utc WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_update_utc", lastUpdateUtc);
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -237,7 +237,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM missions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -370,7 +370,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions WHERE tenant_id = @tenantId GROUP BY status;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (NpgsqlDataReader reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -399,7 +399,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = ActiveWorkFootprintQuery.CommandText(tenantScoped);
-                    if (tenantScoped) cmd.Parameters.AddWithValue(ActiveWorkFootprintQuery.TenantParameter, tenantId);
+                    if (tenantScoped) StoredValueBinder.Value(cmd, ActiveWorkFootprintQuery.TenantParameter, tenantId);
                     using (NpgsqlDataReader reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         return await ActiveWorkFootprintQuery.ReadAsync(reader, token).ConfigureAwait(false);
@@ -423,7 +423,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.CommandText =
                         "SELECT id, title, status FROM missions " +
                         "WHERE vessel_id = @vessel_id AND status IN ('Assigned','InProgress');";
-                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
+                    StoredValueBinder.Value(cmd, "@vessel_id", vesselId);
                     using (NpgsqlDataReader reader = (NpgsqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -462,7 +462,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT COUNT(*) FROM missions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -481,8 +481,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -505,8 +505,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -524,7 +524,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -585,8 +585,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT COUNT(*) FROM missions WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -606,9 +606,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -632,9 +632,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -653,8 +653,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -679,53 +679,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         private static void AddMissionParameters(NpgsqlCommand cmd, Mission mission)
         {
-            cmd.Parameters.AddWithValue("@id", mission.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", mission.Title);
-            cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
-            cmd.Parameters.AddWithValue("@mission_assignment_state", mission.AssignmentState.ToString());
-            cmd.Parameters.AddWithValue("@priority", mission.Priority);
-            cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@process_id", mission.ProcessId.HasValue ? (object)mission.ProcessId.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@process_started_utc", mission.ProcessStartedUtc.HasValue ? (object)mission.ProcessStartedUtc.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@pr_url", (object?)mission.PrUrl ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@commit_hash", (object?)mission.CommitHash ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@diff_snapshot", (object?)mission.DiffSnapshot ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@agent_output", (object?)mission.AgentOutput ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@persona", (object?)mission.Persona ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@stage_order", (object?)mission.StageOrder ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@reconciled_utc", mission.ReconciledUtc.HasValue ? (object)mission.ReconciledUtc.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@reconciled_reason", (object?)mission.ReconciledReason ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@capabilityhint", (object?)mission.CapabilityHint ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@mission_mode", mission.Mode.ToString());
-            cmd.Parameters.AddWithValue("@requires_review", mission.RequiresReview);
-            cmd.Parameters.AddWithValue("@review_deny_action", mission.ReviewDenyAction.ToString());
-            cmd.Parameters.AddWithValue("@review_comment", (object?)mission.ReviewComment ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)mission.ReviewRequestedUtc.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)mission.ReviewedUtc.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
-            cmd.Parameters.AddWithValue("@landing_retry_count", mission.LandingRetryCount);
-            cmd.Parameters.AddWithValue("@start_from_ref", (object?)mission.StartFromRef ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)mission.LastRecoveryActionUtc.Value : DBNull.Value);
-            BackendMetadataPersistence.AddMission(cmd, mission);
-            cmd.Parameters.AddWithValue("@retry_skip_captain_ids", (object?)mission.RetrySkipCaptainIds ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", mission.CreatedUtc);
-            cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)mission.StartedUtc.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)mission.CompletedUtc.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_update_utc", mission.LastUpdateUtc);
+            MissionColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
         }
 
         private static async Task TouchVoyageAsync(NpgsqlConnection conn, string? voyageId, DateTime lastUpdateUtc, CancellationToken token)
@@ -736,8 +690,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             {
                 cmd.Connection = conn;
                 cmd.CommandText = "UPDATE voyages SET last_update_utc = @last_update_utc WHERE id = @voyage_id;";
-                cmd.Parameters.AddWithValue("@voyage_id", voyageId);
-                cmd.Parameters.AddWithValue("@last_update_utc", lastUpdateUtc);
+                StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
+                PostgresqlDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
@@ -753,7 +707,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions WHERE " + column + " = @value ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@value", value);
+                    StoredValueBinder.Value(cmd, "@value", value);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -776,8 +730,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND " + column + " = @value ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@value", value);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@value", value);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))

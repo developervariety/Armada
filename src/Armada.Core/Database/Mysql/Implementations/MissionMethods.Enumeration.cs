@@ -26,7 +26,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT " + MissionSummaryProjection.Columns + " FROM missions WHERE id = @id LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -71,7 +71,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions WHERE voyage_id = @voyage_id GROUP BY status;";
-                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -101,47 +101,47 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!String.IsNullOrEmpty(tenantId))
             {
                 conditions.Add("tenant_id = @tenantId");
-                parameters.Add(new MySqlParameter("@tenantId", tenantId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@tenantId", tenantId));
             }
             if (!String.IsNullOrEmpty(userId))
             {
                 conditions.Add("user_id = @userId");
-                parameters.Add(new MySqlParameter("@userId", userId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@userId", userId));
             }
             if (query.CreatedAfter.HasValue)
             {
                 conditions.Add("created_utc > @created_after");
-                parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_after", "missions", "created_utc", query.CreatedAfter.Value));
             }
             if (query.CreatedBefore.HasValue)
             {
                 conditions.Add("created_utc < @created_before");
-                parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_before", "missions", "created_utc", query.CreatedBefore.Value));
             }
             if (!String.IsNullOrEmpty(query.Status))
             {
                 conditions.Add("status = @status");
-                parameters.Add(new MySqlParameter("@status", query.Status));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@status", query.Status));
             }
             if (!String.IsNullOrEmpty(query.VoyageId))
             {
                 conditions.Add("voyage_id = @voyage_id");
-                parameters.Add(new MySqlParameter("@voyage_id", query.VoyageId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@voyage_id", query.VoyageId));
             }
             if (!String.IsNullOrEmpty(query.MissionId))
             {
                 conditions.Add("id = @mission_id");
-                parameters.Add(new MySqlParameter("@mission_id", query.MissionId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@mission_id", query.MissionId));
             }
             if (!String.IsNullOrEmpty(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrEmpty(query.CaptainId))
             {
                 conditions.Add("captain_id = @captain_id");
-                parameters.Add(new MySqlParameter("@captain_id", query.CaptainId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@captain_id", query.CaptainId));
             }
 
             string whereClause = conditions.Count > 0 ? " WHERE " + String.Join(" AND ", conditions) : "";

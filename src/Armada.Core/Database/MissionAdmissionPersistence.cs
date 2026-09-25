@@ -76,8 +76,7 @@ namespace Armada.Core.Database
                 Add(command, "@next_assignment", (observation.Admit ? expected.AssignmentState
                     : MissionAssignmentStateEnum.WaitingForResourcePressure).ToString(), DbType.String);
                 Add(command, "@stamp", expected.AdmissionWriteStamp);
-                Add(command, "@now", expected.AdmissionWriteStamp is string
-                    ? DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) : DateTime.UtcNow);
+                StoredValueBinder.For(provider).For(command, "missions").Utc("@now", "last_update_utc", DateTime.UtcNow);
                 Add(command, "@previous", expected.AdmissionWriteJson, DbType.String);
                 Add(command, "@observation", json, DbType.String);
                 Add(command, "@tenant_id", expected.TenantId, DbType.String);

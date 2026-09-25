@@ -31,7 +31,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT " + MissionSummarySelectColumns + " FROM missions WHERE id = @id LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -99,8 +99,8 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT " + MissionSummarySelectColumns + " FROM missions WHERE tenant_id = @tenant_id AND id = @id LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -175,9 +175,9 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT " + MissionSummarySelectColumns + " FROM missions WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -292,7 +292,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     cmd.CommandText =
                         "SELECT " + MissionSummarySelectColumns +
                         " FROM missions WHERE " + column + " = @value ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@value", value);
+                    StoredValueBinder.Value(cmd, "@value", value);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -317,8 +317,8 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                     cmd.CommandText =
                         "SELECT " + MissionSummarySelectColumns +
                         " FROM missions WHERE tenant_id = @tenant_id AND " + column + " = @value ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@value", value);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@value", value);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -383,12 +383,12 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                         "created_utc < @to_utc"
                     };
                     AddParameters(cmd, baseParameters);
-                    cmd.Parameters.AddWithValue("@from_utc", query.FromUtc);
-                    cmd.Parameters.AddWithValue("@to_utc", query.ToUtc);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@from_utc", "created_utc", query.FromUtc);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@to_utc", "created_utc", query.ToUtc);
                     if (!String.IsNullOrEmpty(query.VesselId))
                     {
                         conditions.Add("vessel_id = @vessel_id");
-                        cmd.Parameters.AddWithValue("@vessel_id", query.VesselId);
+                        StoredValueBinder.Value(cmd, "@vessel_id", query.VesselId);
                     }
 
                     cmd.CommandText =
@@ -413,32 +413,32 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             if (query.CreatedAfter.HasValue)
             {
                 conditions.Add("created_utc > @created_after");
-                cmd.Parameters.AddWithValue("@created_after", query.CreatedAfter.Value);
+                PostgresqlDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@created_after", "created_utc", query.CreatedAfter.Value);
             }
             if (query.CreatedBefore.HasValue)
             {
                 conditions.Add("created_utc < @created_before");
-                cmd.Parameters.AddWithValue("@created_before", query.CreatedBefore.Value);
+                PostgresqlDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@created_before", "created_utc", query.CreatedBefore.Value);
             }
             if (!String.IsNullOrEmpty(query.Status))
             {
                 conditions.Add("status = @status");
-                cmd.Parameters.AddWithValue("@status", query.Status);
+                StoredValueBinder.Value(cmd, "@status", query.Status);
             }
             if (!String.IsNullOrEmpty(query.VoyageId))
             {
                 conditions.Add("voyage_id = @voyage_id");
-                cmd.Parameters.AddWithValue("@voyage_id", query.VoyageId);
+                StoredValueBinder.Value(cmd, "@voyage_id", query.VoyageId);
             }
             if (!String.IsNullOrEmpty(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                cmd.Parameters.AddWithValue("@vessel_id", query.VesselId);
+                StoredValueBinder.Value(cmd, "@vessel_id", query.VesselId);
             }
             if (!String.IsNullOrEmpty(query.CaptainId))
             {
                 conditions.Add("captain_id = @captain_id");
-                cmd.Parameters.AddWithValue("@captain_id", query.CaptainId);
+                StoredValueBinder.Value(cmd, "@captain_id", query.CaptainId);
             }
         }
 
@@ -446,7 +446,7 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
         {
             foreach (KeyValuePair<string, object?> parameter in parameters)
             {
-                cmd.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);
+                StoredValueBinder.ValueOf(cmd, parameter.Key, parameter.Value);
             }
         }
 

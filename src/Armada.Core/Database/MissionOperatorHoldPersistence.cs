@@ -51,26 +51,6 @@ namespace Armada.Core.Database
 
         #region Internal-Methods
 
-        /// <summary>Bind the hold parameters for an insert or update.</summary>
-        /// <param name="command">Command to bind.</param>
-        /// <param name="mission">Mission whose hold is stored.</param>
-        internal static void Add(DbCommand command, Mission mission)
-        {
-            DbParameter held = command.CreateParameter();
-            held.ParameterName = "@" + HeldColumn;
-            held.DbType = DbType.Boolean;
-            held.Value = mission.HeldForOperatorReview;
-            command.Parameters.Add(held);
-
-            DbParameter reason = command.CreateParameter();
-            reason.ParameterName = "@" + ReasonColumn;
-            reason.DbType = DbType.String;
-            reason.Value = mission.HeldForOperatorReview && !String.IsNullOrWhiteSpace(mission.HeldForOperatorReviewReason)
-                ? mission.HeldForOperatorReviewReason!
-                : DBNull.Value;
-            command.Parameters.Add(reason);
-        }
-
         #endregion
     }
 }

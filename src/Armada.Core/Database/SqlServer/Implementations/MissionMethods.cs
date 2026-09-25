@@ -60,53 +60,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id, process_started_utc, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, reconciled_utc, reconciled_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, start_from_ref, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, retry_skip_captain_ids, tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason)
                         VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @process_started_utc, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @reconciled_utc, @reconciled_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @start_from_ref, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc, @retry_skip_captain_ids, @tier, @requested_captain_id, @held_for_operator_review, @held_for_operator_review_reason);";
-                    cmd.Parameters.AddWithValue("@id", mission.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", mission.Title);
-                    cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
-                    cmd.Parameters.AddWithValue("@mission_assignment_state", mission.AssignmentState.ToString());
-                    cmd.Parameters.AddWithValue("@priority", mission.Priority);
-                    cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_id", mission.ProcessId.HasValue ? (object)mission.ProcessId.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_started_utc", mission.ProcessStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ProcessStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@pr_url", (object?)mission.PrUrl ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@commit_hash", (object?)mission.CommitHash ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@diff_snapshot", (object?)mission.DiffSnapshot ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@agent_output", (object?)mission.AgentOutput ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@persona", (object?)mission.Persona ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@stage_order", (object?)mission.StageOrder ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reconciled_utc", mission.ReconciledUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReconciledUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reconciled_reason", (object?)mission.ReconciledReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@capabilityhint", (object?)mission.CapabilityHint ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@mission_mode", mission.Mode.ToString());
-                    cmd.Parameters.AddWithValue("@requires_review", mission.RequiresReview);
-                    cmd.Parameters.AddWithValue("@review_deny_action", mission.ReviewDenyAction.ToString());
-                    cmd.Parameters.AddWithValue("@review_comment", (object?)mission.ReviewComment ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
-                    cmd.Parameters.AddWithValue("@landing_retry_count", mission.LandingRetryCount);
-                    cmd.Parameters.AddWithValue("@start_from_ref", (object?)mission.StartFromRef ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.LastRecoveryActionUtc.Value) : DBNull.Value);
-                    BackendMetadataPersistence.AddMission(cmd, mission);
-                    cmd.Parameters.AddWithValue("@retry_skip_captain_ids", (object?)mission.RetrySkipCaptainIds ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(mission.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(mission.LastUpdateUtc));
+                    MissionColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -127,7 +81,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -207,53 +161,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id" + (expectedStatus.HasValue ? " AND status = @expected_status" : "") + ";";
-                    cmd.Parameters.AddWithValue("@id", mission.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", mission.Title);
-                    cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
-                    cmd.Parameters.AddWithValue("@mission_assignment_state", mission.AssignmentState.ToString());
-                    cmd.Parameters.AddWithValue("@priority", mission.Priority);
-                    cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_id", mission.ProcessId.HasValue ? (object)mission.ProcessId.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_started_utc", mission.ProcessStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ProcessStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@pr_url", (object?)mission.PrUrl ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@commit_hash", (object?)mission.CommitHash ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@diff_snapshot", (object?)mission.DiffSnapshot ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@agent_output", (object?)mission.AgentOutput ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@persona", (object?)mission.Persona ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@stage_order", (object?)mission.StageOrder ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reconciled_utc", mission.ReconciledUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReconciledUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reconciled_reason", (object?)mission.ReconciledReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@prestaged_files", (object?)SerializePrestagedFiles(mission.PrestagedFiles) ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@preferred_model", (object?)mission.PreferredModel ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@capabilityhint", (object?)mission.CapabilityHint ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@mission_mode", mission.Mode.ToString());
-                    cmd.Parameters.AddWithValue("@requires_review", mission.RequiresReview);
-                    cmd.Parameters.AddWithValue("@review_deny_action", mission.ReviewDenyAction.ToString());
-                    cmd.Parameters.AddWithValue("@review_comment", (object?)mission.ReviewComment ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@recovery_attempts", mission.RecoveryAttempts);
-                    cmd.Parameters.AddWithValue("@landing_retry_count", mission.LandingRetryCount);
-                    cmd.Parameters.AddWithValue("@start_from_ref", (object?)mission.StartFromRef ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.LastRecoveryActionUtc.Value) : DBNull.Value);
-                    BackendMetadataPersistence.AddMission(cmd, mission);
-                    cmd.Parameters.AddWithValue("@retry_skip_captain_ids", (object?)mission.RetrySkipCaptainIds ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(mission.LastUpdateUtc));
-                    if (expectedStatus.HasValue) cmd.Parameters.AddWithValue("@expected_status", expectedStatus.Value.ToString());
+                    MissionColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
+                    if (expectedStatus.HasValue) StoredValueBinder.Value(cmd, "@expected_status", expectedStatus.Value.ToString());
                     affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -279,7 +188,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand lookup = conn.CreateCommand())
                 {
                     lookup.CommandText = "SELECT voyage_id FROM missions WHERE id = @id;";
-                    lookup.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(lookup, "@id", id);
                     object? result = await lookup.ExecuteScalarAsync(token).ConfigureAwait(false);
                     if (result != null && result != DBNull.Value)
                         voyageId = result.ToString();
@@ -288,8 +197,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "UPDATE missions SET admission_revision = admission_revision + 1, last_update_utc = @last_update_utc WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(lastUpdateUtc));
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    SqlServerDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -308,7 +217,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM missions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -343,8 +252,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
             using (SqlCommand cmd = conn.CreateCommand())
             {
                 cmd.CommandText = "UPDATE voyages SET last_update_utc = @last_update_utc WHERE id = @voyage_id;";
-                cmd.Parameters.AddWithValue("@voyage_id", voyageId);
-                cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(lastUpdateUtc));
+                StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
+                SqlServerDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
@@ -367,7 +276,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE voyage_id = @voyage_id ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -391,7 +300,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE vessel_id = @vessel_id ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
+                    StoredValueBinder.Value(cmd, "@vessel_id", vesselId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -415,7 +324,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE captain_id = @captain_id ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@captain_id", captainId);
+                    StoredValueBinder.Value(cmd, "@captain_id", captainId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -438,7 +347,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE status = @status ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -490,7 +399,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT status, COUNT(*) AS cnt FROM missions WHERE tenant_id = @tenantId GROUP BY status;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -518,7 +427,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = ActiveWorkFootprintQuery.CommandText(tenantScoped);
-                    if (tenantScoped) cmd.Parameters.AddWithValue(ActiveWorkFootprintQuery.TenantParameter, tenantId);
+                    if (tenantScoped) StoredValueBinder.Value(cmd, ActiveWorkFootprintQuery.TenantParameter, tenantId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         return await ActiveWorkFootprintQuery.ReadAsync(reader, token).ConfigureAwait(false);
@@ -541,7 +450,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText =
                         "SELECT id, title, status FROM missions " +
                         "WHERE vessel_id = @vessel_id AND status IN ('Assigned','InProgress');";
-                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
+                    StoredValueBinder.Value(cmd, "@vessel_id", vesselId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -574,7 +483,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM missions WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     int count = Convert.ToInt32(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
                     return count > 0;
                 }
@@ -593,8 +502,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -618,8 +527,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -637,7 +546,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -662,8 +571,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND voyage_id = @voyage_id ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -688,8 +597,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND vessel_id = @vessel_id ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@vessel_id", vesselId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -714,8 +623,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND captain_id = @captain_id ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@captain_id", captainId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@captain_id", captainId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -739,8 +648,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND status = @status ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -764,8 +673,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM missions WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     int count = Convert.ToInt32(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
                     return count > 0;
                 }
@@ -792,9 +701,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -819,9 +728,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -840,8 +749,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
