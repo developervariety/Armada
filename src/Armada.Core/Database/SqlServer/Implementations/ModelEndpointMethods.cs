@@ -122,13 +122,13 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         health_history_json = @health_history_json,
                         last_update_utc = @last_update_utc
                         WHERE id = @id AND last_update_utc = @expected_last_update_utc;";
-                    cmd.Parameters.AddWithValue("@id", endpoint.Id);
-                    cmd.Parameters.AddWithValue("@health_status", endpoint.HealthStatus.ToString());
+                    StoredValueBinder.Value(cmd, "@id", endpoint.Id);
+                    StoredValueBinder.Value(cmd, "@health_status", endpoint.HealthStatus.ToString());
                     SqlParameter lastHealthCheck = cmd.Parameters.Add("@last_health_check_utc", System.Data.SqlDbType.DateTime2);
                     lastHealthCheck.Value = endpoint.LastHealthCheckUtc.HasValue ? (object)endpoint.LastHealthCheckUtc.Value : DBNull.Value;
-                    cmd.Parameters.AddWithValue("@last_health_error", (object?)endpoint.LastHealthError ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_latency_ms", (object?)endpoint.LastLatencyMs ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json));
+                    StoredValueBinder.Value(cmd, "@last_health_error", endpoint.LastHealthError);
+                    StoredValueBinder.Value(cmd, "@last_latency_ms", endpoint.LastLatencyMs);
+                    StoredValueBinder.Value(cmd, "@health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json));
                     SqlParameter lastUpdate = cmd.Parameters.Add("@last_update_utc", System.Data.SqlDbType.DateTime2);
                     lastUpdate.Value = endpoint.LastUpdateUtc;
                     SqlParameter expectedLastUpdate = cmd.Parameters.Add("@expected_last_update_utc", System.Data.SqlDbType.DateTime2);
@@ -144,7 +144,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             return await ReadInternalAsync(
                 "SELECT TOP 1 * FROM model_endpoints WHERE id = @id;",
-                cmd => cmd.Parameters.AddWithValue("@id", id),
+                cmd => StoredValueBinder.Value(cmd, "@id", id),
                 token).ConfigureAwait(false);
         }
 
@@ -157,8 +157,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 "SELECT TOP 1 * FROM model_endpoints WHERE tenant_id = @tenant_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -173,9 +173,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 "SELECT TOP 1 * FROM model_endpoints WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -186,7 +186,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             await ExecuteDeleteAsync(
                 "DELETE FROM model_endpoints WHERE id = @id;",
-                cmd => cmd.Parameters.AddWithValue("@id", id),
+                cmd => StoredValueBinder.Value(cmd, "@id", id),
                 token).ConfigureAwait(false);
         }
 
@@ -199,8 +199,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 "DELETE FROM model_endpoints WHERE tenant_id = @tenant_id AND id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
         }
@@ -220,7 +220,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (String.IsNullOrWhiteSpace(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             return await EnumerateInternalAsync(
                 "SELECT * FROM model_endpoints WHERE tenant_id = @tenant_id ORDER BY created_utc DESC;",
-                cmd => cmd.Parameters.AddWithValue("@tenant_id", tenantId),
+                cmd => StoredValueBinder.Value(cmd, "@tenant_id", tenantId),
                 token).ConfigureAwait(false);
         }
 
@@ -233,8 +233,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 "SELECT * FROM model_endpoints WHERE tenant_id = @tenant_id AND user_id = @user_id ORDER BY created_utc DESC;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@user_id", userId);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", userId);
                 },
                 token).ConfigureAwait(false);
         }
@@ -264,7 +264,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM model_endpoints WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = Convert.ToInt64(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false) ?? 0L);
                     return count > 0;
                 }
@@ -332,26 +332,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
 
         private static void BindEndpoint(SqlCommand cmd, ModelEndpoint endpoint)
         {
-            cmd.Parameters.AddWithValue("@id", endpoint.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)endpoint.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)endpoint.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name", endpoint.Name);
-            cmd.Parameters.AddWithValue("@kind", endpoint.Kind.ToString());
-            cmd.Parameters.AddWithValue("@scope", endpoint.Scope.ToString());
-            cmd.Parameters.AddWithValue("@provider", endpoint.Provider.ToString());
-            cmd.Parameters.AddWithValue("@base_url", endpoint.BaseUrl);
-            cmd.Parameters.AddWithValue("@api_key", (object?)endpoint.ApiKey ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@model", (object?)endpoint.Model ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@dimensionality", endpoint.Dimensionality);
-            cmd.Parameters.AddWithValue("@timeout_ms", endpoint.TimeoutMs);
-            cmd.Parameters.AddWithValue("@enabled", endpoint.Enabled);
-            cmd.Parameters.AddWithValue("@health_status", endpoint.HealthStatus.ToString());
-            cmd.Parameters.AddWithValue("@last_health_check_utc", endpoint.LastHealthCheckUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(endpoint.LastHealthCheckUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_health_error", (object?)endpoint.LastHealthError ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_latency_ms", endpoint.LastLatencyMs.HasValue ? (object)endpoint.LastLatencyMs.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json));
-            cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(endpoint.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(endpoint.LastUpdateUtc));
+            ModelEndpointColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "model_endpoints"), endpoint);
         }
 
         #endregion

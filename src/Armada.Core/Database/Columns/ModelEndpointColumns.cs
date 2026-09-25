@@ -47,5 +47,35 @@ namespace Armada.Core.Database
             endpoint.LastUpdateUtc = row.Utc("last_update_utc");
             return endpoint;
         }
+
+        /// <summary>
+        /// Bind every stored model_endpoints column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the model_endpoints table.</param>
+        /// <param name="endpoint">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, ModelEndpoint endpoint)
+        {
+            parameters
+                .Text("id", endpoint.Id)
+                .Text("tenant_id", endpoint.TenantId)
+                .Text("user_id", endpoint.UserId)
+                .Text("name", endpoint.Name)
+                .Text("kind", endpoint.Kind.ToString())
+                .Text("scope", endpoint.Scope.ToString())
+                .Text("provider", endpoint.Provider.ToString())
+                .Text("base_url", endpoint.BaseUrl)
+                .Text("model", endpoint.Model)
+                .Int("dimensionality", endpoint.Dimensionality)
+                .Int("timeout_ms", endpoint.TimeoutMs)
+                .Bool("enabled", endpoint.Enabled)
+                .Text("api_key", endpoint.ApiKey)
+                .Text("health_status", endpoint.HealthStatus.ToString())
+                .Utc("last_health_check_utc", endpoint.LastHealthCheckUtc)
+                .Text("last_health_error", endpoint.LastHealthError)
+                .Long("last_latency_ms", endpoint.LastLatencyMs)
+                .Text("health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json))
+                .Utc("created_utc", endpoint.CreatedUtc)
+                .Utc("last_update_utc", endpoint.LastUpdateUtc);
+        }
     }
 }
