@@ -17,7 +17,7 @@ namespace Armada.Core.Database
     {
         private const int _MaximumBytes = 65536;
 
-        internal static void Read(DbDataReader reader, Mission mission)
+        internal static void Read(IDataRecord reader, Mission mission)
         {
             mission.AdmissionWriteRevision = Convert.ToInt64(reader["admission_revision"], CultureInfo.InvariantCulture);
             mission.AdmissionWriteStamp = reader["last_update_utc"];

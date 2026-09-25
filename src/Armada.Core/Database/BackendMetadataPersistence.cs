@@ -24,14 +24,6 @@ namespace Armada.Core.Database
             MissionOperatorHoldPersistence.Add(command, mission);
         }
 
-        internal static void ReadMission(DbDataReader reader, Mission mission)
-        {
-            MissionAdmissionPersistence.Read(reader, mission);
-            mission.Tier = ReadTier(reader["tier"]);
-            mission.RequestedCaptainId = NullableText(reader["requested_captain_id"]);
-            MissionOperatorHoldPersistence.Read(reader, mission);
-        }
-
         internal static void AddVoyage(DbCommand command, Voyage voyage)
         {
             Add(command, "source_planning_session_id", voyage.SourcePlanningSessionId);
@@ -59,17 +51,6 @@ namespace Armada.Core.Database
 
         private static List<string> ReadList(object value) => value == DBNull.Value ? new List<string>()
             : JsonSerializer.Deserialize<List<string>>((string)value) ?? throw new InvalidOperationException("Stored patterns must be a JSON array.");
-
-        private static string? NullableText(object value) => value == DBNull.Value ? null : (string)value;
-
-        private static CaptainTierEnum? ReadTier(object value)
-        {
-            if (value == DBNull.Value) return null;
-            string name = (string)value;
-            if (!Enum.TryParse(name, out CaptainTierEnum tier) || !Enum.IsDefined(tier) || tier.ToString() != name)
-                throw new InvalidOperationException("Stored captain tier is invalid.");
-            return tier;
-        }
 
         private static string? TierName(CaptainTierEnum? tier)
         {

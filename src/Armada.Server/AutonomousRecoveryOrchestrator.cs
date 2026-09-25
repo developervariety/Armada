@@ -2352,8 +2352,8 @@ namespace Armada.Server
         // which fires on every ~5s sweep tick for every cancelled-voyage failed candidate -- it is
         // NOT a cold path. Identify rescue missions via lightweight summaries (no description /
         // agent_output / diff_snapshot hydration) and then hydrate only the handful that actually
-        // match. Enumerating every fully-hydrated vessel/global mission here reintroduced the
-        // MissionFromReader allocation leak (dotMemory: 2.37 GB of strings per sweep window).
+        // match. Enumerating every fully-hydrated vessel/global mission here would allocate every
+        // mission's heavy text columns on each tick.
         private async Task<List<Mission>> EnumerateRescueMissionsAsync(Mission failedMission, CancellationToken token)
         {
             List<MissionSummary> rescueSummaries = await EnumerateRescueMissionSummariesAsync(failedMission, token).ConfigureAwait(false);

@@ -123,6 +123,13 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
+- **Missions read through a shared column reader:** the four provider copies
+  of the mission mapper become one reader, and the 24 columns read inside empty
+  catch blocks are read as present. On SQL Server the last recovery action time
+  is stored as `DATETIME2` and was re-parsed through host-local text, so it read
+  back shifted by the host's offset and without its sub-second digits; it now
+  reads as the stored UTC instant. Invalid stored prestaged-file JSON raises
+  `StoredRowException` instead of reading as no files.
 - **A captain that ends BLOCKED and keeps running is finished:** the stall
   nudge is withheld and the process is stopped after the terminal-marker grace
   period, so the stage fails with its question instead of being told to

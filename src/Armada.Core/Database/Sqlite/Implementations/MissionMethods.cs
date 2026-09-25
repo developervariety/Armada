@@ -131,7 +131,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.MissionFromReader(reader);
+                            return MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -154,7 +154,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.MissionFromReader(reader);
+                            return MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -357,7 +357,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -381,7 +381,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -405,7 +405,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -443,7 +443,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -466,7 +466,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -664,7 +664,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.MissionFromReader(reader);
+                            return MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -704,7 +704,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -742,7 +742,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -766,7 +766,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -790,7 +790,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -813,7 +813,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -857,7 +857,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return SqliteDatabaseDriver.MissionFromReader(reader);
+                            return MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -901,7 +901,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -970,7 +970,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(SqliteDatabaseDriver.MissionFromReader(reader));
+                            results.Add(MissionColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
                     }
                 }
 
@@ -1054,28 +1054,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             if (entries == null || entries.Count == 0) return null;
             return JsonSerializer.Serialize(entries);
-        }
-
-        /// <summary>
-        /// Deserialize prestaged files from a stored JSON column value. Returns
-        /// null on null/empty/'[]' input and never throws on bad data — a parse
-        /// failure is treated as "no entries" rather than a hard mission read
-        /// error, since this column is optional metadata.
-        /// </summary>
-        internal static List<PrestagedFile>? DeserializePrestagedFiles(object? raw)
-        {
-            if (raw == null || raw == DBNull.Value) return null;
-            string? json = raw.ToString();
-            if (String.IsNullOrWhiteSpace(json)) return null;
-            try
-            {
-                List<PrestagedFile>? list = JsonSerializer.Deserialize<List<PrestagedFile>>(json);
-                return (list != null && list.Count > 0) ? list : null;
-            }
-            catch
-            {
-                return null;
-            }
         }
 
         #endregion

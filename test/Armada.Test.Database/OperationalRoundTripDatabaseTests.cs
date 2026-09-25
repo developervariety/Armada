@@ -1648,6 +1648,135 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyMissionsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? missionId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("mission-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "mission-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "mission-round-trip", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "mission-round-trip", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "mission-round-trip", token).ConfigureAwait(false);
+                Voyage voyage = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "mission-round-trip", token).ConfigureAwait(false);
+                Mission parent = await fixture.CreateMissionAsync(tenant.Id, user.Id, voyage.Id, vessel.Id, captain.Id, "mission-round-trip-parent", token).ConfigureAwait(false);
+                Dock dock = await fixture.CreateDockAsync(tenant.Id, user.Id, vessel.Id, captain.Id, token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+
+                // Sub-second digits and a date far from the host's daylight-saving rules make a host-offset read visible.
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                Mission mission = new Mission("Round-trip mission ユニコード", "Mission description ユニコード")
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    VoyageId = voyage.Id,
+                    VesselId = vessel.Id,
+                    CaptainId = captain.Id,
+                    Status = MissionStatusEnum.Testing,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage,
+                    Priority = 7,
+                    ParentMissionId = parent.Id,
+                    BranchName = "armada/round-trip-" + suffix,
+                    DockId = dock.Id,
+                    ProcessId = 424242,
+                    PrUrl = "https://example.test/pull/1",
+                    CommitHash = "0123456789abcdef0123456789abcdef01234567",
+                    DiffSnapshot = "diff --git a/file b/file\n+ユニコード",
+                    AgentOutput = "Agent output ユニコード",
+                    Persona = "Judge",
+                    RequestedCaptainId = captain.Id,
+                    Tier = CaptainTierEnum.Premium,
+                    DependsOnMissionId = parent.Id,
+                    StageOrder = 3,
+                    PreferredModel = "high",
+                    CapabilityHint = "review",
+                    Mode = MissionModeEnum.Audit,
+                    FailureReason = "Failure reason ユニコード",
+                    ReconciledUtc = baseUtc.AddMinutes(1),
+                    ReconciledReason = "Reconciled reason",
+                    HeldForOperatorReview = true,
+                    HeldForOperatorReviewReason = "Held reason ユニコード",
+                    RequiresReview = true,
+                    ReviewDenyAction = ReviewDenyActionEnum.FailPipeline,
+                    ReviewComment = "Review comment ユニコード",
+                    ReviewedByUserId = user.Id,
+                    ReviewRequestedUtc = baseUtc.AddMinutes(2),
+                    ReviewedUtc = baseUtc.AddMinutes(3),
+                    PrestagedFiles = new List<PrestagedFile> { PrestagedFile.FromContent("input/ユニコード.txt", "prestaged input") },
+                    CreatedUtc = baseUtc.AddMinutes(-5),
+                    RecoveryAttempts = 2,
+                    LandingRetryCount = 3,
+                    StartFromRef = "refs/heads/accepted-" + suffix,
+                    RetrySkipCaptainIds = "cpt_a_" + suffix + ",cpt_b_" + suffix,
+                    LastRecoveryActionUtc = baseUtc.AddMinutes(4)
+                };
+                // The start time is set after the identifier, because a new identifier clears it.
+                mission.ProcessStartedUtc = baseUtc.AddMinutes(-4);
+                mission.StartedUtc = baseUtc.AddMinutes(-3);
+                mission.CompletedUtc = baseUtc;
+                Mission created = await _Driver.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                missionId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Missions.ReadAsync(created.Id, token).ConfigureAwait(false), "Mission");
+                DatabaseAssert.AllProperties(created, await _Driver.Missions.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Mission by tenant");
+                DatabaseAssert.AllProperties(created, await _Driver.Missions.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "Mission by tenant and user");
+                List<Mission> byVoyage = await _Driver.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(created, byVoyage.Find(item => item.Id == created.Id), "Mission by voyage");
+                EnumerationResult<Mission> page = await _Driver.Missions.EnumerateAsync(tenant.Id, user.Id, new EnumerationQuery { PageSize = 100 }, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(created, page.Objects.Find(item => item.Id == created.Id), "Enumerated Mission");
+
+                created.Description = null;
+                created.Status = MissionStatusEnum.Pending;
+                created.AssignmentState = MissionAssignmentStateEnum.Pending;
+                created.ParentMissionId = null;
+                created.BranchName = null;
+                created.DockId = null;
+                created.ProcessId = null;
+                created.PrUrl = null;
+                created.CommitHash = null;
+                created.DiffSnapshot = null;
+                created.AgentOutput = null;
+                created.Persona = null;
+                created.RequestedCaptainId = null;
+                created.Tier = null;
+                created.DependsOnMissionId = null;
+                created.StageOrder = null;
+                created.PreferredModel = null;
+                created.CapabilityHint = null;
+                created.Mode = MissionModeEnum.Implementation;
+                created.FailureReason = null;
+                created.ReconciledUtc = null;
+                created.ReconciledReason = null;
+                created.HeldForOperatorReview = false;
+                created.HeldForOperatorReviewReason = null;
+                created.RequiresReview = false;
+                created.ReviewDenyAction = ReviewDenyActionEnum.RetryStage;
+                created.ReviewComment = null;
+                created.ReviewedByUserId = null;
+                created.ReviewRequestedUtc = null;
+                created.ReviewedUtc = null;
+                created.PrestagedFiles = null;
+                created.StartedUtc = null;
+                created.CompletedUtc = null;
+                created.TotalRuntimeMs = null;
+                created.RecoveryAttempts = 0;
+                created.LandingRetryCount = 0;
+                created.StartFromRef = null;
+                created.RetrySkipCaptainIds = null;
+                created.LastRecoveryActionUtc = null;
+                Mission updated = await _Driver.Missions.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Missions.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Mission");
+                }
+            }
+            finally
+            {
+                if (missionId != null && !_NoCleanup) await _Driver.Missions.DeleteAsync(missionId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

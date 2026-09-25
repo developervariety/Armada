@@ -71,17 +71,6 @@ namespace Armada.Core.Database
             command.Parameters.Add(reason);
         }
 
-        /// <summary>Read the hold from a mission row.</summary>
-        /// <param name="reader">Reader positioned on a mission row that selects the hold columns.</param>
-        /// <param name="mission">Mission to populate.</param>
-        internal static void Read(DbDataReader reader, Mission mission)
-        {
-            object held = reader[HeldColumn];
-            mission.HeldForOperatorReview = held != DBNull.Value && Convert.ToBoolean(held);
-            object reason = reader[ReasonColumn];
-            mission.HeldForOperatorReviewReason = mission.HeldForOperatorReview && reason != DBNull.Value ? (string)reason : null;
-        }
-
         #endregion
     }
 }
