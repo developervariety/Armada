@@ -1963,6 +1963,128 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyObjectivesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? objectiveId = null;
+            string? pipelineId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("objective-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "objective-round-trip", token: token).ConfigureAwait(false);
+                Objective parent = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "objective-round-trip-parent", token: token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+                Pipeline pipeline = await _Driver.Pipelines.CreateAsync(new Pipeline
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Name = "ObjectiveRoundTripPipeline" + suffix,
+                    Stages = new List<PipelineStage> { new PipelineStage { Order = 1, PersonaName = "Worker" } }
+                }, token).ConfigureAwait(false);
+                pipelineId = pipeline.Id;
+
+                // Sub-second digits and a date far from the host's daylight-saving rules make a host-offset read visible.
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                Objective objective = new Objective
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    Title = "Round-trip objective ユニコード",
+                    Description = "Objective description ユニコード",
+                    Status = ObjectiveStatusEnum.Blocked,
+                    AutoDispatchEnabled = true,
+                    Kind = ObjectiveKindEnum.Research,
+                    Category = "Category " + suffix,
+                    Priority = ObjectivePriorityEnum.P0,
+                    Rank = 42,
+                    BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                    Effort = ObjectiveEffortEnum.XL,
+                    Owner = "owner-" + suffix,
+                    TargetVersion = "9.8.7",
+                    DueUtc = baseUtc.AddDays(3),
+                    ParentObjectiveId = parent.Id,
+                    BlockedByObjectiveIds = new List<string> { parent.Id },
+                    RefinementSummary = "Refinement summary ユニコード",
+                    Preparation = new ObjectivePreparation
+                    {
+                        Source = new ObjectivePreparationAnchor { Ref = "refs/heads/source-" + suffix, ResolvedCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+                    },
+                    SuggestedPipelineId = pipeline.Id,
+                    StartFromRef = "refs/heads/start-" + suffix,
+                    SuggestedPlaybooks = new List<SelectedPlaybook> { new SelectedPlaybook { PlaybookId = "pbk_" + suffix } },
+                    RefinementSessionIds = new List<string> { "ors_" + suffix },
+                    Tags = new List<string> { "tag-ユニコード" },
+                    AcceptanceCriteria = new List<string> { "criterion" },
+                    NonGoals = new List<string> { "non-goal" },
+                    RolloutConstraints = new List<string> { "constraint" },
+                    EvidenceLinks = new List<string> { "https://example.test/evidence" },
+                    FleetIds = new List<string> { "flt_" + suffix },
+                    VesselIds = new List<string> { "vsl_" + suffix },
+                    PlanningSessionIds = new List<string> { "pls_" + suffix },
+                    VoyageIds = new List<string> { "vyg_" + suffix },
+                    MissionIds = new List<string> { "msn_" + suffix },
+                    CheckRunIds = new List<string> { "chk_" + suffix },
+                    ReleaseIds = new List<string> { "rel_" + suffix },
+                    DeploymentIds = new List<string> { "dpl_" + suffix },
+                    IncidentIds = new List<string> { "inc_" + suffix },
+                    SourceProvider = "provider",
+                    SourceType = "issue",
+                    SourceId = "source-" + suffix,
+                    SourceUrl = "https://example.test/source/" + suffix,
+                    SourceUpdatedUtc = baseUtc.AddMinutes(-1),
+                    CreatedUtc = baseUtc.AddMinutes(-5),
+                    LastUpdateUtc = baseUtc.AddMinutes(-4),
+                    CompletedUtc = baseUtc
+                };
+                Objective created = await _Driver.Objectives.CreateAsync(objective, token).ConfigureAwait(false);
+                objectiveId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.Objectives.ReadAsync(created.Id, token).ConfigureAwait(false), "Objective");
+                DatabaseAssert.AllProperties(created, await _Driver.Objectives.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Objective by tenant");
+                DatabaseAssert.AllProperties(created, await _Driver.Objectives.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "Objective by tenant and user");
+                List<Objective> listed = await _Driver.Objectives.EnumerateAsync(tenant.Id, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(created, listed.Find(item => item.Id == created.Id), "Enumerated Objective");
+
+                created.Description = null;
+                created.Status = ObjectiveStatusEnum.Draft;
+                created.AutoDispatchEnabled = false;
+                created.Kind = ObjectiveKindEnum.Feature;
+                created.Category = null;
+                created.Priority = ObjectivePriorityEnum.P2;
+                created.Rank = 0;
+                created.BacklogState = ObjectiveBacklogStateEnum.Inbox;
+                created.Effort = ObjectiveEffortEnum.M;
+                created.Owner = null;
+                created.TargetVersion = null;
+                created.DueUtc = null;
+                created.ParentObjectiveId = null;
+                created.BlockedByObjectiveIds = new List<string>();
+                created.RefinementSummary = null;
+                created.Preparation = new ObjectivePreparation();
+                created.SuggestedPipelineId = null;
+                created.StartFromRef = null;
+                created.SuggestedPlaybooks = new List<SelectedPlaybook>();
+                created.RefinementSessionIds = new List<string>();
+                created.Tags = new List<string>();
+                created.SourceProvider = null;
+                created.SourceType = null;
+                created.SourceId = null;
+                created.SourceUrl = null;
+                created.SourceUpdatedUtc = null;
+                created.CompletedUtc = null;
+                Objective updated = await _Driver.Objectives.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.Objectives.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Objective");
+                }
+            }
+            finally
+            {
+                if (objectiveId != null && !_NoCleanup) await _Driver.Objectives.DeleteAsync(objectiveId, token).ConfigureAwait(false);
+                if (pipelineId != null && !_NoCleanup) await _Driver.Pipelines.DeleteAsync(pipelineId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

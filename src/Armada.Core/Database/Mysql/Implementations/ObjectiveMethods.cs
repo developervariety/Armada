@@ -256,7 +256,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return ObjectiveFromReader(reader);
+                            return ObjectiveColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -277,7 +277,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         results.AddRange(await ObjectivePersistenceHelper.ReadRowsAsync(
-                            reader, () => ObjectiveFromReader(reader), _Logging, token).ConfigureAwait(false));
+                            reader, () => ObjectiveColumns.Read(reader, MysqlDatabaseDriver.StoredValues), _Logging, token).ConfigureAwait(false));
                     }
                 }
             }
@@ -349,63 +349,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(objective.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(objective.LastUpdateUtc));
             cmd.Parameters.AddWithValue("@completed_utc", objective.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(objective.CompletedUtc.Value) : DBNull.Value);
-        }
-
-        private static Objective ObjectiveFromReader(MySqlDataReader reader)
-        {
-            string id = reader["id"].ToString()!;
-            Objective objective = new Objective
-            {
-                Id = id,
-                TenantId = MysqlDatabaseDriver.NullableString(reader["tenant_id"]),
-                UserId = MysqlDatabaseDriver.NullableString(reader["user_id"]),
-                Title = reader["title"].ToString()!,
-                Description = MysqlDatabaseDriver.NullableString(reader["description"]),
-                Status = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["status"], ObjectiveStatusEnum.Draft, id, "status"),
-                Kind = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["kind"], ObjectiveKindEnum.Feature, id, "kind"),
-                Category = MysqlDatabaseDriver.NullableString(reader["category"]),
-                Priority = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["priority"], ObjectivePriorityEnum.P2, id, "priority"),
-                Rank = MysqlDatabaseDriver.NullableInt(reader["rank"]) ?? 0,
-                AutoDispatchEnabled = reader["auto_dispatch_enabled"] != DBNull.Value && Convert.ToBoolean(reader["auto_dispatch_enabled"]),
-                BacklogState = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["backlog_state"], ObjectiveBacklogStateEnum.Inbox, id, "backlog_state"),
-                Effort = ObjectivePersistenceHelper.ParseObjectiveEnum(reader["effort"], ObjectiveEffortEnum.M, id, "effort"),
-                Owner = MysqlDatabaseDriver.NullableString(reader["owner"]),
-                TargetVersion = MysqlDatabaseDriver.NullableString(reader["target_version"]),
-                DueUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["due_utc"]),
-                ParentObjectiveId = MysqlDatabaseDriver.NullableString(reader["parent_objective_id"]),
-                RefinementSummary = MysqlDatabaseDriver.NullableString(reader["refinement_summary"]),
-                StartFromRef = MysqlDatabaseDriver.NullableString(reader["start_from_ref"]),
-                SuggestedPipelineId = MysqlDatabaseDriver.NullableString(reader["suggested_pipeline_id"]),
-                SourceProvider = MysqlDatabaseDriver.NullableString(reader["source_provider"]),
-                SourceType = MysqlDatabaseDriver.NullableString(reader["source_type"]),
-                SourceId = MysqlDatabaseDriver.NullableString(reader["source_id"]),
-                SourceUrl = MysqlDatabaseDriver.NullableString(reader["source_url"]),
-                SourceUpdatedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["source_updated_utc"]),
-                CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
-                LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]),
-                CompletedUtc = MysqlDatabaseDriver.FromIso8601Nullable(reader["completed_utc"])
-            };
-
-            objective.BlockedByObjectiveIds = ObjectivePersistenceHelper.DeserializeList(reader["blocked_by_objective_ids_json"], id, "blocked_by_objective_ids_json");
-            objective.Preparation = ObjectivePersistenceHelper.DeserializePreparation(reader["preparation_json"], id, "preparation_json");
-            objective.SuggestedPlaybooks = ObjectivePersistenceHelper.DeserializePlaybooks(reader["suggested_playbooks_json"], id, "suggested_playbooks_json");
-            objective.Tags = ObjectivePersistenceHelper.DeserializeList(reader["tags_json"], id, "tags_json");
-            objective.AcceptanceCriteria = ObjectivePersistenceHelper.DeserializeList(reader["acceptance_criteria_json"], id, "acceptance_criteria_json");
-            objective.NonGoals = ObjectivePersistenceHelper.DeserializeList(reader["non_goals_json"], id, "non_goals_json");
-            objective.RolloutConstraints = ObjectivePersistenceHelper.DeserializeList(reader["rollout_constraints_json"], id, "rollout_constraints_json");
-            objective.EvidenceLinks = ObjectivePersistenceHelper.DeserializeList(reader["evidence_links_json"], id, "evidence_links_json");
-            objective.FleetIds = ObjectivePersistenceHelper.DeserializeList(reader["fleet_ids_json"], id, "fleet_ids_json");
-            objective.VesselIds = ObjectivePersistenceHelper.DeserializeList(reader["vessel_ids_json"], id, "vessel_ids_json");
-            objective.PlanningSessionIds = ObjectivePersistenceHelper.DeserializeList(reader["planning_session_ids_json"], id, "planning_session_ids_json");
-            objective.RefinementSessionIds = ObjectivePersistenceHelper.DeserializeList(reader["refinement_session_ids_json"], id, "refinement_session_ids_json");
-            objective.VoyageIds = ObjectivePersistenceHelper.DeserializeList(reader["voyage_ids_json"], id, "voyage_ids_json");
-            objective.MissionIds = ObjectivePersistenceHelper.DeserializeList(reader["mission_ids_json"], id, "mission_ids_json");
-            objective.CheckRunIds = ObjectivePersistenceHelper.DeserializeList(reader["check_run_ids_json"], id, "check_run_ids_json");
-            objective.ReleaseIds = ObjectivePersistenceHelper.DeserializeList(reader["release_ids_json"], id, "release_ids_json");
-            objective.DeploymentIds = ObjectivePersistenceHelper.DeserializeList(reader["deployment_ids_json"], id, "deployment_ids_json");
-            objective.IncidentIds = ObjectivePersistenceHelper.DeserializeList(reader["incident_ids_json"], id, "incident_ids_json");
-            objective.NormalizeTenancy();
-            return objective;
         }
     }
 }

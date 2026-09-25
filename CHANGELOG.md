@@ -123,6 +123,10 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
+- **Objectives read through a shared column reader:** the four provider copies
+  of the objective mapper become one reader. A stored value that cannot be
+  read, including a timestamp, raises `StoredObjectiveDataException` naming the
+  objective and field, so a list read skips and reports that row as before.
 - **Merge entries read through a shared column reader:** the four provider
   copies of the merge-entry mapper, and the separate audit-column reader,
   become one reader, and the six columns read inside empty catch blocks are
