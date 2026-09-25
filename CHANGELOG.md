@@ -100,6 +100,20 @@ upstream integrations and excludes changes already present at that baseline.
   check-run and release tools, every listed tool (not only `armada_` tools)
   needs a description, an input schema and a unique name, the merge-queue tool
   case waits for its job, and the empty mission list must deserialize.
+- **One method set per table serves all four database providers:** check runs,
+  deployments, deployment environments, releases, workflow profiles, token
+  usage, request history, prompt templates, model endpoints, memories, skills
+  and project profiles each have a single implementation built on a table
+  descriptor (name, key, columns, reader, writer), a scope filter, and a
+  provider dialect for first-row, any-row and paged reads. Scope conditions keep
+  their text, order and parameter names on every provider, stored forms do not
+  change, and no migration runs. Writes that compare and set or span tables (the
+  model-endpoint health write, the versioned memory update, memory tags, request
+  history detail) stay in their method set. Every paged read binds its page size
+  and offset and reads 25 rows for an empty page size, and a creation-time bound
+  without a kind reads as UTC on every provider, including PostgreSQL check runs,
+  deployments and releases.
+
 - **Dispatch refuses a captain assignment the captain can never take:** a
   `captainAssignments` entry whose captain's `AllowedPersonas`, runtime or tier
   excludes the stage persona, or whose captain is absent, in another tenant or
