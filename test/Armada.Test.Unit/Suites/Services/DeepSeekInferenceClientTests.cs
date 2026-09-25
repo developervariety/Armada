@@ -58,6 +58,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("user message", body.Messages[1].Content);
             });
 
+            await RunTest("CompleteAsync without a model makes no request", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"choices\":[{\"message\":{\"content\":\"summary text\"}}]}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    SummarizerApiBaseUrl = "https://chat.example.test"
+                };
+                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http);
+
+                string result = await client.CompleteAsync("system prompt", "user message").ConfigureAwait(false);
+
+                AssertEqual(string.Empty, result);
+                AssertNull(handler.LastRequest, "no request is sent without a model");
+            });
+
             await RunTest("CompleteAsync_500Response_ReturnsEmptyString", async () =>
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
@@ -66,6 +84,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "test-inference-key"
@@ -88,6 +107,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
@@ -112,6 +132,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
@@ -135,6 +156,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://embed.example.com",
                     SummarizerApiBaseUrl = string.Empty,
                     SummarizerApiKey = "k"
@@ -155,6 +177,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     EmbeddingApiKey = "embed-fallback-key",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
@@ -178,6 +201,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     EmbeddingApiKey = string.Empty,
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
@@ -200,6 +224,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com/",
                     SummarizerApiKey = "k"
@@ -219,6 +244,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
@@ -237,6 +263,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com"
                 };
@@ -259,6 +286,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
@@ -278,6 +306,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
@@ -297,6 +326,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
@@ -316,6 +346,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
@@ -343,6 +374,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
+                    SummarizerModel = "example-chat-model",
                     EmbeddingApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k",

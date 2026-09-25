@@ -220,7 +220,8 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Summarizer model name.
+        /// Summarizer model name. Empty by default: the HTTP inference client makes no summarizer call until a
+        /// model is named.
         /// </summary>
         public string SummarizerModel
         {
@@ -668,7 +669,7 @@ namespace Armada.Core.Settings
         private double _LexicalWeight = 0.3;
         private string _InferenceClient = "Http";
         private OpenCodeServerSettings _OpenCodeServer = new OpenCodeServerSettings();
-        private string _SummarizerModel = "deepseek-chat";
+        private string _SummarizerModel = string.Empty;
         private string _SummarizerApiBaseUrl = string.Empty;
         private string _SummarizerApiKey = string.Empty;
         private int _SummarizerTimeoutSeconds = 10;

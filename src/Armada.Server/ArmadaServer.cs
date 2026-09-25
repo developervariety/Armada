@@ -1186,6 +1186,17 @@ namespace Armada.Server
                 warnings.Add("SummarizerApiKey is configured but UseSummarizer=false; summarization will not run. Set CodeIndex:UseSummarizer=true to enable.");
             }
 
+            bool httpInference = !CodeIndexInferenceClientFactory.IsOpenCodeServerMode(settings.InferenceClient);
+            if (settings.UseSummarizer && httpInference && String.IsNullOrWhiteSpace(settings.SummarizerModel))
+            {
+                warnings.Add("UseSummarizer=true but SummarizerModel is empty; summarization will not run. Set CodeIndex:SummarizerModel to a chat model.");
+            }
+
+            if (settings.UseSummarizer && httpInference && String.IsNullOrWhiteSpace(settings.SummarizerApiBaseUrl))
+            {
+                warnings.Add("UseSummarizer=true but SummarizerApiBaseUrl is empty; summarizer calls go to the embedding endpoint, which may not serve chat completions. Set CodeIndex:SummarizerApiBaseUrl to a chat endpoint.");
+            }
+
             return warnings;
         }
 

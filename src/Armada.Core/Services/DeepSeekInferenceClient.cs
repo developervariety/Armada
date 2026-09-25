@@ -21,6 +21,7 @@ namespace Armada.Core.Services
     {
         #region Private-Members
 
+        private int _MissingModelWarned = 0;
         private const string _Header = "[DeepSeekInferenceClient] ";
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -63,6 +64,14 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken token = default)
         {
+            // A completion needs a named model; without one the call is skipped and said so, never sent.
+            if (String.IsNullOrWhiteSpace(_Settings.SummarizerModel))
+            {
+                if (Interlocked.Exchange(ref _MissingModelWarned, 1) == 0)
+                    _Logging.Warn(_Header + "completion skipped: CodeIndex:SummarizerModel is empty");
+                return string.Empty;
+            }
+
             const int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {

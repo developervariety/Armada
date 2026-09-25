@@ -114,10 +114,25 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     EmbeddingApiKey = "configured",
                     SummarizerApiKey = "configured",
+                    SummarizerModel = "example-chat-model",
+                    SummarizerApiBaseUrl = "https://chat.example.test",
                     UseSemanticSearch = true,
                     UseSummarizer = true
                 };
                 AssertEqual(0, ArmadaServer.BuildCodeIndexConfigurationWarnings(allOn).Count);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ArmadaServer warns when the summarizer is on without a model or a chat endpoint", () =>
+            {
+                CodeIndexSettings unnamed = new CodeIndexSettings { SummarizerApiKey = "configured", UseSummarizer = true };
+                IReadOnlyList<string> warnings = ArmadaServer.BuildCodeIndexConfigurationWarnings(unnamed);
+                AssertTrue(warnings.Any(w => w.Contains("SummarizerModel is empty", StringComparison.Ordinal)), "an unnamed model is reported");
+                AssertTrue(warnings.Any(w => w.Contains("SummarizerApiBaseUrl is empty", StringComparison.Ordinal)), "a missing chat endpoint is reported");
+
+                CodeIndexSettings openCode = new CodeIndexSettings { UseSummarizer = true, InferenceClient = "OpenCodeServer" };
+                AssertFalse(ArmadaServer.BuildCodeIndexConfigurationWarnings(openCode).Any(w => w.Contains("Summarizer", StringComparison.Ordinal)),
+                    "the OpenCode server client names its own model");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

@@ -30,7 +30,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertFalse(settings.UseSummarizer, "UseSummarizer default must be false");
                 AssertEqual("Http", settings.InferenceClient);
-                AssertEqual("deepseek-chat", settings.SummarizerModel);
+                AssertEqual(string.Empty, settings.SummarizerModel, "no vendor model is named by default");
                 AssertEqual(string.Empty, settings.SummarizerApiBaseUrl);
                 AssertEqual(string.Empty, settings.SummarizerApiKey);
                 AssertEqual(2048, settings.MaxSummaryOutputTokens);
