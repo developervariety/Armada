@@ -17,8 +17,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #region Private-Members
 
         private readonly NpgsqlDataSource _DataSource;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
-
         #endregion
 
         #region Constructors-and-Factories
@@ -59,14 +57,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                             display_name = EXCLUDED.display_name,
                             last_seen_utc = EXCLUDED.last_seen_utc,
                             last_update_utc = EXCLUDED.last_update_utc;";
-                    cmd.Parameters.AddWithValue("@id", participant.Id);
-                    cmd.Parameters.AddWithValue("@coordination_room_id", participant.CoordinationRoomId);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)participant.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@participant_key", participant.ParticipantKey);
-                    cmd.Parameters.AddWithValue("@display_name", participant.DisplayName);
-                    cmd.Parameters.AddWithValue("@last_seen_utc", ToIso8601(participant.LastSeenUtc));
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(participant.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(participant.LastUpdateUtc));
+                    CoordinationParticipantColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_participants"), participant);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -89,8 +80,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM coordination_participants WHERE coordination_room_id = @coordination_room_id AND last_seen_utc >= @cutoff ORDER BY last_seen_utc DESC;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
-                    cmd.Parameters.AddWithValue("@cutoff", ToIso8601(cutoff));
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_participants").Utc("@cutoff", "last_seen_utc", cutoff);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -115,7 +106,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM coordination_participants WHERE coordination_room_id = @coordination_room_id ORDER BY last_seen_utc DESC;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -138,7 +129,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM coordination_participants WHERE participant_key = @participant_key ORDER BY last_seen_utc DESC LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@participant_key", participantKey);
+                    StoredValueBinder.Value(cmd, "@participant_key", participantKey);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -161,8 +152,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM coordination_participants WHERE coordination_room_id = @coordination_room_id AND last_seen_utc < @older_than_utc;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
-                    cmd.Parameters.AddWithValue("@older_than_utc", ToIso8601(olderThanUtc));
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_participants").Utc("@older_than_utc", "last_seen_utc", olderThanUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -179,7 +170,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "DELETE FROM coordination_participants WHERE coordination_room_id = @coordination_room_id;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -187,13 +178,5 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         #endregion
 
-        #region Private-Methods
-
-        private static string ToIso8601(DateTime dt)
-        {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        #endregion
     }
 }

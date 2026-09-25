@@ -45,18 +45,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         (id, coordination_room_id, tenant_id, participant_key, display_name, subject_type, subject_id, note, status, expires_utc, created_utc, last_update_utc)
                         VALUES
                         (@id, @coordination_room_id, @tenant_id, @participant_key, @display_name, @subject_type, @subject_id, @note, @status, @expires_utc, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", claim.Id);
-                    cmd.Parameters.AddWithValue("@coordination_room_id", claim.CoordinationRoomId);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)claim.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@participant_key", claim.ParticipantKey);
-                    cmd.Parameters.AddWithValue("@display_name", claim.DisplayName);
-                    cmd.Parameters.AddWithValue("@subject_type", claim.SubjectType.ToString());
-                    cmd.Parameters.AddWithValue("@subject_id", claim.SubjectId);
-                    cmd.Parameters.AddWithValue("@note", (object?)claim.Note ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", claim.Status.ToString());
-                    cmd.Parameters.AddWithValue("@expires_utc", SqliteDatabaseDriver.ToIso8601(claim.ExpiresUtc));
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(claim.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(claim.LastUpdateUtc));
+                    CoordinationClaimColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_claims"), claim);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -75,7 +64,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_claims WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -110,17 +99,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         expires_utc = @expires_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", claim.Id);
-                    cmd.Parameters.AddWithValue("@coordination_room_id", claim.CoordinationRoomId);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)claim.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@participant_key", claim.ParticipantKey);
-                    cmd.Parameters.AddWithValue("@display_name", claim.DisplayName);
-                    cmd.Parameters.AddWithValue("@subject_type", claim.SubjectType.ToString());
-                    cmd.Parameters.AddWithValue("@subject_id", claim.SubjectId);
-                    cmd.Parameters.AddWithValue("@note", (object?)claim.Note ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", claim.Status.ToString());
-                    cmd.Parameters.AddWithValue("@expires_utc", SqliteDatabaseDriver.ToIso8601(claim.ExpiresUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(claim.LastUpdateUtc));
+                    CoordinationClaimColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_claims"), claim);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -148,9 +127,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = sql;
-                    cmd.Parameters.AddWithValue("@now", SqliteDatabaseDriver.ToIso8601(DateTime.UtcNow));
-                    if (subjectType.HasValue) cmd.Parameters.AddWithValue("@subject_type", subjectType.Value.ToString());
-                    if (subjectType.HasValue && !String.IsNullOrEmpty(subjectId)) cmd.Parameters.AddWithValue("@subject_id", subjectId!);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_claims").Utc("@now", "expires_utc", DateTime.UtcNow);
+                    if (subjectType.HasValue) StoredValueBinder.Value(cmd, "@subject_type", subjectType.Value.ToString());
+                    if (subjectType.HasValue && !String.IsNullOrEmpty(subjectId)) StoredValueBinder.Value(cmd, "@subject_id", subjectId!);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -180,10 +159,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
                           AND participant_key = @participant_key
                           AND status = 'Active'
                           AND expires_utc > @now;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
-                    cmd.Parameters.AddWithValue("@participant_key", participantKey);
-                    cmd.Parameters.AddWithValue("@new_expires_utc", SqliteDatabaseDriver.ToIso8601(newExpiresUtc));
-                    cmd.Parameters.AddWithValue("@now", SqliteDatabaseDriver.ToIso8601(DateTime.UtcNow));
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
+                    StoredValueBinder.Value(cmd, "@participant_key", participantKey);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_claims").Utc("@new_expires_utc", "expires_utc", newExpiresUtc);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_claims").Utc("@now", "expires_utc", DateTime.UtcNow);
                     return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }

@@ -54,14 +54,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             display_name = excluded.display_name,
                             last_seen_utc = excluded.last_seen_utc,
                             last_update_utc = excluded.last_update_utc;";
-                    cmd.Parameters.AddWithValue("@id", participant.Id);
-                    cmd.Parameters.AddWithValue("@coordination_room_id", participant.CoordinationRoomId);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)participant.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@participant_key", participant.ParticipantKey);
-                    cmd.Parameters.AddWithValue("@display_name", participant.DisplayName);
-                    cmd.Parameters.AddWithValue("@last_seen_utc", SqliteDatabaseDriver.ToIso8601(participant.LastSeenUtc));
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(participant.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(participant.LastUpdateUtc));
+                    CoordinationParticipantColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_participants"), participant);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -84,8 +77,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_participants WHERE coordination_room_id = @coordination_room_id AND last_seen_utc >= @cutoff ORDER BY last_seen_utc DESC;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
-                    cmd.Parameters.AddWithValue("@cutoff", SqliteDatabaseDriver.ToIso8601(cutoff));
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_participants").Utc("@cutoff", "last_seen_utc", cutoff);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -110,7 +103,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_participants WHERE coordination_room_id = @coordination_room_id ORDER BY last_seen_utc DESC;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -133,7 +126,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_participants WHERE participant_key = @participant_key ORDER BY last_seen_utc DESC LIMIT 1;";
-                    cmd.Parameters.AddWithValue("@participant_key", participantKey);
+                    StoredValueBinder.Value(cmd, "@participant_key", participantKey);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -156,8 +149,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_participants WHERE coordination_room_id = @coordination_room_id AND last_seen_utc < @older_than_utc;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
-                    cmd.Parameters.AddWithValue("@older_than_utc", SqliteDatabaseDriver.ToIso8601(olderThanUtc));
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_participants").Utc("@older_than_utc", "last_seen_utc", olderThanUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -174,7 +167,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_participants WHERE coordination_room_id = @coordination_room_id;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }

@@ -30,5 +30,23 @@ namespace Armada.Core.Database
                 LastUpdateUtc = row.Utc("last_update_utc")
             };
         }
+
+        /// <summary>
+        /// Bind every stored coordination_rooms column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the coordination_rooms table.</param>
+        /// <param name="room">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, CoordinationRoom room)
+        {
+            parameters
+                .Text("id", room.Id)
+                .Text("tenant_id", room.TenantId)
+                .Text("user_id", room.UserId)
+                .Text("key", room.Key)
+                .Text("name", room.Name)
+                .Text("description", room.Description)
+                .Utc("created_utc", room.CreatedUtc)
+                .Utc("last_update_utc", room.LastUpdateUtc);
+        }
     }
 }

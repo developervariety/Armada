@@ -44,14 +44,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         (id, tenant_id, user_id, key, name, description, created_utc, last_update_utc)
                         VALUES
                         (@id, @tenant_id, @user_id, @key, @name, @description, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", room.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)room.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)room.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@key", room.Key);
-                    cmd.Parameters.AddWithValue("@name", room.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)room.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(room.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(room.LastUpdateUtc));
+                    CoordinationRoomColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_rooms"), room);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -70,7 +63,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_rooms WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -93,7 +86,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM coordination_rooms WHERE key = @key;";
-                    cmd.Parameters.AddWithValue("@key", key);
+                    StoredValueBinder.Value(cmd, "@key", key);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -124,13 +117,13 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         description = @description,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", room.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)room.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)room.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@key", room.Key);
-                    cmd.Parameters.AddWithValue("@name", room.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)room.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(room.LastUpdateUtc));
+                    StoredValueBinder.Value(cmd, "@id", room.Id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", room.TenantId);
+                    StoredValueBinder.Value(cmd, "@user_id", room.UserId);
+                    StoredValueBinder.Value(cmd, "@key", room.Key);
+                    StoredValueBinder.Value(cmd, "@name", room.Name);
+                    StoredValueBinder.Value(cmd, "@description", room.Description);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_rooms").Utc("@last_update_utc", "last_update_utc", room.LastUpdateUtc);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -149,7 +142,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_rooms WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }

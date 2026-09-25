@@ -37,5 +37,29 @@ namespace Armada.Core.Database
                 LastUpdateUtc = row.Utc("last_update_utc")
             };
         }
+
+        /// <summary>
+        /// Bind every stored coordination_messages column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the coordination_messages table.</param>
+        /// <param name="message">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, CoordinationMessage message)
+        {
+            parameters
+                .Text("id", message.Id)
+                .Text("coordination_room_id", message.CoordinationRoomId)
+                .Text("tenant_id", message.TenantId)
+                .Text("author_type", message.AuthorType.ToString())
+                .Text("author_id", message.AuthorId)
+                .Text("author_name", message.AuthorName)
+                .Text("content", message.Content)
+                .Text("voyage_id", message.VoyageId)
+                .Text("mission_id", message.MissionId)
+                .Text("vessel_id", message.VesselId)
+                .Text("incident_id", message.IncidentId)
+                .Text("to_participant_key", message.ToParticipantKey)
+                .Utc("created_utc", message.CreatedUtc)
+                .Utc("last_update_utc", message.LastUpdateUtc);
+        }
     }
 }

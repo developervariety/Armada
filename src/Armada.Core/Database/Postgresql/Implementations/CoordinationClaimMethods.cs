@@ -18,8 +18,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #region Private-Members
 
         private readonly NpgsqlDataSource _DataSource;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
-
         #endregion
 
         #region Constructors-and-Factories
@@ -71,7 +69,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM coordination_claims WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -134,9 +132,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = sql;
-                    cmd.Parameters.AddWithValue("@now", ToIso8601(DateTime.UtcNow));
-                    if (subjectType.HasValue) cmd.Parameters.AddWithValue("@subject_type", subjectType.Value.ToString());
-                    if (subjectType.HasValue && !string.IsNullOrEmpty(subjectId)) cmd.Parameters.AddWithValue("@subject_id", subjectId!);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_claims").Utc("@now", "expires_utc", DateTime.UtcNow);
+                    if (subjectType.HasValue) StoredValueBinder.Value(cmd, "@subject_type", subjectType.Value.ToString());
+                    if (subjectType.HasValue && !string.IsNullOrEmpty(subjectId)) StoredValueBinder.Value(cmd, "@subject_id", subjectId!);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -166,10 +164,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                           AND participant_key = @participant_key
                           AND status = 'Active'
                           AND expires_utc > @now;";
-                    cmd.Parameters.AddWithValue("@coordination_room_id", coordinationRoomId);
-                    cmd.Parameters.AddWithValue("@participant_key", participantKey);
-                    cmd.Parameters.AddWithValue("@new_expires_utc", ToIso8601(newExpiresUtc));
-                    cmd.Parameters.AddWithValue("@now", ToIso8601(DateTime.UtcNow));
+                    StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
+                    StoredValueBinder.Value(cmd, "@participant_key", participantKey);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_claims").Utc("@new_expires_utc", "expires_utc", newExpiresUtc);
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_claims").Utc("@now", "expires_utc", DateTime.UtcNow);
                     return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -181,23 +179,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         private static void BindClaim(NpgsqlCommand cmd, CoordinationClaim claim)
         {
-            cmd.Parameters.AddWithValue("@id", claim.Id);
-            cmd.Parameters.AddWithValue("@coordination_room_id", claim.CoordinationRoomId);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)claim.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@participant_key", claim.ParticipantKey);
-            cmd.Parameters.AddWithValue("@display_name", claim.DisplayName);
-            cmd.Parameters.AddWithValue("@subject_type", claim.SubjectType.ToString());
-            cmd.Parameters.AddWithValue("@subject_id", claim.SubjectId);
-            cmd.Parameters.AddWithValue("@note", (object?)claim.Note ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", claim.Status.ToString());
-            cmd.Parameters.AddWithValue("@expires_utc", ToIso8601(claim.ExpiresUtc));
-            cmd.Parameters.AddWithValue("@created_utc", ToIso8601(claim.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(claim.LastUpdateUtc));
-        }
-
-        private static string ToIso8601(DateTime dt)
-        {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            CoordinationClaimColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "coordination_claims"), claim);
         }
 
         #endregion
