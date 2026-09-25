@@ -73,7 +73,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT * FROM deployments WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -157,7 +157,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { new NpgsqlParameter("@id", id) };
+                    List<NpgsqlParameter> parameters = new List<NpgsqlParameter> { StoredValueBinder.Parameter(new NpgsqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM deployments WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -196,8 +196,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.CommandText = "SELECT * FROM deployments" + whereClause
                         + " ORDER BY COALESCE(completed_utc, started_utc, last_update_utc) DESC, created_utc DESC LIMIT @page_size OFFSET @offset;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
-                    cmd.Parameters.AddWithValue("@offset", offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", offset);
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -253,123 +253,83 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new NpgsqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new NpgsqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new NpgsqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.WorkflowProfileId))
             {
                 conditions.Add("workflow_profile_id = @workflow_profile_id");
-                parameters.Add(new NpgsqlParameter("@workflow_profile_id", query.WorkflowProfileId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@workflow_profile_id", query.WorkflowProfileId));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentId))
             {
                 conditions.Add("environment_id = @environment_id");
-                parameters.Add(new NpgsqlParameter("@environment_id", query.EnvironmentId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@environment_id", query.EnvironmentId));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentName))
             {
                 conditions.Add("environment_name = @environment_name");
-                parameters.Add(new NpgsqlParameter("@environment_name", query.EnvironmentName));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@environment_name", query.EnvironmentName));
             }
             if (!String.IsNullOrWhiteSpace(query.ReleaseId))
             {
                 conditions.Add("release_id = @release_id");
-                parameters.Add(new NpgsqlParameter("@release_id", query.ReleaseId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@release_id", query.ReleaseId));
             }
             if (!String.IsNullOrWhiteSpace(query.MissionId))
             {
                 conditions.Add("mission_id = @mission_id");
-                parameters.Add(new NpgsqlParameter("@mission_id", query.MissionId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@mission_id", query.MissionId));
             }
             if (!String.IsNullOrWhiteSpace(query.VoyageId))
             {
                 conditions.Add("voyage_id = @voyage_id");
-                parameters.Add(new NpgsqlParameter("@voyage_id", query.VoyageId));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@voyage_id", query.VoyageId));
             }
             if (!String.IsNullOrWhiteSpace(query.CheckRunId))
             {
                 conditions.Add("check_run_ids_json LIKE @check_run_like");
-                parameters.Add(new NpgsqlParameter("@check_run_like", "%\"" + query.CheckRunId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@check_run_like", "%\"" + query.CheckRunId + "\"%"));
             }
             if (query.Status.HasValue)
             {
                 conditions.Add("status = @status");
-                parameters.Add(new NpgsqlParameter("@status", query.Status.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@status", query.Status.Value.ToString()));
             }
             if (query.VerificationStatus.HasValue)
             {
                 conditions.Add("verification_status = @verification_status");
-                parameters.Add(new NpgsqlParameter("@verification_status", query.VerificationStatus.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@verification_status", query.VerificationStatus.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(title) LIKE @search OR LOWER(COALESCE(source_ref, '')) LIKE @search OR LOWER(COALESCE(summary, '')) LIKE @search OR LOWER(COALESCE(notes, '')) LIKE @search OR LOWER(COALESCE(environment_name, '')) LIKE @search)");
-                parameters.Add(new NpgsqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new NpgsqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new NpgsqlParameter("@from_utc", query.FromUtc.Value.ToUniversalTime()));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@from_utc", "deployments", "created_utc", query.FromUtc.Value.ToUniversalTime()));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new NpgsqlParameter("@to_utc", query.ToUtc.Value.ToUniversalTime()));
+                parameters.Add(PostgresqlDatabaseDriver.StoredBinder.Timestamp(new NpgsqlParameter(), "@to_utc", "deployments", "created_utc", query.ToUtc.Value.ToUniversalTime()));
             }
         }
 
         private static void AddParameters(NpgsqlCommand cmd, Deployment deployment)
         {
-            cmd.Parameters.AddWithValue("@id", deployment.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)deployment.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)deployment.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)deployment.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)deployment.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@environment_id", (object?)deployment.EnvironmentId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@environment_name", (object?)deployment.EnvironmentName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@release_id", (object?)deployment.ReleaseId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@mission_id", (object?)deployment.MissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@voyage_id", (object?)deployment.VoyageId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", deployment.Title);
-            cmd.Parameters.AddWithValue("@source_ref", (object?)deployment.SourceRef ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@summary", (object?)deployment.Summary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@notes", (object?)deployment.Notes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", deployment.Status.ToString());
-            cmd.Parameters.AddWithValue("@verification_status", deployment.VerificationStatus.ToString());
-            cmd.Parameters.AddWithValue("@approval_required", deployment.ApprovalRequired);
-            cmd.Parameters.AddWithValue("@approved_by_user_id", (object?)deployment.ApprovedByUserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@approved_utc", (object?)deployment.ApprovedUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@approval_comment", (object?)deployment.ApprovalComment ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deploy_check_run_id", (object?)deployment.DeployCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@smoke_test_check_run_id", (object?)deployment.SmokeTestCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@health_check_run_id", (object?)deployment.HealthCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deployment_verification_check_run_id", (object?)deployment.DeploymentVerificationCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rollback_check_run_id", (object?)deployment.RollbackCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rollback_verification_check_run_id", (object?)deployment.RollbackVerificationCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@check_run_ids_json", JsonSerializer.Serialize(deployment.CheckRunIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@request_history_summary_json", deployment.RequestHistorySummary != null
-                ? JsonSerializer.Serialize(deployment.RequestHistorySummary, _Json)
-                : DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", deployment.CreatedUtc.ToUniversalTime());
-            cmd.Parameters.AddWithValue("@started_utc", (object?)deployment.StartedUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", (object?)deployment.CompletedUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@verified_utc", (object?)deployment.VerifiedUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rolled_back_utc", (object?)deployment.RolledBackUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@monitoring_window_ends_utc", (object?)deployment.MonitoringWindowEndsUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_monitored_utc", (object?)deployment.LastMonitoredUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_regression_alert_utc", (object?)deployment.LastRegressionAlertUtc?.ToUniversalTime() ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@latest_monitoring_summary", (object?)deployment.LatestMonitoringSummary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@monitoring_failure_count", deployment.MonitoringFailureCount);
-            cmd.Parameters.AddWithValue("@last_update_utc", deployment.LastUpdateUtc.ToUniversalTime());
+            DeploymentColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(cmd, "deployments"), deployment);
         }
 
         private static NpgsqlParameter CloneParameter(NpgsqlParameter parameter)

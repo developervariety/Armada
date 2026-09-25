@@ -73,7 +73,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@id", id) };
+                    List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT TOP 1 * FROM deployments WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -157,7 +157,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<SqlParameter> parameters = new List<SqlParameter> { new SqlParameter("@id", id) };
+                    List<SqlParameter> parameters = new List<SqlParameter> { StoredValueBinder.Parameter(new SqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM deployments WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -195,8 +195,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText = "SELECT * FROM deployments" + whereClause
                         + " ORDER BY COALESCE(completed_utc, started_utc, last_update_utc) DESC, created_utc DESC OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY;";
                     foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
-                    cmd.Parameters.AddWithValue("@offset", query.Offset);
-                    cmd.Parameters.AddWithValue("@page_size", pageSize);
+                    StoredValueBinder.Value(cmd, "@offset", query.Offset);
+                    StoredValueBinder.Value(cmd, "@page_size", pageSize);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -252,123 +252,83 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.WorkflowProfileId))
             {
                 conditions.Add("workflow_profile_id = @workflow_profile_id");
-                parameters.Add(new SqlParameter("@workflow_profile_id", query.WorkflowProfileId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@workflow_profile_id", query.WorkflowProfileId));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentId))
             {
                 conditions.Add("environment_id = @environment_id");
-                parameters.Add(new SqlParameter("@environment_id", query.EnvironmentId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@environment_id", query.EnvironmentId));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentName))
             {
                 conditions.Add("environment_name = @environment_name");
-                parameters.Add(new SqlParameter("@environment_name", query.EnvironmentName));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@environment_name", query.EnvironmentName));
             }
             if (!String.IsNullOrWhiteSpace(query.ReleaseId))
             {
                 conditions.Add("release_id = @release_id");
-                parameters.Add(new SqlParameter("@release_id", query.ReleaseId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@release_id", query.ReleaseId));
             }
             if (!String.IsNullOrWhiteSpace(query.MissionId))
             {
                 conditions.Add("mission_id = @mission_id");
-                parameters.Add(new SqlParameter("@mission_id", query.MissionId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@mission_id", query.MissionId));
             }
             if (!String.IsNullOrWhiteSpace(query.VoyageId))
             {
                 conditions.Add("voyage_id = @voyage_id");
-                parameters.Add(new SqlParameter("@voyage_id", query.VoyageId));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@voyage_id", query.VoyageId));
             }
             if (!String.IsNullOrWhiteSpace(query.CheckRunId))
             {
                 conditions.Add("check_run_ids_json LIKE @check_run_like");
-                parameters.Add(new SqlParameter("@check_run_like", "%\"" + query.CheckRunId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@check_run_like", "%\"" + query.CheckRunId + "\"%"));
             }
             if (query.Status.HasValue)
             {
                 conditions.Add("status = @status");
-                parameters.Add(new SqlParameter("@status", query.Status.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@status", query.Status.Value.ToString()));
             }
             if (query.VerificationStatus.HasValue)
             {
                 conditions.Add("verification_status = @verification_status");
-                parameters.Add(new SqlParameter("@verification_status", query.VerificationStatus.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@verification_status", query.VerificationStatus.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(title) LIKE @search OR LOWER(COALESCE(source_ref, '')) LIKE @search OR LOWER(COALESCE(summary, '')) LIKE @search OR LOWER(COALESCE(notes, '')) LIKE @search OR LOWER(COALESCE(environment_name, '')) LIKE @search)");
-                parameters.Add(new SqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqlParameter("@from_utc", SqlServerDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@from_utc", "deployments", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqlParameter("@to_utc", SqlServerDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@to_utc", "deployments", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(SqlCommand cmd, Deployment deployment)
         {
-            cmd.Parameters.AddWithValue("@id", deployment.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)deployment.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)deployment.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)deployment.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)deployment.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@environment_id", (object?)deployment.EnvironmentId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@environment_name", (object?)deployment.EnvironmentName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@release_id", (object?)deployment.ReleaseId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@mission_id", (object?)deployment.MissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@voyage_id", (object?)deployment.VoyageId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", deployment.Title);
-            cmd.Parameters.AddWithValue("@source_ref", (object?)deployment.SourceRef ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@summary", (object?)deployment.Summary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@notes", (object?)deployment.Notes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", deployment.Status.ToString());
-            cmd.Parameters.AddWithValue("@verification_status", deployment.VerificationStatus.ToString());
-            cmd.Parameters.AddWithValue("@approval_required", deployment.ApprovalRequired);
-            cmd.Parameters.AddWithValue("@approved_by_user_id", (object?)deployment.ApprovedByUserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@approved_utc", deployment.ApprovedUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.ApprovedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@approval_comment", (object?)deployment.ApprovalComment ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deploy_check_run_id", (object?)deployment.DeployCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@smoke_test_check_run_id", (object?)deployment.SmokeTestCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@health_check_run_id", (object?)deployment.HealthCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deployment_verification_check_run_id", (object?)deployment.DeploymentVerificationCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rollback_check_run_id", (object?)deployment.RollbackCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rollback_verification_check_run_id", (object?)deployment.RollbackVerificationCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@check_run_ids_json", JsonSerializer.Serialize(deployment.CheckRunIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@request_history_summary_json", deployment.RequestHistorySummary != null
-                ? JsonSerializer.Serialize(deployment.RequestHistorySummary, _Json)
-                : DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(deployment.CreatedUtc));
-            cmd.Parameters.AddWithValue("@started_utc", deployment.StartedUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.StartedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", deployment.CompletedUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.CompletedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@verified_utc", deployment.VerifiedUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.VerifiedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@rolled_back_utc", deployment.RolledBackUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.RolledBackUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@monitoring_window_ends_utc", deployment.MonitoringWindowEndsUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.MonitoringWindowEndsUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_monitored_utc", deployment.LastMonitoredUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.LastMonitoredUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_regression_alert_utc", deployment.LastRegressionAlertUtc.HasValue ? SqlServerDatabaseDriver.ToIso8601(deployment.LastRegressionAlertUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@latest_monitoring_summary", (object?)deployment.LatestMonitoringSummary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@monitoring_failure_count", deployment.MonitoringFailureCount);
-            cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(deployment.LastUpdateUtc));
+            DeploymentColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "deployments"), deployment);
         }
 
         private static SqlParameter CloneParameter(SqlParameter parameter)

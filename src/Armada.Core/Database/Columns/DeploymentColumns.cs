@@ -69,5 +69,54 @@ namespace Armada.Core.Database
             deployment.LastUpdateUtc = row.Utc("last_update_utc");
             return deployment;
         }
+
+        /// <summary>
+        /// Bind every stored deployments column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the deployments table.</param>
+        /// <param name="deployment">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Deployment deployment)
+        {
+            parameters
+                .Text("id", deployment.Id)
+                .Text("tenant_id", deployment.TenantId)
+                .Text("user_id", deployment.UserId)
+                .Text("vessel_id", deployment.VesselId)
+                .Text("workflow_profile_id", deployment.WorkflowProfileId)
+                .Text("environment_id", deployment.EnvironmentId)
+                .Text("environment_name", deployment.EnvironmentName)
+                .Text("release_id", deployment.ReleaseId)
+                .Text("mission_id", deployment.MissionId)
+                .Text("voyage_id", deployment.VoyageId)
+                .Text("title", deployment.Title)
+                .Text("source_ref", deployment.SourceRef)
+                .Text("summary", deployment.Summary)
+                .Text("notes", deployment.Notes)
+                .Text("status", deployment.Status.ToString())
+                .Text("verification_status", deployment.VerificationStatus.ToString())
+                .Bool("approval_required", deployment.ApprovalRequired)
+                .Text("approved_by_user_id", deployment.ApprovedByUserId)
+                .Utc("approved_utc", deployment.ApprovedUtc)
+                .Text("approval_comment", deployment.ApprovalComment)
+                .Text("deploy_check_run_id", deployment.DeployCheckRunId)
+                .Text("smoke_test_check_run_id", deployment.SmokeTestCheckRunId)
+                .Text("health_check_run_id", deployment.HealthCheckRunId)
+                .Text("deployment_verification_check_run_id", deployment.DeploymentVerificationCheckRunId)
+                .Text("rollback_check_run_id", deployment.RollbackCheckRunId)
+                .Text("rollback_verification_check_run_id", deployment.RollbackVerificationCheckRunId)
+                .Text("check_run_ids_json", JsonSerializer.Serialize(deployment.CheckRunIds ?? new List<string>(), _Json))
+                .Text("request_history_summary_json", deployment.RequestHistorySummary != null ? JsonSerializer.Serialize(deployment.RequestHistorySummary, _Json) : null)
+                .Utc("created_utc", deployment.CreatedUtc)
+                .Utc("started_utc", deployment.StartedUtc)
+                .Utc("completed_utc", deployment.CompletedUtc)
+                .Utc("verified_utc", deployment.VerifiedUtc)
+                .Utc("rolled_back_utc", deployment.RolledBackUtc)
+                .Utc("monitoring_window_ends_utc", deployment.MonitoringWindowEndsUtc)
+                .Utc("last_monitored_utc", deployment.LastMonitoredUtc)
+                .Utc("last_regression_alert_utc", deployment.LastRegressionAlertUtc)
+                .Text("latest_monitoring_summary", deployment.LatestMonitoringSummary)
+                .Int("monitoring_failure_count", deployment.MonitoringFailureCount)
+                .Utc("last_update_utc", deployment.LastUpdateUtc);
+        }
     }
 }

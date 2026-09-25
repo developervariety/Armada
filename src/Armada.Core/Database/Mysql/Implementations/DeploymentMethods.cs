@@ -73,7 +73,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                    List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "SELECT * FROM deployments WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
                     foreach (MySqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -157,7 +157,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     List<string> conditions = new List<string> { "id = @id" };
-                    List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@id", id) };
+                    List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@id", id) };
                     ApplyQueryFilters(query, conditions, parameters);
                     cmd.CommandText = "DELETE FROM deployments WHERE " + String.Join(" AND ", conditions) + ";";
                     foreach (MySqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -250,123 +250,83 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new MySqlParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new MySqlParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.WorkflowProfileId))
             {
                 conditions.Add("workflow_profile_id = @workflow_profile_id");
-                parameters.Add(new MySqlParameter("@workflow_profile_id", query.WorkflowProfileId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@workflow_profile_id", query.WorkflowProfileId));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentId))
             {
                 conditions.Add("environment_id = @environment_id");
-                parameters.Add(new MySqlParameter("@environment_id", query.EnvironmentId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@environment_id", query.EnvironmentId));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentName))
             {
                 conditions.Add("environment_name = @environment_name");
-                parameters.Add(new MySqlParameter("@environment_name", query.EnvironmentName));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@environment_name", query.EnvironmentName));
             }
             if (!String.IsNullOrWhiteSpace(query.ReleaseId))
             {
                 conditions.Add("release_id = @release_id");
-                parameters.Add(new MySqlParameter("@release_id", query.ReleaseId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@release_id", query.ReleaseId));
             }
             if (!String.IsNullOrWhiteSpace(query.MissionId))
             {
                 conditions.Add("mission_id = @mission_id");
-                parameters.Add(new MySqlParameter("@mission_id", query.MissionId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@mission_id", query.MissionId));
             }
             if (!String.IsNullOrWhiteSpace(query.VoyageId))
             {
                 conditions.Add("voyage_id = @voyage_id");
-                parameters.Add(new MySqlParameter("@voyage_id", query.VoyageId));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@voyage_id", query.VoyageId));
             }
             if (!String.IsNullOrWhiteSpace(query.CheckRunId))
             {
                 conditions.Add("check_run_ids_json LIKE @check_run_like");
-                parameters.Add(new MySqlParameter("@check_run_like", "%\"" + query.CheckRunId + "\"%"));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@check_run_like", "%\"" + query.CheckRunId + "\"%"));
             }
             if (query.Status.HasValue)
             {
                 conditions.Add("status = @status");
-                parameters.Add(new MySqlParameter("@status", query.Status.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@status", query.Status.Value.ToString()));
             }
             if (query.VerificationStatus.HasValue)
             {
                 conditions.Add("verification_status = @verification_status");
-                parameters.Add(new MySqlParameter("@verification_status", query.VerificationStatus.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@verification_status", query.VerificationStatus.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.Search))
             {
                 conditions.Add("(LOWER(title) LIKE @search OR LOWER(COALESCE(source_ref, '')) LIKE @search OR LOWER(COALESCE(summary, '')) LIKE @search OR LOWER(COALESCE(notes, '')) LIKE @search OR LOWER(COALESCE(environment_name, '')) LIKE @search)");
-                parameters.Add(new MySqlParameter("@search", "%" + query.Search.ToLowerInvariant() + "%"));
+                parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@search", "%" + query.Search.ToLowerInvariant() + "%"));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new MySqlParameter("@from_utc", query.FromUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@from_utc", "deployments", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new MySqlParameter("@to_utc", query.ToUtc.Value));
+                parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@to_utc", "deployments", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(MySqlCommand cmd, Deployment deployment)
         {
-            cmd.Parameters.AddWithValue("@id", deployment.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)deployment.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)deployment.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)deployment.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)deployment.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@environment_id", (object?)deployment.EnvironmentId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@environment_name", (object?)deployment.EnvironmentName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@release_id", (object?)deployment.ReleaseId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@mission_id", (object?)deployment.MissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@voyage_id", (object?)deployment.VoyageId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@title", deployment.Title);
-            cmd.Parameters.AddWithValue("@source_ref", (object?)deployment.SourceRef ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@summary", (object?)deployment.Summary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@notes", (object?)deployment.Notes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@status", deployment.Status.ToString());
-            cmd.Parameters.AddWithValue("@verification_status", deployment.VerificationStatus.ToString());
-            cmd.Parameters.AddWithValue("@approval_required", deployment.ApprovalRequired);
-            cmd.Parameters.AddWithValue("@approved_by_user_id", (object?)deployment.ApprovedByUserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@approved_utc", (object?)deployment.ApprovedUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@approval_comment", (object?)deployment.ApprovalComment ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deploy_check_run_id", (object?)deployment.DeployCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@smoke_test_check_run_id", (object?)deployment.SmokeTestCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@health_check_run_id", (object?)deployment.HealthCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deployment_verification_check_run_id", (object?)deployment.DeploymentVerificationCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rollback_check_run_id", (object?)deployment.RollbackCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rollback_verification_check_run_id", (object?)deployment.RollbackVerificationCheckRunId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@check_run_ids_json", JsonSerializer.Serialize(deployment.CheckRunIds ?? new List<string>(), _Json));
-            cmd.Parameters.AddWithValue("@request_history_summary_json", deployment.RequestHistorySummary != null
-                ? JsonSerializer.Serialize(deployment.RequestHistorySummary, _Json)
-                : DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", deployment.CreatedUtc);
-            cmd.Parameters.AddWithValue("@started_utc", (object?)deployment.StartedUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", (object?)deployment.CompletedUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@verified_utc", (object?)deployment.VerifiedUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rolled_back_utc", (object?)deployment.RolledBackUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@monitoring_window_ends_utc", (object?)deployment.MonitoringWindowEndsUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_monitored_utc", (object?)deployment.LastMonitoredUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_regression_alert_utc", (object?)deployment.LastRegressionAlertUtc ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@latest_monitoring_summary", (object?)deployment.LatestMonitoringSummary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@monitoring_failure_count", deployment.MonitoringFailureCount);
-            cmd.Parameters.AddWithValue("@last_update_utc", deployment.LastUpdateUtc);
+            DeploymentColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "deployments"), deployment);
         }
 
         private static MySqlParameter CloneParameter(MySqlParameter parameter)
