@@ -98,6 +98,12 @@ upstream integrations and excludes changes already present at that baseline.
   `shopt` are shell builtins whose remaining tokens are arguments, so a
   workflow command using them is no longer refused as
   `command_dependency_missing`.
+- **A failure while writing mission instructions releases the captain:**
+  writing the brief into the dock is part of the launch, so an I/O error or
+  an out-of-memory failure while the brief is built takes the launch-failure
+  rollback (captain Idle, mission requeued, dock reclaimed, error signal)
+  instead of leaving the captain Working with no process until the
+  missing-process check marks it Stalled.
 - **`armada_mission_status` can return the mission description:** the optional
   `includeDescription` flag returns the stored brief text, which the default
   summary read leaves out.

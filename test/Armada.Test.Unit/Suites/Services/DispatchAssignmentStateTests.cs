@@ -502,6 +502,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_InstructionWriteFails_ReleasesTheCaptainRequeuesTheMissionAndLaunchesNothing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("instruction-write-fails-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = new Captain("instruction-write-fails-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Instruction write fails") { VesselId = vessel.Id, Status = MissionStatusEnum.Pending }).ConfigureAwait(false);
+
+                    // Replace the provisioned worktree with a plain file, so writing the mission instructions throws.
+                    AfterProvisionDockService dock = new AfterProvisionDockService(realDock, provisioned =>
+                    {
+                        string path = provisioned.WorktreePath!;
+                        if (Directory.Exists(path)) Directory.Delete(path, true);
+                        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                        File.WriteAllText(path, "not a directory");
+                        return Task.CompletedTask;
+                    });
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dock);
+                    int launches = 0;
+                    captainService.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(12345); };
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    bool assigned = await missionService.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "a mission whose instructions cannot be written is not assigned");
+                    AssertEqual(0, launches, "no agent is launched without instructions");
+                    Captain? released = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, released!.State, "the captain is released, not left Working with no process");
+                    AssertNull(released.CurrentMissionId, "the released captain holds no mission");
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, stored!.Status, "the mission is requeued");
+                    AssertNull(stored.CaptainId, "the requeued mission holds no captain");
+                    AssertNull(stored.ProcessId, "the requeued mission records no process");
+                }
+            });
+
             await RunTest("Held dock failure remains visible and stops after one retry", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

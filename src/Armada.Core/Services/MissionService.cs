@@ -1063,15 +1063,16 @@ namespace Armada.Core.Services
             signal.ToCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
 
-            // Generate runtime mission instructions into the worktree.
-            await GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, captain, token).ConfigureAwait(false);
-            await EnsureMissionInstructionsPresentAsync(dock.WorktreePath!, mission, captain, token).ConfigureAwait(false);
-
-            // Launch agent process via captain service
+            // Launch agent process via captain service. Writing the mission instructions is part of the launch: a
+            // failure there (an I/O error, or the admiral running out of memory while it builds the brief) takes the
+            // same rollback as a failed process start, so the captain is never left Working with no process.
             if (_Captains.OnLaunchAgent != null)
             {
                 try
                 {
+                    await GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, captain, token).ConfigureAwait(false);
+                    await EnsureMissionInstructionsPresentAsync(dock.WorktreePath!, mission, captain, token).ConfigureAwait(false);
+
                     int processId = await _Captains.OnLaunchAgent.Invoke(captain, mission, dock).ConfigureAwait(false);
                     captain.ProcessId = processId;
                     captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
@@ -1098,7 +1099,7 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    _Logging.Warn(_Header + "failed to launch agent for captain " + captain.Id + ": " + ex.Message);
+                    _Logging.Warn(_Header + "failed to prepare or launch agent for captain " + captain.Id + " on mission " + mission.Id + ": " + ex.GetType().Name + ": " + ex.Message);
 
                     // Rollback captain state - release back to idle so it can accept future work
                     await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
