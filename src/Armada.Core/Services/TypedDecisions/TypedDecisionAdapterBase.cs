@@ -260,6 +260,30 @@ namespace Armada.Core.Services
         protected abstract Mission? MissionOf(TInput input);
 
         /// <summary>
+        /// The id of the mission this decision judged, recorded on its event and retained sample. The
+        /// default is the id of <see cref="MissionOf"/>; a decision whose input holds only the id overrides
+        /// it. A record link only: it never enters the state.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>The mission id, or null.</returns>
+        protected virtual string? MissionIdOf(TInput input)
+        {
+            return MissionOf(input)?.Id;
+        }
+
+        /// <summary>
+        /// The id of the objective this decision judged, recorded on its event and retained sample. A
+        /// decision whose input names its objective overrides it. A record link only: it never enters the
+        /// state.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>The objective id, or null.</returns>
+        protected virtual string? ObjectiveIdOf(TInput input)
+        {
+            return null;
+        }
+
+        /// <summary>
         /// Every vessel this decision concerns, for the egress vessel rule. The default is the mission's vessel; a
         /// decision about an objective adds the objective's vessels and its target vessel.
         /// </summary>
@@ -447,7 +471,9 @@ namespace Armada.Core.Services
                 Confidence = model?.Confidence,
                 Result = result,
                 RedactedState = redacted,
-                Mission = MissionOf(input)
+                Mission = MissionOf(input),
+                MissionId = MissionIdOf(input),
+                ObjectiveId = ObjectiveIdOf(input)
             };
         }
 

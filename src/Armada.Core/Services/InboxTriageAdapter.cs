@@ -112,7 +112,7 @@ namespace Armada.Core.Services
             List<AttentionOutcome> outcomes;
             try
             {
-                outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), "severity_order", null, cfg, token).ConfigureAwait(false);
+                outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), scored.Select(MissionIdOf).ToList(), "severity_order", null, cfg, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -166,7 +166,7 @@ namespace Armada.Core.Services
             List<AttentionOutcome> outcomes;
             try
             {
-                outcomes = await ScoreAttentionAsync(scored.Select(BuildNoteState).ToList(), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
+                outcomes = await ScoreAttentionAsync(scored.Select(BuildNoteState).ToList(), scored.Select(note => note.MissionId).ToList(), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -192,6 +192,7 @@ namespace Armada.Core.Services
 
         private async Task<List<AttentionOutcome>> ScoreAttentionAsync(
             List<object> rawStates,
+            List<string?> missionIds,
             string ruleVerdict,
             TypedQuestion? extraQuestion,
             ResolvedTypedDecision cfg,
@@ -223,11 +224,12 @@ namespace Armada.Core.Services
             {
                 TypedDecisionResult result = results[index];
                 string redacted = batch[index]?.State.Text ?? String.Empty;
+                string? missionId = missionIds[index];
 
                 if (TypedDecisionEgress.IsRefusal(result))
                 {
                     await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                        BuildContext(ruleVerdict, null, null, result, redacted), token)).ConfigureAwait(false);
+                        BuildContext(ruleVerdict, null, null, result, redacted, missionId), token)).ConfigureAwait(false);
                     outcomes.Add(new AttentionOutcome { Available = true, Applied = false });
                     continue;
                 }
@@ -236,7 +238,7 @@ namespace Armada.Core.Services
                 {
                     // Record the unavailable call once; the caller stops at the first unavailable item.
                     await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                        BuildContext(ruleVerdict, null, null, result ?? TypedDecisionResult.Exception(), redacted), token)).ConfigureAwait(false);
+                        BuildContext(ruleVerdict, null, null, result ?? TypedDecisionResult.Exception(), redacted, missionId), token)).ConfigureAwait(false);
                     outcomes.Add(new AttentionOutcome { Available = false });
                     return outcomes;
                 }
@@ -249,13 +251,13 @@ namespace Armada.Core.Services
                 if (apply)
                 {
                     await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
-                        BuildContext(ruleVerdict, verdict, confidence, result, redacted), token)).ConfigureAwait(false);
+                        BuildContext(ruleVerdict, verdict, confidence, result, redacted, missionId), token)).ConfigureAwait(false);
                 }
                 else
                 {
                     string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
                     await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
-                        BuildContext(ruleVerdict, verdict, confidence, result, redacted), outcome, token)).ConfigureAwait(false);
+                        BuildContext(ruleVerdict, verdict, confidence, result, redacted, missionId), outcome, token)).ConfigureAwait(false);
                 }
 
                 outcomes.Add(new AttentionOutcome { Available = true, Applied = apply, Attention = attention, NoteKind = noteKind });
@@ -274,6 +276,13 @@ namespace Armada.Core.Services
                 ["detail"] = item.Detail,
                 ["entity_type"] = item.EntityType
             };
+        }
+
+        // The mission an inbox item is about, when the item names one; a record link, never part of the state.
+        private static string? MissionIdOf(InboxItem item)
+        {
+            if (!String.Equals(item.EntityType, "mission", StringComparison.OrdinalIgnoreCase)) return null;
+            return String.IsNullOrWhiteSpace(item.EntityId) ? null : item.EntityId;
         }
 
         private static object BuildNoteState(BoardNoteTriageInput note)
@@ -341,7 +350,8 @@ namespace Armada.Core.Services
             string? modelVerdict,
             double? confidence,
             TypedDecisionResult result,
-            string redactedState)
+            string redactedState,
+            string? missionId)
         {
             return new TypedDecisionEventContext
             {
@@ -350,7 +360,8 @@ namespace Armada.Core.Services
                 ModelVerdict = modelVerdict,
                 Confidence = confidence,
                 Result = result,
-                RedactedState = redactedState
+                RedactedState = redactedState,
+                MissionId = missionId
             };
         }
 
@@ -376,8 +387,9 @@ namespace Armada.Core.Services
     }
 
     /// <summary>
-    /// One coordination board note handed to the D11 triage adapter. It carries only the fields the
-    /// model reads; the caller keeps the full note and applies the returned triage by id.
+    /// One coordination board note handed to the D11 triage adapter. It carries the fields the model
+    /// reads, plus the related mission id, which is recorded on the decision event and never sent; the
+    /// caller keeps the full note and applies the returned triage by id.
     /// </summary>
     public sealed class BoardNoteTriageInput
     {
@@ -389,6 +401,9 @@ namespace Armada.Core.Services
 
         /// <summary>The note content.</summary>
         public string? Content { get; init; }
+
+        /// <summary>The mission the note relates to, when any. A record link only; never part of the state.</summary>
+        public string? MissionId { get; init; }
     }
 
     /// <summary>

@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Typed-decision events name their subject:** every decision event and
+  retained sample records the objective id and the mission id wherever the
+  calling seam knows them, including preflight, prior art at preflight,
+  criteria lint, stage necessity, owner digest, dispatch staleness, inbox and
+  board-note triage, follow-up routing, log watch, change quality and the
+  merge-queue leak scan. The ids are record links only and never enter the
+  transmitted state, so the state hash and egress are unchanged.
 - **The code-index summarizer names no model by default:** its model setting
   is empty until an operator sets one, and the HTTP inference client makes no
   call without a model and logs why. Startup warns when the summarizer is on

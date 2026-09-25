@@ -398,7 +398,8 @@ namespace Armada.Core.Services
                 ModelVerdict = modelVerdict,
                 Confidence = confidence,
                 Result = result,
-                RedactedState = redactedState
+                RedactedState = redactedState,
+                ObjectiveId = objective.Id
             };
         }
 

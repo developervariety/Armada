@@ -105,6 +105,7 @@ namespace Armada.Core.Services
                             AgeHours = ageHours,
                             ProposedDefault = String.IsNullOrWhiteSpace(claim.InvalidationReason) ? String.Empty : claim.InvalidationReason,
                             Source = "owner_decision_recheck",
+                            ObjectiveId = objective.Id,
                             VesselId = objective.VesselIds != null && objective.VesselIds.Count > 0 ? objective.VesselIds[0] : null,
                             VesselIds = objective.VesselIds != null ? new List<string>(objective.VesselIds) : new List<string>()
                         });

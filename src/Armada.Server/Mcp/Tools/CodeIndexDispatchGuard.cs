@@ -25,6 +25,7 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="dispatchStalenessAdapter">Optional dispatch_staleness adapter. Null keeps the deterministic policy.</param>
         /// <param name="workTitle">Voyage or objective title, when known, for the decision state.</param>
         /// <param name="workDescription">Voyage or objective description, when known, for the decision state.</param>
+        /// <param name="objectiveId">The objective being dispatched, when known, recorded on the decision event only.</param>
         /// <returns>A blocked-response object, or null when dispatch may proceed.</returns>
         public static async Task<object?> BuildVoyageDispatchBlockedResponseAsync(
             ICodeIndexService? codeIndexService,
@@ -36,7 +37,8 @@ namespace Armada.Server.Mcp.Tools
             CancellationToken token = default,
             TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null,
             string? workTitle = null,
-            string? workDescription = null)
+            string? workDescription = null,
+            string? objectiveId = null)
         {
             if (codeIndexService == null || String.IsNullOrWhiteSpace(vesselId))
                 return null;
@@ -76,6 +78,7 @@ namespace Armada.Server.Mcp.Tools
                         workTitle,
                         workDescription,
                         vesselId,
+                        objectiveId,
                         token).ConfigureAwait(false);
                     if (outcome == CodeIndexDispatchStalenessPolicyEnum.Block)
                     {
@@ -140,6 +143,7 @@ namespace Armada.Server.Mcp.Tools
                 workTitle,
                 workDescription,
                 vesselId,
+                objectiveId,
                 token).ConfigureAwait(false);
 
             switch (reaction)
@@ -194,6 +198,7 @@ namespace Armada.Server.Mcp.Tools
             string? workTitle,
             string? workDescription,
             string? vesselId,
+            string? objectiveId,
             CancellationToken token)
         {
             if (adapter == null) return ruleVerdict;
@@ -207,7 +212,8 @@ namespace Armada.Server.Mcp.Tools
                         Relevance = relevance ?? new CodeIndexStalenessRelevance(),
                         Title = workTitle ?? String.Empty,
                         Description = workDescription ?? String.Empty,
-                        VesselId = vesselId
+                        VesselId = vesselId,
+                        ObjectiveId = objectiveId
                     },
                     ruleVerdict,
                     token).ConfigureAwait(false);

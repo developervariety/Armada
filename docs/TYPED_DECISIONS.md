@@ -138,7 +138,8 @@ byte count and never the state, and nothing extra leaves the host.
 - **Where it is kept.** JSON lines under
   `<data directory>/typed-decision-samples/<decision>/<date>.jsonl`. A line holds
   the redacted state, its hash, the rule's verdict, the model's verdict and
-  confidence, the gate outcome, and the mission id. New answered calls also keep
+  confidence, the gate outcome, and the objective and mission ids its event
+  names. New answered calls also keep
   the returned model version, every answer and distribution, and request provenance.
   Provenance version 1 contains redacted provider-format question JSON, its hash,
   the original wire-question hash, and the complete request-body hash. The body
@@ -237,7 +238,18 @@ rule verdict, the model version the provider reported (`model`), the model's
 answers with their confidences and probability distributions, tokens, latency,
 `batch_size`, the gate outcome, the provider's redacted explanation when it
 rejected the request (`unavailable_detail`), and the state's SHA-256 and byte
-count — the state itself is never recorded. Read the flow with:
+count — the state itself is never recorded. Each event also names its subject:
+`objective_id` and `mission_id` in the payload (the mission id also fills the
+event's mission column), set wherever the calling seam knows them. They are
+record links for joining a call to its objective or mission; they are never
+part of the state, so they change neither the state hash nor what leaves the
+host. A decision whose subject is not one objective or mission leaves them
+null: `papercut_merge` and `memory_candidate` judge papercut groups gathered
+across many missions, `inbox_triage` names a mission only for a mission item or
+a board note that relates to one, and `dispatch_staleness` names an objective
+only when the dispatch is about exactly one. A mission-scoped decision records
+the mission and not its objective, because the seam holds only the mission.
+Read the flow with:
 
 ```sql
 select payload from events where event_type like 'typed_decision.%';

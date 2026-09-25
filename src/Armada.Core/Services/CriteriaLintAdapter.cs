@@ -127,12 +127,14 @@ namespace Armada.Core.Services
         /// <param name="kind">The objective Kind, given to the model as state.</param>
         /// <param name="token">Cancellation token, forwarded to the client so its timeout links to the caller.</param>
         /// <param name="vesselIds">The vessels the objective names, for the egress vessel rule; null for none.</param>
+        /// <param name="objectiveId">The objective whose summary is linted, recorded on each event; null when unknown.</param>
         /// <returns>A task that completes when the criteria have been linted and any review lines appended.</returns>
         public async Task EvaluateAsync(
             ObjectiveRefinementSummaryResponse summary,
             ObjectiveKindEnum kind,
             CancellationToken token,
-            IReadOnlyList<string>? vesselIds = null)
+            IReadOnlyList<string>? vesselIds = null,
+            string? objectiveId = null)
         {
             if (summary == null) return;
 
@@ -175,7 +177,7 @@ namespace Armada.Core.Services
                 CriterionOutcome outcome;
                 try
                 {
-                    outcome = await RecordCriterionAsync(criteria[index], index + 1, cfg, results[index], batch[index]?.State.Text ?? String.Empty, token).ConfigureAwait(false);
+                    outcome = await RecordCriterionAsync(criteria[index], index + 1, cfg, results[index], batch[index]?.State.Text ?? String.Empty, objectiveId, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -205,12 +207,13 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg,
             TypedDecisionResult result,
             string redacted,
+            string? objectiveId,
             CancellationToken token)
         {
             if (result == null || !result.Available)
             {
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext("criteria_clean", null, null, result ?? TypedDecisionResult.Exception(), redacted), token)).ConfigureAwait(false);
+                    BuildContext("criteria_clean", null, null, result ?? TypedDecisionResult.Exception(), redacted, objectiveId), token)).ConfigureAwait(false);
                 return new CriterionOutcome { Available = false };
             }
 
@@ -225,13 +228,13 @@ namespace Armada.Core.Services
                     lines.Add("- criterion " + number.ToString(CultureInfo.InvariantCulture) + ": " + flag.Defect + " — \"" + OneLine(criterion) + "\"");
 
                 await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
-                    BuildContext("criteria_clean", modelVerdict, worst, result, redacted), token)).ConfigureAwait(false);
+                    BuildContext("criteria_clean", modelVerdict, worst, result, redacted, objectiveId), token)).ConfigureAwait(false);
             }
             else
             {
                 string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
                 await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
-                    BuildContext("criteria_clean", modelVerdict, worst, result, redacted), outcome, token)).ConfigureAwait(false);
+                    BuildContext("criteria_clean", modelVerdict, worst, result, redacted, objectiveId), outcome, token)).ConfigureAwait(false);
             }
 
             return new CriterionOutcome { Available = true, ReviewLines = lines };
@@ -323,7 +326,8 @@ namespace Armada.Core.Services
             string? modelVerdict,
             double? confidence,
             TypedDecisionResult result,
-            string redactedState)
+            string redactedState,
+            string? objectiveId)
         {
             return new TypedDecisionEventContext
             {
@@ -332,7 +336,8 @@ namespace Armada.Core.Services
                 ModelVerdict = modelVerdict,
                 Confidence = confidence,
                 Result = result,
-                RedactedState = redactedState
+                RedactedState = redactedState,
+                ObjectiveId = objectiveId
             };
         }
 

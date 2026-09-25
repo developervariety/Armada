@@ -84,6 +84,9 @@ namespace Armada.Core.Models
         /// <summary>The mission whose change is reviewed, for event owner scope. Null for an operator-supplied diff.</summary>
         public Mission? Mission { get; init; } = null;
 
+        /// <summary>The id of the mission whose change is reviewed, when only the id is known; never part of the state.</summary>
+        public string? MissionId { get; init; } = null;
+
         /// <summary>The focused unified diff under review.</summary>
         public string UnifiedDiff { get; init; } = "";
 

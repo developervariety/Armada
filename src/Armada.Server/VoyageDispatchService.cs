@@ -191,7 +191,8 @@ namespace Armada.Server
                     token,
                     _DispatchStalenessAdapter,
                     request.Title,
-                    request.Description).ConfigureAwait(false);
+                    request.Description,
+                    DispatchSubjectObjectiveId(request)).ConfigureAwait(false);
                 if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);
             }
             else
@@ -1484,6 +1485,18 @@ namespace Armada.Server
                         + " after voyage " + voyage.Id + " failed to link: " + ex.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// The one objective a dispatch is about, for recording on its decisions: the dispatched objective, or
+        /// the only linked objective. Null when the dispatch names none, or links several and dispatches none.
+        /// </summary>
+        private static string? DispatchSubjectObjectiveId(SharedVoyageDispatchRequest request)
+        {
+            string? objectiveId = NormalizeEmpty(request.ObjectiveId);
+            if (objectiveId != null) return objectiveId;
+            List<string> linked = CollectAdmissionObjectiveIds(null, request.LinkedObjectiveIds);
+            return linked.Count == 1 ? linked[0] : null;
         }
 
         private static List<string> CollectAdmissionObjectiveIds(string? objectiveId, List<string>? linkedObjectiveIds)

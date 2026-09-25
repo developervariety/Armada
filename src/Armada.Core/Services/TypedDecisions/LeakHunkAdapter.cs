@@ -20,6 +20,9 @@ namespace Armada.Core.Services
         /// <summary>The mission the scan belongs to, for the event owner scope. Null on the merge-queue path.</summary>
         public Mission? Mission { get; init; }
 
+        /// <summary>The id of the mission whose change is scanned, when only the id is known; never part of the state.</summary>
+        public string? MissionId { get; init; }
+
         /// <summary>The vessel's public display name. Never the vessel identifier.</summary>
         public string VesselName { get; init; } = String.Empty;
 
@@ -190,18 +193,21 @@ namespace Armada.Core.Services
         /// <param name="mission">The mission the scan belongs to, for the event owner scope; may be null.</param>
         /// <param name="scanResult">The deterministic scan result; only its advisory flags are appended to.</param>
         /// <param name="token">Cancellation token, forwarded to the client so its timeout links to the caller.</param>
+        /// <param name="missionId">The id of the mission whose change is scanned, when <paramref name="mission"/> is not
+        /// held; recorded on each decision event and never sent.</param>
         /// <returns>The flags attached by this pass, in order; never null.</returns>
         public async Task<IReadOnlyList<DockBoundaryAdvisoryFlag>> EvaluateAsync(
             string? unifiedDiff,
             string? vesselName,
             Mission? mission,
             DockBoundaryScanResult scanResult,
-            CancellationToken token)
+            CancellationToken token,
+            string? missionId = null)
         {
             List<DockBoundaryAdvisoryFlag> attached = new List<DockBoundaryAdvisoryFlag>();
             if (scanResult == null) return attached;
 
-            List<LeakHunkDecisionInput> hunks = ExtractHunks(unifiedDiff, vesselName, mission);
+            List<LeakHunkDecisionInput> hunks = ExtractHunks(unifiedDiff, vesselName, mission, missionId);
             if (hunks.Count == 0) return attached;
 
             List<LeakHunkVerdict> rules = new List<LeakHunkVerdict>(hunks.Count);
@@ -327,6 +333,9 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override Mission? MissionOf(LeakHunkDecisionInput input) => input.Mission;
 
+        /// <inheritdoc />
+        protected override string? MissionIdOf(LeakHunkDecisionInput input) => input.Mission?.Id ?? input.MissionId;
+
         #endregion
 
         #region Private-Methods
@@ -373,7 +382,7 @@ namespace Armada.Core.Services
             return bestNoul > 0.0 ? best : KindNone;
         }
 
-        private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission)
+        private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission, string? missionId)
         {
             // Files and hunks come from the shared diff reader: each file is named once by its decoded
             // path, and an added line whose content starts with "++" belongs to its hunk.
@@ -395,7 +404,7 @@ namespace Armada.Core.Services
                         added.Add(line.Text);
                     }
 
-                    Flush(hunks, currentFile, added, vesselName, mission, ref hunksInFile);
+                    Flush(hunks, currentFile, added, vesselName, mission, missionId, ref hunksInFile);
                 }
             }
 
@@ -408,6 +417,7 @@ namespace Armada.Core.Services
             List<string> added,
             string? vesselName,
             Mission? mission,
+            string? missionId,
             ref int hunksInFile)
         {
             if (added.Count == 0) return;
@@ -423,6 +433,7 @@ namespace Armada.Core.Services
             hunks.Add(new LeakHunkDecisionInput
             {
                 Mission = mission,
+                MissionId = missionId,
                 VesselName = vesselName ?? String.Empty,
                 FilePath = filePath,
                 HunkText = text

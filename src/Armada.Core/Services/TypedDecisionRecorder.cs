@@ -21,6 +21,11 @@ namespace Armada.Core.Services
     /// transmitted state. It NEVER carries the state itself — only <c>state_sha256</c> and
     /// <c>state_bytes</c>.
     ///
+    /// The event and its retained sample also carry the decision's subject: the objective id and the
+    /// mission id, whichever the caller knows. They are record links for joining a call to the
+    /// objective or mission it judged. They are never part of the transmitted state, so they change
+    /// neither the state hash nor what leaves the host.
+    ///
     /// When a sample store is supplied and the decision opts in, the same call also appends its
     /// REDACTED state to the host-local training store (<see cref="TypedDecisionSampleStore"/>).
     /// That store is the only place the text is kept, it never leaves the host, and a retention
@@ -239,7 +244,9 @@ namespace Armada.Core.Services
                 ["corrected_verdict"] = correctedVerdict,
                 ["reason"] = reason ?? String.Empty,
                 ["reversed_by"] = reversedBy ?? String.Empty,
-                ["state_sha256"] = stateSha256
+                ["state_sha256"] = stateSha256,
+                ["objective_id"] = ReadPayloadString(original.Payload, "objective_id"),
+                ["mission_id"] = original.MissionId
             };
 
             ArmadaEvent? recorded;
@@ -279,6 +286,7 @@ namespace Armada.Core.Services
                     GateOutcome = ReadPayloadString(original.Payload, "gate_outcome"),
                     CorrectedVerdict = correctedVerdict,
                     Reason = reason,
+                    ObjectiveId = ReadPayloadString(original.Payload, "objective_id"),
                     MissionId = original.MissionId,
                     RedactorVersion = DecisionStateRedactor.Version
                 }, token).ConfigureAwait(false);
@@ -340,6 +348,13 @@ namespace Armada.Core.Services
                 else
                 {
                     evt.TenantId = Constants.DefaultTenantId;
+                    string? missionId = MissionIdOf(context);
+                    if (missionId != null)
+                    {
+                        evt.EntityType = "mission";
+                        evt.EntityId = missionId;
+                        evt.MissionId = missionId;
+                    }
                 }
 
                 if (!String.IsNullOrWhiteSpace(context.CaptainId)) evt.CaptainId = context.CaptainId;
@@ -380,9 +395,23 @@ namespace Armada.Core.Services
                 ModelVerdict = context.ModelVerdict,
                 Confidence = context.Confidence,
                 GateOutcome = gateOutcome,
-                MissionId = context.Mission?.Id,
+                ObjectiveId = ObjectiveIdOf(context),
+                MissionId = MissionIdOf(context),
                 RedactorVersion = DecisionStateRedactor.Version
             }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>The mission the call judged: the mission record's id, else the id the caller supplied.</summary>
+        private static string? MissionIdOf(TypedDecisionEventContext context)
+        {
+            if (!String.IsNullOrWhiteSpace(context.Mission?.Id)) return context.Mission!.Id;
+            return String.IsNullOrWhiteSpace(context.MissionId) ? null : context.MissionId!.Trim();
+        }
+
+        /// <summary>The objective the call judged, when the caller knows it.</summary>
+        private static string? ObjectiveIdOf(TypedDecisionEventContext context)
+        {
+            return String.IsNullOrWhiteSpace(context.ObjectiveId) ? null : context.ObjectiveId!.Trim();
         }
 
         private static string BuildMessage(string eventType, TypedDecisionEventContext context)
@@ -454,7 +483,9 @@ namespace Armada.Core.Services
                 ["state_bytes"] = stateBytes,
                 ["gate_outcome"] = gateOutcome,
                 ["unavailable_reason"] = result?.UnavailableReason,
-                ["unavailable_detail"] = result?.UnavailableDetail
+                ["unavailable_detail"] = result?.UnavailableDetail,
+                ["objective_id"] = ObjectiveIdOf(context),
+                ["mission_id"] = MissionIdOf(context)
             };
 
             if (!String.IsNullOrWhiteSpace(context.ParticipantKey)) payload["participant_key"] = context.ParticipantKey;
@@ -514,6 +545,18 @@ namespace Armada.Core.Services
         /// The mission this decision belongs to, when any. Supplies the event's owner scope and ids.
         /// </summary>
         public Mission? Mission { get; init; }
+
+        /// <summary>
+        /// The id of the mission this decision judged, for a caller that holds the id but not the record.
+        /// Ignored when <see cref="Mission"/> is set. A record link only: it is never part of the state.
+        /// </summary>
+        public string? MissionId { get; init; }
+
+        /// <summary>
+        /// The id of the objective this decision judged, when the caller knows it. A record link only: it
+        /// is never part of the state, so it changes neither the state hash nor what leaves the host.
+        /// </summary>
+        public string? ObjectiveId { get; init; }
 
         /// <summary>
         /// The captain that made the call, when known. Set on captain-tool events for attribution.

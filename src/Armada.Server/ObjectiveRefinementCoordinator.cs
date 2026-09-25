@@ -351,7 +351,7 @@ namespace Armada.Server
                 {
                     List<string> vesselIds = new List<string>(objective.VesselIds ?? new List<string>());
                     if (!String.IsNullOrWhiteSpace(session.VesselId)) vesselIds.Add(session.VesselId!);
-                    await CriteriaLintAdapter.EvaluateAsync(draft, objective.Kind, token, vesselIds).ConfigureAwait(false);
+                    await CriteriaLintAdapter.EvaluateAsync(draft, objective.Kind, token, vesselIds, objective.Id).ConfigureAwait(false);
                 }
 
                 _WebSocketHub?.BroadcastEvent(

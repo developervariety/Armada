@@ -760,7 +760,8 @@ namespace Armada.Server.Mcp.Tools
                 {
                     Id = view.Id,
                     AuthorType = view.AuthorType,
-                    Content = view.Content
+                    Content = view.Content,
+                    MissionId = view.MissionId
                 })
                 .ToList();
 

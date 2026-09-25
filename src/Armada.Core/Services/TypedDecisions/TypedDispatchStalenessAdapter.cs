@@ -17,6 +17,9 @@ namespace Armada.Core.Services
         /// <summary>The vessel being dispatched to, for the egress vessel rule.</summary>
         public string? VesselId { get; init; }
 
+        /// <summary>The objective being dispatched, when known, recorded on the decision event; never part of the state.</summary>
+        public string? ObjectiveId { get; init; }
+
         /// <summary>The configured codeIndex.dispatchStalenessPolicy.</summary>
         public CodeIndexDispatchStalenessPolicyEnum Policy { get; init; } = CodeIndexDispatchStalenessPolicyEnum.Proceed;
 
@@ -201,6 +204,9 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(DispatchStalenessInput input) => input.Mission;
+
+        /// <inheritdoc />
+        protected override string? ObjectiveIdOf(DispatchStalenessInput input) => input.ObjectiveId;
 
         /// <inheritdoc />
         protected override IEnumerable<string?> VesselIdsOf(DispatchStalenessInput input)

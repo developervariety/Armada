@@ -42,6 +42,9 @@ namespace Armada.Core.Services
 
         /// <summary>The mission this candidate belongs to, when any, for the per-call event owner scope. Usually null.</summary>
         public Mission? Mission { get; init; }
+
+        /// <summary>The objective the question blocks, when known, recorded on the decision event; never part of the state.</summary>
+        public string? ObjectiveId { get; init; }
     }
 
     /// <summary>
@@ -261,6 +264,9 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(OwnerDigestCandidate input) => input.Mission;
+
+        /// <inheritdoc />
+        protected override string? ObjectiveIdOf(OwnerDigestCandidate input) => input.ObjectiveId;
 
         /// <inheritdoc />
         protected override IEnumerable<string?> VesselIdsOf(OwnerDigestCandidate input)

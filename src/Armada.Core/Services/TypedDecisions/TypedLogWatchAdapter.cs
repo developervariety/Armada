@@ -352,6 +352,10 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override Mission? MissionOf(LogWatchDecisionInput input) => input.Mission;
 
+        /// <inheritdoc />
+        protected override string? MissionIdOf(LogWatchDecisionInput input)
+            => input.Mission?.Id ?? (String.IsNullOrWhiteSpace(input.MissionId) ? null : input.MissionId);
+
         #endregion
     }
 

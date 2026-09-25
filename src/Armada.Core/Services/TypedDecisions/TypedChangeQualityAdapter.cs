@@ -199,6 +199,9 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override Mission? MissionOf(ChangeQualityInput input) => input.Mission;
 
+        /// <inheritdoc />
+        protected override string? MissionIdOf(ChangeQualityInput input) => input.Mission?.Id ?? input.MissionId;
+
         #endregion
 
         #region Private-Methods

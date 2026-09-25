@@ -144,7 +144,7 @@ namespace Armada.Core.Services
                 await ConsultAsync(deliverable, retrieval, TypedDecisionEgress.VesselsOf(objective.VesselIds, vessel.Id), isJudge: false, token).ConfigureAwait(false);
             if (decision == null || reading == null)
             {
-                await RecordUnavailableAsync(retrieval, redacted, decision, null, token).ConfigureAwait(false);
+                await RecordUnavailableAsync(retrieval, redacted, decision, null, objective.Id, token).ConfigureAwait(false);
                 return;
             }
 
@@ -187,9 +187,9 @@ namespace Armada.Core.Services
 
             bool applied = alreadyDone || integrate || analystBand;
             if (applied)
-                await RecordGatedAsync(retrieval, redacted, decision, reading, null, token).ConfigureAwait(false);
+                await RecordGatedAsync(retrieval, redacted, decision, reading, null, objective.Id, token).ConfigureAwait(false);
             else
-                await RecordShadowAsync(retrieval, redacted, decision, reading, cfg.Mode, null, token).ConfigureAwait(false);
+                await RecordShadowAsync(retrieval, redacted, decision, reading, cfg.Mode, null, objective.Id, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -238,20 +238,20 @@ namespace Armada.Core.Services
                 await ConsultAsync(addedTypesText, retrieval, new[] { vessel.Id, mission?.VesselId }, isJudge: true, token).ConfigureAwait(false);
             if (decision == null || reading == null)
             {
-                await RecordUnavailableAsync(retrieval, redacted, decision, mission, token).ConfigureAwait(false);
+                await RecordUnavailableAsync(retrieval, redacted, decision, mission, null, token).ConfigureAwait(false);
                 return null;
             }
 
             bool gate = TypedDecisionGate.Classify(cfg, available: true, confidence: reading.Reimplements) == TypedGateOutcome.Gated;
             if (gate)
             {
-                await RecordGatedAsync(retrieval, redacted, decision, reading, mission, token).ConfigureAwait(false);
+                await RecordGatedAsync(retrieval, redacted, decision, reading, mission, null, token).ConfigureAwait(false);
                 return "The prior_art check reads the diff as re-implementing a capability already present in one or more candidates. "
                     + "As the Judge, verify whether the diff should consume the candidate through a seam instead, and treat a genuine "
                     + "re-implementation as a finding. Candidates: " + PriorArtDecisionShapes.RenderCandidates(retrieval);
             }
 
-            await RecordShadowAsync(retrieval, redacted, decision, reading, cfg.Mode, mission, token).ConfigureAwait(false);
+            await RecordShadowAsync(retrieval, redacted, decision, reading, cfg.Mode, mission, null, token).ConfigureAwait(false);
             return null;
         }
 
@@ -342,26 +342,26 @@ namespace Armada.Core.Services
             return (objective.Title ?? String.Empty).Trim();
         }
 
-        private Task RecordUnavailableAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult? result, Mission? mission, CancellationToken token)
+        private Task RecordUnavailableAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult? result, Mission? mission, string? objectiveId, CancellationToken token)
         {
             return SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                BuildContext(retrieval, redacted, result ?? TypedDecisionResult.Exception(), null, mission), token));
+                BuildContext(retrieval, redacted, result ?? TypedDecisionResult.Exception(), null, mission, objectiveId), token));
         }
 
-        private Task RecordShadowAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, TypedDecisionModeEnum mode, Mission? mission, CancellationToken token)
+        private Task RecordShadowAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, TypedDecisionModeEnum mode, Mission? mission, string? objectiveId, CancellationToken token)
         {
             string outcome = mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
             return SafeRecordAsync(() => _Recorder.RecordShadowAsync(
-                BuildContext(retrieval, redacted, decision, reading, mission), outcome, token));
+                BuildContext(retrieval, redacted, decision, reading, mission, objectiveId), outcome, token));
         }
 
-        private Task RecordGatedAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, Mission? mission, CancellationToken token)
+        private Task RecordGatedAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, Mission? mission, string? objectiveId, CancellationToken token)
         {
             return SafeRecordAsync(() => _Recorder.RecordGatedAsync(
-                BuildContext(retrieval, redacted, decision, reading, mission), token));
+                BuildContext(retrieval, redacted, decision, reading, mission, objectiveId), token));
         }
 
-        private TypedDecisionEventContext BuildContext(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult result, PriorArtReading? reading, Mission? mission)
+        private TypedDecisionEventContext BuildContext(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult result, PriorArtReading? reading, Mission? mission, string? objectiveId)
         {
             string verdict = reading == null
                 ? "no_candidates"
@@ -376,7 +376,8 @@ namespace Armada.Core.Services
                 Confidence = reading?.MaxConfidence,
                 Result = result,
                 RedactedState = redacted ?? String.Empty,
-                Mission = mission
+                Mission = mission,
+                ObjectiveId = objectiveId
             };
         }
 

@@ -1072,6 +1072,7 @@ namespace Armada.Core.Services
 
             StageNecessityDecisionInput input = new StageNecessityDecisionInput
             {
+                ObjectiveId = objective.Id,
                 Title = objective.Title ?? String.Empty,
                 Description = objective.Description ?? String.Empty,
                 AcceptanceCriteria = (objective.AcceptanceCriteria ?? new List<string>())

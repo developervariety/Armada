@@ -345,6 +345,9 @@ namespace Armada.Core.Services.TypedDecisions
         /// <summary>The mission the call belonged to, when any.</summary>
         public string? MissionId { get; set; }
 
+        /// <summary>The objective the call belonged to, when the caller knew it.</summary>
+        public string? ObjectiveId { get; set; }
+
         /// <summary>
         /// The <see cref="DecisionStateRedactor.Version"/> that produced <see cref="RedactedState"/>.
         /// Zero on a line written before samples were stamped: its cohort is unknown until an

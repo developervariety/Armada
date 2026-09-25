@@ -123,6 +123,9 @@ namespace Armada.Core.Services
         /// <summary>The mission this decision belongs to, when re-asked at a stage handoff; null at preview time.</summary>
         public Mission? Mission { get; init; }
 
+        /// <summary>The objective being judged, recorded on the decision event; never part of the state.</summary>
+        public string? ObjectiveId { get; init; }
+
         /// <summary>
         /// Every vessel the objective concerns (its own vessels and the resolved target vessel), for the egress
         /// vessel rule.
@@ -407,6 +410,9 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(StageNecessityDecisionInput input) => input.Mission;
+
+        /// <inheritdoc />
+        protected override string? ObjectiveIdOf(StageNecessityDecisionInput input) => input.ObjectiveId;
 
         /// <inheritdoc />
         protected override IEnumerable<string?> VesselIdsOf(StageNecessityDecisionInput input)

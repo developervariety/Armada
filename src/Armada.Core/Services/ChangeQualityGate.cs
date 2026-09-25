@@ -50,7 +50,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    ChangeQualityInput input = new ChangeQualityInput { UnifiedDiff = diff ?? String.Empty, CentralPackageManagement = centralPackageManagement };
+                    ChangeQualityInput input = new ChangeQualityInput { UnifiedDiff = diff ?? String.Empty, CentralPackageManagement = centralPackageManagement, MissionId = reviewedMissionId };
                     verdict = await adapter.DecideAsync(input, ChangeQualityVerdict.From(ruleWeaknesses), token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
