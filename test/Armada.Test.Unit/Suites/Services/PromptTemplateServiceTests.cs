@@ -49,6 +49,35 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The Judge template's acceptance example passes the acceptance checker, and the forms it forbids fail it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+
+                    string judge = service.GetEmbeddedDefault("persona.judge") ?? "";
+                    const string marker = "Example line: `";
+                    int start = judge.IndexOf(marker, StringComparison.Ordinal);
+                    AssertTrue(start >= 0, "the Judge template carries an example acceptance line");
+                    int lineEnd = judge.IndexOf('\n', start);
+                    string exampleLine = judge.Substring(start + marker.Length, lineEnd - start - marker.Length).TrimEnd();
+                    exampleLine = exampleLine.Substring(0, exampleLine.Length - 1);
+
+                    string brief = "## Acceptance Criteria\n\n- The parser rejects a truncated frame.\n";
+                    AssertNull(JudgeAcceptanceWalk.ValidatePass("## Acceptance Criteria\n\n" + exampleLine + "\n", brief),
+                        "the template's own example is accepted by the checker");
+
+                    string rangeWords = "- The parser rejects a truncated frame. \u2014 MET. FrameParser rejects it (lines 88-97).";
+                    AssertNotNull(JudgeAcceptanceWalk.ValidatePass("## Acceptance Criteria\n\n" + rangeWords + "\n", brief),
+                        "\"lines 88-97\" is not location evidence");
+                    string paraphrased = "- The parser rejects truncated frames. \u2014 MET. src/Parser/FrameParser.cs:88";
+                    AssertNotNull(JudgeAcceptanceWalk.ValidatePass("## Acceptance Criteria\n\n" + paraphrased + "\n", brief),
+                        "a paraphrased criterion does not match");
+                }
+            });
+
             await RunTest("Seed defaults includes specialist persona templates", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

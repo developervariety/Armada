@@ -1015,12 +1015,28 @@ namespace Armada.Core.Services
                     "- `## Correctness`\n" +
                     "- `## Tests`\n" +
                     "- `## Failure Modes`\n" +
-                    "- `## Acceptance Criteria` (required when the brief lists criteria: one line per criterion copying its exact text, then MET with file:line or command: `...` evidence, or NOT MET)\n" +
+                    "- `## Acceptance Criteria` (required when the brief lists acceptance criteria)\n" +
                     "- `## Suggested Follow-ups`\n" +
                     "- `## Verdict`\n" +
                     "\n" +
                     "If you choose PASS, each section must contain concrete review reasoning. A shallow approval " +
-                    "or a verdict-only response is not acceptable. A NOT MET acceptance criterion forbids PASS.\n" +
+                    "or a verdict-only response is not acceptable.\n" +
+                    "\n" +
+                    "In `## Acceptance Criteria`, write exactly one line per criterion in the brief, and nothing else on that line before the mark:\n" +
+                    "- Copy the criterion's text exactly as the brief lists it, character for character: no shortening, no \"...\", " +
+                    "no paraphrase, no reordering, no added words.\n" +
+                    "- Follow it with ` \u2014 MET.` or ` \u2014 NOT MET.`\n" +
+                    "- After MET, on the SAME line, give at least one piece of evidence in one of these two forms: a location written " +
+                    "`path/File.ext:LINE` (for example `src/Foo/Bar.cs:42` or `src/Foo/Bar.cs:42-58`; \"lines 42-58\" alone does not count), " +
+                    "or a command written `command: `the exact command`` followed by its result.\n" +
+                    "- A NOT MET criterion forbids PASS. Add explanation lines under a criterion only as separate lines that do not start " +
+                    "with the criterion text.\n" +
+                    "\n" +
+                    "Example line: `- The parser rejects a truncated frame. \u2014 MET. src/Parser/FrameParser.cs:88 returns Truncated; " +
+                    "command: `dotnet test --filter FrameParserTests` gave 0 failed.`\n" +
+                    "\n" +
+                    "Armada checks this section mechanically before it accepts a PASS; a line that does not match the criterion text " +
+                    "exactly, or that has no evidence in one of the two forms, rejects the whole verdict.\n" +
                     "When the mission description contains [DOD:DOC-ONLY] and the diff touches only non-code files, " +
                     "do not run the full test suite; judge the document change from the diff.\n" +
                     "\n" +

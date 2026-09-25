@@ -98,6 +98,12 @@ upstream integrations and excludes changes already present at that baseline.
   `shopt` are shell builtins whose remaining tokens are arguments, so a
   workflow command using them is no longer refused as
   `command_dependency_missing`.
+- **The Judge template states the acceptance-criteria grammar the checker
+  enforces:** one line per criterion copying its exact text, then MET or NOT
+  MET, then evidence on the same line as `path:LINE` or `command: \`...\``,
+  with an example line. A test runs the template's own example through the
+  acceptance checker, so the instructions and the check cannot drift apart.
+  The checker itself is unchanged.
 - **A failure while writing mission instructions releases the captain:**
   writing the brief into the dock is part of the launch, so an I/O error or
   an out-of-memory failure while the brief is built takes the launch-failure
