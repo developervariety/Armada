@@ -25,6 +25,51 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Consumer verification links a sibling's extraction artifacts and removing the link leaves the source tree", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-dod-artifacts-" + Guid.NewGuid().ToString("N"));
+                string host = Path.Combine(root, "host-deobfuscator");
+                string worktree = Path.Combine(root, "verify", "Deobfuscator");
+                try
+                {
+                    Directory.CreateDirectory(Path.Combine(host, "output", "decompiled-src", "Vendor"));
+                    string sourceFile = Path.Combine(host, "output", "decompiled-src", "Vendor", "Form.cs");
+                    File.WriteAllText(sourceFile, "class Form {}");
+                    Directory.CreateDirectory(worktree);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = new LoggingModule();
+                        logging.Settings.EnableConsole = false;
+                        DefinitionOfDoneGate gate = new DefinitionOfDoneGate(new DefinitionOfDoneSettings(), testDb.Driver, logging);
+                        SiblingRepo sibling = new SiblingRepo
+                        {
+                            RelativePath = "../Deobfuscator",
+                            ExtractionArtifactPaths = new List<string> { "output/decompiled-src", "output/absent-export" }
+                        };
+                        Vessel siblingVessel = new Vessel("Deobfuscator", "https://example.invalid/deobfuscator.git") { WorkingDirectory = host };
+
+                        List<string> links = new List<string>();
+                        gate.LinkSiblingArtifacts(sibling, siblingVessel, worktree, links);
+
+                        AssertEqual(1, links.Count, "the present artifact is linked and the absent one is skipped");
+                        AssertTrue(File.Exists(Path.Combine(worktree, "output", "decompiled-src", "Vendor", "Form.cs")), "the consumer reads the tree through the link");
+
+                        gate.RemoveArtifactLinks(links);
+                        AssertFalse(Directory.Exists(Path.Combine(worktree, "output", "decompiled-src")), "the link is removed");
+                        AssertTrue(File.Exists(sourceFile), "removing the link never touches the source tree");
+
+                        // A recursive delete of the verification root after cleanup cannot reach the host tree.
+                        Directory.Delete(Path.Combine(root, "verify"), true);
+                        AssertTrue(File.Exists(sourceFile), "the host tree survives the scratch cleanup");
+                    }
+                }
+                finally
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                }
+            });
+
             await RunTest("Classify treats a dead container runtime as Infra, not a test failure", () =>
             {
                 // Regression: with no container runtime in the dock, every container-backed fixture

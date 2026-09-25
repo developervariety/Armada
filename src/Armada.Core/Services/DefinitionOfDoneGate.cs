@@ -430,6 +430,7 @@ namespace Armada.Core.Services
                 Guid.NewGuid().ToString("N"));
 
             List<string> createdWorktrees = new List<string>();
+            List<string> artifactLinks = new List<string>();
 
             try
             {
@@ -487,6 +488,7 @@ namespace Armada.Core.Services
                     await _Git.CreateWorktreeAsync(
                         siblingRepo, siblingPath, siblingRef, siblingRef, true, token).ConfigureAwait(false);
                     createdWorktrees.Add(siblingPath);
+                    LinkSiblingArtifacts(sibling, siblingVessel, siblingPath, artifactLinks);
                 }
 
                 string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(consumerBuild!) : consumerBuild!;
@@ -522,6 +524,10 @@ namespace Armada.Core.Services
             }
             finally
             {
+                // Links first: a worktree removal or a recursive delete must never reach the host
+                // artifact trees the links point at.
+                RemoveArtifactLinks(artifactLinks);
+
                 foreach (string worktree in createdWorktrees)
                 {
                     try { await _Git!.RemoveWorktreeAsync(worktree, token).ConfigureAwait(false); }
@@ -531,6 +537,74 @@ namespace Armada.Core.Services
                 try { if (Directory.Exists(scratchRoot)) Directory.Delete(scratchRoot, true); }
                 catch (Exception ex) { _Logging.Debug(_Header + "consumer scratch cleanup failed for " + scratchRoot + ": " + ex.Message); }
             }
+        }
+
+        /// <summary>
+        /// Link a sibling's git-ignored extraction artifact directories (for example a decompiled source
+        /// tree) from the sibling vessel's host working directory into its verification worktree. A
+        /// mission dock copies the same directories from the same place, so the consumer suite reads
+        /// the trees it reads in a dock; without them every tree-dependent test fails and the gate
+        /// blames the producer. The verification only reads the trees, so a link replaces the copy. A
+        /// missing source is logged and skipped, as a dock does.
+        /// </summary>
+        /// <param name="sibling">The consumer's sibling declaration.</param>
+        /// <param name="siblingVessel">The sibling vessel.</param>
+        /// <param name="siblingWorktree">The sibling's verification worktree.</param>
+        /// <param name="links">Receives each link created, for removal.</param>
+        internal void LinkSiblingArtifacts(SiblingRepo sibling, Vessel siblingVessel, string siblingWorktree, List<string> links)
+        {
+            if (sibling?.ExtractionArtifactPaths == null || sibling.ExtractionArtifactPaths.Count == 0) return;
+            if (siblingVessel == null || String.IsNullOrWhiteSpace(siblingVessel.WorkingDirectory)) return;
+
+            foreach (string artifactPath in sibling.ExtractionArtifactPaths)
+            {
+                if (String.IsNullOrWhiteSpace(artifactPath)) continue;
+                string source = Path.GetFullPath(Path.Combine(siblingVessel.WorkingDirectory, artifactPath));
+                string destination = Path.GetFullPath(Path.Combine(siblingWorktree, artifactPath));
+                try
+                {
+                    if (!Directory.Exists(source))
+                    {
+                        _Logging.Warn(_Header + "extraction artifact source absent for consumer verification (vessel "
+                            + siblingVessel.Name + ", path " + artifactPath + "); its tree-dependent tests will not find it");
+                        continue;
+                    }
+                    if (Directory.Exists(destination) || File.Exists(destination)) continue;
+
+                    string? parent = Path.GetDirectoryName(destination);
+                    if (!String.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                    Directory.CreateSymbolicLink(destination, source);
+                    links.Add(destination);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not link extraction artifacts for consumer verification (vessel "
+                        + siblingVessel.Name + ", path " + artifactPath + "): " + ex.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Remove the artifact links created for a verification. Only the link is removed; the tree it
+        /// points at is never touched.
+        /// </summary>
+        /// <param name="links">Links created by <see cref="LinkSiblingArtifacts"/>.</param>
+        internal void RemoveArtifactLinks(List<string> links)
+        {
+            foreach (string link in links)
+            {
+                try
+                {
+                    FileSystemInfo info = new DirectoryInfo(link);
+                    if (info.LinkTarget == null) continue;
+                    File.Delete(link);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not remove artifact link " + link + ": " + ex.Message);
+                }
+            }
+            links.Clear();
         }
 
         /// <summary>
