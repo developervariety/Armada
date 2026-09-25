@@ -142,6 +142,8 @@ namespace Armada.Test.Database
             await RunTest("Voyage_Summary_All_Pages_And_Scopes", "Operational", () => TestVoyageSummaryAsync(token), token);
             await RunTest("Mission_Admission_Long_Unicode_Ids_And_Reasons", "Operational", () => TestMissionAdmissionUnicodeAsync(token), token);
             await RunTest("Mission_Admission_Observation_Reopen_And_Stale_Write", "Operational", () => TestMissionAdmissionAsync(token), token);
+            await RunTest("Mission_Admission_CompareAndSet_Matches_After_Every_Write", "Operational", () => new CompareAndSetDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyMissionAdmissionAfterEveryWriteAsync(token), token);
+            await RunTest("ModelEndpoint_Health_CompareAndSet_Matches_After_Every_Write", "Operational", () => new CompareAndSetDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyModelEndpointHealthAfterEveryWriteAsync(token), token);
             await RunTest("Dock_AnchorSnapshot_Create_Reopen", "Operational", () => TestDockAnchorSnapshotAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
             await RunTest("Mission_Summary_Reads_Skip_Heavy_Columns_And_Count_By_Voyage", "Operational", () => new MissionSummaryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
