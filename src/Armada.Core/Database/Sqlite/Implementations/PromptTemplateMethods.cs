@@ -60,18 +60,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO prompt_templates (id, tenant_id, user_id, ownership_scope, name, description, category, content, is_built_in, active, created_utc, last_update_utc)
                             VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @category, @content, @is_built_in, @active, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", template.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)template.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)template.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ownership_scope", template.OwnershipScope.ToString());
-                    cmd.Parameters.AddWithValue("@name", template.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)template.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@category", template.Category);
-                    cmd.Parameters.AddWithValue("@content", template.Content);
-                    cmd.Parameters.AddWithValue("@is_built_in", template.IsBuiltIn ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@active", template.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(template.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(template.LastUpdateUtc));
+                    PromptTemplateColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "prompt_templates"), template);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -90,7 +79,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM prompt_templates WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -113,7 +102,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM prompt_templates WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -137,8 +126,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM prompt_templates WHERE tenant_id = @tenant_id AND name = @name;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -173,17 +162,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             active = @active,
                             last_update_utc = @last_update_utc
                             WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", template.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)template.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)template.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ownership_scope", template.OwnershipScope.ToString());
-                    cmd.Parameters.AddWithValue("@name", template.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)template.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@category", template.Category);
-                    cmd.Parameters.AddWithValue("@content", template.Content);
-                    cmd.Parameters.AddWithValue("@is_built_in", template.IsBuiltIn ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@active", template.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(template.LastUpdateUtc));
+                    PromptTemplateColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "prompt_templates"), template);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -202,7 +181,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM prompt_templates WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -245,12 +224,12 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_after", "prompt_templates", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_before", "prompt_templates", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -295,7 +274,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM prompt_templates WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -313,7 +292,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM prompt_templates WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }

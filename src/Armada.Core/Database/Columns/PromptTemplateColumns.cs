@@ -33,5 +33,27 @@ namespace Armada.Core.Database
             template.LastUpdateUtc = row.Utc("last_update_utc");
             return template;
         }
+
+        /// <summary>
+        /// Bind every stored prompt_templates column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the prompt_templates table.</param>
+        /// <param name="template">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, PromptTemplate template)
+        {
+            parameters
+                .Text("id", template.Id)
+                .Text("tenant_id", template.TenantId)
+                .Text("user_id", template.UserId)
+                .Text("name", template.Name)
+                .Text("description", template.Description)
+                .Text("category", template.Category)
+                .Text("content", template.Content)
+                .Bool("is_built_in", template.IsBuiltIn)
+                .Bool("active", template.Active)
+                .Utc("created_utc", template.CreatedUtc)
+                .Utc("last_update_utc", template.LastUpdateUtc)
+                .Text("ownership_scope", template.OwnershipScope.ToString());
+        }
     }
 }
