@@ -31,5 +31,25 @@ namespace Armada.Core.Database
             fleet.LastUpdateUtc = row.Utc("last_update_utc");
             return fleet;
         }
+
+        /// <summary>
+        /// Bind every stored fleets column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the fleets table.</param>
+        /// <param name="fleet">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Fleet fleet)
+        {
+            parameters
+                .Text("id", fleet.Id)
+                .Text("tenant_id", fleet.TenantId)
+                .Text("user_id", fleet.UserId)
+                .Text("name", fleet.Name)
+                .Text("description", fleet.Description)
+                .Text("default_pipeline_id", fleet.DefaultPipelineId)
+                .Text("default_playbooks", fleet.DefaultPlaybooks)
+                .Bool("active", fleet.Active)
+                .Utc("created_utc", fleet.CreatedUtc)
+                .Utc("last_update_utc", fleet.LastUpdateUtc);
+        }
     }
 }
