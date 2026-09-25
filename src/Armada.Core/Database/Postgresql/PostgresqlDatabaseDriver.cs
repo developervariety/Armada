@@ -48,6 +48,7 @@ namespace Armada.Core.Database.Postgresql
             new Dictionary<string, StoredTimestampEnum>
             {
                 { "check_runs.completed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "schema_repairs.applied_utc", StoredTimestampEnum.TimestampWithZone },
                 { "check_runs.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "check_runs.last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "check_runs.slot_requested_utc", StoredTimestampEnum.TimestampWithZone },
@@ -256,6 +257,9 @@ namespace Armada.Core.Database.Postgresql
                         _Logging.Info(_Header + "applied " + applied + " migration(s), schema now at v" + migrations[migrations.Count - 1].Version);
                     else
                         _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
+
+                    // The stored column forms the binder writes must match the migrated schema before any write.
+                    await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                 }
             }
 

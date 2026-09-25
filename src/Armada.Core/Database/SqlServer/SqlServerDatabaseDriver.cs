@@ -69,6 +69,8 @@ namespace Armada.Core.Database.SqlServer
                 { "planning_session_messages.last_update_utc", StoredTimestampEnum.Timestamp },
                 { "planning_sessions.completed_utc", StoredTimestampEnum.Timestamp },
                 { "planning_sessions.created_utc", StoredTimestampEnum.Timestamp },
+                { "schema_migrations.applied_utc", StoredTimestampEnum.Timestamp },
+                { "schema_repairs.applied_utc", StoredTimestampEnum.Timestamp },
                 { "planning_sessions.last_update_utc", StoredTimestampEnum.Timestamp },
                 { "planning_sessions.started_utc", StoredTimestampEnum.Timestamp },
                 { "preparation_claim_observations.created_utc", StoredTimestampEnum.Timestamp },
@@ -244,6 +246,9 @@ namespace Armada.Core.Database.SqlServer
                         _Logging.Info(_Header + "applied " + applied + " migration(s), schema now at v" + migrations[migrations.Count - 1].Version);
                     else
                         _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
+
+                    // The stored column forms the binder writes must match the migrated schema before any write.
+                    await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                 }
             }
 

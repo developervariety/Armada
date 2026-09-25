@@ -185,6 +185,9 @@ namespace Armada.Core.Database.Mysql
                         _Logging.Info(_Header + "applied " + applied + " migration(s), schema now at v" + migrations[migrations.Count - 1].Version);
                     else
                         _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
+
+                    // The stored column forms the binder writes must match the migrated schema before any write.
+                    await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                 }
             }
 

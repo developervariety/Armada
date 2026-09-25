@@ -110,7 +110,10 @@ upstream integrations and excludes changes already present at that baseline.
   the mission admission and model-endpoint health compare-and-set writes match
   the stored update time after every write path. A PostgreSQL database whose
   planning tables predate the planning migration has their text times
-  converted to TIMESTAMPTZ (migration 114).
+  converted to TIMESTAMPTZ (migration 114). After migrations, startup compares
+  every timestamp and integer-boolean column the binder writes with the live
+  schema and refuses with an "Incompatible schema prerequisite" error that lists
+  each mismatched column; backup tables are not checked.
 - **Stored rows read through shared column readers:** every provider reads
   tenants, users, credentials, fleets, vessels, signals, events, captains,
   missions, mission summaries and history points, merge entries, landing jobs,

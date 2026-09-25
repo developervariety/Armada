@@ -146,7 +146,7 @@ namespace Armada.Test.Database
             await RunTest("Mission_Admission_Observation_Reopen_And_Stale_Write", "Operational", () => TestMissionAdmissionAsync(token), token);
             await RunTest("Mission_Admission_CompareAndSet_Matches_After_Every_Write", "Operational", () => new CompareAndSetDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyMissionAdmissionAfterEveryWriteAsync(token), token);
             await RunTest("ModelEndpoint_Health_CompareAndSet_Matches_After_Every_Write", "Operational", () => new CompareAndSetDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyModelEndpointHealthAfterEveryWriteAsync(token), token);
-            await RunTest("StoredBinder_Timestamp_And_Boolean_Storage_Matches_Schema", "Schema", () => new StoredBinderSchemaTests(_Settings).VerifyStorageMatchesSchemaAsync(token), token);
+            await RunTest("Startup_Refuses_A_Timestamp_Column_Stored_In_Another_Form", "Schema", () => new StoredColumnGuardTests(_Settings).VerifyAsync(token), token);
             if (_Settings.Type == DatabaseTypeEnum.Postgresql)
                 await RunTest("Postgresql_Hot_Filtered_Reads_Plan_The_Same_Index_Through_The_Binder", "Schema", () => new StoredBinderSchemaTests(_Settings).VerifyPostgresqlHotReadPlansAsync(token), token);
             await RunTest("Dock_AnchorSnapshot_Create_Reopen", "Operational", () => TestDockAnchorSnapshotAsync(token), token);
