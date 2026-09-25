@@ -29,7 +29,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand command = connection.CreateCommand())
                 {
                     command.CommandText = "SELECT runner_id, tenant_id, user_id, auth_method, credential_id, generation, active, created_utc, last_update_utc, revoked_utc, revoked_by_user_id FROM harbor_runner_enrollments WHERE runner_id = @runner_id;";
-                    command.Parameters.AddWithValue("@runner_id", runnerId.Trim());
+                    StoredValueBinder.Value(command, "@runner_id", runnerId.Trim());
                     using (SqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false)) return HarborRunnerEnrollmentColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
@@ -75,7 +75,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                             last_update_utc = @last_update_utc, revoked_utc = NULL, revoked_by_user_id = NULL
                             WHERE runner_id = @runner_id AND active = 0 AND generation = @expected_generation;";
                         Bind(update, enrollment);
-                        update.Parameters.AddWithValue("@expected_generation", expectedGeneration);
+                        StoredValueBinder.Value(update, "@expected_generation", expectedGeneration);
                         int changed = await update.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         await transaction.CommitAsync(token).ConfigureAwait(false);
                         return changed == 1;
@@ -99,10 +99,10 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     command.CommandText = @"UPDATE harbor_runner_enrollments SET active = 0, generation = generation + 1,
                         last_update_utc = @revoked_utc, revoked_utc = @revoked_utc, revoked_by_user_id = @revoked_by_user_id
                         WHERE runner_id = @runner_id AND active = 1 AND generation = @expected_generation;";
-                    command.Parameters.AddWithValue("@runner_id", runnerId.Trim());
-                    command.Parameters.AddWithValue("@expected_generation", expectedGeneration);
-                    command.Parameters.AddWithValue("@revoked_utc", revokedUtc.ToUniversalTime());
-                    command.Parameters.AddWithValue("@revoked_by_user_id", revokedByUserId.Trim());
+                    StoredValueBinder.Value(command, "@runner_id", runnerId.Trim());
+                    StoredValueBinder.Value(command, "@expected_generation", expectedGeneration);
+                    SqlServerDatabaseDriver.StoredBinder.For(command, "harbor_runner_enrollments").Utc("@revoked_utc", "revoked_utc", revokedUtc);
+                    StoredValueBinder.Value(command, "@revoked_by_user_id", revokedByUserId.Trim());
                     return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
                 }
             }
@@ -110,14 +110,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
 
         private static void Bind(SqlCommand command, HarborRunnerEnrollment enrollment)
         {
-            command.Parameters.AddWithValue("@runner_id", enrollment.RunnerId);
-            command.Parameters.AddWithValue("@tenant_id", enrollment.TenantId);
-            command.Parameters.AddWithValue("@user_id", enrollment.UserId);
-            command.Parameters.AddWithValue("@auth_method", enrollment.AuthMethod);
-            command.Parameters.AddWithValue("@credential_id", (object?)enrollment.CredentialId ?? DBNull.Value);
-            command.Parameters.AddWithValue("@generation", enrollment.Generation);
-            command.Parameters.AddWithValue("@created_utc", enrollment.CreatedUtc.ToUniversalTime());
-            command.Parameters.AddWithValue("@last_update_utc", enrollment.LastUpdateUtc.ToUniversalTime());
+            HarborRunnerEnrollmentColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(command, "harbor_runner_enrollments"), enrollment);
         }
 
         private static void ValidateEnrollmentGeneration(HarborRunnerEnrollment enrollment, long expectedGeneration)

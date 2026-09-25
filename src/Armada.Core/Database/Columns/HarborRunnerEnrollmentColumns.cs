@@ -33,5 +33,23 @@ namespace Armada.Core.Database
                 RevokedByUserId = row.TextOrNull("revoked_by_user_id")
             };
         }
+
+        /// <summary>
+        /// Bind the columns an enrollment writes, each in the form its provider stores it. The active flag and the revocation columns are set by the enrollment and revocation statements themselves.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the harbor_runner_enrollments table.</param>
+        /// <param name="enrollment">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, HarborRunnerEnrollment enrollment)
+        {
+            parameters
+                .Text("runner_id", enrollment.RunnerId)
+                .Text("tenant_id", enrollment.TenantId)
+                .Text("user_id", enrollment.UserId)
+                .Text("auth_method", enrollment.AuthMethod)
+                .Text("credential_id", enrollment.CredentialId)
+                .Long("generation", enrollment.Generation)
+                .Utc("created_utc", enrollment.CreatedUtc)
+                .Utc("last_update_utc", enrollment.LastUpdateUtc);
+        }
     }
 }

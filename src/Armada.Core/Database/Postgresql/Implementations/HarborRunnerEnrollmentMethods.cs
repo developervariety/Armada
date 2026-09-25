@@ -27,7 +27,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             {
                 using (NpgsqlCommand command = new NpgsqlCommand("SELECT runner_id, tenant_id, user_id, auth_method, credential_id, generation, active, created_utc, last_update_utc, revoked_utc, revoked_by_user_id FROM harbor_runner_enrollments WHERE runner_id = @runner_id;", connection))
                 {
-                    command.Parameters.AddWithValue("@runner_id", runnerId.Trim());
+                    StoredValueBinder.Value(command, "@runner_id", runnerId.Trim());
                     using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false)) return HarborRunnerEnrollmentColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
@@ -55,7 +55,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlCommand command = new NpgsqlCommand(sql, connection, transaction))
                     {
                         Bind(command, enrollment);
-                        command.Parameters.AddWithValue("@expected_generation", expectedGeneration);
+                        StoredValueBinder.Value(command, "@expected_generation", expectedGeneration);
                         int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         await transaction.CommitAsync(token).ConfigureAwait(false);
                         return changed == 1;
@@ -93,10 +93,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     revoked_by_user_id = @revoked_by_user_id
                     WHERE runner_id = @runner_id AND active = TRUE AND generation = @expected_generation;", connection))
                 {
-                    command.Parameters.AddWithValue("@runner_id", runnerId.Trim());
-                    command.Parameters.AddWithValue("@expected_generation", expectedGeneration);
-                    command.Parameters.AddWithValue("@revoked_utc", revokedUtc.ToUniversalTime());
-                    command.Parameters.AddWithValue("@revoked_by_user_id", revokedByUserId.Trim());
+                    StoredValueBinder.Value(command, "@runner_id", runnerId.Trim());
+                    StoredValueBinder.Value(command, "@expected_generation", expectedGeneration);
+                    PostgresqlDatabaseDriver.StoredBinder.For(command, "harbor_runner_enrollments").Utc("@revoked_utc", "revoked_utc", revokedUtc);
+                    StoredValueBinder.Value(command, "@revoked_by_user_id", revokedByUserId.Trim());
                     return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
                 }
             }
@@ -104,14 +104,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
 
         private static void Bind(NpgsqlCommand command, HarborRunnerEnrollment enrollment)
         {
-            command.Parameters.AddWithValue("@runner_id", enrollment.RunnerId);
-            command.Parameters.AddWithValue("@tenant_id", enrollment.TenantId);
-            command.Parameters.AddWithValue("@user_id", enrollment.UserId);
-            command.Parameters.AddWithValue("@auth_method", enrollment.AuthMethod);
-            command.Parameters.AddWithValue("@credential_id", (object?)enrollment.CredentialId ?? DBNull.Value);
-            command.Parameters.AddWithValue("@generation", enrollment.Generation);
-            command.Parameters.AddWithValue("@created_utc", enrollment.CreatedUtc.ToUniversalTime());
-            command.Parameters.AddWithValue("@last_update_utc", enrollment.LastUpdateUtc.ToUniversalTime());
+            HarborRunnerEnrollmentColumns.Write(PostgresqlDatabaseDriver.StoredBinder.For(command, "harbor_runner_enrollments"), enrollment);
         }
 
         private static void ValidateEnrollmentGeneration(HarborRunnerEnrollment enrollment, long expectedGeneration)
