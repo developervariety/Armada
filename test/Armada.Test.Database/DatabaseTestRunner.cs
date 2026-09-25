@@ -160,7 +160,10 @@ namespace Armada.Test.Database
             await RunTest("Startup_Refuses_A_Timestamp_Column_Stored_In_Another_Form", "Schema", () => new StoredColumnGuardTests(_Settings).VerifyAsync(token), token);
             await RunTest("Startup_Ignores_A_Table_No_Schema_Statement_Creates", "Schema", () => new StoredColumnGuardTests(_Settings).VerifyUnknownTableIgnoredAsync(token), token);
             if (_Settings.Type == DatabaseTypeEnum.Postgresql)
+            {
                 await RunTest("Postgresql_Hot_Filtered_Reads_Plan_The_Same_Index_Through_The_Binder", "Schema", () => new StoredBinderSchemaTests(_Settings).VerifyPostgresqlHotReadPlansAsync(token), token);
+                await RunTest("Postgresql_Hot_Scoped_Page_Reads_Plan_An_Index", "Schema", () => new ScopedEnumeratePlanTests(_Settings).VerifyAsync(token), token);
+            }
             await RunTest("Dock_AnchorSnapshot_Create_Reopen", "Operational", () => TestDockAnchorSnapshotAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
             await RunTest("Mission_Summary_Reads_Skip_Heavy_Columns_And_Count_By_Voyage", "Operational", () => new MissionSummaryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);

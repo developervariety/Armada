@@ -104,6 +104,50 @@ namespace Armada.Test.Database
             internal Func<int, int, Task<EnumerationResult<T>>> Page { get; }
         }
 
+        /// <summary>
+        /// One tenant, user and scope filter a query-based method set offers, with the slots it must return.
+        /// </summary>
+        private sealed class StandardScope
+        {
+            internal StandardScope(string label, Func<Slot, bool> match, string? tenantId, string? userId, string? scopeId, bool window)
+            {
+                Label = label;
+                Match = match;
+                TenantId = tenantId;
+                UserId = userId;
+                ScopeId = scopeId;
+                Window = window;
+            }
+
+            internal string Label { get; }
+
+            internal Func<Slot, bool> Match { get; }
+
+            internal string? TenantId { get; }
+
+            internal string? UserId { get; }
+
+            internal string? ScopeId { get; }
+
+            internal bool Window { get; }
+        }
+
+        /// <summary>
+        /// A created row and the slot it was created in.
+        /// </summary>
+        private sealed class Placed<T>
+        {
+            internal Placed(Slot slot, T row)
+            {
+                Slot = slot;
+                Row = row;
+            }
+
+            internal Slot Slot { get; }
+
+            internal T Row { get; }
+        }
+
         private async Task<Owners> SeedOwnersAsync(DatabaseFixture fixture, DateTime start, CancellationToken token)
         {
             TenantMetadata tenantA = await fixture.CreateTenantAsync("matrix-a", token: token).ConfigureAwait(false);
@@ -132,24 +176,24 @@ namespace Armada.Test.Database
                 Start = start
             };
 
-            (string Tenant, string User, string Scope)[] layout =
+            string[][] layout =
             {
-                (owners.TenantA, owners.UserA1, owners.ScopeX),
-                (owners.TenantA, owners.UserA1, owners.ScopeX),
-                (owners.TenantA, owners.UserA1, owners.ScopeY),
-                (owners.TenantA, owners.UserA2, owners.ScopeX),
-                (owners.TenantA, owners.UserA1, owners.ScopeY),
-                (owners.TenantB, owners.UserB1, owners.ScopeZ),
-                (owners.TenantA, owners.UserA2, owners.ScopeY)
+                new[] { owners.TenantA, owners.UserA1, owners.ScopeX },
+                new[] { owners.TenantA, owners.UserA1, owners.ScopeX },
+                new[] { owners.TenantA, owners.UserA1, owners.ScopeY },
+                new[] { owners.TenantA, owners.UserA2, owners.ScopeX },
+                new[] { owners.TenantA, owners.UserA1, owners.ScopeY },
+                new[] { owners.TenantB, owners.UserB1, owners.ScopeZ },
+                new[] { owners.TenantA, owners.UserA2, owners.ScopeY }
             };
             for (int i = 0; i < layout.Length; i++)
             {
                 owners.Slots.Add(new Slot
                 {
                     Index = i,
-                    TenantId = layout[i].Tenant,
-                    UserId = layout[i].User,
-                    ScopeId = layout[i].Scope,
+                    TenantId = layout[i][0],
+                    UserId = layout[i][1],
+                    ScopeId = layout[i][2],
                     Time = start.AddMinutes(i)
                 });
             }
@@ -166,21 +210,21 @@ namespace Armada.Test.Database
         /// <summary>
         /// The tenant, user and scope filters every query-based method set shares, plus its creation-time window.
         /// </summary>
-        private static IEnumerable<(string Label, Func<Slot, bool> Match, string? Tenant, string? User, string? ScopeId, bool Window)> StandardScopes(Owners o, bool hasScope, bool hasWindow)
+        private static IEnumerable<StandardScope> StandardScopes(Owners o, bool hasScope, bool hasWindow)
         {
-            yield return ("tenant", s => s.TenantId == o.TenantA, o.TenantA, null, null, false);
-            yield return ("tenant and user", s => s.TenantId == o.TenantA && s.UserId == o.UserA1, o.TenantA, o.UserA1, null, false);
-            yield return ("other tenant", s => s.TenantId == o.TenantB, o.TenantB, null, null, false);
-            yield return ("tenant with a foreign user", s => false, o.TenantA, o.UserB1, null, false);
+            yield return new StandardScope("tenant", s => s.TenantId == o.TenantA, o.TenantA, null, null, false);
+            yield return new StandardScope("tenant and user", s => s.TenantId == o.TenantA && s.UserId == o.UserA1, o.TenantA, o.UserA1, null, false);
+            yield return new StandardScope("other tenant", s => s.TenantId == o.TenantB, o.TenantB, null, null, false);
+            yield return new StandardScope("tenant with a foreign user", s => false, o.TenantA, o.UserB1, null, false);
             if (hasScope)
             {
-                yield return ("tenant, user and scope", s => s.TenantId == o.TenantA && s.UserId == o.UserA1 && s.ScopeId == o.ScopeX, o.TenantA, o.UserA1, o.ScopeX, false);
-                yield return ("tenant and scope", s => s.TenantId == o.TenantA && s.ScopeId == o.ScopeY, o.TenantA, null, o.ScopeY, false);
-                yield return ("tenant with a foreign scope", s => false, o.TenantA, null, o.ScopeZ, false);
+                yield return new StandardScope("tenant, user and scope", s => s.TenantId == o.TenantA && s.UserId == o.UserA1 && s.ScopeId == o.ScopeX, o.TenantA, o.UserA1, o.ScopeX, false);
+                yield return new StandardScope("tenant and scope", s => s.TenantId == o.TenantA && s.ScopeId == o.ScopeY, o.TenantA, null, o.ScopeY, false);
+                yield return new StandardScope("tenant with a foreign scope", s => false, o.TenantA, null, o.ScopeZ, false);
             }
             if (hasWindow)
             {
-                yield return ("tenant and creation window", s => s.TenantId == o.TenantA && s.Time >= o.WindowFrom && s.Time <= o.WindowTo, o.TenantA, null, null, true);
+                yield return new StandardScope("tenant and creation window", s => s.TenantId == o.TenantA && s.Time >= o.WindowFrom && s.Time <= o.WindowTo, o.TenantA, null, null, true);
             }
         }
 
@@ -192,13 +236,13 @@ namespace Armada.Test.Database
             Owners owners,
             IReadOnlyDictionary<int, T> rows,
             Func<T, string> id,
-            Func<IEnumerable<(Slot Slot, T Row)>, IEnumerable<(Slot Slot, T Row)>> order,
+            Func<IEnumerable<Placed<T>>, IEnumerable<Placed<T>>> order,
             IEnumerable<Scope<T>> scopes)
         {
             foreach (Scope<T> scope in scopes)
             {
                 string label = entity + " [" + scope.Label + "]";
-                List<string> expected = order(owners.Slots.Where(scope.Match).Select(s => (s, rows[s.Index]))).Select(r => id(r.Row)).ToList();
+                List<string> expected = order(owners.Slots.Where(scope.Match).Select(s => new Placed<T>(s, rows[s.Index]))).Select(r => id(r.Row)).ToList();
                 int expectedPages = (int)Math.Ceiling((double)expected.Count / PageSize);
                 List<string> actual = new List<string>();
                 for (int pageNumber = 1; pageNumber <= expectedPages + 1; pageNumber++)
@@ -258,8 +302,8 @@ namespace Armada.Test.Database
                 List<Scope<CheckRun>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<CheckRun>(s.Label, s.Match, (page, size) => _Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         VesselId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null,
@@ -310,8 +354,8 @@ namespace Armada.Test.Database
                 List<Scope<Deployment>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<Deployment>(s.Label, s.Match, (page, size) => _Driver.Deployments.EnumerateAsync(new DeploymentQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         VesselId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null,
@@ -363,8 +407,8 @@ namespace Armada.Test.Database
                 List<Scope<DeploymentEnvironment>> scopes = StandardScopes(o, hasScope: true, hasWindow: false)
                     .Select(s => new Scope<DeploymentEnvironment>(s.Label, s.Match, (page, size) => _Driver.Environments.EnumerateAsync(new DeploymentEnvironmentQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         VesselId = s.ScopeId,
                         PageNumber = page,
                         PageSize = size
@@ -415,8 +459,8 @@ namespace Armada.Test.Database
                 List<Scope<Release>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<Release>(s.Label, s.Match, (page, size) => _Driver.Releases.EnumerateAsync(new ReleaseQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         VesselId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null,
@@ -471,8 +515,8 @@ namespace Armada.Test.Database
                 List<Scope<WorkflowProfile>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<WorkflowProfile>(s.Label, s.Match, (page, size) => _Driver.WorkflowProfiles.EnumerateAsync(new WorkflowProfileQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         VesselId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null,
@@ -676,8 +720,8 @@ namespace Armada.Test.Database
                 List<Scope<TokenUsageRecord>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<TokenUsageRecord>(s.Label, s.Match, (page, size) => _Driver.TokenUsage.EnumerateAsync(new TokenUsageQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         VesselId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null,
@@ -687,8 +731,8 @@ namespace Armada.Test.Database
                 scopes.AddRange(StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<TokenUsageRecord>(s.Label + ", summary rows", s.Match, async (page, size) => AsPage(await _Driver.TokenUsage.EnumerateForSummaryAsync(new TokenUsageQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         VesselId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null
@@ -746,8 +790,8 @@ namespace Armada.Test.Database
                 List<Scope<RequestHistoryEntry>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<RequestHistoryEntry>(s.Label, s.Match, (page, size) => _Driver.RequestHistory.EnumerateAsync(new RequestHistoryQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         CredentialId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null,
@@ -757,8 +801,8 @@ namespace Armada.Test.Database
                 scopes.AddRange(StandardScopes(o, hasScope: true, hasWindow: true)
                     .Select(s => new Scope<RequestHistoryEntry>(s.Label + ", summary rows", s.Match, async (page, size) => AsPage(await _Driver.RequestHistory.EnumerateForSummaryAsync(new RequestHistoryQuery
                     {
-                        TenantId = s.Tenant,
-                        UserId = s.User,
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
                         CredentialId = s.ScopeId,
                         FromUtc = s.Window ? o.WindowFrom : null,
                         ToUtc = s.Window ? o.WindowTo : null
