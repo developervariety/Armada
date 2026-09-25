@@ -69,5 +69,50 @@ namespace Armada.Core.Database
             run.LastUpdateUtc = row.Utc("last_update_utc");
             return run;
         }
+
+        /// <summary>
+        /// Bind every stored check_runs column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the check_runs table.</param>
+        /// <param name="checkRun">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, CheckRun checkRun)
+        {
+            parameters
+                .Text("id", checkRun.Id)
+                .Text("tenant_id", checkRun.TenantId)
+                .Text("user_id", checkRun.UserId)
+                .Text("workflow_profile_id", checkRun.WorkflowProfileId)
+                .Text("vessel_id", checkRun.VesselId)
+                .Text("mission_id", checkRun.MissionId)
+                .Text("voyage_id", checkRun.VoyageId)
+                .Text("deployment_id", checkRun.DeploymentId)
+                .Text("label", checkRun.Label)
+                .Text("check_type", checkRun.Type.ToString())
+                .Text("source", checkRun.Source.ToString())
+                .Text("status", checkRun.Status.ToString())
+                .Text("provider_name", checkRun.ProviderName)
+                .Text("external_id", checkRun.ExternalId)
+                .Text("external_url", checkRun.ExternalUrl)
+                .Text("environment_name", checkRun.EnvironmentName)
+                .Text("command", checkRun.Command)
+                .Text("working_directory", checkRun.WorkingDirectory)
+                .Text("branch_name", checkRun.BranchName)
+                .Text("commit_hash", checkRun.CommitHash)
+                .Text("regression_objective_id", checkRun.RegressionObjectiveId)
+                .Text("regression_landed_commit", checkRun.RegressionLandedCommit)
+                .Int("exit_code", checkRun.ExitCode)
+                .Text("output", checkRun.Output)
+                .Text("summary", checkRun.Summary)
+                .Text("test_summary_json", checkRun.TestSummary != null ? JsonSerializer.Serialize(checkRun.TestSummary, _Json) : null)
+                .Text("coverage_summary_json", checkRun.CoverageSummary != null ? JsonSerializer.Serialize(checkRun.CoverageSummary, _Json) : null)
+                .Text("artifacts_json", JsonSerializer.Serialize(checkRun.Artifacts ?? new List<CheckRunArtifact>(), _Json))
+                .Long("duration_ms", checkRun.DurationMs)
+                .Utc("slot_requested_utc", checkRun.SlotRequestedUtc)
+                .Utc("started_utc", checkRun.StartedUtc)
+                .Utc("completed_utc", checkRun.CompletedUtc)
+                .Utc("created_utc", checkRun.CreatedUtc)
+                .Utc("last_update_utc", checkRun.LastUpdateUtc)
+                .Text("regression_purpose", checkRun.RegressionPurpose == RegressionPurposeEnum.None ? null : checkRun.RegressionPurpose.ToString());
+        }
     }
 }

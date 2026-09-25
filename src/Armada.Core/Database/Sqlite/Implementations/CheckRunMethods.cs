@@ -64,7 +64,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             await conn.OpenAsync(token).ConfigureAwait(false);
             using SqliteCommand cmd = conn.CreateCommand();
             List<string> conditions = new List<string> { "id = @id" };
-            List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@id", id) };
+            List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@id", id) };
             ApplyQueryFilters(query, conditions, parameters);
             cmd.CommandText = "SELECT * FROM check_runs WHERE " + String.Join(" AND ", conditions) + " LIMIT 1;";
             foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -133,7 +133,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             await conn.OpenAsync(token).ConfigureAwait(false);
             using SqliteCommand cmd = conn.CreateCommand();
             List<string> conditions = new List<string> { "id = @id" };
-            List<SqliteParameter> parameters = new List<SqliteParameter> { new SqliteParameter("@id", id) };
+            List<SqliteParameter> parameters = new List<SqliteParameter> { StoredValueBinder.Parameter(new SqliteParameter(), "@id", id) };
             ApplyQueryFilters(query, conditions, parameters);
             cmd.CommandText = "DELETE FROM check_runs WHERE " + String.Join(" AND ", conditions) + ";";
             foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(parameter);
@@ -189,117 +189,83 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (!String.IsNullOrWhiteSpace(query.TenantId))
             {
                 conditions.Add("tenant_id = @tenant_id");
-                parameters.Add(new SqliteParameter("@tenant_id", query.TenantId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@tenant_id", query.TenantId));
             }
             if (!String.IsNullOrWhiteSpace(query.UserId))
             {
                 conditions.Add("user_id = @user_id");
-                parameters.Add(new SqliteParameter("@user_id", query.UserId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@user_id", query.UserId));
             }
             if (!String.IsNullOrWhiteSpace(query.WorkflowProfileId))
             {
                 conditions.Add("workflow_profile_id = @workflow_profile_id");
-                parameters.Add(new SqliteParameter("@workflow_profile_id", query.WorkflowProfileId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@workflow_profile_id", query.WorkflowProfileId));
             }
             if (!String.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");
-                parameters.Add(new SqliteParameter("@vessel_id", query.VesselId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@vessel_id", query.VesselId));
             }
             if (!String.IsNullOrWhiteSpace(query.MissionId))
             {
                 conditions.Add("mission_id = @mission_id");
-                parameters.Add(new SqliteParameter("@mission_id", query.MissionId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@mission_id", query.MissionId));
             }
             if (!String.IsNullOrWhiteSpace(query.VoyageId))
             {
                 conditions.Add("voyage_id = @voyage_id");
-                parameters.Add(new SqliteParameter("@voyage_id", query.VoyageId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@voyage_id", query.VoyageId));
             }
             if (!String.IsNullOrWhiteSpace(query.DeploymentId))
             {
                 conditions.Add("deployment_id = @deployment_id");
-                parameters.Add(new SqliteParameter("@deployment_id", query.DeploymentId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@deployment_id", query.DeploymentId));
             }
             if (query.Type.HasValue)
             {
                 conditions.Add("check_type = @check_type");
-                parameters.Add(new SqliteParameter("@check_type", query.Type.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@check_type", query.Type.Value.ToString()));
             }
             if (query.Status.HasValue)
             {
                 conditions.Add("status = @status");
-                parameters.Add(new SqliteParameter("@status", query.Status.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@status", query.Status.Value.ToString()));
             }
             if (query.Source.HasValue)
             {
                 conditions.Add("source = @source");
-                parameters.Add(new SqliteParameter("@source", query.Source.Value.ToString()));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@source", query.Source.Value.ToString()));
             }
             if (!String.IsNullOrWhiteSpace(query.ProviderName))
             {
                 conditions.Add("provider_name = @provider_name");
-                parameters.Add(new SqliteParameter("@provider_name", query.ProviderName));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@provider_name", query.ProviderName));
             }
             if (!String.IsNullOrWhiteSpace(query.ExternalId))
             {
                 conditions.Add("external_id = @external_id");
-                parameters.Add(new SqliteParameter("@external_id", query.ExternalId));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@external_id", query.ExternalId));
             }
             if (!String.IsNullOrWhiteSpace(query.EnvironmentName))
             {
                 conditions.Add("environment_name = @environment_name");
-                parameters.Add(new SqliteParameter("@environment_name", query.EnvironmentName));
+                parameters.Add(StoredValueBinder.Parameter(new SqliteParameter(), "@environment_name", query.EnvironmentName));
             }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new SqliteParameter("@from_utc", SqliteDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@from_utc", "check_runs", "created_utc", query.FromUtc.Value));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new SqliteParameter("@to_utc", SqliteDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@to_utc", "check_runs", "created_utc", query.ToUtc.Value));
             }
         }
 
         private static void AddParameters(SqliteCommand cmd, CheckRun checkRun)
         {
-            cmd.Parameters.AddWithValue("@id", checkRun.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)checkRun.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)checkRun.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)checkRun.WorkflowProfileId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)checkRun.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@mission_id", (object?)checkRun.MissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@voyage_id", (object?)checkRun.VoyageId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@deployment_id", (object?)checkRun.DeploymentId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@label", (object?)checkRun.Label ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@check_type", checkRun.Type.ToString());
-            cmd.Parameters.AddWithValue("@status", checkRun.Status.ToString());
-            cmd.Parameters.AddWithValue("@source", checkRun.Source.ToString());
-            cmd.Parameters.AddWithValue("@provider_name", (object?)checkRun.ProviderName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@external_id", (object?)checkRun.ExternalId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@external_url", (object?)checkRun.ExternalUrl ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@environment_name", (object?)checkRun.EnvironmentName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@command", checkRun.Command);
-            cmd.Parameters.AddWithValue("@working_directory", (object?)checkRun.WorkingDirectory ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@branch_name", (object?)checkRun.BranchName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@commit_hash", (object?)checkRun.CommitHash ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@exit_code", checkRun.ExitCode.HasValue ? checkRun.ExitCode.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@output", (object?)checkRun.Output ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@summary", (object?)checkRun.Summary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@test_summary_json", checkRun.TestSummary != null ? JsonSerializer.Serialize(checkRun.TestSummary, _Json) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@coverage_summary_json", checkRun.CoverageSummary != null ? JsonSerializer.Serialize(checkRun.CoverageSummary, _Json) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@artifacts_json", JsonSerializer.Serialize(checkRun.Artifacts ?? new List<CheckRunArtifact>(), _Json));
-            cmd.Parameters.AddWithValue("@duration_ms", checkRun.DurationMs.HasValue ? checkRun.DurationMs.Value : DBNull.Value);
-            cmd.Parameters.AddWithValue("@started_utc", checkRun.StartedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(checkRun.StartedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@slot_requested_utc", checkRun.SlotRequestedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(checkRun.SlotRequestedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", checkRun.CompletedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(checkRun.CompletedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(checkRun.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(checkRun.LastUpdateUtc));
-            cmd.Parameters.AddWithValue("@regression_purpose", checkRun.RegressionPurpose == RegressionPurposeEnum.None ? (object)DBNull.Value : checkRun.RegressionPurpose.ToString());
-            cmd.Parameters.AddWithValue("@regression_objective_id", (object?)checkRun.RegressionObjectiveId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@regression_landed_commit", (object?)checkRun.RegressionLandedCommit ?? DBNull.Value);
+            CheckRunColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "check_runs"), checkRun);
         }
     }
 }
