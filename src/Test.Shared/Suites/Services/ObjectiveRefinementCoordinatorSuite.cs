@@ -165,6 +165,14 @@ namespace Test.Shared.Suites.Services
                 CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
                 Vessel vessel = await fixture.CreateVesselAsync("refinement-apply", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
                 Objective objective = await fixture.CreateObjectiveAsync("Apply refinement", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+                objective.Preparation = new ObjectivePreparation
+                {
+                    RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                    {
+                        new ObjectivePreparationSiblingInput { VesselRef = "ReferenceSource", RelativePath = "../ReferenceSource" }
+                    }
+                };
+                objective = await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
                 Captain captain = await fixture.CreateCaptainAsync("apply-custom", AgentRuntimeEnum.Custom, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
                 ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain, vesselId: vessel.Id).ConfigureAwait(false);
                 ObjectiveRefinementMessage assistant = await fixture.CreateMessageAsync(session, "Assistant", 2,
@@ -195,6 +203,8 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("No schema rollback", applied.Objective.NonGoals[0]);
                 AssertEqual("Validate with SQLite first", applied.Objective.RolloutConstraints[0]);
                 AssertTrue(applied.Objective.RefinementSessionIds.Contains(session.Id), "Expected session linkage on updated objective.");
+                AssertEqual("ReferenceSource", applied.Objective.Preparation.RequiredSiblingInputs[0].VesselRef,
+                    "A runtime summary that omits preparation must preserve existing preparation.");
                 AssertEqual(ObjectiveStatusEnum.Scoped, persistedObjective.Status);
                 AssertTrue(selected.IsSelected, "Expected source refinement message to be selected.");
             }));

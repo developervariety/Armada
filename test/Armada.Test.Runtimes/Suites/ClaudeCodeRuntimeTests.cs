@@ -46,16 +46,6 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("BuildArguments Includes Model When Supplied", () =>
-            {
-                InspectableClaudeCodeRuntime runtime = CreateRuntime();
-                List<string> args = runtime.Args("test prompt", "sonnet");
-                int modelIndex = args.IndexOf("--model");
-                AssertTrue(modelIndex >= 0);
-                AssertEqual("sonnet", args[modelIndex + 1]);
-                AssertTrue(args.Contains("stream-json"));
-            });
-
             await RunTest("Result PublishesExactUsage", () =>
             {
                 InspectableClaudeCodeRuntime runtime = CreateRuntime();

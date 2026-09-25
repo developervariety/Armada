@@ -21,58 +21,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("PortalRequiresAuthAndSelectionBeforeDashboard", async () =>
-            {
-                ProxyTestHarness harness = await ProxyTestHarness.StartAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-                try
-                {
-                    HttpResponseMessage rootResponse = await harness.Browser.GetAsync("/").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, rootResponse.StatusCode, "Portal root should load");
-                    AssertContains("Proxy Portal", await rootResponse.Content.ReadAsStringAsync().ConfigureAwait(false), "Portal root should serve the minimal portal");
-
-                    HttpResponseMessage dashboardWithoutAuth = await harness.Browser.GetAsync("/dashboard").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Found, dashboardWithoutAuth.StatusCode, "Dashboard should redirect before proxy login");
-                    AssertEqual("/", dashboardWithoutAuth.Headers.Location?.OriginalString, "Dashboard redirect should return to the portal");
-
-                    await harness.LoginAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-
-                    HttpResponseMessage dashboardWithoutSelection = await harness.Browser.GetAsync("/dashboard").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Found, dashboardWithoutSelection.StatusCode, "Dashboard should redirect before instance selection");
-
-                    using JsonDocument instances = await harness.GetJsonAsync("/proxy-api/v1/instances").WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-                    JsonElement instanceList = instances.RootElement.GetProperty("instances");
-                    AssertEqual(1, instanceList.GetArrayLength(), "One tunneled instance should be visible");
-                    AssertEqual("smoke-instance", instanceList[0].GetProperty("instanceId").GetString(), "Instance ID should match the fake tunnel");
-
-                    await harness.SelectInstanceAsync("smoke-instance").WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-
-                    using JsonDocument sessionContext = await harness.GetJsonAsync("/proxy-api/v1/session/context").WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-                    AssertEqual("smoke-instance", sessionContext.RootElement.GetProperty("selectedInstanceId").GetString(), "Selected instance should persist in session context");
-                    AssertTrue(sessionContext.RootElement.GetProperty("relay").GetProperty("websocket").GetBoolean(), "Session context should advertise websocket relay");
-
-                    HttpResponseMessage dashboardResponse = await harness.Browser.GetAsync("/dashboard").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, dashboardResponse.StatusCode, "Dashboard should load after selection");
-                    AssertContains("Dashboard Smoke", await dashboardResponse.Content.ReadAsStringAsync().ConfigureAwait(false), "Dashboard index should serve shared dashboard content");
-
-                    HttpResponseMessage dashboardRouteResponse = await harness.Browser.GetAsync("/dashboard/planning").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, dashboardRouteResponse.StatusCode, "Dashboard SPA routes should fall back to index");
-                    AssertContains("Dashboard Smoke", await dashboardRouteResponse.Content.ReadAsStringAsync().ConfigureAwait(false), "Dashboard SPA fallback should serve the index");
-
-                    HttpResponseMessage assetResponse = await harness.Browser.GetAsync("/dashboard/assets/proxy-smoke.js").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, assetResponse.StatusCode, "Dashboard asset should load");
-                    AssertContains("proxy smoke asset", await assetResponse.Content.ReadAsStringAsync().ConfigureAwait(false), "Dashboard asset should come from the proxy build");
-
-                    HttpResponseMessage siblingResponse = await harness.Browser.GetAsync("/dashboard/%2e%2e%2fdashboard-backup/probe.txt").ConfigureAwait(false);
-                    string siblingBody = await siblingResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    AssertFalse(siblingBody.Contains("sibling secret", StringComparison.Ordinal), "An encoded traversal must not read a sibling directory that shares the dashboard root's name prefix");
-                    AssertContains("Dashboard Smoke", siblingBody, "A path outside the dashboard root falls back to the SPA index");
-                }
-                finally
-                {
-                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-                }
-            }).ConfigureAwait(false);
-
             await RunTest("StaticPathResolution_StaysInsideTheRoot", () =>
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_proxy_root_" + Guid.NewGuid().ToString("N"), "dashboard");

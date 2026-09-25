@@ -103,6 +103,13 @@ upstream integrations and excludes changes already present at that baseline.
   voyage detail pages) open it once while the load keeps failing and again
   only after a load succeeds. Request History tracks its summary apart from
   its list. The Incidents search box uses the shared search debounce.
+- **Shared service and runtime cases carry the checks their unit-runner copies
+  added:** twelve shared cases now also assert DataExpiry delete counts, dock
+  MCP configs and git anchors, the launch prompt's perform-now wording,
+  preserved objective preparation, planning objective lineage, the Judge and
+  push-form template rules, the dashboard sibling-path probe, the autonomy
+  scripts, and Claude Code `stream-json` output. The twelve unit-runner and
+  runtime copies are removed.
 - **The shared prompt case for sanitized existing instructions reads the
   generated file:** it read the dock-root `CLAUDE.md` the test itself wrote, so
   it passed even when sanitization was skipped. It now reads

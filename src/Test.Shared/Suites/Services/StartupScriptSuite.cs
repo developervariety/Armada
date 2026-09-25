@@ -52,6 +52,8 @@ namespace Test.Shared.Suites.Services
                     Path.Combine("scripts", "macos", "install-launchd-agent.sh"),
                     Path.Combine("scripts", "macos", "update-launchd-agent.sh"),
                     Path.Combine("scripts", "macos", "remove-launchd-agent.sh"),
+                    Path.Combine("scripts", "autonomy", "spawn-helper.sh"),
+                    Path.Combine("scripts", "autonomy", "test-spawn-helper.sh"),
                 };
 
                 foreach (string relativePath in files)

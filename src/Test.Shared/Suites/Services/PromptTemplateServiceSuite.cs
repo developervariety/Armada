@@ -75,6 +75,8 @@ namespace Test.Shared.Suites.Services
                     AssertNotNull(resolved, "Resolved template should not be null");
                     AssertEqual("mission.rules", resolved!.Name, "Template name");
                     AssertTrue(resolved.Content.Contains("## Rules"), "Content should contain '## Rules'");
+                    AssertTrue(resolved.Content.Contains("refs/heads", StringComparison.Ordinal),
+                        "mission.rules must teach the fully-qualified push form for detached checkouts");
                 }
             }));
 
@@ -125,6 +127,11 @@ namespace Test.Shared.Suites.Services
                     AssertContains("## Completeness", judge!.Content, "Judge template should require a Completeness section");
                     AssertContains("## Failure Modes", judge.Content, "Judge template should require a Failure Modes section");
                     AssertContains("PASS is not allowed", judge.Content, "Judge template should constrain PASS when review is incomplete");
+                    AssertContains("Delivery is proven by the DIFF, not by the tree", judge.Content, "Judge template must say delivery is proven by the diff, not by presence at the tip");
+                    AssertContains("cite the diff hunk", judge.Content, "Judge template must demand a diff hunk per requirement");
+                    AssertContains("## Acceptance Criteria", judge.Content, "Judge template must name the acceptance-criteria walk");
+                    AssertContains("NOT MET", judge.Content, "Judge template must forbid PASS on a NOT MET criterion");
+                    AssertContains("[DOD:DOC-ONLY]", judge.Content, "Judge template must skip the full suite on a DOC-ONLY non-code diff");
 
                     PromptTemplate? testEngineer = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
                     AssertNotNull(testEngineer, "Test engineer template should resolve");

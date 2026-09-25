@@ -42,58 +42,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(summary!.Preparation);
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
-
-            await RunTest("ApplyAsync updates objective fields and selects the source refinement message", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                using CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver);
-
-                CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
-                Vessel vessel = await fixture.CreateVesselAsync("refinement-apply", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
-                Objective objective = await fixture.CreateObjectiveAsync("Apply refinement", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
-                objective.Preparation = new ObjectivePreparation
-                {
-                    RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
-                    {
-                        new ObjectivePreparationSiblingInput { VesselRef = "ReferenceSource", RelativePath = "../ReferenceSource" }
-                    }
-                };
-                objective = await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
-                Captain captain = await fixture.CreateCaptainAsync("apply-custom", AgentRuntimeEnum.Custom, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
-                ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain, vesselId: vessel.Id).ConfigureAwait(false);
-                ObjectiveRefinementMessage assistant = await fixture.CreateMessageAsync(session, "Assistant", 2,
-                    "Refined backlog summary.\n\n### Acceptance Criteria\n- Persist normalized objective fields\n\n### Non-Goals\n- No schema rollback\n\n### Rollout Constraints\n- Validate with SQLite first").ConfigureAwait(false);
-
-                (ObjectiveRefinementSummaryResponse Summary, Objective Objective) applied = await fixture.Coordinator.ApplyAsync(
-                    AuthContext.Authenticated(tenantUser.TenantId, tenantUser.UserId, false, true, "UnitTest"),
-                    objective,
-                    session,
-                    new ObjectiveRefinementApplyRequest
-                    {
-                        MessageId = assistant.Id,
-                        MarkMessageSelected = true,
-                        PromoteBacklogState = true
-                    },
-                    fixture.Objectives).ConfigureAwait(false);
-
-                Objective persistedObjective = await RequireObjectiveAsync(testDb.Driver, objective.Id).ConfigureAwait(false);
-                List<ObjectiveRefinementMessage> persistedMessages = await testDb.Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
-                ObjectiveRefinementMessage selected = persistedMessages.Find(message => message.Id == assistant.Id)
-                    ?? throw new Exception("Expected selected assistant message");
-
-                AssertEqual("assistant-fallback", applied.Summary.Method);
-                AssertEqual(ObjectiveStatusEnum.Scoped, applied.Objective.Status);
-                AssertEqual(ObjectiveBacklogStateEnum.ReadyForPlanning, applied.Objective.BacklogState);
-                AssertContains("Refined backlog summary.", applied.Objective.RefinementSummary ?? String.Empty);
-                AssertEqual("Persist normalized objective fields", applied.Objective.AcceptanceCriteria[0]);
-                AssertEqual("No schema rollback", applied.Objective.NonGoals[0]);
-                AssertEqual("Validate with SQLite first", applied.Objective.RolloutConstraints[0]);
-                AssertTrue(applied.Objective.RefinementSessionIds.Contains(session.Id), "Expected session linkage on updated objective.");
-                AssertEqual("ReferenceSource", applied.Objective.Preparation.RequiredSiblingInputs[0].VesselRef,
-                    "A runtime summary that omits preparation must preserve existing preparation.");
-                AssertEqual(ObjectiveStatusEnum.Scoped, persistedObjective.Status);
-                AssertTrue(selected.IsSelected, "Expected source refinement message to be selected.");
-            }).ConfigureAwait(false);
         }
 
         private sealed class CoordinatorFixture : IDisposable
@@ -266,12 +214,6 @@ namespace Armada.Test.Unit.Suites.Services
                 logging.Settings.EnableConsole = false;
                 return logging;
             }
-        }
-
-        private static async Task<Objective> RequireObjectiveAsync(DatabaseDriver database, string objectiveId)
-        {
-            Objective? objective = await database.Objectives.ReadAsync(objectiveId).ConfigureAwait(false);
-            return objective ?? throw new Exception("Expected objective " + objectiveId);
         }
     }
 }

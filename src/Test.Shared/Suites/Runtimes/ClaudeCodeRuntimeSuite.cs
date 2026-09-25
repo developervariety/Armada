@@ -78,6 +78,7 @@ namespace Test.Shared.Suites.Runtimes
                 int modelIndex = args.IndexOf("--model");
                 AssertTrue(modelIndex >= 0);
                 AssertEqual("sonnet", args[modelIndex + 1]);
+                AssertTrue(args.Contains("stream-json"));
             }));
 
             cases.Add(Case("build_arguments_omits_partial_messages_by_default", "BuildArguments Omits Partial Messages By Default", TestTags.Negative, () =>

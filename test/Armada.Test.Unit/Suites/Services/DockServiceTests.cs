@@ -206,69 +206,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ProvisionAsync writes dock start commit metadata and ReclaimAsync removes it", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    ArmadaSettings settings = new ArmadaSettings();
-                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
-                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
-                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
-                    // The default path gives every supported captain the local Armada MCP endpoint.
-
-                    LockingGitService git = new LockingGitService { HeadCommit = new string('a', 40) };
-                    DockService service = new DockService(logging, testDb.Driver, settings, git);
-
-                    Vessel vessel = new Vessel("metadata-vessel", "https://github.com/test/repo.git");
-                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
-                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_workdir_" + Guid.NewGuid().ToString("N"));
-                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                    Captain captain = new Captain("metadata-captain");
-                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
-
-                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/metadata/msn_one", "msn_one").ConfigureAwait(false);
-                    AssertNotNull(dock, "Dock should be provisioned");
-
-                    string projectMcpPath = Path.Combine(dock!.WorktreePath!, ".mcp.json");
-                    string cursorMcpPath = Path.Combine(dock.WorktreePath!, ".cursor", "mcp.json");
-                    string codexMcpPath = Path.Combine(dock.WorktreePath!, ".codex", "config.toml");
-                    string geminiMcpPath = Path.Combine(dock.WorktreePath!, ".gemini", "settings.json");
-                    AssertTrue(File.Exists(projectMcpPath), "Dock provisioning should seed project MCP config");
-                    AssertTrue(File.Exists(cursorMcpPath), "Dock provisioning should seed Cursor MCP config");
-                    AssertTrue(File.Exists(codexMcpPath), "Dock provisioning should seed Codex MCP config");
-                    AssertTrue(File.Exists(geminiMcpPath), "Dock provisioning should seed Gemini MCP config");
-                    string projectMcp = await File.ReadAllTextAsync(projectMcpPath).ConfigureAwait(false);
-                    AssertContains("localhost:" + settings.McpPort, projectMcp, "Project MCP config should point at Armada MCP");
-                    AssertContains("\"armada\"", projectMcp, "Project MCP config should name the Armada server");
-                    string codexMcp = await File.ReadAllTextAsync(codexMcpPath).ConfigureAwait(false);
-                    AssertContains("localhost:" + settings.McpPort, codexMcp, "Codex MCP config should point at Armada MCP");
-                    AssertContains("mcp_servers.armada", codexMcp, "Codex MCP config should name the Armada server");
-                    string geminiMcp = await File.ReadAllTextAsync(geminiMcpPath).ConfigureAwait(false);
-                    AssertContains("localhost:" + settings.McpPort, geminiMcp, "Gemini MCP config should point at Armada MCP");
-                    AssertContains("\"armada\"", geminiMcp, "Gemini MCP config should name the Armada server");
-                    string openCodeMcp = await File.ReadAllTextAsync(Path.Combine(dock.WorktreePath!, "opencode.json")).ConfigureAwait(false);
-                    AssertContains("localhost:" + settings.McpPort, openCodeMcp, "OpenCode config should point at Armada MCP");
-                    AssertContains("\"armada\"", openCodeMcp, "OpenCode config should name the Armada server");
-
-                    string metadataPath = Path.Combine(settings.LogDirectory, "docks", dock!.Id + ".start");
-                    AssertTrue(File.Exists(metadataPath), "Dock provisioning should persist the start commit metadata");
-                    AssertEqual(git.HeadCommit, (await File.ReadAllTextAsync(metadataPath).ConfigureAwait(false)).Trim(), "Metadata should store the provisioned HEAD commit");
-
-                    Dock persisted = (await testDb.Driver.Docks.ReadAsync(dock.Id))!;
-                    AssertNotNull(persisted.GitAnchorsSnapshot, "Provisioning evidence is durable");
-                    AssertEqual(git.HeadCommit, persisted.GitAnchorsSnapshot!.ProvisionedCommit);
-                    AssertEqual("msn_one", persisted.GitAnchorsSnapshot.MissionId);
-                    AssertEqual(DockGitAnchorStateEnum.Seeded, persisted.GitAnchorsSnapshot.State);
-
-                    await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
-                    AssertFalse(File.Exists(metadataPath), "Dock reclaim should remove the start commit metadata");
-                }
-            });
-
             await RunTest("ProvisionAsync seeds OpenCode permissions for worktree and mission playbooks roots", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

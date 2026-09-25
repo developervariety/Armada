@@ -38,9 +38,17 @@ namespace Test.Shared.Suites.Services
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
+                    Voyage oldVoyage = new Voyage("Old Voyage");
+                    oldVoyage.Status = VoyageStatusEnum.Complete;
+                    oldVoyage.CompletedUtc = DateTime.UtcNow.AddDays(-60);
+                    await testDb.Driver.Voyages.CreateAsync(oldVoyage);
+
                     DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 0, 0);
                     DataExpiryResult result = await service.PurgeExpiredDataAsync();
+
                     AssertEqual(0, result.Total);
+                    AssertEqual(0, result.Tables.Count, "a disabled run purges no table");
+                    AssertNotNull(await testDb.Driver.Voyages.ReadAsync(oldVoyage.Id));
                 }
             }));
 
@@ -72,6 +80,8 @@ namespace Test.Shared.Suites.Services
                     DataExpiryResult result = await service.PurgeExpiredDataAsync();
 
                     AssertTrue(result.Total > 0);
+                    AssertEqual(1, result.Deleted("voyages"));
+                    AssertEqual(1, result.Deleted("missions"));
 
                     AssertNull(await db.Voyages.ReadAsync(oldVoyage.Id));
                     AssertNull(await db.Missions.ReadAsync(oldMission.Id));
@@ -97,8 +107,9 @@ namespace Test.Shared.Suites.Services
                     await db.Signals.CreateAsync(recentSignal);
 
                     DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
-                    await service.PurgeExpiredDataAsync();
+                    DataExpiryResult result = await service.PurgeExpiredDataAsync();
 
+                    AssertEqual(1, result.Deleted("signals"));
                     AssertNull(await db.Signals.ReadAsync(oldSignal.Id));
                     AssertNotNull(await db.Signals.ReadAsync(recentSignal.Id));
                 }

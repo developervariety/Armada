@@ -10,44 +10,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Script Layout Exists", () =>
-            {
-                string root = FindRepositoryRoot();
-                string[] files =
-                {
-                    Path.Combine("scripts", "common", "publish-server.sh"),
-                    Path.Combine("scripts", "common", "healthcheck-server.sh"),
-                    Path.Combine("scripts", "windows", "publish-server.bat"),
-                    Path.Combine("scripts", "windows", "healthcheck-server.bat"),
-                    Path.Combine("scripts", "windows", "start-armada-server.ps1"),
-                    Path.Combine("scripts", "windows", "stop-armada-server.ps1"),
-                    Path.Combine("scripts", "linux", "install.sh"),
-                    Path.Combine("scripts", "linux", "publish-server.sh"),
-                    Path.Combine("scripts", "linux", "healthcheck-server.sh"),
-                    Path.Combine("scripts", "macos", "install.sh"),
-                    Path.Combine("scripts", "macos", "publish-server.sh"),
-                    Path.Combine("scripts", "macos", "healthcheck-server.sh"),
-                    Path.Combine("scripts", "windows", "install-windows-task.bat"),
-                    Path.Combine("scripts", "windows", "update-windows-task.bat"),
-                    Path.Combine("scripts", "windows", "remove-windows-task.bat"),
-                    Path.Combine("scripts", "linux", "install-systemd-user.sh"),
-                    Path.Combine("scripts", "linux", "update-systemd-user.sh"),
-                    Path.Combine("scripts", "linux", "remove-systemd-user.sh"),
-                    Path.Combine("scripts", "macos", "install-launchd-agent.sh"),
-                    Path.Combine("scripts", "macos", "update-launchd-agent.sh"),
-                    Path.Combine("scripts", "macos", "remove-launchd-agent.sh"),
-                    Path.Combine("scripts", "autonomy", "spawn-helper.sh"),
-                    Path.Combine("scripts", "autonomy", "test-spawn-helper.sh"),
-                };
-
-                foreach (string relativePath in files)
-                {
-                    AssertTrue(
-                        File.Exists(Path.Combine(root, relativePath)),
-                        relativePath + " should exist");
-                }
-            });
-
             await RunTest("Autonomy Helper Lifecycle Is Bounded And Tested", () =>
             {
                 string root = FindRepositoryRoot();

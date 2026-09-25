@@ -1356,54 +1356,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Shared launch prompt builder produces compact prompt and defers to runtime instruction file", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    IPromptTemplateService templateService = new PromptTemplateService(testDb.Driver, logging);
-                    await templateService.SeedDefaultsAsync();
-
-                    Vessel vessel = new Vessel("LaunchPromptVessel", "https://github.com/test/repo");
-                    vessel.ProjectContext = "Service-oriented C# backend.";
-                    vessel.StyleGuide = "Prefer explicit types.";
-                    vessel.EnableModelContext = true;
-                    vessel.ModelContext = "Background jobs are scheduled from ArmadaServer.";
-
-                    Captain captain = new Captain("prompt-captain");
-                    captain.Runtime = AgentRuntimeEnum.Codex;
-                    captain.SystemInstructions = "Be concise and careful.";
-
-                    Mission mission = new Mission("Write tests", "Add unit tests for the service layer.");
-                    mission.Persona = "Test Engineer";
-                    mission.BranchName = "armada/prompt-captain/msn_test";
-
-                    Dock dock = new Dock(vessel.Id);
-                    dock.BranchName = mission.BranchName;
-                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_prompt_launch_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(dock.WorktreePath);
-                    await File.WriteAllTextAsync(Path.Combine(dock.WorktreePath, "CODEX.md"), "# mission instructions\n");
-
-                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
-                        mission, vessel, captain, dock, templateService).ConfigureAwait(false);
-
-                    AssertContains("test engineer", prompt.ToLowerInvariant());
-                    AssertContains("## Coverage Added", prompt);
-                    AssertContains("[ARMADA:RESULT] COMPLETE", prompt);
-                    AssertContains("Write tests", prompt);
-                    AssertContains("CODEX.md", prompt);
-                    AssertContains("After reading it, perform the mission now", prompt);
-                    AssertContains("do not stop after acknowledging or summarizing the instructions", prompt);
-                    AssertFalse(prompt.Contains("if it exists", StringComparison.OrdinalIgnoreCase), "Launch prompt must not tell the captain to probe a missing fallback path");
-                    AssertFalse(prompt.Contains("CLAUDE.md"), "Non-Claude runtimes should not be pointed at CLAUDE.md");
-                    AssertFalse(prompt.Contains("Be concise and careful."), "Launch prompt should defer captain instructions to the runtime instruction file");
-                    AssertFalse(prompt.Contains("Service-oriented C# backend."), "Launch prompt should defer project context to the runtime instruction file");
-                    AssertFalse(prompt.Contains("Prefer explicit types."), "Launch prompt should defer style guide to the runtime instruction file");
-                    AssertFalse(prompt.Contains("Background jobs are scheduled from ArmadaServer."), "Launch prompt should leave the model context to the runtime instruction file, whose Model Context section carries it");
-                    try { Directory.Delete(dock.WorktreePath, true); } catch { }
-                }
-            });
-
             await RunTest("Launch prompt does not demand a re-read of an auto-loaded root instruction file", async () =>
             {
                 // Probe papercut 2026-08-09: the launch prompt told an OpenCode captain to read

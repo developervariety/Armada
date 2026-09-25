@@ -87,6 +87,11 @@ namespace Test.Shared.Suites.Services
                     HttpResponseMessage assetResponse = await harness.Browser.GetAsync("/dashboard/assets/proxy-smoke.js").ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, assetResponse.StatusCode, "Dashboard asset should load");
                     AssertContains("proxy smoke asset", await assetResponse.Content.ReadAsStringAsync().ConfigureAwait(false), "Dashboard asset should come from the proxy build");
+
+                    HttpResponseMessage siblingResponse = await harness.Browser.GetAsync("/dashboard/%2e%2e%2fdashboard-backup/probe.txt").ConfigureAwait(false);
+                    string siblingBody = await siblingResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    AssertFalse(siblingBody.Contains("sibling secret", StringComparison.Ordinal), "An encoded traversal must not read a sibling directory that shares the dashboard root's name prefix");
+                    AssertContains("Dashboard Smoke", siblingBody, "A path outside the dashboard root falls back to the SPA index");
                 }
                 finally
                 {
@@ -540,6 +545,10 @@ namespace Test.Shared.Suites.Services
                 Directory.CreateDirectory(assets);
                 File.WriteAllText(Path.Combine(dashboard, "index.html"), "<!doctype html><html><body>Dashboard Smoke</body></html>");
                 File.WriteAllText(Path.Combine(assets, "proxy-smoke.js"), "console.log('proxy smoke asset');");
+
+                string sibling = Path.Combine(baseDirectory, "dashboard-backup");
+                Directory.CreateDirectory(sibling);
+                File.WriteAllText(Path.Combine(sibling, "probe.txt"), "sibling secret");
             }
         }
 
