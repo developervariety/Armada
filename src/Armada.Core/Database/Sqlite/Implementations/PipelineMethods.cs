@@ -65,16 +65,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         cmd.Transaction = tx;
                         cmd.CommandText = @"INSERT INTO pipelines (id, tenant_id, user_id, ownership_scope, name, description, is_built_in, active, created_utc, last_update_utc)
                                 VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @is_built_in, @active, @created_utc, @last_update_utc);";
-                        cmd.Parameters.AddWithValue("@id", pipeline.Id);
-                        cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
-                        cmd.Parameters.AddWithValue("@name", pipeline.Name);
-                        cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn ? 1 : 0);
-                        cmd.Parameters.AddWithValue("@active", pipeline.Active ? 1 : 0);
-                        cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(pipeline.CreatedUtc));
-                        cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(pipeline.LastUpdateUtc));
+                        PipelineColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "pipelines"), pipeline);
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -105,7 +96,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM pipelines WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -133,7 +124,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM pipelines WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -162,8 +153,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM pipelines WHERE tenant_id = @tenant_id AND name = @name;";
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -204,15 +195,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                                 active = @active,
                                 last_update_utc = @last_update_utc
                                 WHERE id = @id;";
-                        cmd.Parameters.AddWithValue("@id", pipeline.Id);
-                        cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
-                        cmd.Parameters.AddWithValue("@name", pipeline.Name);
-                        cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn ? 1 : 0);
-                        cmd.Parameters.AddWithValue("@active", pipeline.Active ? 1 : 0);
-                        cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(pipeline.LastUpdateUtc));
+                        PipelineColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "pipelines"), pipeline);
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -221,7 +204,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     {
                         cmd.Transaction = tx;
                         cmd.CommandText = "DELETE FROM pipeline_stages WHERE pipeline_id = @pipeline_id;";
-                        cmd.Parameters.AddWithValue("@pipeline_id", pipeline.Id);
+                        StoredValueBinder.Value(cmd, "@pipeline_id", pipeline.Id);
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -256,7 +239,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     {
                         cmd.Transaction = tx;
                         cmd.CommandText = "DELETE FROM pipeline_stages WHERE pipeline_id = @pipeline_id;";
-                        cmd.Parameters.AddWithValue("@pipeline_id", id);
+                        StoredValueBinder.Value(cmd, "@pipeline_id", id);
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -265,7 +248,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     {
                         cmd.Transaction = tx;
                         cmd.CommandText = "DELETE FROM pipelines WHERE id = @id;";
-                        cmd.Parameters.AddWithValue("@id", id);
+                        StoredValueBinder.Value(cmd, "@id", id);
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -317,12 +300,12 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqliteParameter("@created_after", SqliteDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_after", "pipelines", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqliteParameter("@created_before", SqliteDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqliteDatabaseDriver.StoredBinder.Timestamp(new SqliteParameter(), "@created_before", "pipelines", "created_utc", query.CreatedBefore.Value));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -373,7 +356,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM pipelines WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -391,7 +374,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM pipelines WHERE name = @name;";
-                    cmd.Parameters.AddWithValue("@name", name);
+                    StoredValueBinder.Value(cmd, "@name", name);
                     long count = (long)(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false))!;
                     return count > 0;
                 }
@@ -417,16 +400,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 cmd.Transaction = tx;
                 cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, stage_position, persona_name, is_optional, description, preferred_model, requires_review, review_deny_action)
                         VALUES (@id, @pipeline_id, @stage_order, @stage_position, @persona_name, @is_optional, @description, @preferred_model, @requires_review, @review_deny_action);";
-                cmd.Parameters.AddWithValue("@id", stage.Id);
-                cmd.Parameters.AddWithValue("@pipeline_id", (object?)stage.PipelineId ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@stage_order", stage.Order);
-                cmd.Parameters.AddWithValue("@stage_position", position);
-                cmd.Parameters.AddWithValue("@persona_name", stage.PersonaName);
-                cmd.Parameters.AddWithValue("@is_optional", stage.IsOptional ? 1 : 0);
-                cmd.Parameters.AddWithValue("@description", (object?)stage.Description ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@preferred_model", (object?)stage.PreferredModel ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@requires_review", stage.RequiresReview ? 1 : 0);
-                cmd.Parameters.AddWithValue("@review_deny_action", stage.ReviewDenyAction.ToString());
+                PipelineColumns.WriteStage(SqliteDatabaseDriver.StoredBinder.For(cmd, "pipeline_stages"), stage);
+                StoredValueBinder.Value(cmd, "@stage_position", position);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
         }
@@ -445,7 +420,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteCommand cmd = conn.CreateCommand())
             {
                 cmd.CommandText = "SELECT * FROM pipeline_stages WHERE pipeline_id = @pipeline_id ORDER BY stage_order, stage_position, id;";
-                cmd.Parameters.AddWithValue("@pipeline_id", pipelineId);
+                StoredValueBinder.Value(cmd, "@pipeline_id", pipelineId);
                 using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                 {
                     while (await reader.ReadAsync(token).ConfigureAwait(false))

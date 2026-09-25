@@ -35,6 +35,26 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Bind every stored pipelines column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the pipelines table.</param>
+        /// <param name="pipeline">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Pipeline pipeline)
+        {
+            parameters
+                .Text("id", pipeline.Id)
+                .Text("tenant_id", pipeline.TenantId)
+                .Text("user_id", pipeline.UserId)
+                .Text("name", pipeline.Name)
+                .Text("description", pipeline.Description)
+                .Bool("is_built_in", pipeline.IsBuiltIn)
+                .Bool("active", pipeline.Active)
+                .Utc("created_utc", pipeline.CreatedUtc)
+                .Utc("last_update_utc", pipeline.LastUpdateUtc)
+                .Text("ownership_scope", pipeline.OwnershipScope.ToString());
+        }
+
+        /// <summary>
         /// Read a pipeline_stages row.
         /// </summary>
         /// <param name="record">Reader positioned on a pipeline_stages row.</param>
@@ -54,6 +74,26 @@ namespace Armada.Core.Database
             stage.RequiresReview = row.Bool("requires_review");
             stage.ReviewDenyAction = row.EnumOrFallback("review_deny_action", ReviewDenyActionEnum.RetryStage);
             return stage;
+        }
+
+        /// <summary>
+        /// Bind every stored pipeline_stages column a stage row holds, each in the form its provider stores it. The
+        /// stage's submitted position is bound by the statement that writes it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the pipeline_stages table.</param>
+        /// <param name="stage">Stage to bind.</param>
+        internal static void WriteStage(StoredParameters parameters, PipelineStage stage)
+        {
+            parameters
+                .Text("id", stage.Id)
+                .Text("pipeline_id", stage.PipelineId)
+                .Int("stage_order", stage.Order)
+                .Text("persona_name", stage.PersonaName)
+                .Bool("is_optional", stage.IsOptional)
+                .Text("description", stage.Description)
+                .Text("preferred_model", stage.PreferredModel)
+                .Bool("requires_review", stage.RequiresReview)
+                .Text("review_deny_action", stage.ReviewDenyAction.ToString());
         }
     }
 }
