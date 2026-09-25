@@ -90,7 +90,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return MessageFromReader(reader);
+                            return CoordinationMessageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -166,7 +166,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MessageFromReader(reader));
+                            results.Add(CoordinationMessageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -237,7 +237,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MessageFromReader(reader));
+                            results.Add(CoordinationMessageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -277,7 +277,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(MessageFromReader(reader));
+                            results.Add(CoordinationMessageColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -293,38 +293,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static string ToIso8601(DateTime dt)
         {
             return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static CoordinationMessage MessageFromReader(NpgsqlDataReader reader)
-        {
-            CoordinationMessage message = new CoordinationMessage();
-            message.Id = reader["id"].ToString()!;
-            message.CoordinationRoomId = reader["coordination_room_id"].ToString()!;
-            message.TenantId = NullableString(reader["tenant_id"]);
-            message.AuthorType = Enum.Parse<CoordinationAuthorTypeEnum>(reader["author_type"].ToString()!);
-            message.AuthorId = NullableString(reader["author_id"]);
-            message.AuthorName = reader["author_name"].ToString()!;
-            message.Content = NullableString(reader["content"]) ?? String.Empty;
-            message.VoyageId = NullableString(reader["voyage_id"]);
-            message.MissionId = NullableString(reader["mission_id"]);
-            message.VesselId = NullableString(reader["vessel_id"]);
-            message.IncidentId = NullableString(reader["incident_id"]);
-            message.ToParticipantKey = NullableString(reader["to_participant_key"]);
-            message.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            message.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return message;
         }
 
         #endregion

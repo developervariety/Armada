@@ -94,7 +94,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(ParticipantFromReader(reader));
+                            results.Add(CoordinationParticipantColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -119,7 +119,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(ParticipantFromReader(reader));
+                            results.Add(CoordinationParticipantColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -142,7 +142,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return ParticipantFromReader(reader);
+                            return CoordinationParticipantColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -192,32 +192,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static string ToIso8601(DateTime dt)
         {
             return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static CoordinationParticipant ParticipantFromReader(NpgsqlDataReader reader)
-        {
-            CoordinationParticipant participant = new CoordinationParticipant();
-            participant.Id = reader["id"].ToString()!;
-            participant.CoordinationRoomId = reader["coordination_room_id"].ToString()!;
-            participant.TenantId = NullableString(reader["tenant_id"]);
-            participant.ParticipantKey = reader["participant_key"].ToString()!;
-            participant.DisplayName = reader["display_name"].ToString()!;
-            participant.LastSeenUtc = FromIso8601(reader["last_seen_utc"].ToString()!);
-            participant.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            participant.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return participant;
         }
 
         #endregion

@@ -75,7 +75,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return ClaimFromReader(reader);
+                            return CoordinationClaimColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -140,7 +140,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(ClaimFromReader(reader));
+                            results.Add(CoordinationClaimColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -198,36 +198,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static string ToIso8601(DateTime dt)
         {
             return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static CoordinationClaim ClaimFromReader(NpgsqlDataReader reader)
-        {
-            CoordinationClaim claim = new CoordinationClaim();
-            claim.Id = reader["id"].ToString()!;
-            claim.CoordinationRoomId = reader["coordination_room_id"].ToString()!;
-            claim.TenantId = NullableString(reader["tenant_id"]);
-            claim.ParticipantKey = reader["participant_key"].ToString()!;
-            claim.DisplayName = reader["display_name"].ToString()!;
-            claim.SubjectType = Enum.Parse<CoordinationClaimSubjectEnum>(reader["subject_type"].ToString()!);
-            claim.SubjectId = reader["subject_id"].ToString()!;
-            claim.Note = NullableString(reader["note"]);
-            claim.Status = Enum.Parse<CoordinationClaimStatusEnum>(reader["status"].ToString()!);
-            claim.ExpiresUtc = FromIso8601(reader["expires_utc"].ToString()!);
-            claim.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            claim.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return claim;
         }
 
         #endregion

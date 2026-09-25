@@ -80,7 +80,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return RoomFromReader(reader);
+                            return CoordinationRoomColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -103,7 +103,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return RoomFromReader(reader);
+                            return CoordinationRoomColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -175,7 +175,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
-                            results.Add(RoomFromReader(reader));
+                            results.Add(CoordinationRoomColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
                     }
                 }
             }
@@ -190,32 +190,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static string ToIso8601(DateTime dt)
         {
             return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-        }
-
-        private static DateTime FromIso8601(string value)
-        {
-            return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
-        }
-
-        private static string? NullableString(object value)
-        {
-            if (value == null || value == DBNull.Value) return null;
-            string str = value.ToString()!;
-            return string.IsNullOrEmpty(str) ? null : str;
-        }
-
-        private static CoordinationRoom RoomFromReader(NpgsqlDataReader reader)
-        {
-            CoordinationRoom room = new CoordinationRoom();
-            room.Id = reader["id"].ToString()!;
-            room.TenantId = NullableString(reader["tenant_id"]);
-            room.UserId = NullableString(reader["user_id"]);
-            room.Key = reader["key"].ToString()!;
-            room.Name = reader["name"].ToString()!;
-            room.Description = NullableString(reader["description"]);
-            room.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            room.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            return room;
         }
 
         #endregion
