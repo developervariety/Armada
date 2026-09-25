@@ -107,9 +107,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.CommandText = @"UPDATE judge_follow_ups
                         SET merge_entry_id = @merge_entry_id, last_update_utc = @last_update_utc
                         WHERE id = @id AND merge_entry_id IS NULL;";
-                    cmd.Parameters.AddWithValue("@id", followUpId);
-                    cmd.Parameters.AddWithValue("@merge_entry_id", mergeEntryId);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(DateTime.UtcNow));
+                    StoredValueBinder.Value(cmd, "@id", followUpId);
+                    StoredValueBinder.Value(cmd, "@merge_entry_id", mergeEntryId);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "judge_follow_ups").Utc("@last_update_utc", "last_update_utc", DateTime.UtcNow);
                     return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
                 }
             }
@@ -129,12 +129,12 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.CommandText = @"UPDATE judge_follow_ups SET audit_verdict = @audit_verdict,
                         audit_notes = @audit_notes, audit_recommended_action = @audit_recommended_action,
                         audit_completed_utc = @audit_completed_utc, last_update_utc = @last_update_utc WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@audit_verdict", verdict);
-                    cmd.Parameters.AddWithValue("@audit_notes", notes);
-                    cmd.Parameters.AddWithValue("@audit_recommended_action", (object?)recommendedAction ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_completed_utc", SqliteDatabaseDriver.ToIso8601(completedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(DateTime.UtcNow));
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    StoredValueBinder.Value(cmd, "@audit_verdict", verdict);
+                    StoredValueBinder.Value(cmd, "@audit_notes", notes);
+                    StoredValueBinder.Value(cmd, "@audit_recommended_action", recommendedAction);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "judge_follow_ups").Utc("@audit_completed_utc", "audit_completed_utc", completedUtc);
+                    SqliteDatabaseDriver.StoredBinder.For(cmd, "judge_follow_ups").Utc("@last_update_utc", "last_update_utc", DateTime.UtcNow);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -190,7 +190,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM judge_follow_ups WHERE " + column + " = @value;";
-                    cmd.Parameters.AddWithValue("@value", value);
+                    StoredValueBinder.Value(cmd, "@value", value);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         return await reader.ReadAsync(token).ConfigureAwait(false) ? JudgeFollowUpColumns.Read(reader, SqliteDatabaseDriver.StoredValues) : null;
@@ -208,7 +208,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM judge_follow_ups WHERE " + condition + " ORDER BY created_utc ASC, id ASC;";
-                    if (value != null) cmd.Parameters.AddWithValue("@value", value);
+                    if (value != null) StoredValueBinder.Value(cmd, "@value", value);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(JudgeFollowUpColumns.Read(reader, SqliteDatabaseDriver.StoredValues));
@@ -220,22 +220,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
         private static void AddParameters(SqliteCommand cmd, JudgeFollowUp item)
         {
-            cmd.Parameters.AddWithValue("@id", item.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)item.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)item.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@judge_mission_id", item.JudgeMissionId);
-            cmd.Parameters.AddWithValue("@reviewed_mission_id", item.ReviewedMissionId);
-            cmd.Parameters.AddWithValue("@voyage_id", (object?)item.VoyageId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)item.VesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@merge_entry_id", (object?)item.MergeEntryId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@judge_verdict", item.JudgeVerdict);
-            cmd.Parameters.AddWithValue("@suggested_follow_ups", (object?)item.SuggestedFollowUps ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@audit_verdict", item.AuditVerdict);
-            cmd.Parameters.AddWithValue("@audit_notes", (object?)item.AuditNotes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@audit_recommended_action", (object?)item.AuditRecommendedAction ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@audit_completed_utc", item.AuditCompletedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(item.AuditCompletedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(item.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(item.LastUpdateUtc));
+            JudgeFollowUpColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "judge_follow_ups"), item);
         }
 
     }
