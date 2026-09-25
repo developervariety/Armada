@@ -14,9 +14,10 @@ namespace Armada.Core.Services
     /// read signals, events, released docks and finished merge entries older than the data retention
     /// period, append-only production metric facts older than their own retention period, and captured
     /// request history older than the request-history retention period. Events that are the only record
-    /// of something are kept: the newest snapshot of each incident, objective deletion tombstones,
-    /// typed-decision reversals, and dispatch attempts inside the reconciliation look-back. Logs one
-    /// summary line with per-table deleted counts and per-class kept counts on every run.
+    /// of something are kept: the newest snapshot of each incident and of each runbook execution,
+    /// objective deletion tombstones, typed-decision reversals, and dispatch attempts inside the
+    /// reconciliation look-back. Logs one summary line with per-table deleted counts and per-class
+    /// kept counts on every run.
     /// </summary>
     public class DataExpiryService
     {

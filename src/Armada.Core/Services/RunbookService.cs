@@ -18,6 +18,15 @@ namespace Armada.Core.Services
     public class RunbookService
     {
         /// <summary>
+        /// Event type of a runbook execution snapshot. Runbook executions are stored only as these
+        /// events, and the newest snapshot of an execution is its current record.
+        /// </summary>
+        public const string ExecutionSnapshotEventType = "runbook-execution.snapshot";
+
+        /// <summary>Entity type a runbook execution snapshot carries.</summary>
+        public const string ExecutionEntityType = "runbook-execution";
+
+        /// <summary>
         /// Optional callback invoked whenever a runbook execution changes.
         /// </summary>
         public Action<RunbookExecution>? OnRunbookExecutionChanged { get; set; }
@@ -490,18 +499,18 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(executionId))
             {
                 if (auth.IsAdmin)
-                    return await _Database.Events.EnumerateByEntityAsync("runbook-execution", executionId, 500, token).ConfigureAwait(false);
+                    return await _Database.Events.EnumerateByEntityAsync(ExecutionEntityType, executionId, 500, token).ConfigureAwait(false);
                 if (auth.IsTenantAdmin)
-                    return await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, "runbook-execution", executionId, 500, token).ConfigureAwait(false);
+                    return await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, ExecutionEntityType, executionId, 500, token).ConfigureAwait(false);
                 return (await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, new EnumerationQuery
                 {
                     PageNumber = 1,
                     PageSize = 500
                 }, token).ConfigureAwait(false)).Objects
                     .Where(item =>
-                        String.Equals(item.EntityType, "runbook-execution", StringComparison.OrdinalIgnoreCase)
+                        String.Equals(item.EntityType, ExecutionEntityType, StringComparison.OrdinalIgnoreCase)
                         && String.Equals(item.EntityId, executionId, StringComparison.OrdinalIgnoreCase)
-                        && String.Equals(item.EventType, "runbook-execution.snapshot", StringComparison.OrdinalIgnoreCase))
+                        && String.Equals(item.EventType, ExecutionSnapshotEventType, StringComparison.OrdinalIgnoreCase))
                     .ToList();
             }
 
@@ -509,7 +518,7 @@ namespace Armada.Core.Services
             {
                 PageNumber = 1,
                 PageSize = 500,
-                EventType = "runbook-execution.snapshot"
+                EventType = ExecutionSnapshotEventType
             };
 
             List<ArmadaEvent> results = new List<ArmadaEvent>();
@@ -523,7 +532,7 @@ namespace Armada.Core.Services
                 else
                     page = await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, query, token).ConfigureAwait(false);
 
-                results.AddRange(page.Objects.Where(item => String.Equals(item.EntityType, "runbook-execution", StringComparison.OrdinalIgnoreCase)));
+                results.AddRange(page.Objects.Where(item => String.Equals(item.EntityType, ExecutionEntityType, StringComparison.OrdinalIgnoreCase)));
                 if (page.Objects.Count < query.PageSize)
                     break;
                 query.PageNumber += 1;
@@ -534,11 +543,11 @@ namespace Armada.Core.Services
 
         private async Task WriteExecutionSnapshotAsync(AuthContext auth, RunbookExecution execution, CancellationToken token)
         {
-            ArmadaEvent snapshot = new ArmadaEvent("runbook-execution.snapshot", execution.Title)
+            ArmadaEvent snapshot = new ArmadaEvent(ExecutionSnapshotEventType, execution.Title)
             {
                 TenantId = execution.TenantId,
                 UserId = auth.UserId,
-                EntityType = "runbook-execution",
+                EntityType = ExecutionEntityType,
                 EntityId = execution.Id,
                 Payload = JsonSerializer.Serialize(execution, _JsonOptions),
                 CreatedUtc = execution.LastUpdateUtc

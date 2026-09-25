@@ -169,6 +169,37 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyLatestRunbookExecutionSnapshotSurvivesRetentionAsync(CancellationToken token)
+        {
+            DateTime now = DateTime.UtcNow;
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            List<string> created = new List<string>();
+            try
+            {
+                ArmadaEvent onlySnapshot = await CreateDurableEventAsync(created, RunbookService.ExecutionSnapshotEventType, RunbookService.ExecutionEntityType, "rbx_only_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
+                ArmadaEvent olderSnapshot = await CreateDurableEventAsync(created, RunbookService.ExecutionSnapshotEventType, RunbookService.ExecutionEntityType, "rbx_revised_" + suffix, now.AddDays(-20), token).ConfigureAwait(false);
+                ArmadaEvent newestSnapshot = await CreateDurableEventAsync(created, RunbookService.ExecutionSnapshotEventType, RunbookService.ExecutionEntityType, "rbx_revised_" + suffix, now.AddDays(-10), token).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                DataExpiryResult purged = await CreateService(logging, 1, 0).PurgeExpiredDataAsync(token).ConfigureAwait(false);
+
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(onlySnapshot.Id, token).ConfigureAwait(false), "A runbook execution whose only snapshot is older than the cutoff keeps it");
+                DatabaseAssert.True(await _Driver.Events.ReadAsync(olderSnapshot.Id, token).ConfigureAwait(false) == null, "An older snapshot of a runbook execution with a newer one expires");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(newestSnapshot.Id, token).ConfigureAwait(false), "The newest snapshot of a runbook execution is kept whatever its age");
+                DatabaseAssert.True(purged.Kept("runbook_latest") >= 2, "The summary counts kept runbook execution snapshots: " + purged);
+                DatabaseAssert.True(purged.ToString().Contains("kept_runbook_latest=", StringComparison.Ordinal), "The summary names the kept runbook class: " + purged);
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    foreach (string id in created)
+                        await _Driver.Events.DeleteAsync(id, token).ConfigureAwait(false);
+                }
+            }
+        }
+
         internal async Task VerifyProductionFactRetentionAsync(CancellationToken token)
         {
             string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);

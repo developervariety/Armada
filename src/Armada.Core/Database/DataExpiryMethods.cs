@@ -36,24 +36,17 @@ namespace Armada.Core.Database
 
         private const string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
-        // An incident snapshot is its incident's current record when no snapshot of the same incident is
-        // newer. The newest times are grouped in a derived table so providers that refuse to read the
-        // table they delete from in a subquery materialize it first. Snapshots written at the same
-        // instant are all kept.
-        private const string _LatestIncidentSnapshot = "COALESCE(event_type, '') = @snapshot_event_type AND COALESCE(entity_type, '') = @incident_entity_type"
-            + " AND entity_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM (SELECT entity_id, MAX(created_utc) AS latest_utc FROM events"
-            + " WHERE event_type = @snapshot_event_type AND entity_type = @incident_entity_type AND entity_id IS NOT NULL GROUP BY entity_id) latest_snapshots"
-            + " WHERE latest_snapshots.entity_id = events.entity_id AND latest_snapshots.latest_utc > events.created_utc)";
-
         // Events older than the record cutoff that retention keeps, by the kept-class name the purge
         // summary reports.
         private static readonly IReadOnlyList<KeyValuePair<string, string>> _KeptEventClasses = new[]
         {
             new KeyValuePair<string, string>("dispatch_attempts", "COALESCE(entity_type, '') = @attempt_entity_type AND created_utc >= @attempt_cutoff"),
-            new KeyValuePair<string, string>("incident_latest", _LatestIncidentSnapshot),
+            new KeyValuePair<string, string>("incident_latest", LatestSnapshot("@snapshot_event_type", "@incident_entity_type")),
+            new KeyValuePair<string, string>("runbook_latest", LatestSnapshot("@runbook_snapshot_event_type", "@runbook_entity_type")),
             new KeyValuePair<string, string>("tombstones", "COALESCE(event_type, '') = @tombstone_event_type"),
             new KeyValuePair<string, string>("reversals", "COALESCE(event_type, '') = @reversal_event_type")
         };
+
         private readonly Func<DbConnection> _ConnectionFactory;
         private readonly DatabaseTypeEnum _Provider;
 
@@ -140,8 +133,8 @@ namespace Armada.Core.Database
 
                 // Some events are the only record of something, so each kept class survives the cutoff:
                 // dispatch attempt records inside the reconciliation look-back (an attempt whose process
-                // stopped before closing it stays visible), the newest snapshot of each incident (its
-                // current record, open or closed; older snapshots of the same incident still expire),
+                // stopped before closing it stays visible), the newest snapshot of each incident and of
+                // each runbook execution (its current record; older snapshots of it still expire),
                 // objective deletion tombstones (they stop a deleted objective being resurrected), and
                 // typed-decision reversals (the operator correction linked to its decision).
                 string anyKept = String.Join(" OR ", _KeptEventClasses.Select(item => "(" + item.Value + ")"));
@@ -160,6 +153,20 @@ namespace Armada.Core.Database
                 await ExecuteAsync(connection, "merge_entries", result, "DELETE FROM merge_entries WHERE status IN (" + Literals(ExpiringMergeStatuses) + ")"
                     + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "merge_entries", cutoff, cutoffs, token).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Predicate matching a snapshot event that is its entity's current record: no snapshot of the
+        /// same entity is newer. The newest times are grouped in a derived table so providers that
+        /// refuse to read the table they delete from in a subquery materialize it first. Snapshots
+        /// written at the same instant are all kept.
+        /// </summary>
+        private static string LatestSnapshot(string eventTypeParameter, string entityTypeParameter)
+        {
+            return "COALESCE(event_type, '') = " + eventTypeParameter + " AND COALESCE(entity_type, '') = " + entityTypeParameter
+                + " AND entity_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM (SELECT entity_id, MAX(created_utc) AS latest_utc FROM events"
+                + " WHERE event_type = " + eventTypeParameter + " AND entity_type = " + entityTypeParameter + " AND entity_id IS NOT NULL GROUP BY entity_id) latest_snapshots"
+                + " WHERE latest_snapshots.entity_id = events.entity_id AND latest_snapshots.latest_utc > events.created_utc)";
         }
 
         private static string ClearParentSql(string expiredMissionPredicate)
@@ -214,6 +221,8 @@ namespace Armada.Core.Database
             if (sql.Contains("@attempt_entity_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@attempt_entity_type", ObjectiveDispatchAdmission.AttemptEntityType);
             if (sql.Contains("@snapshot_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@snapshot_event_type", IncidentService.SnapshotEventType);
             if (sql.Contains("@incident_entity_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@incident_entity_type", IncidentService.IncidentEntityType);
+            if (sql.Contains("@runbook_snapshot_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@runbook_snapshot_event_type", RunbookService.ExecutionSnapshotEventType);
+            if (sql.Contains("@runbook_entity_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@runbook_entity_type", RunbookService.ExecutionEntityType);
             if (sql.Contains("@tombstone_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@tombstone_event_type", ObjectiveService.DeletedEventType);
             if (sql.Contains("@reversal_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@reversal_event_type", TypedDecisionRecorder.EventTypeReversed);
             if (sql.Contains("@true", StringComparison.Ordinal)) ProductionFactSql.AddBool(command, "@true", true, _Provider);
