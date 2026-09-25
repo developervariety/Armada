@@ -414,7 +414,7 @@ namespace Armada.Core.Database.Postgresql
             DataExpiry = new DataExpiryMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
-            Memories = new MemoryMethods(this, _Settings, _Logging);
+            Memories = new MemoryMethods(_Stored);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(_Stored);

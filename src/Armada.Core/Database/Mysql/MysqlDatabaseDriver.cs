@@ -113,7 +113,7 @@ namespace Armada.Core.Database.Mysql
             DataExpiry = new DataExpiryMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(_ConnectionString);
-            Memories = new MemoryMethods(_ConnectionString);
+            Memories = new MemoryMethods(_Stored);
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_Stored);

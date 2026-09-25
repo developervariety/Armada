@@ -162,6 +162,13 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(ModelEndpointMethods.Table, new ModelEndpoint());
             });
 
+            await RunTest("Memory key conditions keep their text and the whole row is written", () =>
+            {
+                AssertEqual("tenant_id = @tenant_id AND memory_key = @memory_key", MemoryMethods.Table.Filter().Key("tenant_id", "ten_x").Key("memory_key", "key").Conjunction);
+                AssertEqual("created_utc DESC", MemoryMethods.Order);
+                AssertTableMatchesWriter(MemoryMethods.Table, new Memory());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)

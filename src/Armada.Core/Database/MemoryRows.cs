@@ -6,24 +6,10 @@ namespace Armada.Core.Database
     using Armada.Core.Models;
 
     /// <summary>
-    /// Provider-neutral helpers shared by the four native memory storage implementations.
+    /// Provider-neutral helpers for memory storage: the guarded update and tag handling.
     /// </summary>
     internal static class MemoryRows
     {
-        /// <summary>
-        /// Column list for inserts, in the order <see cref="InsertValues"/> binds them.
-        /// </summary>
-        internal const string InsertColumns =
-            "id, tenant_id, user_id, scope, type, topic, memory_key, summary, content, salience, version, source_kind, " +
-            "source_voyage_id, source_mission_id, source_vessel_id, source_detail, vessel_id, created_utc, last_update_utc";
-
-        /// <summary>
-        /// Parameter list matching <see cref="InsertColumns"/>.
-        /// </summary>
-        internal const string InsertValues =
-            "@id, @tenant_id, @user_id, @scope, @type, @topic, @memory_key, @summary, @content, @salience, @version, @source_kind, " +
-            "@source_voyage_id, @source_mission_id, @source_vessel_id, @source_detail, @vessel_id, @created_utc, @last_update_utc";
-
         /// <summary>
         /// Guarded update. Ownership (tenant) and creation time never change through an update.
         /// </summary>
