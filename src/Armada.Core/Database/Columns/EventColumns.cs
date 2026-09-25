@@ -33,5 +33,28 @@ namespace Armada.Core.Database
             evt.CreatedUtc = row.Utc("created_utc");
             return evt;
         }
+
+        /// <summary>
+        /// Bind every stored events column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the events table.</param>
+        /// <param name="armadaEvent">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, ArmadaEvent armadaEvent)
+        {
+            parameters
+                .Text("id", armadaEvent.Id)
+                .Text("tenant_id", armadaEvent.TenantId)
+                .Text("user_id", armadaEvent.UserId)
+                .Text("event_type", armadaEvent.EventType)
+                .Text("entity_type", armadaEvent.EntityType)
+                .Text("entity_id", armadaEvent.EntityId)
+                .Text("captain_id", armadaEvent.CaptainId)
+                .Text("mission_id", armadaEvent.MissionId)
+                .Text("vessel_id", armadaEvent.VesselId)
+                .Text("voyage_id", armadaEvent.VoyageId)
+                .Text("message", armadaEvent.Message)
+                .Text("payload", armadaEvent.Payload)
+                .Utc("created_utc", armadaEvent.CreatedUtc);
+        }
     }
 }

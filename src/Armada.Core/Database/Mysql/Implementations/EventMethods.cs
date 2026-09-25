@@ -53,19 +53,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO events (id, tenant_id, user_id, event_type, entity_type, entity_id, captain_id, mission_id, vessel_id, voyage_id, message, payload, created_utc)
                         VALUES (@id, @tenant_id, @user_id, @event_type, @entity_type, @entity_id, @captain_id, @mission_id, @vessel_id, @voyage_id, @message, @payload, @created_utc);";
-                    cmd.Parameters.AddWithValue("@id", armadaEvent.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)armadaEvent.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)armadaEvent.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@event_type", armadaEvent.EventType);
-                    cmd.Parameters.AddWithValue("@entity_type", (object?)armadaEvent.EntityType ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@entity_id", (object?)armadaEvent.EntityId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_id", (object?)armadaEvent.CaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@mission_id", (object?)armadaEvent.MissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@vessel_id", (object?)armadaEvent.VesselId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@voyage_id", (object?)armadaEvent.VoyageId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@message", armadaEvent.Message);
-                    cmd.Parameters.AddWithValue("@payload", (object?)armadaEvent.Payload ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(armadaEvent.CreatedUtc));
+                    EventColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "events"), armadaEvent);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -89,7 +77,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM events WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -116,7 +104,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM events WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -131,7 +119,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         public async Task<List<ArmadaEvent>> EnumerateRecentAsync(int limit = 50, CancellationToken token = default)
         {
             return await QueryEventsAsync("SELECT * FROM events ORDER BY created_utc DESC LIMIT @limit;",
-                cmd => cmd.Parameters.AddWithValue("@limit", limit), token).ConfigureAwait(false);
+                cmd => StoredValueBinder.Value(cmd, "@limit", limit), token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -146,8 +134,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE event_type = @event_type ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@event_type", eventType);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@event_type", eventType);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -164,9 +152,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE entity_type = @entity_type AND entity_id = @entity_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@entity_type", entityType);
-                    cmd.Parameters.AddWithValue("@entity_id", entityId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@entity_type", entityType);
+                    StoredValueBinder.Value(cmd, "@entity_id", entityId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -182,8 +170,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE captain_id = @captain_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@captain_id", captainId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@captain_id", captainId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -199,8 +187,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE mission_id = @mission_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@mission_id", missionId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@mission_id", missionId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -216,8 +204,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE vessel_id = @vessel_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@vessel_id", vesselId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -233,8 +221,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE voyage_id = @voyage_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -258,37 +246,37 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_after", "events", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_before", "events", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.EventType))
                 {
                     conditions.Add("event_type = @event_type");
-                    parameters.Add(new MySqlParameter("@event_type", query.EventType));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@event_type", query.EventType));
                 }
                 if (!string.IsNullOrEmpty(query.CaptainId))
                 {
                     conditions.Add("captain_id = @captain_id");
-                    parameters.Add(new MySqlParameter("@captain_id", query.CaptainId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@captain_id", query.CaptainId));
                 }
                 if (!string.IsNullOrEmpty(query.MissionId))
                 {
                     conditions.Add("mission_id = @mission_id");
-                    parameters.Add(new MySqlParameter("@mission_id", query.MissionId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@mission_id", query.MissionId));
                 }
                 if (!string.IsNullOrEmpty(query.VesselId))
                 {
                     conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@vessel_id", query.VesselId));
                 }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
-                    parameters.Add(new MySqlParameter("@voyage_id", query.VoyageId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@voyage_id", query.VoyageId));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -336,8 +324,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -363,8 +351,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM events WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -382,7 +370,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenantId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -402,8 +390,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -416,9 +404,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND event_type = @event_type ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@event_type", eventType);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@event_type", eventType);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -432,10 +420,10 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND entity_type = @entity_type AND entity_id = @entity_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@entity_type", entityType);
-                    cmd.Parameters.AddWithValue("@entity_id", entityId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@entity_type", entityType);
+                    StoredValueBinder.Value(cmd, "@entity_id", entityId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -448,9 +436,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND captain_id = @captain_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@captain_id", captainId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@captain_id", captainId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -463,9 +451,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND mission_id = @mission_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@mission_id", missionId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@mission_id", missionId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -478,9 +466,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND vessel_id = @vessel_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@vessel_id", vesselId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@vessel_id", vesselId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -493,9 +481,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             return await QueryEventsAsync("SELECT * FROM events WHERE tenant_id = @tenantId AND voyage_id = @voyage_id ORDER BY created_utc DESC LIMIT @limit;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@voyage_id", voyageId);
-                    cmd.Parameters.AddWithValue("@limit", limit);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@voyage_id", voyageId);
+                    StoredValueBinder.Value(cmd, "@limit", limit);
                 }, token).ConfigureAwait(false);
         }
 
@@ -512,42 +500,42 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
                 List<string> conditions = new List<string> { "tenant_id = @tenantId" };
-                List<MySqlParameter> parameters = new List<MySqlParameter> { new MySqlParameter("@tenantId", tenantId) };
+                List<MySqlParameter> parameters = new List<MySqlParameter> { StoredValueBinder.Parameter(new MySqlParameter(), "@tenantId", tenantId) };
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_after", "events", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_before", "events", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.EventType))
                 {
                     conditions.Add("event_type = @event_type");
-                    parameters.Add(new MySqlParameter("@event_type", query.EventType));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@event_type", query.EventType));
                 }
                 if (!string.IsNullOrEmpty(query.CaptainId))
                 {
                     conditions.Add("captain_id = @captain_id");
-                    parameters.Add(new MySqlParameter("@captain_id", query.CaptainId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@captain_id", query.CaptainId));
                 }
                 if (!string.IsNullOrEmpty(query.MissionId))
                 {
                     conditions.Add("mission_id = @mission_id");
-                    parameters.Add(new MySqlParameter("@mission_id", query.MissionId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@mission_id", query.MissionId));
                 }
                 if (!string.IsNullOrEmpty(query.VesselId))
                 {
                     conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@vessel_id", query.VesselId));
                 }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
-                    parameters.Add(new MySqlParameter("@voyage_id", query.VoyageId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@voyage_id", query.VoyageId));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -592,9 +580,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -619,9 +607,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM events WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -640,8 +628,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM events WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY created_utc DESC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -667,44 +655,44 @@ namespace Armada.Core.Database.Mysql.Implementations
                 List<string> conditions = new List<string> { "tenant_id = @tenantId", "user_id = @userId" };
                 List<MySqlParameter> parameters = new List<MySqlParameter>
                 {
-                    new MySqlParameter("@tenantId", tenantId),
-                    new MySqlParameter("@userId", userId)
+                    StoredValueBinder.Parameter(new MySqlParameter(), "@tenantId", tenantId),
+                    StoredValueBinder.Parameter(new MySqlParameter(), "@userId", userId)
                 };
 
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_after", "events", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
+                    parameters.Add(MysqlDatabaseDriver.StoredBinder.Timestamp(new MySqlParameter(), "@created_before", "events", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.EventType))
                 {
                     conditions.Add("event_type = @event_type");
-                    parameters.Add(new MySqlParameter("@event_type", query.EventType));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@event_type", query.EventType));
                 }
                 if (!string.IsNullOrEmpty(query.CaptainId))
                 {
                     conditions.Add("captain_id = @captain_id");
-                    parameters.Add(new MySqlParameter("@captain_id", query.CaptainId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@captain_id", query.CaptainId));
                 }
                 if (!string.IsNullOrEmpty(query.MissionId))
                 {
                     conditions.Add("mission_id = @mission_id");
-                    parameters.Add(new MySqlParameter("@mission_id", query.MissionId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@mission_id", query.MissionId));
                 }
                 if (!string.IsNullOrEmpty(query.VesselId))
                 {
                     conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new MySqlParameter("@vessel_id", query.VesselId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@vessel_id", query.VesselId));
                 }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
-                    parameters.Add(new MySqlParameter("@voyage_id", query.VoyageId));
+                    parameters.Add(StoredValueBinder.Parameter(new MySqlParameter(), "@voyage_id", query.VoyageId));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
