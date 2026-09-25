@@ -370,47 +370,6 @@ namespace Armada.Core.Database.SqlServer
             return Convert.ToInt32(value);
         }
 
-        /// <summary>
-        /// Convert a SqlDataReader row to a MergeEntry model.
-        /// </summary>
-        /// <param name="reader">Data reader positioned on a row.</param>
-        /// <returns>MergeEntry instance.</returns>
-        internal static MergeEntry MergeEntryFromReader(SqlDataReader reader)
-        {
-            MergeEntry entry = new MergeEntry();
-            entry.Id = reader["id"].ToString()!;
-            entry.TenantId = NullableString(reader["tenant_id"]);
-            entry.UserId = NullableString(reader["user_id"]);
-            entry.MissionId = NullableString(reader["mission_id"]);
-            entry.VesselId = NullableString(reader["vessel_id"]);
-            entry.BranchName = reader["branch_name"].ToString()!;
-            entry.TargetBranch = reader["target_branch"].ToString()!;
-            entry.Status = Enum.Parse<MergeStatusEnum>(reader["status"].ToString()!);
-            entry.Priority = Convert.ToInt32(reader["priority"]);
-            entry.BatchId = NullableString(reader["batch_id"]);
-            entry.TestCommand = NullableString(reader["test_command"]);
-            entry.TestOutput = NullableString(reader["test_output"]);
-            entry.TestExitCode = NullableInt(reader["test_exit_code"]);
-            entry.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
-            entry.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
-            entry.TestStartedUtc = FromIso8601Nullable(reader["test_started_utc"]);
-            entry.CompletedUtc = FromIso8601Nullable(reader["completed_utc"]);
-            MergeEntryAuditColumns.Read(reader, entry, value => (value == null || value == DBNull.Value) ? (bool?)null : Convert.ToBoolean(value), FromIso8601Nullable);
-            try { entry.PrUrl = reader["pr_url"] as string; } catch { }
-            try { entry.PrBaseBranch = reader["pr_base_branch"] as string; } catch { }
-            try
-            {
-                string? mfc = reader["merge_failure_class"] as string;
-                if (!string.IsNullOrEmpty(mfc) && Enum.TryParse<MergeFailureClassEnum>(mfc, out MergeFailureClassEnum parsed))
-                    entry.MergeFailureClass = parsed;
-            }
-            catch { }
-            try { entry.ConflictedFiles = reader["conflicted_files"] as string; } catch { }
-            try { entry.MergeFailureSummary = reader["merge_failure_summary"] as string; } catch { }
-            try { object dlc = reader["diff_line_count"]; entry.DiffLineCount = (dlc == null || dlc == DBNull.Value) ? 0 : Convert.ToInt32(dlc); } catch { }
-            return entry;
-        }
-
         #endregion
 
     }

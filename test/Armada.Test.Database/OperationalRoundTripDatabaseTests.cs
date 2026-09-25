@@ -1870,6 +1870,99 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyMergeEntriesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? entryId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("merge-round-trip", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "merge-round-trip", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "merge-round-trip", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "merge-round-trip", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "merge-round-trip", token).ConfigureAwait(false);
+                Voyage voyage = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "merge-round-trip", token).ConfigureAwait(false);
+                Mission mission = await fixture.CreateMissionAsync(tenant.Id, user.Id, voyage.Id, vessel.Id, captain.Id, "merge-round-trip", token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+
+                // Sub-second digits and a date far from the host's daylight-saving rules make a host-offset read visible.
+                DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                MergeEntry entry = new MergeEntry("armada/merge-" + suffix + "-ユニコード", "release-" + suffix)
+                {
+                    TenantId = tenant.Id,
+                    UserId = user.Id,
+                    MissionId = mission.Id,
+                    VesselId = vessel.Id,
+                    Status = MergeStatusEnum.Failed,
+                    Priority = 9,
+                    BatchId = "batch-" + suffix,
+                    TestCommand = "dotnet test ユニコード",
+                    TestOutput = "Test output ユニコード",
+                    TestExitCode = 3,
+                    CreatedUtc = baseUtc.AddMinutes(-5),
+                    TestStartedUtc = baseUtc.AddMinutes(-2),
+                    CompletedUtc = baseUtc,
+                    AuditLane = "Deep",
+                    AuditConventionPassed = false,
+                    AuditConventionNotes = "Convention notes ユニコード",
+                    AuditCriticalTrigger = "critical-path",
+                    AuditDeepPicked = true,
+                    AuditDeepCompletedUtc = baseUtc.AddMinutes(1),
+                    AuditDeepVerdict = "Concern",
+                    AuditDeepNotes = "Deep notes ユニコード",
+                    AuditDeepRecommendedAction = "Revert",
+                    PrUrl = "https://example.test/pull/" + suffix,
+                    PrBaseBranch = "base-" + suffix,
+                    MergeFailureClass = MergeFailureClassEnum.TestFailureAfterMerge,
+                    ConflictedFiles = "[\"src/a.cs\",\"src/b.cs\"]",
+                    MergeFailureSummary = "Failure summary ユニコード",
+                    DiffLineCount = 1234
+                };
+                MergeEntry created = await _Driver.MergeEntries.CreateAsync(entry, token).ConfigureAwait(false);
+                entryId = created.Id;
+                DatabaseAssert.AllProperties(created, await _Driver.MergeEntries.ReadAsync(created.Id, token).ConfigureAwait(false), "MergeEntry");
+                DatabaseAssert.AllProperties(created, await _Driver.MergeEntries.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "MergeEntry by tenant");
+                DatabaseAssert.AllProperties(created, await _Driver.MergeEntries.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "MergeEntry by tenant and user");
+                List<MergeEntry> byStatus = await _Driver.MergeEntries.EnumerateByStatusAsync(tenant.Id, MergeStatusEnum.Failed, token).ConfigureAwait(false);
+                DatabaseAssert.AllProperties(created, byStatus.Find(item => item.Id == created.Id), "MergeEntry by status");
+
+                created.MissionId = null;
+                created.Status = MergeStatusEnum.Queued;
+                created.Priority = 0;
+                created.BatchId = null;
+                created.TestCommand = null;
+                created.TestOutput = null;
+                created.TestExitCode = null;
+                created.TestStartedUtc = null;
+                created.CompletedUtc = null;
+                created.AuditLane = null;
+                created.AuditConventionPassed = null;
+                created.AuditConventionNotes = null;
+                created.AuditCriticalTrigger = null;
+                created.AuditDeepPicked = null;
+                created.AuditDeepCompletedUtc = null;
+                created.AuditDeepVerdict = null;
+                created.AuditDeepNotes = null;
+                created.AuditDeepRecommendedAction = null;
+                created.PrUrl = null;
+                created.PrBaseBranch = null;
+                created.MergeFailureClass = null;
+                created.ConflictedFiles = null;
+                created.MergeFailureSummary = null;
+                created.DiffLineCount = 0;
+                MergeEntry updated = await _Driver.MergeEntries.UpdateAsync(created, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.AllProperties(updated, await reopened.MergeEntries.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened MergeEntry");
+                }
+            }
+            finally
+            {
+                if (entryId != null && !_NoCleanup) await _Driver.MergeEntries.DeleteAsync(entryId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyDamagedDeliveryJsonIsNamedAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

@@ -123,6 +123,10 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
+- **Merge entries read through a shared column reader:** the four provider
+  copies of the merge-entry mapper, and the separate audit-column reader,
+  become one reader, and the six columns read inside empty catch blocks are
+  read as present.
 - **Vessels read through a shared column reader:** the four provider copies of
   the vessel mapper, and the separate branch-preview and secret-scan readers,
   become one reader, and the nine columns read inside empty catch blocks are
