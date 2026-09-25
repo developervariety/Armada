@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **The inbox and Ask read failed missions as summaries:** the inbox lists
+  Failed and LandingFailed missions from the summary projection, and Ask counts
+  missions by status from it. Both read every full Failed row before, with its
+  description, diff snapshot and agent output; on a server with about 1300
+  failed missions that was near 800 MB of text per inbox poll and raised the
+  admiral's memory by 1.5 to 2 GB each time.
 - **Consumer verification provisions a sibling's extraction artifacts:** the
   gate's consumer check links each sibling's declared `extractionArtifactPaths`
   from the sibling vessel's host working directory, as a mission dock copies

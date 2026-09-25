@@ -97,6 +97,7 @@ namespace Armada.Test.Unit
             // Service tests
             runner.AddSuite(new AdmiralServiceTests());
             runner.AddSuite(new AdmiralRunMarkerTests());
+            runner.AddSuite(new AskArmadaServiceTests());
             runner.AddSuite(new CaptainCrashLoopTrackerTests());
             runner.AddSuite(new MissionListProjectionTests());
             runner.AddSuite(new MessageTemplateServiceTests());

@@ -192,10 +192,10 @@ namespace Armada.Core.Services
                 HashSet<string> liveVoyageIds = await ReadLiveVoyageIdsAsync(token).ConfigureAwait(false);
                 Dictionary<string, Mission?> missionCache = new Dictionary<string, Mission?>(StringComparer.OrdinalIgnoreCase);
 
-                List<Mission> landingFailed = await FilterActionableAsync(
-                    await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false),
+                List<MissionSummary> landingFailed = await FilterActionableAsync(
+                    await ReadMissionSummariesByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false),
                     liveVoyageIds, missionCache, token).ConfigureAwait(false);
-                foreach (Mission mission in landingFailed.Take(_MaxPerCategory))
+                foreach (MissionSummary mission in landingFailed.Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
                     {
@@ -210,10 +210,10 @@ namespace Armada.Core.Services
                     });
                 }
 
-                List<Mission> failed = await FilterActionableAsync(
-                    await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false),
+                List<MissionSummary> failed = await FilterActionableAsync(
+                    await ReadMissionSummariesByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false),
                     liveVoyageIds, missionCache, token).ConfigureAwait(false);
-                foreach (Mission mission in failed.Take(_MaxPerCategory))
+                foreach (MissionSummary mission in failed.Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
                     {
@@ -345,20 +345,63 @@ namespace Armada.Core.Services
         /// usual cause is an operator clearing voyage links after the work landed, and listing it forever
         /// trains operators to stop reading the inbox.
         /// </summary>
-        private async Task<List<Mission>> FilterActionableAsync(
-            List<Mission> missions,
+        private async Task<List<MissionSummary>> FilterActionableAsync(
+            List<MissionSummary> missions,
             HashSet<string> liveVoyageIds,
             Dictionary<string, Mission?> missionCache,
             CancellationToken token)
         {
-            List<Mission> actionable = new List<Mission>();
-            foreach (Mission mission in missions)
+            List<MissionSummary> actionable = new List<MissionSummary>();
+            foreach (MissionSummary mission in missions)
             {
-                string? voyageId = await ResolveEffectiveVoyageIdAsync(mission, missionCache, token).ConfigureAwait(false);
+                string? voyageId = !String.IsNullOrWhiteSpace(mission.VoyageId)
+                    ? mission.VoyageId
+                    : await ResolveParentVoyageIdAsync(mission.ParentMissionId, missionCache, token).ConfigureAwait(false);
                 if (!String.IsNullOrWhiteSpace(voyageId) && liveVoyageIds.Contains(voyageId))
                     actionable.Add(mission);
             }
             return actionable;
+        }
+
+        /// <summary>
+        /// Read every mission in one status as summary rows. The inbox shows a title and a failure
+        /// reason; a full row also carries the description, diff snapshot and agent output, and the
+        /// Failed set held hundreds of megabytes of them, read again on every inbox poll.
+        /// </summary>
+        private async Task<List<MissionSummary>> ReadMissionSummariesByStatusAsync(MissionStatusEnum status, CancellationToken token)
+        {
+            const int pageSize = 1000;
+            List<MissionSummary> all = new List<MissionSummary>();
+            int pageNumber = 1;
+            while (true)
+            {
+                EnumerationResult<MissionSummary> page = await _Database.Missions.EnumerateMissionSummariesAsync(new EnumerationQuery
+                {
+                    Status = status.ToString(),
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    Order = EnumerationOrderEnum.CreatedAscending
+                }, token).ConfigureAwait(false);
+                List<MissionSummary> objects = page.Objects ?? new List<MissionSummary>();
+                all.AddRange(objects.Where(summary => summary.Status == status));
+                if (objects.Count < pageSize || pageNumber >= page.TotalPages) break;
+                pageNumber++;
+            }
+            return all;
+        }
+
+        /// <summary>
+        /// Resolve the voyage of a mission that has none of its own through its parent chain.
+        /// </summary>
+        private async Task<string?> ResolveParentVoyageIdAsync(string? parentMissionId, Dictionary<string, Mission?> missionCache, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(parentMissionId)) return null;
+            if (!missionCache.TryGetValue(parentMissionId, out Mission? parent))
+            {
+                parent = await _Database.Missions.ReadAsync(parentMissionId, token).ConfigureAwait(false);
+                missionCache[parentMissionId] = parent;
+            }
+            return parent == null ? null : await ResolveEffectiveVoyageIdAsync(parent, missionCache, token).ConfigureAwait(false);
         }
 
         private async Task<string?> ResolveEffectiveVoyageIdAsync(

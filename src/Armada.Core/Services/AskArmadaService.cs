@@ -152,28 +152,43 @@ namespace Armada.Core.Services
             };
         }
 
+        /// <summary>
+        /// Count missions in one status from the summary projection. A full-row read of the Failed set
+        /// loads every description, diff snapshot and agent output only to count them.
+        /// </summary>
+        private async Task<long> CountMissionsAsync(MissionStatusEnum status, CancellationToken token)
+        {
+            EnumerationResult<MissionSummary> page = await _Database.Missions.EnumerateMissionSummariesAsync(new EnumerationQuery
+            {
+                Status = status.ToString(),
+                PageNumber = 1,
+                PageSize = 1
+            }, token).ConfigureAwait(false);
+            return page.TotalRecords;
+        }
+
         private async Task<AskResponse> AnswerFailuresAsync(CancellationToken token)
         {
-            List<Mission> failed = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false);
-            List<Mission> landingFailed = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false);
+            long failed = await CountMissionsAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false);
+            long landingFailed = await CountMissionsAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false);
             return new AskResponse
             {
                 Kind = AskResponseKindEnum.Answer,
-                Reply = failed.Count + " failed mission(s) and " + landingFailed.Count + " landing-failed mission(s).",
+                Reply = failed + " failed mission(s) and " + landingFailed + " landing-failed mission(s).",
                 Links = new List<AskLink> { new AskLink("Missions", "/missions") }
             };
         }
 
         private async Task<AskResponse> AnswerMissionsAsync(CancellationToken token)
         {
-            List<Mission> pending = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
-            List<Mission> inProgress = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.InProgress, token).ConfigureAwait(false);
-            List<Mission> review = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+            long pending = await CountMissionsAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
+            long inProgress = await CountMissionsAsync(MissionStatusEnum.InProgress, token).ConfigureAwait(false);
+            long review = await CountMissionsAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
             return new AskResponse
             {
                 Kind = AskResponseKindEnum.Answer,
-                Reply = "Missions: " + pending.Count + " pending, " + inProgress.Count + " in progress, " +
-                    review.Count + " awaiting review.",
+                Reply = "Missions: " + pending + " pending, " + inProgress + " in progress, " +
+                    review + " awaiting review.",
                 Links = new List<AskLink> { new AskLink("Missions", "/missions") }
             };
         }
