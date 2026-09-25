@@ -83,15 +83,29 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
-- **Mission history points and voyage playbook selections read through shared
-  column readers:** the four provider copies of each projection become one
-  reader.
-- **Coordination leases read through a shared column reader:** the four
-  provider copies of the lease mapper become one reader.
-- **Planning sessions and messages read through shared column readers:** the
-  four provider copies of each mapper become one reader. Stored selected-playbook
-  JSON that does not parse raises `StoredRowException` instead of reading as no
-  playbooks.
+- **Stored rows read through shared column readers:** every provider reads
+  tenants, users, credentials, fleets, vessels, signals, events, captains,
+  missions, mission summaries and history points, merge entries, landing jobs,
+  Judge follow-ups, docks, voyages and their playbook selections, objectives,
+  objective refinement sessions and messages, planning sessions and messages,
+  workflow profiles, Checks, deployment environments, releases, deployments,
+  memories, model endpoints, prompt templates, token-usage records,
+  request-history entries and details, personas, pipelines and their stages,
+  skills, project profiles, playbooks, mission playbook snapshots, Harbor runner
+  enrollments and coordination leases, and PostgreSQL and SQLite read
+  coordination rooms, participants, messages and claims, through one column
+  reader per entity. Columns are read by name. Each
+  provider configures only how it stores booleans; a timestamp converts by the
+  value the driver returns, so one stored as text or as a zone-less timestamp
+  reads as the same UTC instant, with its sub-second digits, whatever the host
+  time zone. A required column that is missing, null or unconvertible, a stored
+  enum name that is not a defined member where the model has no fallback, and a
+  JSON column that holds invalid JSON raise `StoredRowException` naming the
+  entity, column and provider instead of reading as a default value; objectives
+  and refinement sessions raise their own stored-data exceptions naming the row
+  and field, so a list read skips and reports that row. An empty stored
+  captain quarantine reason and an empty voyage planning session or message id
+  read as none on every provider.
 - **Data expiry keeps the records that live only as events:** the newest
   snapshot of every incident, open or closed, and of every runbook execution
   survives the retention cutoff whatever its age, while their older snapshots
@@ -132,41 +146,6 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
-- **Coordination board rows read through shared column readers:** the
-  PostgreSQL and SQLite copies of the room, participant, message and claim
-  mappers become one reader per entity.
-- **Mission summaries read through a shared column reader:** the four provider
-  copies of the summary mapper become one reader, which reads the summary's
-  timestamps, booleans and tolerated enum names by the same rules as a full
-  mission read.
-- **Harbor runner enrollments read by column name:** the four provider copies
-  of the enrollment mapper, which read columns by position, become one shared
-  reader that reads each column by name.
-- **Objective refinement sessions and messages read through shared column
-  readers:** the four provider copies of each mapper become one reader. A
-  session value that cannot be read, including a timestamp, raises
-  `StoredRefinementSessionDataException` naming the session and field, so a list
-  read skips and reports that row as it does for an unknown status.
-- **Objectives read through a shared column reader:** the four provider copies
-  of the objective mapper become one reader. A stored value that cannot be
-  read, including a timestamp, raises `StoredObjectiveDataException` naming the
-  objective and field, so a list read skips and reports that row as before.
-- **Merge entries read through a shared column reader:** the four provider
-  copies of the merge-entry mapper, and the separate audit-column reader,
-  become one reader, and the six columns read inside empty catch blocks are
-  read as present.
-- **Vessels read through a shared column reader:** the four provider copies of
-  the vessel mapper, and the separate branch-preview and secret-scan readers,
-  become one reader, and the nine columns read inside empty catch blocks are
-  read as present. Stored protected-path JSON that does not parse raises
-  `StoredRowException` instead of reading as no protected paths.
-- **Missions read through a shared column reader:** the four provider copies
-  of the mission mapper become one reader, and the 24 columns read inside empty
-  catch blocks are read as present. On SQL Server the last recovery action time
-  is stored as `DATETIME2` and was re-parsed through host-local text, so it read
-  back shifted by the host's offset and without its sub-second digits; it now
-  reads as the stored UTC instant. Invalid stored prestaged-file JSON raises
-  `StoredRowException` instead of reading as no files.
 - **A captain that ends BLOCKED and keeps running is finished:** the stall
   nudge is withheld and the process is stopped after the terminal-marker grace
   period, so the stage fails with its question instead of being told to
@@ -239,25 +218,6 @@ upstream integrations and excludes changes already present at that baseline.
   settings' own data directory, not the process-wide default. The runtimes runner
   and the shared-suite xUnit and NUnit hosts redirect the default data directory
   like the other runners, so no test indexes a vessel into the live Armada home.
-- **Stored rows read through shared column readers:** tenants, users,
-  credentials, fleets, signals, events, captains, workflow profiles, Checks,
-  deployment environments, releases, deployments, memories, model endpoints,
-  prompt templates, token-usage records, request-history entries and details,
-  personas, pipelines and their stages, docks, voyages, skills, project
-  profiles, playbooks, mission playbook snapshots, landing jobs and Judge
-  follow-ups are read by one column reader per entity that every provider calls.
-  Each provider configures only how it stores booleans; a timestamp converts by
-  the value the driver returns, so one stored as text reads as the same UTC
-  instant whatever the host time zone. A required column that is missing, null
-  or unconvertible, a stored enum name that is not a defined member where the
-  model has no fallback, and a JSON column that holds invalid JSON raise
-  `StoredRowException` naming the entity, column and provider instead of reading
-  as a default value. On MySQL a captain's quarantine expiry, stored as text,
-  reads as the stored UTC instant on a host outside UTC, and an empty stored
-  quarantine reason reads as no reason, as on the other providers. On SQL Server
-  a token-usage creation time reads as the stored UTC instant on a host outside
-  UTC. On PostgreSQL and MySQL an empty stored voyage planning session or
-  message id reads as no source, as on SQLite and SQL Server.
 - **Diff readers share one parser:** `GitDiffPaths` reads hunk bodies by their
   counts and returns each file's one name, line counts and (on request) hunk lines;
   it also reads `--name-status -z` records. Change substance (rescue and planner
