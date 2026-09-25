@@ -55,7 +55,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     {
                         cmd.Transaction = tx;
                         cmd.CommandText = "INSERT INTO memories (" + MemoryRows.InsertColumns + ") VALUES (" + MemoryRows.InsertValues + ");";
-                        Bind(cmd, memory, true);
+                        Bind(cmd, memory);
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -74,7 +74,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<Memory> found = await QueryAsync(
                 "SELECT * FROM memories WHERE id = @id;",
                 "SELECT memory_id, tag FROM memory_tags WHERE memory_id = @id;",
-                cmd => cmd.Parameters.AddWithValue("@id", id),
+                cmd => StoredValueBinder.Value(cmd, "@id", id),
                 token).ConfigureAwait(false);
             return found.Count > 0 ? found[0] : null;
         }
@@ -89,8 +89,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 "SELECT memory_id, tag FROM memory_tags WHERE memory_id = @id;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                 },
                 token).ConfigureAwait(false);
             return found.Count > 0 ? found[0] : null;
@@ -106,8 +106,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 "SELECT t.memory_id, t.tag FROM memory_tags t INNER JOIN memories m ON m.id = t.memory_id WHERE m.tenant_id = @tenant_id AND m.memory_key = @memory_key;",
                 cmd =>
                 {
-                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                    cmd.Parameters.AddWithValue("@memory_key", key);
+                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(cmd, "@memory_key", key);
                 },
                 token).ConfigureAwait(false);
             return found.Count > 0 ? found[0] : null;
@@ -129,8 +129,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     {
                         cmd.Transaction = tx;
                         cmd.CommandText = MemoryRows.UpdateSql;
-                        Bind(cmd, memory, false);
-                        cmd.Parameters.AddWithValue("@expected_version", expectedVersion);
+                        Bind(cmd, memory);
+                        StoredValueBinder.Value(cmd, "@expected_version", expectedVersion);
                         rows = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -163,8 +163,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     {
                         cmd.Transaction = tx;
                         cmd.CommandText = "DELETE FROM memories WHERE tenant_id = @tenant_id AND id = @id;";
-                        cmd.Parameters.AddWithValue("@tenant_id", tenantId);
-                        cmd.Parameters.AddWithValue("@id", id);
+                        StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                        StoredValueBinder.Value(cmd, "@id", id);
                         rows = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
@@ -174,7 +174,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         {
                             cmd.Transaction = tx;
                             cmd.CommandText = "DELETE FROM memory_tags WHERE memory_id = @id;";
-                            cmd.Parameters.AddWithValue("@id", id);
+                            StoredValueBinder.Value(cmd, "@id", id);
                             await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         }
                     }
@@ -202,7 +202,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             return QueryAsync(
                 "SELECT * FROM memories WHERE tenant_id = @tenant_id ORDER BY created_utc DESC;",
                 "SELECT t.memory_id, t.tag FROM memory_tags t INNER JOIN memories m ON m.id = t.memory_id WHERE m.tenant_id = @tenant_id;",
-                cmd => cmd.Parameters.AddWithValue("@tenant_id", tenantId),
+                cmd => StoredValueBinder.Value(cmd, "@tenant_id", tenantId),
                 token);
         }
 
@@ -261,7 +261,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 del.Transaction = tx;
                 del.CommandText = "DELETE FROM memory_tags WHERE memory_id = @memory_id;";
-                del.Parameters.AddWithValue("@memory_id", memory.Id);
+                StoredValueBinder.Value(del, "@memory_id", memory.Id);
                 await del.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
 
@@ -271,34 +271,16 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 {
                     ins.Transaction = tx;
                     ins.CommandText = "INSERT INTO memory_tags (memory_id, tag) VALUES (@memory_id, @tag);";
-                    ins.Parameters.AddWithValue("@memory_id", memory.Id);
-                    ins.Parameters.AddWithValue("@tag", tag);
+                    StoredValueBinder.Value(ins, "@memory_id", memory.Id);
+                    StoredValueBinder.Value(ins, "@tag", tag);
                     await ins.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
         }
 
-        private static void Bind(SqliteCommand cmd, Memory memory, bool includeCreated)
+        private static void Bind(SqliteCommand cmd, Memory memory)
         {
-            cmd.Parameters.AddWithValue("@id", memory.Id);
-            cmd.Parameters.AddWithValue("@tenant_id", (object?)memory.TenantId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@user_id", (object?)memory.UserId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@scope", memory.Scope.ToString());
-            cmd.Parameters.AddWithValue("@type", memory.Type.ToString());
-            cmd.Parameters.AddWithValue("@topic", (object?)memory.Topic ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@memory_key", (object?)memory.Key ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@summary", (object?)memory.Summary ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@content", memory.Content);
-            cmd.Parameters.AddWithValue("@salience", memory.Salience);
-            cmd.Parameters.AddWithValue("@version", memory.Version);
-            cmd.Parameters.AddWithValue("@source_kind", memory.SourceKind.ToString());
-            cmd.Parameters.AddWithValue("@source_voyage_id", (object?)memory.SourceVoyageId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_mission_id", (object?)memory.SourceMissionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_vessel_id", (object?)memory.SourceVesselId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_detail", (object?)memory.SourceDetail ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
-            if (includeCreated) cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(memory.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(memory.LastUpdateUtc));
+            MemoryColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "memories"), memory);
         }
 
         #endregion

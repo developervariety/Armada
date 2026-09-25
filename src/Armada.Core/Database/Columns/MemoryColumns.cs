@@ -41,5 +41,34 @@ namespace Armada.Core.Database
             memory.LastUpdateUtc = row.Utc("last_update_utc");
             return memory;
         }
+
+        /// <summary>
+        /// Bind every stored memories column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the memories table.</param>
+        /// <param name="memory">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, Memory memory)
+        {
+            parameters
+                .Text("id", memory.Id)
+                .Text("tenant_id", memory.TenantId)
+                .Text("user_id", memory.UserId)
+                .Text("scope", memory.Scope.ToString())
+                .Text("type", memory.Type.ToString())
+                .Text("topic", memory.Topic)
+                .Text("memory_key", memory.Key)
+                .Text("summary", memory.Summary)
+                .Text("content", memory.Content)
+                .Double("salience", memory.Salience)
+                .Int("version", memory.Version)
+                .Text("source_kind", memory.SourceKind.ToString())
+                .Text("source_voyage_id", memory.SourceVoyageId)
+                .Text("source_mission_id", memory.SourceMissionId)
+                .Text("source_vessel_id", memory.SourceVesselId)
+                .Text("source_detail", memory.SourceDetail)
+                .Text("vessel_id", memory.VesselId)
+                .Utc("created_utc", memory.CreatedUtc)
+                .Utc("last_update_utc", memory.LastUpdateUtc);
+        }
     }
 }

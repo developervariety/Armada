@@ -67,6 +67,16 @@ namespace Armada.Core.Database
             return this;
         }
 
+        /// <summary>Bind a double-precision number; null binds as a database null.</summary>
+        internal StoredParameters Double(string column, double? value) => Double("@" + column, column, value);
+
+        /// <summary>Bind a double-precision number under a parameter name that differs from its column.</summary>
+        internal StoredParameters Double(string parameterName, string column, double? value)
+        {
+            StoredValueBinder.Value(_Command, parameterName, value);
+            return this;
+        }
+
         /// <summary>Bind a boolean in the column's stored form; null binds as a database null.</summary>
         internal StoredParameters Bool(string column, bool? value) => Bool("@" + column, column, value);
 
