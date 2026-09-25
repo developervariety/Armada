@@ -51,6 +51,12 @@ namespace Armada.Core.Models
             set => _Reason = value ?? String.Empty;
         }
 
+        /// <summary>
+        /// Code naming why the requested captain can never take the mission (for example
+        /// <c>captain_persona_not_allowed</c> or <c>captain_not_found</c>), or null when nothing permanent keeps it.
+        /// </summary>
+        public string? RequestedCaptainCode { get; set; } = null;
+
         #endregion
 
         #region Private-Members

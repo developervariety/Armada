@@ -358,14 +358,20 @@ captain as its requested captain before its first assignment: the root stage,
 later stages, and fan-out missions alike. A single-stage dispatch (the
 `WorkerOnly` pipeline, or no pipeline) stamps its stage persona on each mission,
 so an assignment for `Worker` applies to it too. The same rule applies to REST
-`POST /api/v1/voyages`, WebSocket `create_voyage` and alias dispatch. A named
-captain that does not exist, or that its `AllowedPersonas`, its runtime's
-capability or the persona's `minimumTier` excludes, is never assigned in its
-place without a record: assignment writes a `mission.requested_captain` event
-naming the captain and the reason, then falls back or waits at the fallback tier
+`POST /api/v1/voyages`, WebSocket `create_voyage` and alias dispatch. Dispatch
+refuses an assignment whose captain can never take the stage it names, before
+any voyage or mission exists, with the captain, the persona and one code:
+`captain_persona_not_allowed` (its `AllowedPersonas` excludes the persona),
+`captain_runtime_cannot_serve_persona` (its runtime cannot run the persona),
+`captain_below_persona_minimum_tier`, `captain_not_found` (absent or outside the
+caller's scope), `captain_in_another_tenant`, or `captain_unavailable` (benched,
+quarantined, stalled or stopping). A named persona is checked against itself; a
+`*` entry against every stage of the effective pipeline without its own entry.
+`armada_dispatch` refuses before it accepts a background job.
+`preview_objective_dispatch` reports the same assignment as the blocking issue
+`assigned_captain_ineligible` with the same reason and code. A captain that
+changes after dispatch is handled at assignment
 ([USAGE_ROUTING.md](USAGE_ROUTING.md#requested-captain-and-fallback-tier)).
-`preview_objective_dispatch` reports the same captain as
-`assigned_captain_ineligible` with the same reason.
 
 After the deterministic preflight the preview also consults the `preflight`
 typed decision when it is enabled (`typedDecisions`, ships `Gate`). It reads the

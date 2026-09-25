@@ -46,6 +46,13 @@ namespace Armada.Test.Unit.Suites.Services
                         Title = "Preview-gated objective",
                         VesselIds = new List<string> { vessel.Id }
                     }).ConfigureAwait(false);
+                    // The assignment names a real captain that can run the Worker role, so only the preview blocks.
+                    Captain requested = await testDb.Driver.Captains.CreateAsync(new Captain("preview-gated-worker")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        AllowedPersonas = "[\"Worker\"]",
+                        Tier = CaptainTierEnum.Standard
+                    }).ConfigureAwait(false);
                     ObjectiveService objectives = new ObjectiveService(testDb.Driver);
                     RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
                     {
@@ -82,7 +89,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Pipeline = "Reviewed",
                         CaptainAssignments = new List<CaptainAssignmentOverride>
                         {
-                            new CaptainAssignmentOverride("Worker", "cpt_requested", CaptainTierEnum.Standard)
+                            new CaptainAssignmentOverride("Worker", requested.Id, CaptainTierEnum.Standard)
                         },
                         Missions = new List<MissionDescription>
                         {
@@ -96,7 +103,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, preview.CallCount, "The operator precondition path calls the preview once.");
                     AssertEqual(vessel.Id, preview.RequestedVesselId);
                     AssertEqual("Reviewed", preview.RequestedPipelineId);
-                    AssertEqual("cpt_requested", preview.CaptainAssignments!.Single().CaptainId);
+                    AssertEqual(requested.Id, preview.CaptainAssignments!.Single().CaptainId);
                 }
             });
 
@@ -980,41 +987,80 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A captain assignment naming an ineligible captain is refused by name and never silently reassigned", async () =>
+            // A named captain whose persona allow-list excludes the stage it is named for can never take that
+            // stage, so dispatch refuses the assignment by name and creates nothing, on every dispatch shape, and
+            // the dispatch preview reports the same rule for the same request.
+            foreach ((string label, string[]? stages, string persona, bool useAlias) shape in new (string, string[]?, string, bool)[]
+            {
+                ("WorkerOnly, no pipeline", null, "Worker", false),
+                ("Worker and Judge pipeline", new[] { "Worker", "Judge" }, "Worker", false),
+                ("Worker and Judge pipeline, alias dispatch", new[] { "Worker", "Judge" }, "Worker", true),
+                ("Worker and Judge pipeline, wildcard assignment", new[] { "Worker", "Judge" }, "*", false)
+            })
+            {
+                await RunTest("A captain assignment whose captain's allow-list excludes the persona is refused by name (" + shape.label + ")", async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
+                        Captain ineligible = await harness.CreateNamedCaptainAsync("[\"Judge\"]").ConfigureAwait(false);
+                        Pipeline? pipeline = shape.stages == null
+                            ? null
+                            : await harness.CreatePipelineAsync("OverrideIneligible", shape.stages).ConfigureAwait(false);
+                        List<CaptainAssignmentOverride> assignments = new List<CaptainAssignmentOverride>
+                        {
+                            new CaptainAssignmentOverride(shape.persona, ineligible.Id, null)
+                        };
+
+                        VoyageDispatchResult result = await harness.DispatchAsync(pipeline, assignments, shape.useAlias).ConfigureAwait(false);
+                        string body = JsonSerializer.Serialize(result.Value);
+                        AssertFalse(result.Succeeded, "dispatch naming a captain that cannot run the Worker role must be refused: " + body);
+                        AssertContains("\"Code\":\"captain_persona_not_allowed\"", body, "the refusal names its code");
+                        AssertContains(ineligible.Id, body, "the refusal names the captain");
+                        AssertContains("\"Persona\":\"Worker\"", body, "the refusal names the persona");
+                        AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count, "a refused dispatch creates no voyage");
+                        AssertEqual(0, (await testDb.Driver.Missions.EnumerateAsync().ConfigureAwait(false)).Count, "a refused dispatch creates no mission");
+
+                        ObjectiveDispatchPreview preview = await harness.PreviewAsync(pipeline, assignments).ConfigureAwait(false);
+                        ObjectiveDispatchPreviewIssue? previewIssue = preview.Issues.FirstOrDefault(issue => issue.Code == "assigned_captain_ineligible");
+                        AssertNotNull(previewIssue, "the dispatch preview blocks the same captain assignment");
+                        AssertEqual(ReadinessSeverityEnum.Error, previewIssue!.Severity, "the preview reports it as blocking");
+                        AssertContains("captain_persona_not_allowed", previewIssue.Message, "the preview names the same rule as the refusal");
+                    }
+                });
+            }
+
+            await RunTest("MCP armada_dispatch refuses a captain assignment whose captain's allow-list excludes the persona before accepting a job", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
                     Captain ineligible = await harness.CreateNamedCaptainAsync("[\"Judge\"]").ConfigureAwait(false);
-                    Pipeline pipeline = await harness.CreatePipelineAsync("OverrideIneligible", "Worker", "Judge").ConfigureAwait(false);
-                    List<CaptainAssignmentOverride> assignments = new List<CaptainAssignmentOverride>
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) =>
+                        {
+                            if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler);
+                        },
+                        testDb.Driver,
+                        admiral);
+                    AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+
+                    string response = JsonSerializer.Serialize(await dispatchHandler!(JsonSerializer.SerializeToElement(new
                     {
-                        new CaptainAssignmentOverride("Worker", ineligible.Id, null)
-                    };
+                        title = "Override voyage",
+                        description = "an ineligible captain assignment through MCP",
+                        vesselId = harness.Vessel.Id,
+                        codeContextMode = "off",
+                        missions = new object[] { new { title = "alpha", description = "first task" } },
+                        captainAssignments = new object[] { new { persona = "Worker", captainId = ineligible.Id } }
+                    })).ConfigureAwait(false));
 
-                    VoyageDispatchResult result = await harness.DispatchAsync(pipeline, assignments, false).ConfigureAwait(false);
-                    AssertTrue(result.Succeeded, "dispatch with an ineligible captain assignment is accepted and refused at assignment");
-
-                    List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 2).ConfigureAwait(false);
-                    Mission root = missions.Single(m => m.Persona == "Worker");
-                    ArmadaEvent? refusal = await harness.WaitForRequestedCaptainEventAsync(root.Id).ConfigureAwait(false);
-                    Mission? current = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
-                    AssertNotNull(refusal, "an ineligible captain assignment must record a named requested-captain event; root mission state: "
-                        + current?.Status + " captain=" + (current?.CaptainId ?? "(none)") + " requested=" + (current?.RequestedCaptainId ?? "(none)"));
-                    AssertContains("Requested captain " + ineligible.Id + " is not eligible for persona Worker", refusal!.Message,
-                        "the event names the captain and the rule that refuses it");
-                    AssertEqual(ineligible.Id, current!.RequestedCaptainId, "the mission keeps the named captain as its request");
-                    AssertNotEqual(ineligible.Id, current.CaptainId ?? String.Empty, "an ineligible captain never takes the mission");
-                    AssertNotEqual(harness.Competing.Id, current.CaptainId ?? String.Empty,
-                        "the mission is not handed to a lower-tier captain in place of the named one");
-
-                    ObjectiveDispatchPreview preview = await harness.PreviewAsync(pipeline, assignments).ConfigureAwait(false);
-                    ObjectiveDispatchPreviewIssue? previewIssue = preview.Issues.FirstOrDefault(issue => issue.Code == "assigned_captain_ineligible");
-                    AssertNotNull(previewIssue, "the dispatch preview refuses the same captain assignment");
-                    AssertContains("not eligible for persona Worker (its persona allow-list or runtime capability excludes it)", previewIssue!.Message,
-                        "the preview names the same rule");
-                    AssertContains("not eligible for persona Worker (its persona allow-list or runtime capability excludes it)", refusal.Message,
-                        "assignment names the same rule as the preview");
+                    AssertContains("captain_persona_not_allowed", response, "MCP dispatch refuses by the named code: " + response);
+                    AssertContains(ineligible.Id, response, "MCP refusal names the captain");
+                    AssertEqual(0, admiral.CreatedMissions.Count, "no mission is created for a refused dispatch");
+                    AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count, "no voyage is created for a refused dispatch");
                 }
             });
 
@@ -2649,7 +2695,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return await Database.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
             }
 
-            public async Task<VoyageDispatchResult> DispatchAsync(Pipeline pipeline, List<CaptainAssignmentOverride> assignments, bool useAlias)
+            public async Task<VoyageDispatchResult> DispatchAsync(Pipeline? pipeline, List<CaptainAssignmentOverride> assignments, bool useAlias)
             {
                 MissionDescription mission = new MissionDescription("Report the tools", "Read-only report of the captain's tools")
                 {
@@ -2660,14 +2706,14 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Title = "Captain assignment voyage",
                     VesselId = Vessel.Id,
-                    PipelineId = pipeline.Id,
+                    PipelineId = pipeline?.Id,
                     CodeContextMode = "off",
                     CaptainAssignments = assignments,
                     Missions = new List<MissionDescription> { mission }
                 }).ConfigureAwait(false);
             }
 
-            public async Task<ObjectiveDispatchPreview> PreviewAsync(Pipeline pipeline, List<CaptainAssignmentOverride> assignments)
+            public async Task<ObjectiveDispatchPreview> PreviewAsync(Pipeline? pipeline, List<CaptainAssignmentOverride> assignments)
             {
                 Objective objective = new Objective
                 {
@@ -2680,7 +2726,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "UnitTest"),
                     objective,
                     Vessel.Id,
-                    pipeline.Id,
+                    pipeline?.Id,
                     assignments,
                     new List<MissionDescription> { new MissionDescription("Report the tools", "Read-only report") { Mode = "Research" } }).ConfigureAwait(false);
             }
@@ -2696,19 +2742,6 @@ namespace Armada.Test.Unit.Suites.Services
                     await Task.Delay(25).ConfigureAwait(false);
                 }
                 return mission ?? throw new TimeoutException("Mission " + missionId + " disappeared");
-            }
-
-            public async Task<ArmadaEvent?> WaitForRequestedCaptainEventAsync(string missionId)
-            {
-                DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-                while (DateTime.UtcNow < deadline)
-                {
-                    List<ArmadaEvent> events = await Database.Events.EnumerateByMissionAsync(missionId).ConfigureAwait(false);
-                    ArmadaEvent? found = events.FirstOrDefault(evt => evt.EventType == RequestedCaptainAssignmentRule.EventType);
-                    if (found != null) return found;
-                    await Task.Delay(25).ConfigureAwait(false);
-                }
-                return null;
             }
         }
 

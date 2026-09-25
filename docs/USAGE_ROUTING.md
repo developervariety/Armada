@@ -737,7 +737,9 @@ resolves) for that reason. Every assignment path applies one rule:
    over the captain's `AllowedPersonas` fence, its runtime's capability for the
    persona, or the persona's `minimumTier`: a requested captain
    that fails one of these is unavailable, and the event names the reason
-   (`not eligible for persona ...`).
+   and its code (`captain_persona_not_allowed`,
+   `captain_runtime_cannot_serve_persona` or
+   `captain_below_persona_minimum_tier`).
 3. If the requested captain is not in the pool or is not eligible, normal routing runs over the
    captains at or above the fallback tier. The fallback tier is the stored
    `Tier`, or the requested captain's own effective tier when no tier is
@@ -745,13 +747,24 @@ resolves) for that reason. Every assignment path applies one rule:
    with no requested captain applies the same floor.
 4. If no captain meets the floor, the mission stays Pending with
    `WaitingForIdleCaptain`. It is never given to a lower-tier substitute.
+   When the requested captain can never take the mission and no captain of
+   the tenant that allows the persona reaches the floor, the wait is permanent:
+   Armada records `mission.unassignable_by_construction` naming the requested
+   captain, its reason and the floor, and opens an incident if the mission
+   stays that way.
 5. If the requested captain no longer exists and no tier is stored, normal
    routing applies.
 
 Rules 3, 4 and 5 record a `mission.requested_captain` event. The event names
-the requested captain, why it was not used, and the tier. Read these events
+the requested captain, why it was not used, and the tier; its payload carries
+the reason's `code` and the mission `persona`. Read these events
 when a mission with a requested captain waits. A wait that does not change is
 recorded once. A mission with neither field set is assigned by normal routing.
+
+Dispatch refuses a captain assignment whose captain can never take the stage
+it names (see [MCP_API.md](MCP_API.md)), so these waits arise only when the
+captain or the persona changes after dispatch, or from a persona's default
+captain.
 
 The objective dispatch preview reports role coverage through these same rules,
 reading the requested captain from the captain override or the persona's

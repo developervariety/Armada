@@ -261,7 +261,19 @@ namespace Armada.Test.Unit.Suites.Services
                     List<ArmadaEvent> events = await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
                     AssertEqual(1, events.Count, "The wait is recorded as a requested-captain event");
                     AssertContains("not eligible for persona Worker", events[0].Message, "The wait names the eligibility reason");
+                    AssertContains("captain_persona_not_allowed", events[0].Message, "The wait names the eligibility rule by its code");
+                    AssertContains("\"code\":\"captain_persona_not_allowed\"", events[0].Payload ?? String.Empty,
+                        "The event payload carries the code, so a reader need not parse the message");
                     AssertContains("Premium", events[0].Message, "The wait names the fallback tier");
+
+                    // The requested captain can never take a Worker mission and no Worker captain reaches its
+                    // tier, so the wait is permanent and is named as such, not left as an idle-captain wait.
+                    List<ArmadaEvent> all = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+                    ArmadaEvent? unassignable = all.FirstOrDefault(evt => evt.EventType == "mission.unassignable_by_construction");
+                    AssertNotNull(unassignable, "A wait on a requested captain that can never take the mission records the unassignable reason");
+                    AssertContains(requested.Id, unassignable!.Message, "The unassignable reason names the requested captain");
+                    AssertContains("captain_persona_not_allowed", unassignable.Message, "The unassignable reason names why the captain cannot take it");
+                    AssertContains("fallback tier Premium", unassignable.Message, "The unassignable reason names the tier no captain reaches");
                 }
             });
 

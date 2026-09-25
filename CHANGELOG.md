@@ -83,6 +83,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Dispatch refuses a captain assignment the captain can never take:** a
+  `captainAssignments` entry whose captain's `AllowedPersonas`, runtime or tier
+  excludes the stage persona, or whose captain is absent, in another tenant or
+  benched, is refused before any voyage exists, with the captain, the persona
+  and a code such as `captain_persona_not_allowed`. MCP, REST, WebSocket,
+  alias and objective dispatch share the check, and the dispatch preview
+  reports the same finding. A mission already waiting on such a captain names
+  the code in its `mission.requested_captain` event, and a wait no captain can
+  ever end records `mission.unassignable_by_construction`.
 - **A Mux error event reaches the mission log:** Mux names its event in
   `eventType`, and the structured failure reader recognised only `type`, so a
   Mux provider failure (for example an HTTP 429 from a proxy at capacity) left
@@ -191,10 +200,8 @@ upstream integrations and excludes changes already present at that baseline.
   captain on plain, alias, REST and WebSocket dispatch. A single-stage dispatch
   stamps its stage persona (`Worker` when no pipeline resolves) on each mission,
   so a `Worker` assignment and the persona's default captain and default
-  playbooks apply to it. A named captain that cannot take the role records a
-  `mission.requested_captain` event with the reason, as the dispatch preview
-  reports it. An admiral without captain-assignment support refuses them instead
-  of dropping them.
+  playbooks apply to it. An admiral without captain-assignment support refuses
+  them instead of dropping them.
 - **Planning sessions on every provider:** MySQL and SQL Server store planning
   sessions and their transcript messages with the same columns, indexes,
   per-session sequence uniqueness and session-to-message cascade as SQLite and

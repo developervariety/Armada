@@ -32,6 +32,36 @@ namespace Armada.Core.Services
         /// </summary>
         public const string EventType = "mission.requested_captain";
 
+        /// <summary>
+        /// The named captain's persona allow-list excludes the persona.
+        /// </summary>
+        public const string PersonaNotAllowedCode = "captain_persona_not_allowed";
+
+        /// <summary>
+        /// The named captain's runtime cannot serve the persona (it cannot run the commands the persona must run).
+        /// </summary>
+        public const string RuntimeCannotServeCode = "captain_runtime_cannot_serve_persona";
+
+        /// <summary>
+        /// The named captain's effective tier is below the persona's minimum tier.
+        /// </summary>
+        public const string BelowMinimumTierCode = "captain_below_persona_minimum_tier";
+
+        /// <summary>
+        /// The named captain does not exist, or is outside the caller's scope.
+        /// </summary>
+        public const string NotFoundCode = "captain_not_found";
+
+        /// <summary>
+        /// The named captain belongs to another tenant than the work.
+        /// </summary>
+        public const string OtherTenantCode = "captain_in_another_tenant";
+
+        /// <summary>
+        /// The named captain is benched, quarantined, stalled or stopping.
+        /// </summary>
+        public const string UnavailableCode = "captain_unavailable";
+
         #endregion
 
         #region Public-Methods
@@ -70,9 +100,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Why a requested captain may never take a mission of the supplied persona, or null when it may. The
-        /// persona allow-list, the runtime's capability for the persona, and the persona's minimum tier
+        /// runtime's capability for the persona, the persona allow-list, and the persona's minimum tier
         /// disqualify it; the mission's model pin and tier floor do not, because naming the captain is the
-        /// operator's explicit choice of its model and tier.
+        /// operator's explicit choice of its model and tier. The reason names its code.
         /// </summary>
         /// <param name="requested">The requested captain.</param>
         /// <param name="persona">Mission persona, if any.</param>
@@ -80,11 +110,59 @@ namespace Armada.Core.Services
         /// <returns>The reason, or null when the captain is eligible.</returns>
         public static string? DescribeIneligibility(Captain requested, string? persona, ModelTierSettings? tiers)
         {
+            return EvaluateIneligibility(requested, persona, tiers)?.Reason;
+        }
+
+        /// <summary>
+        /// The persona rule behind <see cref="DescribeIneligibility"/>, with its code.
+        /// </summary>
+        /// <param name="requested">The requested captain.</param>
+        /// <param name="persona">Mission persona, if any.</param>
+        /// <param name="tiers">Model tier settings naming the persona minimum tiers; null applies no minimum.</param>
+        /// <returns>The finding, or null when the captain is eligible.</returns>
+        public static CaptainEligibilityFinding? EvaluateIneligibility(Captain requested, string? persona, ModelTierSettings? tiers)
+        {
             if (requested == null) throw new ArgumentNullException(nameof(requested));
             if (!MissionService.CaptainAllowsPersona(requested, persona))
-                return "not eligible for persona " + persona + " (its persona allow-list or runtime capability excludes it)";
+            {
+                if (!AgentRuntimeCapability.CanServePersona(requested.Runtime, persona))
+                    return new CaptainEligibilityFinding(RuntimeCannotServeCode,
+                        "not eligible for persona " + persona + " (" + RuntimeCannotServeCode + ": its " + requested.Runtime + " runtime cannot serve it)");
+                return new CaptainEligibilityFinding(PersonaNotAllowedCode,
+                    "not eligible for persona " + persona + " (" + PersonaNotAllowedCode + ": its persona allow-list excludes it)");
+            }
             if (MissionService.FailsPersonaMinimumTier(requested, persona, tiers))
-                return "not eligible for persona " + persona + ", whose minimum tier is " + tiers!.MinimumTierForPersona(persona);
+                return new CaptainEligibilityFinding(BelowMinimumTierCode,
+                    "not eligible for persona " + persona + " (" + BelowMinimumTierCode + ": the persona's minimum tier is " + tiers!.MinimumTierForPersona(persona) + ")");
+            return null;
+        }
+
+        /// <summary>
+        /// Whether a captain named for a persona by a dispatch captain assignment may be accepted. Dispatch
+        /// refuses the assignment and the dispatch preview reports it as blocking on the same finding: a
+        /// captain that is absent (or outside the caller's scope), permanently ineligible for the persona,
+        /// of another tenant, or benched, quarantined, stalled or stopping. A busy captain is capacity and
+        /// is accepted. The reason never names the captain, so an absent captain and one outside the caller's
+        /// scope read the same.
+        /// </summary>
+        /// <param name="named">The named captain as the caller can see it, or null when absent.</param>
+        /// <param name="persona">The stage persona the assignment applies to.</param>
+        /// <param name="tenantId">The tenant of the work (the vessel's tenant).</param>
+        /// <param name="tiers">Model tier settings naming the persona minimum tiers.</param>
+        /// <returns>The finding, or null when the assignment may be accepted.</returns>
+        public static CaptainEligibilityFinding? EvaluateAssignment(Captain? named, string? persona, string? tenantId, ModelTierSettings? tiers)
+        {
+            if (named == null)
+                return new CaptainEligibilityFinding(NotFoundCode, "not found (" + NotFoundCode + ")");
+            CaptainEligibilityFinding? ineligible = EvaluateIneligibility(named, persona, tiers);
+            if (ineligible != null) return ineligible;
+            if (!MissionService.CaptainServesTenant(named, tenantId))
+                return new CaptainEligibilityFinding(OtherTenantCode, "in another tenant (" + OtherTenantCode + ")");
+            if (named.State == CaptainStateEnum.Benched
+                || named.State == CaptainStateEnum.Quarantined
+                || named.State == CaptainStateEnum.Stalled
+                || named.State == CaptainStateEnum.Stopping)
+                return new CaptainEligibilityFinding(UnavailableCode, named.State + " (" + UnavailableCode + ")");
             return null;
         }
 

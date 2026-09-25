@@ -1201,16 +1201,16 @@ namespace Armada.Core.Services
 
                     if (overrideNamesCaptain)
                     {
+                        // Dispatch refuses the same assignment on the same finding, so preview and dispatch agree.
                         Captain? visible = captains.FirstOrDefault(captain => captain != null && String.Equals(
                             captain.Id, request.CaptainId, StringComparison.Ordinal));
-                        if (visible == null
-                            || !IsConfiguredUsableCaptain(visible)
-                            || !MissionService.CaptainServesTenant(visible, probe.TenantId)
-                            || ineligible != null)
+                        CaptainEligibilityFinding? finding = RequestedCaptainAssignmentRule.EvaluateAssignment(
+                            visible, stage.PersonaName, probe.TenantId, tiers);
+                        if (finding != null)
                         {
                             AddIssue(result, "assigned_captain_ineligible", "captain", ReadinessSeverityEnum.Error,
-                                "The assigned captain cannot run the " + stage.PersonaName + " role"
-                                + (ineligible != null ? ": it is " + ineligible + "." : "."), assignment!.CaptainId);
+                                "The assigned captain cannot run the " + stage.PersonaName + " role: it is " + finding.Reason + ".",
+                                assignment!.CaptainId);
                         }
                     }
                     else if (requested != null && ineligible != null)

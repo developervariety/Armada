@@ -10128,6 +10128,34 @@ namespace Armada.Core.Services
                     return "the Smart Routing routes for persona " + (mission.Persona ?? "(none)") + " admit no captain of the tenant that allows it";
             }
 
+            // A stored requested captain or fallback tier narrows the pool exactly as assignment does: a requested
+            // captain that can take the persona takes the mission once it is free; otherwise only captains at or
+            // above the fallback tier may take it, so a floor no captain of the persona reaches is permanent.
+            if (RequestedCaptainAssignmentRule.HasRequest(mission))
+            {
+                string? requestedId = String.IsNullOrWhiteSpace(mission.RequestedCaptainId) ? null : mission.RequestedCaptainId.Trim();
+                Captain? requested = requestedId == null ? null : all.FirstOrDefault(item => String.Equals(item.Id, requestedId, StringComparison.Ordinal));
+                string? ineligible = requested == null ? null : RequestedCaptainAssignmentRule.DescribeIneligibility(requested, mission.Persona, _Settings.ModelTier);
+                if (requested != null && ineligible == null && CaptainServesTenant(requested, mission.TenantId))
+                    return null;
+
+                CaptainTierEnum? floor = mission.Tier ?? (requested != null ? (CaptainTierEnum?)CaptainTierSelector.EffectiveTier(requested) : null);
+                if (floor.HasValue)
+                {
+                    personaCaptains = personaCaptains.Where(item => CaptainTierSelector.EffectiveTier(item) >= floor.Value).ToList();
+                    if (personaCaptains.Count == 0)
+                    {
+                        string requestPart = requestedId == null
+                            ? "no captain is requested"
+                            : requested == null
+                                ? "requested captain " + requestedId + " was not found"
+                                : "requested captain " + requestedId + " is " + (ineligible ?? "in another tenant");
+                        return requestPart + ", and no captain of the tenant that allows persona " + (mission.Persona ?? "(none)")
+                            + " is at or above fallback tier " + floor.Value;
+                    }
+                }
+            }
+
             if (personaCaptains.Any(item => LegacyCaptainSelector.CouldSelect(_Settings.ModelTier, mission, item)))
                 return null;
 
@@ -10258,7 +10286,11 @@ namespace Armada.Core.Services
                     unavailable = DescribeRequestedCaptainUnavailability(mission, requested, pool, poolExclusionLabel);
             }
 
-            return RequestedCaptainAssignmentRule.Decide(mission, requested, unavailable, pool);
+            RequestedCaptainAssignmentDecision decision = RequestedCaptainAssignmentRule.Decide(mission, requested, unavailable, pool);
+            decision.RequestedCaptainCode = requested == null
+                ? (String.IsNullOrWhiteSpace(mission.RequestedCaptainId) ? null : RequestedCaptainAssignmentRule.NotFoundCode)
+                : RequestedCaptainAssignmentRule.EvaluateIneligibility(requested, mission.Persona, _Settings.ModelTier)?.Code;
+            return decision;
         }
 
         // Names the gate that keeps a requested captain from this mission, or null when none does. The
@@ -10322,7 +10354,9 @@ namespace Armada.Core.Services
                 evt.Payload = JsonSerializer.Serialize(new
                 {
                     outcome = decision.Outcome.ToString(),
+                    code = decision.RequestedCaptainCode,
                     requestedCaptainId = decision.RequestedCaptainId,
+                    persona = mission.Persona,
                     fallbackTier = decision.FallbackTier?.ToString(),
                     selectedCaptainId = selected?.Id
                 });

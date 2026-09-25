@@ -122,8 +122,8 @@ namespace Armada.Server
 
             // The vessel and dependency missions a request names are read in the caller's scope, exactly as a
             // path id is: the admiral reads them again by id alone and gives the voyage the vessel's tenant, so
-            // an unchecked id dispatches into another tenant's vessel and captains. A requested captain needs no
-            // check here: assignment only ever picks a captain of the mission's own tenant.
+            // an unchecked id dispatches into another tenant's vessel and captains. A captain named by a captain
+            // assignment is read in the same scope below.
             string vesselId = request.VesselId;
             Vessel? dispatchVessel = request.ObjectiveAuthContext != null
                 ? await CallerScopedRead.ReadVesselAsync(_Database, request.ObjectiveAuthContext, vesselId, token).ConfigureAwait(false)
@@ -139,6 +139,9 @@ namespace Armada.Server
 
             VoyageDispatchResult? referenceValidation = await ValidateCallerReferencesAsync(request, token).ConfigureAwait(false);
             if (referenceValidation != null) return referenceValidation;
+
+            VoyageDispatchResult? assignmentValidation = await ValidateCaptainAssignmentsAsync(request, dispatchVessel, token).ConfigureAwait(false);
+            if (assignmentValidation != null) return assignmentValidation;
 
             VoyageDispatchResult? objectiveValidation = await ValidateObjectiveAsync(
                 NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext, vesselId).ConfigureAwait(false);
@@ -514,6 +517,107 @@ namespace Armada.Server
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Refuse a captain assignment whose named captain can never take the stage it names. A named persona
+        /// is checked against that persona; a wildcard entry against every stage of the effective pipeline
+        /// that has no entry of its own. The finding is the one the dispatch preview reports, so an accepted
+        /// dispatch never leaves a mission waiting on a captain that cannot take it. Returns null when every
+        /// assignment may be accepted.
+        /// </summary>
+        private async Task<VoyageDispatchResult?> ValidateCaptainAssignmentsAsync(
+            SharedVoyageDispatchRequest request,
+            Vessel vessel,
+            CancellationToken token)
+        {
+            List<CaptainAssignmentOverride> named = (request.CaptainAssignments ?? new List<CaptainAssignmentOverride>())
+                .Where(item => item != null && !String.IsNullOrWhiteSpace(item.CaptainId))
+                .ToList();
+            if (named.Count == 0) return null;
+
+            ModelTierSettings? tiers = (request.Settings ?? _Settings)?.ModelTier;
+            List<string>? stagePersonas = null;
+            foreach (CaptainAssignmentOverride assignment in named)
+            {
+                List<string> personas;
+                if (!IsWildcardAssignment(assignment))
+                {
+                    personas = new List<string> { assignment.Persona.Trim() };
+                }
+                else
+                {
+                    try
+                    {
+                        stagePersonas ??= await ResolveStagePersonasAsync(request, vessel, token).ConfigureAwait(false);
+                    }
+                    catch (StageSkipRefusedException refused)
+                    {
+                        return StageSkipRefusedResult(refused);
+                    }
+                    personas = stagePersonas
+                        .Where(persona => MissionService.SelectCaptainOverride(request.CaptainAssignments, persona) == assignment)
+                        .ToList();
+                }
+                if (personas.Count == 0) continue;
+
+                string captainId = assignment.CaptainId!.Trim();
+                Captain? captain = request.ObjectiveAuthContext != null
+                    ? await CallerScopedRead.ReadCaptainAsync(_Database, request.ObjectiveAuthContext, captainId, token).ConfigureAwait(false)
+                    : await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+                foreach (string persona in personas)
+                {
+                    CaptainEligibilityFinding? finding = RequestedCaptainAssignmentRule.EvaluateAssignment(
+                        captain, persona, vessel.TenantId, tiers);
+                    if (finding == null) continue;
+                    return VoyageDispatchResult.BadRequest(new
+                    {
+                        Error = "Captain assignment refused: captain " + captainId + " cannot run the " + persona
+                            + " role: it is " + finding.Reason + ".",
+                        Code = finding.Code,
+                        Reason = "Captain " + captainId + " is " + finding.Reason + ".",
+                        Action = "Name a captain that can run the " + persona + " role (its AllowedPersonas, runtime and tier), or remove the assignment.",
+                        CaptainId = captainId,
+                        Persona = persona
+                    });
+                }
+            }
+
+            return null;
+        }
+
+        private static bool IsWildcardAssignment(CaptainAssignmentOverride assignment)
+        {
+            return String.IsNullOrWhiteSpace(assignment.Persona) || assignment.Persona.Trim() == "*";
+        }
+
+        // The stage personas the dispatch will create, resolved by the admiral's own pipeline rule and the
+        // operator's stage skips; a single-stage dispatch is its one stage persona.
+        private async Task<List<string>> ResolveStagePersonasAsync(SharedVoyageDispatchRequest request, Vessel vessel, CancellationToken token)
+        {
+            string? requestedPipeline = await ResolvePipelineIdAsync(NormalizeEmpty(request.PipelineId), NormalizeEmpty(request.Pipeline)).ConfigureAwait(false);
+            // An unknown pipeline name is refused by name later in validation; no stage applies to it here.
+            if (String.Equals(requestedPipeline, "__pipeline_not_found__", StringComparison.Ordinal)) return new List<string>();
+            string? objectiveId = NormalizeEmpty(request.ObjectiveId);
+            if (requestedPipeline == null && objectiveId != null && _ObjectiveService != null)
+            {
+                Objective? objective = await _ObjectiveService.ReadAsync(
+                    RequireObjectiveCaller(request.ObjectiveAuthContext, objectiveId), objectiveId, token).ConfigureAwait(false);
+                requestedPipeline = NormalizeEmpty(objective?.SuggestedPipelineId);
+            }
+
+            Pipeline? pipeline = AdmiralService.SkipsDefaultPipeline(requestedPipeline, request.Missions)
+                ? null
+                : await _Admiral.ResolvePipelineAsync(requestedPipeline, vessel, token).ConfigureAwait(false);
+            pipeline = PipelineStageSkip.Apply(
+                pipeline, PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext)).Pipeline;
+            if (pipeline == null || pipeline.Stages == null || pipeline.Stages.Count <= 1)
+                return new List<string> { AdmiralService.SingleStagePersona(pipeline) };
+            return pipeline.Stages
+                .Where(stage => stage != null && !String.IsNullOrWhiteSpace(stage.PersonaName))
+                .Select(stage => stage.PersonaName)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
         }
 
         /// <summary>

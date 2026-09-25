@@ -1899,16 +1899,28 @@ namespace Armada.Core.Services
         /// <returns>The resolved pipeline, or null for a single-stage Worker dispatch.</returns>
         private async Task<Pipeline?> ResolvePipelineAsync(string? pipelineId, Vessel vessel, List<MissionDescription> missions, CancellationToken token = default)
         {
-            bool allReadOnly = missions != null
-                && missions.Count > 0
-                && missions.All(m => m != null && IsReadOnlyMissionMode(m.Mode));
-            if (allReadOnly && String.IsNullOrEmpty(pipelineId))
+            if (SkipsDefaultPipeline(pipelineId, missions))
             {
                 _Logging.Info(_Header + "read-only dispatch (" + missions!.Count + " mission(s)) skips the vessel/fleet default pipeline -- single-stage Worker dispatch");
                 return null;
             }
 
             return await ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Whether a dispatch runs as a single-stage Worker dispatch without inheriting the vessel or fleet
+        /// default pipeline: no pipeline was requested and every mission is Audit or Research.
+        /// </summary>
+        /// <param name="pipelineId">Explicitly requested pipeline id or name, or null.</param>
+        /// <param name="missions">Mission descriptions being dispatched.</param>
+        /// <returns>True when the default pipeline is not inherited.</returns>
+        public static bool SkipsDefaultPipeline(string? pipelineId, IReadOnlyList<MissionDescription>? missions)
+        {
+            return String.IsNullOrEmpty(pipelineId)
+                && missions != null
+                && missions.Count > 0
+                && missions.All(m => m != null && IsReadOnlyMissionMode(m.Mode));
         }
 
         /// <summary>
