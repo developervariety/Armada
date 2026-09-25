@@ -169,6 +169,22 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(MemoryMethods.Table, new Memory());
             });
 
+            await RunTest("Skill scope conditions keep their text, order and parameters on every provider", () =>
+            {
+                string postgresql = "tenant_id = @tenant_id AND user_id = @user_id AND category = @category AND (name ILIKE @search OR COALESCE(description, '') ILIKE @search) AND active = @active AND created_utc::timestamptz >= @from_utc AND created_utc::timestamptz <= @to_utc";
+                string others = "tenant_id = @tenant_id AND user_id = @user_id AND category = @category AND (LOWER(name) LIKE @search OR LOWER(COALESCE(description, '')) LIKE @search) AND active = @active AND created_utc >= @from_utc AND created_utc <= @to_utc";
+                SkillQuery everyFilter = new SkillQuery
+                {
+                    TenantId = "ten_x", UserId = "usr_x", Category = "category", Search = "Find", Active = true,
+                    FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => p == DatabaseTypeEnum.Postgresql ? postgresql : others,
+                    p => SkillMethods.Scope(SkillMethods.Table.Filter(), everyFilter, p),
+                    p => SkillMethods.Scope(SkillMethods.Table.Filter(), new SkillQuery(), p));
+                AssertEqual("name ASC", SkillMethods.Order);
+                AssertTableMatchesWriter(SkillMethods.Table, new Skill());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)

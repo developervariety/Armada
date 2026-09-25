@@ -409,7 +409,7 @@ namespace Armada.Core.Database.Sqlite
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
             ProjectProfiles = new ProjectProfileMethods(this, _Settings, _Logging);
-            Skills = new SkillMethods(this, _Settings, _Logging);
+            Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(_Stored);
             ModelEndpoints = new ModelEndpointMethods(_Stored);

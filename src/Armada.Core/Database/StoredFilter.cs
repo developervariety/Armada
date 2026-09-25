@@ -109,11 +109,12 @@ namespace Armada.Core.Database
         /// <param name="comparison">Comparison operator, such as &gt;= or &lt;.</param>
         /// <param name="parameterName">Parameter the instant binds under.</param>
         /// <param name="value">Instant.</param>
-        internal StoredFilter Time(string column, string comparison, string parameterName, DateTime? value)
+        /// <param name="expression">What the condition compares, when it is not the bare column; the instant still binds in the column's stored form.</param>
+        internal StoredFilter Time(string column, string comparison, string parameterName, DateTime? value, string? expression = null)
         {
             if (!value.HasValue) return this;
             DateTime instant = value.Value;
-            return Condition(column + " " + comparison + " " + parameterName, p => p.Utc(parameterName, column, instant));
+            return Condition((expression ?? column) + " " + comparison + " " + parameterName, p => p.Utc(parameterName, column, instant));
         }
 
         /// <summary>
