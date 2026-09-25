@@ -56,38 +56,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO merge_entries (id, tenant_id, user_id, mission_id, vessel_id, branch_name, target_branch, status, priority, batch_id, test_command, test_output, test_exit_code, created_utc, last_update_utc, test_started_utc, completed_utc, audit_lane, audit_convention_passed, audit_convention_notes, audit_critical_trigger, audit_deep_picked, audit_deep_completed_utc, audit_deep_verdict, audit_deep_notes, audit_deep_recommended_action, pr_url, pr_base_branch, merge_failure_class, conflicted_files, merge_failure_summary, diff_line_count)
                         VALUES (@id, @tenant_id, @user_id, @mission_id, @vessel_id, @branch_name, @target_branch, @status, @priority, @batch_id, @test_command, @test_output, @test_exit_code, @created_utc, @last_update_utc, @test_started_utc, @completed_utc, @audit_lane, @audit_convention_passed, @audit_convention_notes, @audit_critical_trigger, @audit_deep_picked, @audit_deep_completed_utc, @audit_deep_verdict, @audit_deep_notes, @audit_deep_recommended_action, @pr_url, @pr_base_branch, @merge_failure_class, @conflicted_files, @merge_failure_summary, @diff_line_count);";
-                    cmd.Parameters.AddWithValue("@id", entry.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@mission_id", (object?)entry.MissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@vessel_id", (object?)entry.VesselId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@branch_name", entry.BranchName);
-                    cmd.Parameters.AddWithValue("@target_branch", entry.TargetBranch);
-                    cmd.Parameters.AddWithValue("@status", entry.Status.ToString());
-                    cmd.Parameters.AddWithValue("@priority", entry.Priority);
-                    cmd.Parameters.AddWithValue("@batch_id", (object?)entry.BatchId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(entry.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
-                    cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)entry.AuditConventionPassed.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)entry.AuditDeepPicked.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@pr_url", (object?)entry.PrUrl ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@pr_base_branch", (object?)entry.PrBaseBranch ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@merge_failure_class", entry.MergeFailureClass.HasValue ? (object)entry.MergeFailureClass.Value.ToString() : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@conflicted_files", (object?)entry.ConflictedFiles ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@merge_failure_summary", (object?)entry.MergeFailureSummary ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@diff_line_count", entry.DiffLineCount);
+                    MergeEntryColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "merge_entries"), entry);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -106,7 +75,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM merge_entries WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -161,37 +130,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         merge_failure_summary = @merge_failure_summary,
                         diff_line_count = @diff_line_count
                         WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", entry.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@mission_id", (object?)entry.MissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@vessel_id", (object?)entry.VesselId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@branch_name", entry.BranchName);
-                    cmd.Parameters.AddWithValue("@target_branch", entry.TargetBranch);
-                    cmd.Parameters.AddWithValue("@status", entry.Status.ToString());
-                    cmd.Parameters.AddWithValue("@priority", entry.Priority);
-                    cmd.Parameters.AddWithValue("@batch_id", (object?)entry.BatchId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(entry.LastUpdateUtc));
-                    cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)entry.AuditConventionPassed.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)entry.AuditDeepPicked.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@pr_url", (object?)entry.PrUrl ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@pr_base_branch", (object?)entry.PrBaseBranch ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@merge_failure_class", entry.MergeFailureClass.HasValue ? (object)entry.MergeFailureClass.Value.ToString() : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@conflicted_files", (object?)entry.ConflictedFiles ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@merge_failure_summary", (object?)entry.MergeFailureSummary ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@diff_line_count", entry.DiffLineCount);
+                    MergeEntryColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "merge_entries"), entry);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -210,7 +149,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM merge_entries WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -250,8 +189,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -275,8 +214,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM merge_entries WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -294,7 +233,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenantId ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -318,8 +257,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenantId AND status = @status ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -343,8 +282,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM merge_entries WHERE tenant_id = @tenantId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     int count = Convert.ToInt32(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
                     return count > 0;
                 }
@@ -367,27 +306,27 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_after", "merge_entries", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_before", "merge_entries", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
                     conditions.Add("status = @status");
-                    parameters.Add(new SqlParameter("@status", query.Status));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@status", query.Status));
                 }
                 if (!string.IsNullOrEmpty(query.VesselId))
                 {
                     conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@vessel_id", query.VesselId));
                 }
                 if (!string.IsNullOrEmpty(query.MissionId))
                 {
                     conditions.Add("mission_id = @mission_id");
-                    parameters.Add(new SqlParameter("@mission_id", query.MissionId));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@mission_id", query.MissionId));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -430,9 +369,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         if (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -457,9 +396,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM merge_entries WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -478,8 +417,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM merge_entries WHERE tenant_id = @tenantId AND user_id = @userId ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@tenantId", tenantId);
-                    cmd.Parameters.AddWithValue("@userId", userId);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@userId", userId);
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -512,27 +451,27 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_after", "merge_entries", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_before", "merge_entries", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
                     conditions.Add("status = @status");
-                    parameters.Add(new SqlParameter("@status", query.Status));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@status", query.Status));
                 }
                 if (!string.IsNullOrEmpty(query.VesselId))
                 {
                     conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@vessel_id", query.VesselId));
                 }
                 if (!string.IsNullOrEmpty(query.MissionId))
                 {
                     conditions.Add("mission_id = @mission_id");
-                    parameters.Add(new SqlParameter("@mission_id", query.MissionId));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@mission_id", query.MissionId));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -577,27 +516,27 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new SqlParameter("@created_after", SqlServerDatabaseDriver.ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_after", "merge_entries", "created_utc", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new SqlParameter("@created_before", SqlServerDatabaseDriver.ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(SqlServerDatabaseDriver.StoredBinder.Timestamp(new SqlParameter(), "@created_before", "merge_entries", "created_utc", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
                     conditions.Add("status = @status");
-                    parameters.Add(new SqlParameter("@status", query.Status));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@status", query.Status));
                 }
                 if (!string.IsNullOrEmpty(query.VesselId))
                 {
                     conditions.Add("vessel_id = @vessel_id");
-                    parameters.Add(new SqlParameter("@vessel_id", query.VesselId));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@vessel_id", query.VesselId));
                 }
                 if (!string.IsNullOrEmpty(query.MissionId))
                 {
                     conditions.Add("mission_id = @mission_id");
-                    parameters.Add(new SqlParameter("@mission_id", query.MissionId));
+                    parameters.Add(StoredValueBinder.Parameter(new SqlParameter(), "@mission_id", query.MissionId));
                 }
 
                 string whereClause = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : "";
@@ -640,7 +579,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM merge_entries WHERE status = @status ORDER BY priority ASC, created_utc ASC;";
-                    cmd.Parameters.AddWithValue("@status", status.ToString());
+                    StoredValueBinder.Value(cmd, "@status", status.ToString());
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
@@ -663,7 +602,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM merge_entries WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
+                    StoredValueBinder.Value(cmd, "@id", id);
                     int count = Convert.ToInt32(await cmd.ExecuteScalarAsync(token).ConfigureAwait(false));
                     return count > 0;
                 }

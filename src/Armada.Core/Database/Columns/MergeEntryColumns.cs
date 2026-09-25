@@ -56,5 +56,47 @@ namespace Armada.Core.Database
             entry.DiffLineCount = row.Int("diff_line_count");
             return entry;
         }
+
+        /// <summary>
+        /// Bind every stored merge_entries column, each in the form its provider stores it.
+        /// </summary>
+        /// <param name="parameters">Parameters of a command addressing the merge_entries table.</param>
+        /// <param name="entry">Row to bind.</param>
+        internal static void Write(StoredParameters parameters, MergeEntry entry)
+        {
+            parameters
+                .Text("id", entry.Id)
+                .Text("tenant_id", entry.TenantId)
+                .Text("user_id", entry.UserId)
+                .Text("mission_id", entry.MissionId)
+                .Text("vessel_id", entry.VesselId)
+                .Text("branch_name", entry.BranchName)
+                .Text("target_branch", entry.TargetBranch)
+                .Text("status", entry.Status.ToString())
+                .Int("priority", entry.Priority)
+                .Text("batch_id", entry.BatchId)
+                .Text("test_command", entry.TestCommand)
+                .Text("test_output", entry.TestOutput)
+                .Int("test_exit_code", entry.TestExitCode)
+                .Utc("created_utc", entry.CreatedUtc)
+                .Utc("last_update_utc", entry.LastUpdateUtc)
+                .Utc("test_started_utc", entry.TestStartedUtc)
+                .Utc("completed_utc", entry.CompletedUtc)
+                .Text("audit_lane", entry.AuditLane)
+                .Bool("audit_convention_passed", entry.AuditConventionPassed)
+                .Text("audit_convention_notes", entry.AuditConventionNotes)
+                .Text("audit_critical_trigger", entry.AuditCriticalTrigger)
+                .Bool("audit_deep_picked", entry.AuditDeepPicked)
+                .Utc("audit_deep_completed_utc", entry.AuditDeepCompletedUtc)
+                .Text("audit_deep_verdict", entry.AuditDeepVerdict)
+                .Text("audit_deep_notes", entry.AuditDeepNotes)
+                .Text("audit_deep_recommended_action", entry.AuditDeepRecommendedAction)
+                .Text("pr_url", entry.PrUrl)
+                .Text("pr_base_branch", entry.PrBaseBranch)
+                .Text("merge_failure_class", entry.MergeFailureClass?.ToString())
+                .Text("conflicted_files", entry.ConflictedFiles)
+                .Text("merge_failure_summary", entry.MergeFailureSummary)
+                .Int("diff_line_count", entry.DiffLineCount);
+        }
     }
 }
