@@ -241,19 +241,6 @@ namespace Test.Shared.Suites.E2E
                 }
             }));
 
-            cases.Add(CaseAsync("create_without_auth_returns_401", "Incidents_CreateWithoutAuthReturns401", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.PostAsync("/api/v1/incidents",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Title = "Unauthorized Incident"
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-            }));
-
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Incidents",

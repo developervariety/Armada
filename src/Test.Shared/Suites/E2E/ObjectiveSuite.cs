@@ -98,19 +98,6 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(HttpStatusCode.NotFound, deletedResponse.StatusCode);
             }));
 
-            cases.Add(CaseAsync("objectives_create_without_auth_returns_401", "Objectives_CreateWithoutAuthReturns401", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.PostAsync("/api/v1/objectives",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Title = "Unauthorized Objective"
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-            }));
-
             cases.Add(CaseAsync("backlog_alias_create_read_reorder_and_delete", "BacklogAlias_CreateReadReorderAndDelete", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);

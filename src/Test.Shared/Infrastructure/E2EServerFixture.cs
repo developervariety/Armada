@@ -110,14 +110,11 @@ namespace Test.Shared.Infrastructure
         {
             "FleetSuite",
             "VesselSuite",
-            "DockSuite",
             "EnvironmentSuite",
             "DeploymentSuite",
             "IncidentSuite",
-            "ReleaseSuite",
             "WorkflowProfileCheckRunSuite",
             "MergeQueueSuite",
-            "AuthApiSuite",
             "GitHubIntegrationSuite"
         };
 

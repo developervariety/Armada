@@ -218,6 +218,8 @@ The runner prints each kind with its own prefix and count, so a decided fork dif
 
 A shared end-to-end suite that creates missions or voyages cancels its active work after each case, because fleet capacity admission counts every active voyage and standalone mission.
 
+`test/Armada.Test.Automated` owns end-to-end behaviour, because it runs against every database provider (`--type`) while `E2EServerFixture` runs SQLite only. A shared end-to-end case that repeats an automated case with the same requests and assertions is deleted, and an assertion only the shared copy made moves to the automated case first. The shared end-to-end suites keep the cases whose input differs (for example a corpus seeded once per suite server) and the setup cases those depend on.
+
 ### Reproducing the inventory
 
 ```bash

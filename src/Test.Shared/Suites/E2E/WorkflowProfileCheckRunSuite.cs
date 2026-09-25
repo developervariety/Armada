@@ -154,24 +154,6 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("Vessel Workflow Profile Updated", updated.Name);
             }));
 
-            cases.Add(CaseAsync("workflow_profiles_validate_rejects_empty_profile", "WorkflowProfiles_ValidateRejectsEmptyProfile", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage response = await authClient.PostAsync("/api/v1/workflow-profiles/validate",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Name = "Invalid Profile",
-                        Scope = WorkflowProfileScopeEnum.Global
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                WorkflowProfileValidationResult validation = await JsonHelper.DeserializeAsync<WorkflowProfileValidationResult>(response).ConfigureAwait(false);
-                AssertFalse(validation.IsValid);
-                AssertTrue(validation.Errors.Count >= 1);
-            }));
-
             cases.Add(CaseAsync("vessel_readiness_and_check_run_block_when_required_input_is_missing", "VesselReadiness_And_CheckRun_Block_When_Required_Input_Is_Missing", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -263,83 +245,6 @@ namespace Test.Shared.Suites.E2E
                 string blockedBody = await blockedRunResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
                 AssertContains(missingVariable, blockedBody);
                 AssertFalse(blockedBody.Contains(stagingVariable, StringComparison.OrdinalIgnoreCase), "Build check failure should not mention staging-scoped inputs.");
-            }));
-
-            cases.Add(CaseAsync("workflow_profiles_validate_rejects_unknown_environment_scoped_inputs", "WorkflowProfiles_ValidateRejectsUnknownEnvironmentScopedInputs", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage response = await authClient.PostAsync("/api/v1/workflow-profiles/validate",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Name = "Scoped Validate Profile",
-                        Scope = WorkflowProfileScopeEnum.Vessel,
-                        VesselId = _VesselId,
-                        BuildCommand = "dotnet --version",
-                        Environments = new[]
-                        {
-                            new
-                            {
-                                EnvironmentName = "dev",
-                                DeployCommand = "echo deploy-dev"
-                            }
-                        },
-                        RequiredInputs = new[]
-                        {
-                            new
-                            {
-                                Provider = WorkflowInputReferenceProviderEnum.EnvironmentVariable,
-                                Key = "ARMADA_UNKNOWN_ENV",
-                                EnvironmentName = "prod"
-                            }
-                        }
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                WorkflowProfileValidationResult validation = await JsonHelper.DeserializeAsync<WorkflowProfileValidationResult>(response).ConfigureAwait(false);
-                AssertFalse(validation.IsValid);
-                AssertContains("unknown environments", String.Join(" ", validation.Errors));
-                AssertContains("prod", String.Join(" ", validation.Errors));
-            }));
-
-            cases.Add(CaseAsync("vessel_readiness_and_landing_preview_surface_setup_metadata", "VesselReadiness_And_LandingPreview_Surface_Setup_Metadata", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-
-                HttpResponseMessage readinessResponse = await authClient.GetAsync(
-                    "/api/v1/vessels/" + _VesselId
-                    + "/readiness?workflowProfileId=" + Uri.EscapeDataString(_VesselProfileId)).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, readinessResponse.StatusCode);
-
-                VesselReadinessResult readiness = await JsonHelper.DeserializeAsync<VesselReadinessResult>(readinessResponse).ConfigureAwait(false);
-                AssertTrue(readiness.DeploymentEnvironments.Exists(name => name == "staging"), "Expected staging deployment environment.");
-                AssertTrue(readiness.SetupChecklist.Count >= 5, "Expected setup checklist items.");
-                AssertTrue(readiness.SetupChecklist.Exists(item => item.Code == "workflow_profile" && item.IsSatisfied), "Expected workflow profile checklist item.");
-
-                HttpResponseMessage previewResponse = await authClient.GetAsync(
-                    "/api/v1/vessels/" + _VesselId + "/landing-preview?sourceBranch=" + Uri.EscapeDataString("feature/workflow-check")).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, previewResponse.StatusCode);
-
-                LandingPreviewResult preview = await JsonHelper.DeserializeAsync<LandingPreviewResult>(previewResponse).ConfigureAwait(false);
-                AssertFalse(preview.IsReadyToLand);
-                AssertTrue(preview.RequirePassingChecksToLand, "Expected landing preview to honor vessel setting.");
-                AssertTrue(preview.Issues.Exists(issue => issue.Code == "passing_checks_required"), "Expected passing_checks_required issue.");
-            }));
-
-            cases.Add(CaseAsync("check_runs_run_without_auth_returns_401", "CheckRuns_RunWithoutAuthReturns401", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.PostAsync("/api/v1/check-runs",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        VesselId = _VesselId,
-                        Type = CheckRunTypeEnum.Build
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
             }));
 
             cases.Add(CaseAsync("workflow_profile_check_run_cleanup_resources", "WorkflowProfileCheckRun_CleanupResources", TestTags.Positive, async () =>

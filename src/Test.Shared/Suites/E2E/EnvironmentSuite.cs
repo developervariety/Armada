@@ -124,20 +124,6 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(HttpStatusCode.NotFound, deletedResponse.StatusCode);
             }));
 
-            cases.Add(CaseAsync("environments_create_without_auth_returns_401", "Environments_CreateWithoutAuthReturns401", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient unauthClient = fx.UnauthClient;
-
-                HttpResponseMessage response = await unauthClient.PostAsync("/api/v1/environments",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        VesselId = "ves_missing",
-                        Name = "Unauthorized Environment"
-                    })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-            }));
-
             cases.Add(CaseAsync("environments_cleanup_resources", "Environments_CleanupResources", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);

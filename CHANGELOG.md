@@ -88,6 +88,12 @@ upstream integrations and excludes changes already present at that baseline.
   call without a model and logs why. Startup warns when the summarizer is on
   without a model or without a chat endpoint, since an empty base URL sends
   completions to the embedding endpoint.
+- **The automated runner owns end-to-end behaviour:** 733 shared end-to-end
+  cases repeated an automated-runner case with the same requests and
+  assertions, after any extra shared assertion moved to the automated case.
+  They are removed, with ten shared end-to-end suites that held only such cases
+  and the helpers only they used. The automated copies also run against
+  PostgreSQL, MySQL and SQL Server. Shared cases with different input stay.
 - **Automated-runner MCP and WebSocket cases carry the checks their shared
   copies made:** MCP entity-create helpers fail on a tool error payload and a
   merge-queue or dispatch job that never finishes, the tool list must name the
