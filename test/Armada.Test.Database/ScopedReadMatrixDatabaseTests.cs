@@ -109,14 +109,15 @@ namespace Armada.Test.Database
         /// </summary>
         private sealed class StandardScope
         {
-            internal StandardScope(string label, Func<Slot, bool> match, string? tenantId, string? userId, string? scopeId, bool window)
+            internal StandardScope(string label, Func<Slot, bool> match, string? tenantId, string? userId, string? scopeId, DateTime? from = null, DateTime? to = null)
             {
                 Label = label;
                 Match = match;
                 TenantId = tenantId;
                 UserId = userId;
                 ScopeId = scopeId;
-                Window = window;
+                From = from;
+                To = to;
             }
 
             internal string Label { get; }
@@ -129,7 +130,9 @@ namespace Armada.Test.Database
 
             internal string? ScopeId { get; }
 
-            internal bool Window { get; }
+            internal DateTime? From { get; }
+
+            internal DateTime? To { get; }
         }
 
         /// <summary>
@@ -212,19 +215,24 @@ namespace Armada.Test.Database
         /// </summary>
         private static IEnumerable<StandardScope> StandardScopes(Owners o, bool hasScope, bool hasWindow)
         {
-            yield return new StandardScope("tenant", s => s.TenantId == o.TenantA, o.TenantA, null, null, false);
-            yield return new StandardScope("tenant and user", s => s.TenantId == o.TenantA && s.UserId == o.UserA1, o.TenantA, o.UserA1, null, false);
-            yield return new StandardScope("other tenant", s => s.TenantId == o.TenantB, o.TenantB, null, null, false);
-            yield return new StandardScope("tenant with a foreign user", s => false, o.TenantA, o.UserB1, null, false);
+            yield return new StandardScope("tenant", s => s.TenantId == o.TenantA, o.TenantA, null, null);
+            yield return new StandardScope("tenant and user", s => s.TenantId == o.TenantA && s.UserId == o.UserA1, o.TenantA, o.UserA1, null);
+            yield return new StandardScope("other tenant", s => s.TenantId == o.TenantB, o.TenantB, null, null);
+            yield return new StandardScope("tenant with a foreign user", s => false, o.TenantA, o.UserB1, null);
             if (hasScope)
             {
-                yield return new StandardScope("tenant, user and scope", s => s.TenantId == o.TenantA && s.UserId == o.UserA1 && s.ScopeId == o.ScopeX, o.TenantA, o.UserA1, o.ScopeX, false);
-                yield return new StandardScope("tenant and scope", s => s.TenantId == o.TenantA && s.ScopeId == o.ScopeY, o.TenantA, null, o.ScopeY, false);
-                yield return new StandardScope("tenant with a foreign scope", s => false, o.TenantA, null, o.ScopeZ, false);
+                yield return new StandardScope("tenant, user and scope", s => s.TenantId == o.TenantA && s.UserId == o.UserA1 && s.ScopeId == o.ScopeX, o.TenantA, o.UserA1, o.ScopeX);
+                yield return new StandardScope("tenant and scope", s => s.TenantId == o.TenantA && s.ScopeId == o.ScopeY, o.TenantA, null, o.ScopeY);
+                yield return new StandardScope("tenant with a foreign scope", s => false, o.TenantA, null, o.ScopeZ);
             }
             if (hasWindow)
             {
-                yield return new StandardScope("tenant and creation window", s => s.TenantId == o.TenantA && s.Time >= o.WindowFrom && s.Time <= o.WindowTo, o.TenantA, null, null, true);
+                Func<Slot, bool> inWindow = s => s.TenantId == o.TenantA && s.Time >= o.WindowFrom && s.Time <= o.WindowTo;
+                yield return new StandardScope("tenant and creation window", inWindow, o.TenantA, null, null, o.WindowFrom, o.WindowTo);
+                // A window bound without a kind names a UTC instant, as a stored timestamp without an offset does, so
+                // the host time zone never moves the window.
+                yield return new StandardScope("tenant and creation window without a kind", inWindow, o.TenantA, null, null,
+                    DateTime.SpecifyKind(o.WindowFrom, DateTimeKind.Unspecified), DateTime.SpecifyKind(o.WindowTo, DateTimeKind.Unspecified));
             }
         }
 
@@ -305,8 +313,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         VesselId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
                         PageNumber = page,
                         PageSize = size
                     }, token))).ToList();
@@ -357,8 +365,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         VesselId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
                         PageNumber = page,
                         PageSize = size
                     }, token))).ToList();
@@ -462,8 +470,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         VesselId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
                         PageNumber = page,
                         PageSize = size
                     }, token))).ToList();
@@ -518,8 +526,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         VesselId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
                         PageNumber = page,
                         PageSize = size
                     }, token))).ToList();
@@ -723,8 +731,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         VesselId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
                         PageNumber = page,
                         PageSize = size
                     }, token))).ToList();
@@ -734,8 +742,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         VesselId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null
+                        FromUtc = s.From,
+                        ToUtc = s.To
                     }, token).ConfigureAwait(false), page, size))));
                 await VerifyScopesAsync("TokenUsage", o, rows, r => r.Id, r => r.OrderByDescending(x => x.Slot.Time), scopes).ConfigureAwait(false);
 
@@ -793,8 +801,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         CredentialId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
                         PageNumber = page,
                         PageSize = size
                     }, token))).ToList();
@@ -804,8 +812,8 @@ namespace Armada.Test.Database
                         TenantId = s.TenantId,
                         UserId = s.UserId,
                         CredentialId = s.ScopeId,
-                        FromUtc = s.Window ? o.WindowFrom : null,
-                        ToUtc = s.Window ? o.WindowTo : null
+                        FromUtc = s.From,
+                        ToUtc = s.To
                     }, token).ConfigureAwait(false), page, size))));
                 await VerifyScopesAsync("RequestHistory", o, rows, r => r.Id, r => r.OrderByDescending(x => x.Slot.Time), scopes).ConfigureAwait(false);
 
