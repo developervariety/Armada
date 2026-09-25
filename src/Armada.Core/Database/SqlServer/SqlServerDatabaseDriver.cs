@@ -2,6 +2,7 @@ namespace Armada.Core.Database.SqlServer
 {
     using System;
     using System.Collections.Generic;
+    using System.Data;
     using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
@@ -38,6 +39,44 @@ namespace Armada.Core.Database.SqlServer
         /// BIT values, and timestamps as ISO 8601 text or DATETIME2 depending on the column.
         /// </summary>
         internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("SQL Server", integerBooleans: false);
+
+        /// <summary>
+        /// SQL Server stored forms: ISO 8601 text unless named here as DATETIME2, booleans as BIT.
+        /// </summary>
+        internal static readonly StoredValueBinder StoredBinder = new StoredValueBinder(
+            "SQL Server",
+            StoredTimestampEnum.Iso8601Text,
+            new Dictionary<string, StoredTimestampEnum>
+            {
+                { "coordination_leases.acquired_utc", StoredTimestampEnum.Timestamp },
+                { "coordination_leases.expires_utc", StoredTimestampEnum.Timestamp },
+                { "harbor_jobs.completed_utc", StoredTimestampEnum.Timestamp },
+                { "harbor_jobs.created_utc", StoredTimestampEnum.Timestamp },
+                { "harbor_jobs.last_update_utc", StoredTimestampEnum.Timestamp },
+                { "harbor_runner_enrollments.created_utc", StoredTimestampEnum.Timestamp },
+                { "harbor_runner_enrollments.last_update_utc", StoredTimestampEnum.Timestamp },
+                { "harbor_runner_enrollments.revoked_utc", StoredTimestampEnum.Timestamp },
+                { "lane_state_transitions.created_utc", StoredTimestampEnum.Timestamp },
+                { "memory_proposals.created_utc", StoredTimestampEnum.Timestamp },
+                { "memory_proposals.dismissed_utc", StoredTimestampEnum.Timestamp },
+                { "memory_proposals.last_update_utc", StoredTimestampEnum.Timestamp },
+                { "mission_attempt_facts.created_utc", StoredTimestampEnum.Timestamp },
+                { "missions.last_recovery_action_utc", StoredTimestampEnum.Timestamp },
+                { "model_endpoints.created_utc", StoredTimestampEnum.Timestamp },
+                { "model_endpoints.last_health_check_utc", StoredTimestampEnum.Timestamp },
+                { "model_endpoints.last_update_utc", StoredTimestampEnum.Timestamp },
+                { "planning_session_messages.created_utc", StoredTimestampEnum.Timestamp },
+                { "planning_session_messages.last_update_utc", StoredTimestampEnum.Timestamp },
+                { "planning_sessions.completed_utc", StoredTimestampEnum.Timestamp },
+                { "planning_sessions.created_utc", StoredTimestampEnum.Timestamp },
+                { "planning_sessions.last_update_utc", StoredTimestampEnum.Timestamp },
+                { "planning_sessions.started_utc", StoredTimestampEnum.Timestamp },
+                { "preparation_claim_observations.created_utc", StoredTimestampEnum.Timestamp },
+            },
+            integerBooleans: false,
+            integerBooleanColumns: Array.Empty<string>(),
+            timestampDbType: DbType.DateTime2,
+            zonedTimestampDbType: DbType.DateTime2);
 
         #endregion
 

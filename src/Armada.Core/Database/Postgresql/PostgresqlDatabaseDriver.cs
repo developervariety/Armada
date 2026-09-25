@@ -2,6 +2,7 @@ namespace Armada.Core.Database.Postgresql
 {
     using System;
     using System.Collections.Generic;
+    using System.Data;
     using System.Threading;
     using System.Threading.Tasks;
     using Npgsql;
@@ -36,6 +37,99 @@ namespace Armada.Core.Database.Postgresql
         /// native booleans, and timestamps as TEXT, TIMESTAMP or TIMESTAMPTZ depending on the column.
         /// </summary>
         internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("PostgreSQL", integerBooleans: false);
+
+        /// <summary>
+        /// PostgreSQL stored forms: zone-less TIMESTAMP unless named here, zone-aware TIMESTAMPTZ and two kinds of
+        /// text timestamp by column, and two booleans stored as integers.
+        /// </summary>
+        internal static readonly StoredValueBinder StoredBinder = new StoredValueBinder(
+            "PostgreSQL",
+            StoredTimestampEnum.Timestamp,
+            new Dictionary<string, StoredTimestampEnum>
+            {
+                { "check_runs.completed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "check_runs.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "check_runs.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "check_runs.slot_requested_utc", StoredTimestampEnum.TimestampWithZone },
+                { "check_runs.started_utc", StoredTimestampEnum.TimestampWithZone },
+                { "coordination_leases.acquired_utc", StoredTimestampEnum.TimestampWithZone },
+                { "coordination_leases.expires_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.approved_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.completed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.last_monitored_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.last_regression_alert_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.monitoring_window_ends_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.rolled_back_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.started_utc", StoredTimestampEnum.TimestampWithZone },
+                { "deployments.verified_utc", StoredTimestampEnum.TimestampWithZone },
+                { "environments.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "environments.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_jobs.completed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_jobs.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_jobs.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_runner_enrollments.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_runner_enrollments.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_runner_enrollments.revoked_utc", StoredTimestampEnum.TimestampWithZone },
+                { "judge_follow_ups.audit_completed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "judge_follow_ups.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "judge_follow_ups.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "lane_state_transitions.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "memories.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "memories.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "memory_proposals.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "memory_proposals.dismissed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "memory_proposals.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "mission_attempt_facts.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "model_endpoints.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "model_endpoints.last_health_check_utc", StoredTimestampEnum.TimestampWithZone },
+                { "model_endpoints.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "planning_session_messages.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "planning_session_messages.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "planning_sessions.completed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "planning_sessions.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "planning_sessions.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "planning_sessions.started_utc", StoredTimestampEnum.TimestampWithZone },
+                { "preparation_claim_observations.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "releases.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "releases.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "releases.published_utc", StoredTimestampEnum.TimestampWithZone },
+                { "workflow_profiles.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "workflow_profiles.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "captains.quarantine_until_utc", StoredTimestampEnum.ServerRenderedText },
+                { "project_profiles.created_utc", StoredTimestampEnum.ServerRenderedText },
+                { "project_profiles.last_update_utc", StoredTimestampEnum.ServerRenderedText },
+                { "skills.created_utc", StoredTimestampEnum.ServerRenderedText },
+                { "skills.last_update_utc", StoredTimestampEnum.ServerRenderedText },
+                { "coordination_claims.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_claims.expires_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_claims.last_update_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_messages.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_messages.last_update_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_participants.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_participants.last_seen_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_participants.last_update_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_rooms.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "coordination_rooms.last_update_utc", StoredTimestampEnum.Iso8601Text },
+                { "events.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "landing_jobs.completed_utc", StoredTimestampEnum.Iso8601Text },
+                { "landing_jobs.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "landing_jobs.last_update_utc", StoredTimestampEnum.Iso8601Text },
+                { "landing_jobs.started_utc", StoredTimestampEnum.Iso8601Text },
+                { "merge_entries.audit_deep_completed_utc", StoredTimestampEnum.Iso8601Text },
+                { "merge_entries.completed_utc", StoredTimestampEnum.Iso8601Text },
+                { "merge_entries.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "merge_entries.last_update_utc", StoredTimestampEnum.Iso8601Text },
+                { "merge_entries.test_started_utc", StoredTimestampEnum.Iso8601Text },
+                { "request_history.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "signals.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "token_usage.created_utc", StoredTimestampEnum.Iso8601Text },
+            },
+            integerBooleans: false,
+            integerBooleanColumns: new[] { "token_usage.estimated", "vessels.secret_scan_enabled" },
+            timestampDbType: DbType.DateTime2,
+            zonedTimestampDbType: DbType.DateTime);
 
         #endregion
 

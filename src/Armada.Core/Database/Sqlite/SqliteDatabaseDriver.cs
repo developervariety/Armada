@@ -2,6 +2,7 @@ namespace Armada.Core.Database.Sqlite
 {
     using System;
     using System.Collections.Generic;
+    using System.Data;
     using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
@@ -38,6 +39,18 @@ namespace Armada.Core.Database.Sqlite
         /// integers where 1 is true, and timestamps as ISO 8601 text.
         /// </summary>
         internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("SQLite", integerBooleans: true);
+
+        /// <summary>
+        /// SQLite stored forms: every timestamp as ISO 8601 text, every boolean as an integer.
+        /// </summary>
+        internal static readonly StoredValueBinder StoredBinder = new StoredValueBinder(
+            "SQLite",
+            StoredTimestampEnum.Iso8601Text,
+            new Dictionary<string, StoredTimestampEnum>(),
+            integerBooleans: true,
+            integerBooleanColumns: Array.Empty<string>(),
+            timestampDbType: DbType.String,
+            zonedTimestampDbType: DbType.String);
 
         #endregion
 

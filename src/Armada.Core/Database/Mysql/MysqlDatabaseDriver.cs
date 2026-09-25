@@ -33,6 +33,26 @@ namespace Armada.Core.Database.Mysql
         /// </summary>
         internal static readonly StoredValueConverter StoredValues = new StoredValueConverter("MySQL", integerBooleans: true);
 
+        /// <summary>
+        /// MySQL stored forms: DATETIME(6) unless named here, booleans as TINYINT(1).
+        /// </summary>
+        internal static readonly StoredValueBinder StoredBinder = new StoredValueBinder(
+            "MySQL",
+            StoredTimestampEnum.Timestamp,
+            new Dictionary<string, StoredTimestampEnum>
+            {
+                { "captains.quarantine_until_utc", StoredTimestampEnum.ServerRenderedText },
+                { "landing_jobs.completed_utc", StoredTimestampEnum.Iso8601Text },
+                { "landing_jobs.created_utc", StoredTimestampEnum.Iso8601Text },
+                { "landing_jobs.last_update_utc", StoredTimestampEnum.Iso8601Text },
+                { "landing_jobs.started_utc", StoredTimestampEnum.Iso8601Text },
+                { "merge_entries.audit_deep_completed_utc", StoredTimestampEnum.ServerRenderedText },
+            },
+            integerBooleans: true,
+            integerBooleanColumns: Array.Empty<string>(),
+            timestampDbType: DbType.DateTime,
+            zonedTimestampDbType: DbType.DateTime);
+
         #endregion
 
         #region Private-Members
