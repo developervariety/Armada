@@ -38,11 +38,13 @@ namespace Armada.Test.Unit.Suites.Services
                     "dependency-preview-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
                 Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Transitive blocker",
                     Status = ObjectiveStatusEnum.InProgress
                 }).ConfigureAwait(false);
                 Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Blocked candidate",
                     Status = ObjectiveStatusEnum.Planned,
                     AutoDispatchEnabled = true,
@@ -106,6 +108,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Active objective",
                     Status = ObjectiveStatusEnum.InProgress,
                     VesselIds = new List<string> { vessel.Id },
@@ -113,11 +116,13 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Incomplete dependency",
                     Status = ObjectiveStatusEnum.InProgress
                 }).ConfigureAwait(false);
                 Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Blocked at zero capacity",
                     Status = ObjectiveStatusEnum.Planned,
                     AutoDispatchEnabled = true,
@@ -173,6 +178,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Active producer objective",
                     Status = ObjectiveStatusEnum.InProgress,
                     VesselIds = new List<string> { producer.Id },
@@ -180,11 +186,13 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Incomplete lane dependency",
                     Status = ObjectiveStatusEnum.InProgress
                 }).ConfigureAwait(false);
                 Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Blocked on busy lane",
                     Status = ObjectiveStatusEnum.Planned,
                     AutoDispatchEnabled = true,
@@ -227,6 +235,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     await testDb.Driver.Objectives.CreateAsync(new Objective
                     {
+                        Preparation = AdmittedPreparation(),
                         Title = "Candidate " + i.ToString("D3"),
                         Status = ObjectiveStatusEnum.Planned,
                         AutoDispatchEnabled = true,
@@ -270,6 +279,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Progress candidate",
                     Status = ObjectiveStatusEnum.Planned,
                     AutoDispatchEnabled = true,
@@ -317,6 +327,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 Objective failingCandidate = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Failing preview candidate",
                     Status = ObjectiveStatusEnum.Planned,
                     AutoDispatchEnabled = true,
@@ -353,6 +364,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     await testDb.Driver.Objectives.CreateAsync(new Objective
                     {
+                        Preparation = AdmittedPreparation(),
                         Title = "Blocked candidate " + i,
                         Status = ObjectiveStatusEnum.Planned,
                         AutoDispatchEnabled = true,
@@ -424,6 +436,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_RowsWithoutAnAdmittingPreflightAreSkippedBeforePreview_AndDoNotSpendTheSweepBound", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "preflight-prefilter-vessel", "https://github.com/test/preflight-prefilter-vessel.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                for (int i = 0; i < 20; i++)
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "No preflight " + i.ToString("D2"),
+                        Status = ObjectiveStatusEnum.Planned,
+                        AutoDispatchEnabled = true,
+                        Rank = i,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+                Objective ready = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Admitted row behind them",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Rank = 100,
+                    VesselIds = new List<string> { vessel.Id },
+                    Preparation = AdmittedPreparation()
+                }).ConfigureAwait(false);
+
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview();
+                preview.Handler = (objective, _) => Task.FromResult(new ObjectiveDispatchPreview
+                {
+                    ObjectiveId = objective.Id,
+                    VesselId = vessel.Id,
+                    IsReady = true
+                });
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, admiral, EnabledSchedulerSettings(),
+                    objectiveDispatchPreview: preview,
+                    maxCandidatesPerSweep: 2);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, preview.CallCount, "only the admitted row is previewed. Summary: " + scheduler.LastResultSummary + "; error: " + scheduler.LastSweepError);
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "the admitted row behind twenty unadmitted rows dispatches in the same sweep");
+                AssertFalse(scheduler.LastSweepBoundReached, "rows skipped on their recorded preflight do not spend the candidate bound");
+                AssertContains("dispatch_preflight=20", scheduler.LastResultSummary ?? String.Empty, "the skipped rows are counted by reason");
+                AssertEqual(1, scheduler.SweepCandidatesExamined, "only the previewed row counts as examined");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_TimeBudgetCancelsSlowCandidatePreflight", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -434,6 +497,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
+                    Preparation = AdmittedPreparation(),
                     Title = "Slow preflight candidate",
                     Status = ObjectiveStatusEnum.Planned,
                     AutoDispatchEnabled = true,
@@ -3006,6 +3070,21 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             };
+        }
+
+        private static ObjectivePreparation AdmittedPreparation()
+        {
+            ObjectivePreparation preparation = new ObjectivePreparation();
+            preparation.Preflight = new ObjectivePreflight();
+            for (int number = 1; number <= ObjectivePreflight.QuestionCount; number++)
+            {
+                preparation.Preflight.Questions.Add(new ObjectivePreflightAnswer
+                {
+                    Number = number,
+                    Answer = number == ObjectivePreflight.OwnerQuestionNumber ? ObjectivePreflightAnswerEnum.No : ObjectivePreflightAnswerEnum.Yes
+                });
+            }
+            return preparation;
         }
 
         private static AutonomousObjectiveScheduler CreateScheduler(

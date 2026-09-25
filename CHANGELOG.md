@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **The scheduler skips unadmitted rows before previewing them:** a row whose
+  recorded preflight does not admit dispatch is skipped on the record and
+  counted as `dispatch_preflight`, without a dispatch preview and without
+  spending the sweep's candidate or time bound. Before, each such row cost a
+  preview of several seconds, so a sweep reached two of 240 candidates and the
+  admitted rows behind them waited for hours.
 - **Brief memory is delivered as files:** with brief slimming on, the core
   rules and the mission's retrieved leaves are written into the dock under
   `_briefing/memory/` as files that each fit one read, and the brief's Shared

@@ -606,6 +606,17 @@ namespace Armada.Server
                     if (dispatched >= capacity) break;
                     token.ThrowIfCancellationRequested();
 
+                    // A row whose recorded preflight does not admit dispatch can never dispatch, and the
+                    // preview applies exactly this rule from the same record. Skip it before the preview:
+                    // a preview costs seconds, and spending the sweep's candidate and time bounds on rows
+                    // that cannot dispatch leaves the rows that can waiting behind them for hours.
+                    if (_ObjectiveDispatchPreview != null
+                        && !ObjectivePreflightEvaluator.IsComplete(objective.Preparation?.Preflight))
+                    {
+                        RecordSkip(skipReasons, "dispatch_preflight");
+                        continue;
+                    }
+
                     if (SweepCandidatesExamined >= _MaxCandidatesPerSweep
                         || candidateTimer.Elapsed >= _SweepTimeBudget)
                     {
