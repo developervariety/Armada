@@ -36,6 +36,9 @@ namespace Armada.Test.Unit.Suites.Services
                     string sourceFile = Path.Combine(host, "output", "decompiled-src", "Vendor", "Form.cs");
                     File.WriteAllText(sourceFile, "class Form {}");
                     Directory.CreateDirectory(worktree);
+                    // The worktree already tracks a partial tree at the artifact path, as a deobfuscator does.
+                    Directory.CreateDirectory(Path.Combine(worktree, "output", "decompiled-src"));
+                    File.WriteAllText(Path.Combine(worktree, "output", "decompiled-src", "Tracked.cs"), "class Tracked {}");
 
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -53,6 +56,7 @@ namespace Armada.Test.Unit.Suites.Services
                         gate.LinkSiblingArtifacts(sibling, siblingVessel, worktree, links);
 
                         AssertEqual(1, links.Count, "the present artifact is linked and the absent one is skipped");
+                        AssertTrue(new DirectoryInfo(Path.Combine(worktree, "output", "decompiled-src")).LinkTarget != null, "a partial tracked tree is replaced by a link to the whole host tree");
                         AssertTrue(File.Exists(Path.Combine(worktree, "output", "decompiled-src", "Vendor", "Form.cs")), "the consumer reads the tree through the link");
 
                         gate.RemoveArtifactLinks(links);

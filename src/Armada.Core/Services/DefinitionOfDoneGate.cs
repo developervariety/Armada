@@ -545,7 +545,8 @@ namespace Armada.Core.Services
         /// mission dock copies the same directories from the same place, so the consumer suite reads
         /// the trees it reads in a dock; without them every tree-dependent test fails and the gate
         /// blames the producer. The verification only reads the trees, so a link replaces the copy. A
-        /// missing source is logged and skipped, as a dock does.
+        /// partial tree the worktree already tracks at that path is moved aside first. A missing source
+        /// is logged and skipped, as a dock does.
         /// </summary>
         /// <param name="sibling">The consumer's sibling declaration.</param>
         /// <param name="siblingVessel">The sibling vessel.</param>
@@ -569,7 +570,16 @@ namespace Armada.Core.Services
                             + siblingVessel.Name + ", path " + artifactPath + "); its tree-dependent tests will not find it");
                         continue;
                     }
-                    if (Directory.Exists(destination) || File.Exists(destination)) continue;
+                    // A deobfuscator commits a few files under its artifact directory, so the worktree
+                    // already holds a partial tree there. The host working directory holds the whole
+                    // tree, tracked files included; move the partial one aside and link the whole one,
+                    // as a dock replaces it with a full copy. The worktree is discarded after the run.
+                    if (File.Exists(destination)) continue;
+                    if (Directory.Exists(destination))
+                    {
+                        if (new DirectoryInfo(destination).LinkTarget != null) continue;
+                        Directory.Move(destination, destination + ".tracked-" + Guid.NewGuid().ToString("N"));
+                    }
 
                     string? parent = Path.GetDirectoryName(destination);
                     if (!String.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);

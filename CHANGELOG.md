@@ -102,7 +102,8 @@ upstream integrations and excludes changes already present at that baseline.
 - **Consumer verification provisions a sibling's extraction artifacts:** the
   gate's consumer check links each sibling's declared `extractionArtifactPaths`
   from the sibling vessel's host working directory, as a mission dock copies
-  them. Before, the consumer suite ran without its decompiled trees, so every
+  them, moving aside a partial tree the sibling worktree already tracks at that
+  path. Before, the consumer suite ran without its decompiled trees, so every
   tree-dependent test failed and the gate blamed the producer's change.
 - **An admiral run that ends without a clean stop leaves evidence:** each run
   keeps `admiral-run.json` in the data directory with its start, its process id,
