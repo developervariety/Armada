@@ -32,7 +32,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     command.Parameters.AddWithValue("@runner_id", runnerId.Trim());
                     using (SqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return HarborRunnerEnrollmentColumns.Read(reader, SqlServerDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -127,24 +127,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
             if (enrollment.Generation <= 0 || enrollment.Generation == Int64.MaxValue
                 || enrollment.Generation != expectedGeneration + 1)
                 throw new ArgumentOutOfRangeException(nameof(enrollment), "Enrollment generation must be expected generation plus one.");
-        }
-
-        private static HarborRunnerEnrollment FromReader(SqlDataReader reader)
-        {
-            return new HarborRunnerEnrollment
-            {
-                RunnerId = reader.GetString(0),
-                TenantId = reader.GetString(1),
-                UserId = reader.GetString(2),
-                AuthMethod = reader.GetString(3),
-                CredentialId = reader.IsDBNull(4) ? null : reader.GetString(4),
-                Generation = reader.GetInt64(5),
-                Active = reader.GetBoolean(6),
-                CreatedUtc = DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc),
-                LastUpdateUtc = DateTime.SpecifyKind(reader.GetDateTime(8), DateTimeKind.Utc),
-                RevokedUtc = reader.IsDBNull(9) ? null : DateTime.SpecifyKind(reader.GetDateTime(9), DateTimeKind.Utc),
-                RevokedByUserId = reader.IsDBNull(10) ? null : reader.GetString(10)
-            };
         }
 
     }

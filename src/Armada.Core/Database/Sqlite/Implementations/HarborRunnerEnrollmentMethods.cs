@@ -33,7 +33,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     command.Parameters.AddWithValue("@runner_id", runnerId.Trim());
                     using (SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return HarborRunnerEnrollmentColumns.Read(reader, SqliteDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -128,29 +128,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (enrollment.Generation <= 0 || enrollment.Generation == Int64.MaxValue
                 || enrollment.Generation != expectedGeneration + 1)
                 throw new ArgumentOutOfRangeException(nameof(enrollment), "Enrollment generation must be expected generation plus one.");
-        }
-
-        private static HarborRunnerEnrollment FromReader(SqliteDataReader reader)
-        {
-            return new HarborRunnerEnrollment
-            {
-                RunnerId = reader.GetString(0),
-                TenantId = reader.GetString(1),
-                UserId = reader.GetString(2),
-                AuthMethod = reader.GetString(3),
-                CredentialId = reader.IsDBNull(4) ? null : reader.GetString(4),
-                Generation = reader.GetInt64(5),
-                Active = reader.GetBoolean(6),
-                CreatedUtc = ParseUtc(reader.GetString(7)),
-                LastUpdateUtc = ParseUtc(reader.GetString(8)),
-                RevokedUtc = reader.IsDBNull(9) ? null : ParseUtc(reader.GetString(9)),
-                RevokedByUserId = reader.IsDBNull(10) ? null : reader.GetString(10)
-            };
-        }
-
-        private static DateTime ParseUtc(string value)
-        {
-            return DateTime.SpecifyKind(DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DateTimeKind.Utc);
         }
     }
 }

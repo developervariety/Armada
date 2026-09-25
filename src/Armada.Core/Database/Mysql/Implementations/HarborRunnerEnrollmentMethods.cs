@@ -32,7 +32,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     command.Parameters.AddWithValue("@runner_id", runnerId.Trim());
                     using (MySqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return HarborRunnerEnrollmentColumns.Read(reader, MysqlDatabaseDriver.StoredValues);
                     }
                 }
             }
@@ -128,29 +128,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (enrollment.Generation <= 0 || enrollment.Generation == Int64.MaxValue
                 || enrollment.Generation != expectedGeneration + 1)
                 throw new ArgumentOutOfRangeException(nameof(enrollment), "Enrollment generation must be expected generation plus one.");
-        }
-
-        private static HarborRunnerEnrollment FromReader(MySqlDataReader reader)
-        {
-            return new HarborRunnerEnrollment
-            {
-                RunnerId = reader.GetString(0),
-                TenantId = reader.GetString(1),
-                UserId = reader.GetString(2),
-                AuthMethod = reader.GetString(3),
-                CredentialId = reader.IsDBNull(4) ? null : reader.GetString(4),
-                Generation = reader.GetInt64(5),
-                Active = reader.GetBoolean(6),
-                CreatedUtc = ToUtc(reader.GetDateTime(7)),
-                LastUpdateUtc = ToUtc(reader.GetDateTime(8)),
-                RevokedUtc = reader.IsDBNull(9) ? null : ToUtc(reader.GetDateTime(9)),
-                RevokedByUserId = reader.IsDBNull(10) ? null : reader.GetString(10)
-            };
-        }
-
-        private static DateTime ToUtc(DateTime value)
-        {
-            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
         }
     }
 }

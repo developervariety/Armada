@@ -81,6 +81,42 @@ namespace Armada.Test.Database
             }
         }
 
+        /// <summary>
+        /// Every enrollment property reads back as written, through the same driver and a reopened one, before and
+        /// after a revoke. Sub-second digits and a date far from the host's daylight-saving rules make a host-offset
+        /// or truncated timestamp read visible.
+        /// </summary>
+        internal async Task VerifyEveryPropertyAsync(CancellationToken token)
+        {
+            string suffix = Guid.NewGuid().ToString("N");
+            DateTime baseUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+            HarborRunnerEnrollment enrollment = new HarborRunnerEnrollment
+            {
+                RunnerId = "hbr_every_" + suffix,
+                TenantId = "ten_every_" + suffix,
+                UserId = "usr_every_" + suffix,
+                AuthMethod = "Certificate",
+                CredentialId = "crd_every_" + suffix,
+                Generation = 1,
+                Active = true,
+                CreatedUtc = baseUtc.AddMinutes(-5),
+                LastUpdateUtc = baseUtc.AddMinutes(-4)
+            };
+            DatabaseAssert.True(await _Driver.HarborRunnerEnrollments.TryEnrollAsync(enrollment, 0, token).ConfigureAwait(false), "Enrollment insert");
+            DatabaseAssert.AllProperties(enrollment, await _Driver.HarborRunnerEnrollments.ReadAsync(enrollment.RunnerId, token).ConfigureAwait(false), "HarborRunnerEnrollment");
+
+            DatabaseAssert.True(await _Driver.HarborRunnerEnrollments.TryRevokeAsync(enrollment.RunnerId, 1, "usr_revoker_" + suffix, baseUtc, token).ConfigureAwait(false), "Enrollment revoke");
+            enrollment.Active = false;
+            enrollment.Generation = 2;
+            enrollment.LastUpdateUtc = baseUtc;
+            enrollment.RevokedUtc = baseUtc;
+            enrollment.RevokedByUserId = "usr_revoker_" + suffix;
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                DatabaseAssert.AllProperties(enrollment, await reopened.HarborRunnerEnrollments.ReadAsync(enrollment.RunnerId, token).ConfigureAwait(false), "Reopened revoked HarborRunnerEnrollment");
+            }
+        }
+
         private static HarborRunnerEnrollment NewEnrollment(string runnerId, long generation)
         {
             DateTime now = DateTime.UtcNow;

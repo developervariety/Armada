@@ -123,6 +123,9 @@ upstream integrations and excludes changes already present at that baseline.
   registrations and shard weights. The shared end-to-end cases and their
   automated-runner copies both stay, because the two harnesses differ in server
   lifecycle and database provider.
+- **Harbor runner enrollments read by column name:** the four provider copies
+  of the enrollment mapper, which read columns by position, become one shared
+  reader that reads each column by name.
 - **Objective refinement sessions and messages read through shared column
   readers:** the four provider copies of each mapper become one reader. A
   session value that cannot be read, including a timestamp, raises
