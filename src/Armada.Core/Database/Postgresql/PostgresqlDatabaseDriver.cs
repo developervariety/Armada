@@ -399,7 +399,7 @@ namespace Armada.Core.Database.Postgresql
             Docks = new DockMethods(this, _Settings, _Logging);
             Signals = new SignalMethods(_DataSource);
             Events = new EventMethods(_DataSource);
-            RequestHistory = new RequestHistoryMethods(_DataSource);
+            RequestHistory = new RequestHistoryMethods(_Stored);
             MergeEntries = new MergeEntryMethods(_DataSource);
             LandingJobs = new LandingJobMethods(_DataSource);
             Tenants = new TenantMethods(this, _Settings, _Logging);

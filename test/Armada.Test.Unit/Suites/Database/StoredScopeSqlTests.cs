@@ -117,6 +117,26 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(TokenUsageMethods.Table, new TokenUsageRecord());
             });
 
+            await RunTest("RequestHistory scope conditions keep their text, order and parameters on every provider", () =>
+            {
+                string postgresql = "tenant_id = @tenant_id AND user_id = @user_id AND (user_id IS NULL OR user_id NOT IN (@excluded_user_0, @excluded_user_1))"
+                    + " AND credential_id = @credential_id AND principal_display ILIKE @principal AND UPPER(method) = @method AND route ILIKE @route"
+                    + " AND status_code = @status_code AND is_success = @is_success AND created_utc >= @from_utc AND created_utc <= @to_utc";
+                string others = postgresql.Replace(" ILIKE ", " LIKE ");
+                RequestHistoryQuery everyFilter = new RequestHistoryQuery
+                {
+                    TenantId = "ten_x", UserId = "usr_x", ExcludedUserIds = new List<string> { "usr_a", "usr_b" }, CredentialId = "crd_x", Principal = "admin",
+                    Method = "get", Route = "/api", StatusCode = 200, IsSuccess = true,
+                    FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => p == DatabaseTypeEnum.Postgresql ? postgresql : others,
+                    p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), everyFilter, p),
+                    p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery(), p));
+                AssertEqual("created_utc DESC", RequestHistoryMethods.Order);
+                AssertTableMatchesWriter(RequestHistoryMethods.Entries, new RequestHistoryEntry());
+                AssertTableMatchesWriter(RequestHistoryMethods.Details, new RequestHistoryDetail());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)
@@ -140,7 +160,7 @@ namespace Armada.Test.Unit.Suites.Database
             foreach (DatabaseTypeEnum provider in _Providers)
             {
                 string expected = expectedFor(provider);
-                List<string> expectedParameters = Regex.Matches(expected, "@[a-z_]+").Select(m => m.Value).Distinct().ToList();
+                List<string> expectedParameters = Regex.Matches(expected, "@[a-z0-9_]+").Select(m => m.Value).Distinct().ToList();
                 StoredFilter filter = everyFilter(provider);
                 AssertEqual(expected, filter.Conjunction, provider + " conditions");
                 using (DbCommand command = Command(provider))

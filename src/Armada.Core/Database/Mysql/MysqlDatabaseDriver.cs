@@ -98,7 +98,7 @@ namespace Armada.Core.Database.Mysql
             Docks = new DockMethods(_ConnectionString);
             Signals = new SignalMethods(_ConnectionString);
             Events = new EventMethods(_ConnectionString);
-            RequestHistory = new RequestHistoryMethods(_ConnectionString);
+            RequestHistory = new RequestHistoryMethods(_Stored);
             MergeEntries = new MergeEntryMethods(_ConnectionString);
             LandingJobs = new LandingJobMethods(_ConnectionString);
             Tenants = new TenantMethods(_ConnectionString);

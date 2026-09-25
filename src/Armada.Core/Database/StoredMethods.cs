@@ -62,7 +62,24 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
-        /// Rewrite every changeable column of the row with the model's id.
+        /// Insert one row with every column inside a transaction the caller owns, for a write that spans tables.
+        /// </summary>
+        internal async Task InsertAsync(TModel model, DbConnection connection, DbTransaction transaction, CancellationToken token)
+        {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+            if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (transaction == null) throw new ArgumentNullException(nameof(transaction));
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = Table.InsertSql;
+                Table.Write(Dialect.Binder.For(command, Table.Name), model);
+                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Rewrite every changeable column of the row with the model's key.
         /// </summary>
         /// <returns>Rows changed.</returns>
         internal async Task<int> UpdateAsync(TModel model, CancellationToken token)
