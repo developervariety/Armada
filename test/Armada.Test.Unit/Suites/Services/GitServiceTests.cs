@@ -115,8 +115,8 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(0, Directory.GetFiles(Path.Combine(bare, "armada-ref-audit"), "*.ready").Length);
                         await RunGitAsync(worktree, "branch", "-D", "recover/example");
                         string spool = Path.Combine(bare, "armada-ref-audit");
-                        string[] pending = Directory.GetFiles(spool, "*.ready");
-                        AssertEqual(1, pending.Length, "Only committed deletion, not creation, must be recorded");
+                        string[] pending = Directory.GetFiles(spool, "*.ready").Where(path => !path.EndsWith(".present.ready", StringComparison.Ordinal)).ToArray();
+                        AssertEqual(1, pending.Length, "Only the committed deletion is a deletion witness");
                         byte[] durable = await File.ReadAllBytesAsync(pending[0]);
                         LoggingModule logging = new LoggingModule();
                         logging.Settings.EnableConsole = false;

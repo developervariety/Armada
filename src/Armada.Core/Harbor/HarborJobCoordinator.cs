@@ -241,13 +241,15 @@ namespace Armada.Core.Harbor
             }
 
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
+            List<JobRecord> finished = new List<JobRecord>();
             HarborCommandResult result;
             lock (_Gate)
             {
                 if (!_Registry.IsCurrent(session)) return HarborCommandResult.EndSession("harbor_session_stale");
-                result = ApplyEvent(session, message, persist);
+                result = ApplyEvent(session, message, persist, finished);
             }
             await PersistAsync(persist).ConfigureAwait(false);
+            DeliverFinished(finished);
             return result;
         }
 
@@ -267,6 +269,7 @@ namespace Armada.Core.Harbor
             List<KeyValuePair<string, string>> rejected = new List<KeyValuePair<string, string>>();
             List<string> unknown = new List<string>();
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
+            List<JobRecord> finished = new List<JobRecord>();
             int rebound = 0;
             HashSet<string> live = new HashSet<string>(liveJobIds ?? Array.Empty<string>(), StringComparer.Ordinal);
             lock (_Gate)
@@ -290,7 +293,7 @@ namespace Armada.Core.Harbor
                     }
                     if (job.EnrollmentGeneration != session.EnrollmentGeneration || HarborJobRecord.IsTerminal(job.State))
                     {
-                        if (!HarborJobRecord.IsTerminal(job.State)) Finish(job, HarborJobStateEnum.Lost, null, "harbor_enrollment_changed", persist);
+                        if (!HarborJobRecord.IsTerminal(job.State)) Finish(job, HarborJobStateEnum.Lost, null, "harbor_enrollment_changed", persist, finished);
                         rejected.Add(new KeyValuePair<string, string>(jobId, "harbor_job_not_rebindable"));
                         continue;
                     }
@@ -310,17 +313,18 @@ namespace Armada.Core.Harbor
                         continue;
                     }
                     if (job.EnrollmentGeneration != session.EnrollmentGeneration)
-                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_enrollment_changed", persist);
+                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_enrollment_changed", persist, finished);
                     else if (job.SessionGeneration != session.Generation)
-                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_job_not_reported_after_reconnect", persist);
+                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_job_not_reported_after_reconnect", persist, finished);
                     else if (job.State != HarborJobStateEnum.Pending)
-                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_job_not_reported", persist);
+                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_job_not_reported", persist, finished);
                 }
             }
 
             foreach (string jobId in unknown)
                 rejected.Add(new KeyValuePair<string, string>(jobId, await ClassifyUnknownJobAsync(session, jobId).ConfigureAwait(false)));
             await PersistAsync(persist).ConfigureAwait(false);
+            DeliverFinished(finished);
             return new HarborHeartbeatResult(rebound, rejected);
         }
 
@@ -334,6 +338,7 @@ namespace Armada.Core.Harbor
         {
             if (session == null) return;
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
+            List<JobRecord> finished = new List<JobRecord>();
             lock (_Gate)
             {
                 if (_Links.TryGetValue(session.Identity.RunnerId, out RunnerLink? link) && Object.ReferenceEquals(link.Session, session))
@@ -351,11 +356,12 @@ namespace Armada.Core.Harbor
                         if (HarborJobRecord.IsTerminal(job.State)) continue;
                         if (!String.Equals(job.RunnerId, session.Identity.RunnerId, StringComparison.Ordinal)) continue;
                         if (job.EnrollmentGeneration != session.EnrollmentGeneration) continue;
-                        Finish(job, HarborJobStateEnum.Lost, null, String.IsNullOrWhiteSpace(reason) ? "harbor_session_ended" : reason, persist);
+                        Finish(job, HarborJobStateEnum.Lost, null, String.IsNullOrWhiteSpace(reason) ? "harbor_session_ended" : reason, persist, finished);
                     }
                 }
             }
             await PersistAsync(persist).ConfigureAwait(false);
+            DeliverFinished(finished);
         }
 
         /// <summary>
@@ -368,6 +374,7 @@ namespace Armada.Core.Harbor
         public async Task<int> ExpireDetachedRunnersAsync(TimeSpan grace, DateTime nowUtc)
         {
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
+            List<JobRecord> finished = new List<JobRecord>();
             int expired = 0;
             lock (_Gate)
             {
@@ -376,11 +383,12 @@ namespace Armada.Core.Harbor
                     if (HarborJobRecord.IsTerminal(job.State) || _Links.ContainsKey(job.RunnerId)) continue;
                     DateTime since = _DetachedUtc.TryGetValue(job.RunnerId, out DateTime detached) ? detached : job.CreatedUtc;
                     if (nowUtc - since < grace) continue;
-                    Finish(job, HarborJobStateEnum.Lost, null, ReasonRunnerDisconnected, persist);
+                    Finish(job, HarborJobStateEnum.Lost, null, ReasonRunnerDisconnected, persist, finished);
                     expired++;
                 }
             }
             await PersistAsync(persist).ConfigureAwait(false);
+            DeliverFinished(finished);
             return expired;
         }
 
@@ -499,6 +507,7 @@ namespace Armada.Core.Harbor
             }
 
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
+            List<JobRecord> finished = new List<JobRecord>();
             lock (_Gate)
             {
                 record.Durable = true;
@@ -529,15 +538,16 @@ namespace Armada.Core.Harbor
                 lock (_Gate)
                 {
                     record.Observer = null;
-                    Finish(record, HarborJobStateEnum.Failed, null, "harbor_launch_send_failed: " + exception.Message, persist);
+                    Finish(record, HarborJobStateEnum.Failed, null, "harbor_launch_send_failed: " + exception.Message, persist, finished);
                 }
                 await PersistAsync(persist).ConfigureAwait(false);
+                DeliverFinished(finished);
                 return HarborLaunchResult.Reject("harbor_launch_send_failed");
             }
             return HarborLaunchResult.Accept(record.JobId, record.Completion.Task);
         }
 
-        private HarborCommandResult ApplyEvent(HarborRunnerSession session, HarborMessage message, List<HarborJobRecord> persist)
+        private HarborCommandResult ApplyEvent(HarborRunnerSession session, HarborMessage message, List<HarborJobRecord> persist, List<JobRecord> finished)
         {
             string reason;
             JobRecord? job;
@@ -573,7 +583,7 @@ namespace Armada.Core.Harbor
                     job = OwnedJob(session, exited.JobId, out reason);
                     if (job == null) return HarborCommandResult.Reject(reason);
                     if (HarborJobRecord.IsTerminal(job.State)) return HarborCommandResult.Reject("harbor_job_exit_duplicate");
-                    Finish(job, HarborJobStateEnum.Exited, exited.ExitCode, null, persist);
+                    Finish(job, HarborJobStateEnum.Exited, exited.ExitCode, null, persist, finished);
                     return HarborCommandResult.Accept();
 
                 case HarborError error:
@@ -581,7 +591,7 @@ namespace Armada.Core.Harbor
                     job = OwnedJob(session, error.JobId, out reason);
                     if (job == null) return HarborCommandResult.Reject(reason);
                     if (HarborJobRecord.IsTerminal(job.State)) return HarborCommandResult.Reject("harbor_job_exit_duplicate");
-                    Finish(job, HarborJobStateEnum.Failed, null, "harbor_runner_error: " + (error.Message ?? String.Empty), persist);
+                    Finish(job, HarborJobStateEnum.Failed, null, "harbor_runner_error: " + (error.Message ?? String.Empty), persist, finished);
                     return HarborCommandResult.Accept();
 
                 default:
@@ -592,13 +602,15 @@ namespace Armada.Core.Harbor
         private async Task<HarborCommandResult> ReleaseAsync(string jobId, string reason)
         {
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
+            List<JobRecord> finished = new List<JobRecord>();
             lock (_Gate)
             {
                 if (!_Jobs.TryGetValue(jobId, out JobRecord? job)) return HarborCommandResult.Reject("harbor_job_unknown");
                 if (HarborJobRecord.IsTerminal(job.State)) return HarborCommandResult.Reject("harbor_job_not_running");
-                Finish(job, HarborJobStateEnum.Lost, null, reason, persist);
+                Finish(job, HarborJobStateEnum.Lost, null, reason, persist, finished);
             }
             await PersistAsync(persist).ConfigureAwait(false);
+            DeliverFinished(finished);
             return HarborCommandResult.AcceptReleased(reason);
         }
 
@@ -659,7 +671,7 @@ namespace Armada.Core.Harbor
             }
         }
 
-        private void Finish(JobRecord job, HarborJobStateEnum state, int? exitCode, string? reason, List<HarborJobRecord>? persist)
+        private void Finish(JobRecord job, HarborJobStateEnum state, int? exitCode, string? reason, List<HarborJobRecord>? persist, List<JobRecord>? notifyAfterPersist = null)
         {
             job.State = state;
             job.ExitCode = exitCode;
@@ -668,7 +680,23 @@ namespace Armada.Core.Harbor
             Touch(job, persist);
             HarborJobSnapshot finished = job.Snapshot();
             job.Completion.TrySetResult(finished);
-            Notify(job, observer => observer.OnFinished(finished));
+            if (notifyAfterPersist != null)
+                notifyAfterPersist.Add(job);
+            else
+                Notify(job, observer => observer.OnFinished(finished));
+        }
+
+        /// <summary>
+        /// Deliver terminal observer notifications after the durable write. Observers read the job row,
+        /// so the exit must not be visible before that write commits.
+        /// </summary>
+        private void DeliverFinished(List<JobRecord> jobs)
+        {
+            foreach (JobRecord job in jobs)
+            {
+                HarborJobSnapshot finished = job.Snapshot();
+                Notify(job, observer => observer.OnFinished(finished));
+            }
         }
 
         /// <summary>
