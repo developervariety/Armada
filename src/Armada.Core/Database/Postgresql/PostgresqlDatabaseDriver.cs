@@ -412,7 +412,7 @@ namespace Armada.Core.Database.Postgresql
             MemoryProposals = new MemoryProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             DataExpiry = new DataExpiryMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
-            PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
+            PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);

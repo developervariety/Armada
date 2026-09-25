@@ -45,6 +45,20 @@ namespace Armada.Core.Database
         internal string Where => _Conditions.Count > 0 ? " WHERE " + Conjunction : String.Empty;
 
         /// <summary>
+        /// Require a text column to equal a key the caller has already checked; never skipped, even for a blank key.
+        /// </summary>
+        internal StoredFilter Key(string column, string value) => Key(column, "@" + column, value);
+
+        /// <summary>
+        /// Require a text column to equal a key bound under a named parameter; never skipped, even for a blank key.
+        /// </summary>
+        internal StoredFilter Key(string column, string parameterName, string value)
+        {
+            if (value == null) throw new ArgumentNullException(nameof(value));
+            return Condition(column + " = " + parameterName, p => p.Text(parameterName, column, value));
+        }
+
+        /// <summary>
         /// Require a text column to equal a value; skipped when the value is null or blank.
         /// </summary>
         internal StoredFilter Text(string column, string? value) => Text(column, "@" + column, value);

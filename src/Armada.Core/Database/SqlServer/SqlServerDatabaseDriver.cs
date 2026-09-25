@@ -138,7 +138,7 @@ namespace Armada.Core.Database.SqlServer
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             DataExpiry = new DataExpiryMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
-            PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
+            PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);

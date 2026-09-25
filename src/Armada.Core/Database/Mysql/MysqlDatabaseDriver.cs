@@ -111,7 +111,7 @@ namespace Armada.Core.Database.Mysql
             MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             DataExpiry = new DataExpiryMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
-            PromptTemplates = new PromptTemplateMethods(_ConnectionString);
+            PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(_ConnectionString);
             Memories = new MemoryMethods(_ConnectionString);
             Personas = new PersonaMethods(_ConnectionString);

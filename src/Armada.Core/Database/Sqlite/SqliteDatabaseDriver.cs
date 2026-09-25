@@ -397,7 +397,7 @@ namespace Armada.Core.Database.Sqlite
             MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
+            PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(this, _Settings, _Logging);
             Personas = new PersonaMethods(this, _Settings, _Logging);

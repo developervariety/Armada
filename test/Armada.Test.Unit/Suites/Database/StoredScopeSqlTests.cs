@@ -137,6 +137,21 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(RequestHistoryMethods.Details, new RequestHistoryDetail());
             });
 
+            await RunTest("PromptTemplate range conditions keep their text, order and parameters on every provider", () =>
+            {
+                string expected = "created_utc > @created_after AND created_utc < @created_before";
+                EnumerationQuery everyFilter = new EnumerationQuery
+                {
+                    CreatedAfter = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CreatedBefore = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => expected, p => PromptTemplateMethods.Scope(PromptTemplateMethods.Table.Filter(), everyFilter), p => PromptTemplateMethods.Scope(PromptTemplateMethods.Table.Filter(), new EnumerationQuery()));
+                AssertEqual("created_utc DESC", PromptTemplateMethods.Order(new EnumerationQuery()));
+                AssertEqual("created_utc ASC", PromptTemplateMethods.Order(new EnumerationQuery { Order = EnumerationOrderEnum.CreatedAscending }));
+                AssertEqual("name", PromptTemplateMethods.NameOrder);
+                AssertEqual("tenant_id = @tenant_id AND name = @name", PromptTemplateMethods.Table.Filter().Key("tenant_id", "ten_x").Key("name", "template").Conjunction);
+                AssertTableMatchesWriter(PromptTemplateMethods.Table, new PromptTemplate());
+            });
+
             await RunTest("First-row and paged statements keep each provider's syntax", () =>
             {
                 foreach (DatabaseTypeEnum provider in _Providers)
