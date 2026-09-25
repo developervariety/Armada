@@ -841,5 +841,116 @@ namespace Armada.Test.Database
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
         }
+
+        internal async Task VerifySkillsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            Dictionary<int, Skill> rows = new Dictionary<int, Skill>();
+            try
+            {
+                Owners o = await SeedOwnersAsync(fixture, MatrixStart(), token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                foreach (Slot slot in o.Slots)
+                {
+                    rows[slot.Index] = await _Driver.Skills.CreateAsync(new Skill
+                    {
+                        TenantId = slot.TenantId,
+                        UserId = slot.UserId,
+                        Name = "matrix-skill-" + slot.Index + "-" + suffix,
+                        Category = slot.ScopeId,
+                        Content = "matrix skill " + slot.Index,
+                        Active = true,
+                        CreatedUtc = slot.Time
+                    }, token).ConfigureAwait(false);
+                }
+
+                // A skill's category is its scope.
+                List<Scope<Skill>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
+                    .Select(s => new Scope<Skill>(s.Label, s.Match, (page, size) => _Driver.Skills.EnumerateAsync(new SkillQuery
+                    {
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
+                        Category = s.ScopeId,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
+                        PageNumber = page,
+                        PageSize = size
+                    }, token))).ToList();
+                scopes.Add(new Scope<Skill>("tenant, all rows", s => s.TenantId == o.TenantA, async (page, size) =>
+                    AsPage(await _Driver.Skills.EnumerateAllAsync(new SkillQuery { TenantId = o.TenantA }, token).ConfigureAwait(false), page, size)));
+                await VerifyScopesAsync("Skill", o, rows, r => r.Id, r => r.OrderBy(x => x.Slot.Index), scopes).ConfigureAwait(false);
+
+                Skill owned = rows[0];
+                DatabaseAssert.NotNull(await _Driver.Skills.ReadAsync(owned.Id, new SkillQuery { TenantId = o.TenantA, UserId = o.UserA1, Category = o.ScopeX }, token).ConfigureAwait(false), "Skill reads in its own scope");
+                DatabaseAssert.True(await _Driver.Skills.ReadAsync(owned.Id, new SkillQuery { TenantId = o.TenantB }, token).ConfigureAwait(false) == null, "Skill is hidden from another tenant");
+                DatabaseAssert.True(await _Driver.Skills.ReadAsync(owned.Id, new SkillQuery { TenantId = o.TenantA, UserId = o.UserA2 }, token).ConfigureAwait(false) == null, "Skill is hidden from another user");
+                await _Driver.Skills.DeleteAsync(owned.Id, new SkillQuery { TenantId = o.TenantB }, token).ConfigureAwait(false);
+                DatabaseAssert.NotNull(await _Driver.Skills.ReadAsync(owned.Id, null, token).ConfigureAwait(false), "Another tenant cannot delete the Skill");
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                    foreach (Skill row in rows.Values) await _Driver.Skills.DeleteAsync(row.Id, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task VerifyProjectProfilesAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            Dictionary<int, ProjectProfile> rows = new Dictionary<int, ProjectProfile>();
+            try
+            {
+                Owners o = await SeedOwnersAsync(fixture, MatrixStart(), token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                foreach (Slot slot in o.Slots)
+                {
+                    rows[slot.Index] = await _Driver.ProjectProfiles.CreateAsync(new ProjectProfile
+                    {
+                        TenantId = slot.TenantId,
+                        UserId = slot.UserId,
+                        Name = "matrix-project-" + slot.Index + "-" + suffix,
+                        Scope = ProjectProfileScopeEnum.Vessel,
+                        FleetId = o.FleetOf(slot.ScopeId),
+                        VesselId = slot.ScopeId,
+                        IsDefault = false,
+                        Active = true,
+                        CreatedUtc = slot.Time
+                    }, token).ConfigureAwait(false);
+                    // The documented order leads with the stamped update time, so rows are stamped at least a tick apart on every store.
+                    await Task.Delay(20, token).ConfigureAwait(false);
+                }
+
+                List<Scope<ProjectProfile>> scopes = StandardScopes(o, hasScope: true, hasWindow: true)
+                    .Select(s => new Scope<ProjectProfile>(s.Label, s.Match, (page, size) => _Driver.ProjectProfiles.EnumerateAsync(new ProjectProfileQuery
+                    {
+                        TenantId = s.TenantId,
+                        UserId = s.UserId,
+                        VesselId = s.ScopeId,
+                        FromUtc = s.From,
+                        ToUtc = s.To,
+                        PageNumber = page,
+                        PageSize = size
+                    }, token))).ToList();
+                scopes.Add(new Scope<ProjectProfile>("tenant and fleet", s => s.TenantId == o.TenantA, (page, size) =>
+                    _Driver.ProjectProfiles.EnumerateAsync(new ProjectProfileQuery { TenantId = o.TenantA, FleetId = o.FleetA, PageNumber = page, PageSize = size }, token)));
+                scopes.Add(new Scope<ProjectProfile>("tenant, all rows", s => s.TenantId == o.TenantA, async (page, size) =>
+                    AsPage(await _Driver.ProjectProfiles.EnumerateAllAsync(new ProjectProfileQuery { TenantId = o.TenantA }, token).ConfigureAwait(false), page, size)));
+                await VerifyScopesAsync("ProjectProfile", o, rows, r => r.Id, r => r.OrderByDescending(x => x.Row.LastUpdateUtc), scopes).ConfigureAwait(false);
+
+                ProjectProfile owned = rows[0];
+                DatabaseAssert.NotNull(await _Driver.ProjectProfiles.ReadAsync(owned.Id, new ProjectProfileQuery { TenantId = o.TenantA, UserId = o.UserA1, VesselId = o.ScopeX }, token).ConfigureAwait(false), "ProjectProfile reads in its own scope");
+                DatabaseAssert.True(await _Driver.ProjectProfiles.ReadAsync(owned.Id, new ProjectProfileQuery { TenantId = o.TenantB }, token).ConfigureAwait(false) == null, "ProjectProfile is hidden from another tenant");
+                DatabaseAssert.True(await _Driver.ProjectProfiles.ReadAsync(owned.Id, new ProjectProfileQuery { TenantId = o.TenantA, UserId = o.UserA2 }, token).ConfigureAwait(false) == null, "ProjectProfile is hidden from another user");
+                await _Driver.ProjectProfiles.DeleteAsync(owned.Id, new ProjectProfileQuery { TenantId = o.TenantB }, token).ConfigureAwait(false);
+                DatabaseAssert.NotNull(await _Driver.ProjectProfiles.ReadAsync(owned.Id, null, token).ConfigureAwait(false), "Another tenant cannot delete the ProjectProfile");
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                    foreach (ProjectProfile row in rows.Values) await _Driver.ProjectProfiles.DeleteAsync(row.Id, null, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
     }
 }

@@ -125,6 +125,8 @@ namespace Armada.Test.Database
             await RunTest("PromptTemplate_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyPromptTemplatesAsync(token), token);
             await RunTest("TokenUsage_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyTokenUsageAsync(token), token);
             await RunTest("RequestHistory_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyRequestHistoryAsync(token), token);
+            await RunTest("Skill_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifySkillsAsync(token), token);
+            await RunTest("ProjectProfile_Scoped_Reads_Filter_Page_And_Order", "Operational", () => scopedReads.VerifyProjectProfilesAsync(token), token);
 
             Console.WriteLine("--- Tenant/User/Credential ---");
             await RunTest("Tenant_Create_Read_Update_Enumerate", "Auth", () => TestTenantCrudAsync(token), token);
