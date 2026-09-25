@@ -87,6 +87,7 @@ namespace Armada.Core.Database.SqlServer
         private string _Header = "[SqlServerDatabaseDriver] ";
         private DatabaseSettings _Settings;
         private string _ConnectionString;
+        private StoredDialect _Stored = null!;
         private LoggingModule _Logging;
         private bool _Disposed = false;
 
@@ -106,6 +107,7 @@ namespace Armada.Core.Database.SqlServer
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ConnectionString = settings.GetConnectionString();
 
+            _Stored = new StoredDialect(DatabaseTypeEnum.SqlServer, () => new SqlConnection(_ConnectionString), StoredValues);
             Fleets = new FleetMethods(this, _Settings, _Logging);
             Vessels = new VesselMethods(this, _Settings, _Logging);
             Captains = new CaptainMethods(this, _Settings, _Logging);
@@ -143,7 +145,7 @@ namespace Armada.Core.Database.SqlServer
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this);
             Environments = new DeploymentEnvironmentMethods(this);
-            CheckRuns = new CheckRunMethods(this);
+            CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(this);
             Deployments = new DeploymentMethods(this);
             JudgeFollowUps = new JudgeFollowUpMethods(this);

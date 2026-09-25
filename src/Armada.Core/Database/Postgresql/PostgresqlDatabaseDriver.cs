@@ -148,6 +148,7 @@ namespace Armada.Core.Database.Postgresql
         private string _Header = "[PostgresqlDatabaseDriver] ";
         private DatabaseSettings _Settings;
         private string _ConnectionString;
+        private StoredDialect _Stored = null!;
         private LoggingModule _Logging;
         private NpgsqlDataSource _DataSource;
         private bool _Disposed = false;
@@ -380,6 +381,7 @@ namespace Armada.Core.Database.Postgresql
 
         private void InitializeImplementations()
         {
+            _Stored = new StoredDialect(DatabaseTypeEnum.Postgresql, () => _DataSource.CreateConnection(), StoredValues);
             Fleets = new FleetMethods(this, _Settings, _Logging);
             Vessels = new VesselMethods(this, _Settings, _Logging);
             Captains = new CaptainMethods(this, _Settings, _Logging);
@@ -417,7 +419,7 @@ namespace Armada.Core.Database.Postgresql
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this);
             Environments = new DeploymentEnvironmentMethods(this);
-            CheckRuns = new CheckRunMethods(this);
+            CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(this);
             Deployments = new DeploymentMethods(this);
             JudgeFollowUps = new JudgeFollowUpMethods(_Settings);

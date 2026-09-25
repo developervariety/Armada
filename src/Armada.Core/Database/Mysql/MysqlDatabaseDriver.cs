@@ -60,6 +60,7 @@ namespace Armada.Core.Database.Mysql
         private string _Header = "[MysqlDatabaseDriver] ";
         private DatabaseSettings _Settings;
         private string _ConnectionString;
+        private StoredDialect _Stored = null!;
         private LoggingModule _Logging;
         private bool _Disposed = false;
 
@@ -79,6 +80,7 @@ namespace Armada.Core.Database.Mysql
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ConnectionString = settings.GetConnectionString();
 
+            _Stored = new StoredDialect(DatabaseTypeEnum.Mysql, () => new MySqlConnection(_ConnectionString), StoredValues);
             Fleets = new FleetMethods(_ConnectionString);
             Vessels = new VesselMethods(_ConnectionString);
             Captains = new CaptainMethods(_ConnectionString);
@@ -116,7 +118,7 @@ namespace Armada.Core.Database.Mysql
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
             Environments = new DeploymentEnvironmentMethods(_ConnectionString);
-            CheckRuns = new CheckRunMethods(_ConnectionString);
+            CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(_ConnectionString);
             Deployments = new DeploymentMethods(_ConnectionString);
             JudgeFollowUps = new JudgeFollowUpMethods(_ConnectionString);

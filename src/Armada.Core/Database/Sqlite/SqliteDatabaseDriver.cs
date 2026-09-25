@@ -68,6 +68,7 @@ namespace Armada.Core.Database.Sqlite
         private string _Header = "[SqliteDatabaseDriver] ";
         private DatabaseSettings _Settings;
         private string _ConnectionString;
+        private StoredDialect _Stored = null!;
         private LoggingModule _Logging;
         private bool _Disposed = false;
 
@@ -365,6 +366,7 @@ namespace Armada.Core.Database.Sqlite
 
         private void InitializeImplementations()
         {
+            _Stored = new StoredDialect(DatabaseTypeEnum.Sqlite, () => new SqliteConnection(_ConnectionString), StoredValues);
             Fleets = new FleetMethods(this, _Settings, _Logging);
             Vessels = new VesselMethods(this, _Settings, _Logging);
             Captains = new CaptainMethods(this, _Settings, _Logging);
@@ -402,7 +404,7 @@ namespace Armada.Core.Database.Sqlite
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(this, _Settings, _Logging);
             Environments = new DeploymentEnvironmentMethods(this, _Settings, _Logging);
-            CheckRuns = new CheckRunMethods(this, _Settings, _Logging);
+            CheckRuns = new CheckRunMethods(_Stored);
             Releases = new ReleaseMethods(this, _Settings, _Logging);
             Deployments = new DeploymentMethods(this, _Settings, _Logging);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
