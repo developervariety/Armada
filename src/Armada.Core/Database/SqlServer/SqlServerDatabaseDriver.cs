@@ -149,7 +149,7 @@ namespace Armada.Core.Database.SqlServer
             Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
-            ProjectProfiles = new ProjectProfileMethods(this);
+            ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(_Stored);

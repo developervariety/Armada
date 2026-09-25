@@ -122,7 +122,7 @@ namespace Armada.Core.Database.Mysql
             Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_ConnectionString);
-            ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
+            ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
             TokenUsage = new TokenUsageMethods(_Stored);
