@@ -993,7 +993,7 @@ namespace Armada.Core.Services
             catch (Exception ex) { _Logging.Debug(_Header + "integration branch cleanup skipped for " + integrationBranch + ": " + ex.Message); }
 
             await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
-            await SyncLocalTargetToRemoteAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false);
+            await SyncLocalTargetToRemoteAsync(entry, repoPath, entry.TargetBranch, token).ConfigureAwait(false);
             await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token: token).ConfigureAwait(false);
         }
 
@@ -1008,14 +1008,15 @@ namespace Armada.Core.Services
         /// target branch", and fails as a no-op. The work can then NEVER reach the remote: the
         /// first failed push poisons every subsequent attempt for that vessel.
         ///
-        /// Observed on a fleet vessel: local main sat 9 commits ahead of origin/main and three
-        /// separate voyages reported Complete while origin/main never moved. Resetting the local
-        /// ref let the very next queue run land the work unchanged.
+        /// Resetting the local ref lets the next queue run land the work unchanged.
         ///
-        /// The remote is the authority for where a landing starts. Local-only commits on the target
-        /// are never legitimate here, because everything the queue lands is pushed.
+        /// The repair applies only where every landing pushes. A vessel whose effective landing mode
+        /// is LocalMerge merges into the local target and pushes nothing, so its local target is
+        /// legitimately ahead of origin: the local-only commits ARE the landed work. There the
+        /// local target is kept, the integration is cut from it, and a warning names the kept
+        /// commits. See <see cref="ResetLocalTargetToRemoteAsync"/>.
         /// </remarks>
-        private async Task SyncLocalTargetToRemoteAsync(string repoPath, string targetBranch, CancellationToken token)
+        private async Task SyncLocalTargetToRemoteAsync(MergeEntry entry, string repoPath, string targetBranch, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(targetBranch)) return;
 
@@ -1046,14 +1047,130 @@ namespace Armada.Core.Services
                     return;
                 }
 
-                await RunGitAsync(repoPath, token, "branch", "-f", targetBranch, "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
-                _Logging.Warn(_Header + "reset local " + targetBranch + " from " + localHead + " to origin at " + remoteHead +
-                    "; a previous landing advanced the local ref without pushing");
+                if (await ResetLocalTargetToRemoteAsync(entry, repoPath, targetBranch, "integration setup", token).ConfigureAwait(false))
+                {
+                    _Logging.Warn(_Header + "reset local " + targetBranch + " from " + localHead + " to origin at " + remoteHead +
+                        "; a previous landing advanced the local ref without pushing");
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not reconcile local " + targetBranch + " with origin: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Point the local target branch at <c>origin/&lt;target&gt;</c>, unless that would drop
+        /// landed work. Returns true when the ref was moved and false when it was kept.
+        /// </summary>
+        /// <remarks>
+        /// A move that only fast-forwards (the local head is already contained in the remote head)
+        /// discards nothing and always proceeds. A move that drops local-only commits proceeds only
+        /// when the entry's vessel lands by pushing. A vessel that lands without pushing
+        /// (LocalMerge) keeps its landed work only on the local target, so there the ref is kept
+        /// and a warning names the local-only commits. Never silently: a kept ref is logged.
+        /// </remarks>
+        private async Task<bool> ResetLocalTargetToRemoteAsync(MergeEntry entry, string repoPath, string targetBranch, string purpose, CancellationToken token)
+        {
+            string remoteRef = "refs/remotes/origin/" + targetBranch;
+            GitProcessResult local = await RunGitCapturingAsync(
+                repoPath, token, "rev-parse", "--verify", "--quiet", "refs/heads/" + targetBranch).ConfigureAwait(false);
+            if (local.ExitCode == 0)
+            {
+                string localHead = local.StandardOutput.Trim();
+                GitProcessResult contained = await RunGitCapturingAsync(
+                    repoPath, token, "merge-base", "--is-ancestor", localHead, remoteRef).ConfigureAwait(false);
+                if (contained.ExitCode != 0 &&
+                    await TargetHoldsUnpushedLandingsAsync(entry, token).ConfigureAwait(false))
+                {
+                    string kept = await DescribeLocalOnlyCommitsAsync(repoPath, remoteRef, localHead, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "kept local " + targetBranch + " at " + localHead + " instead of resetting it to origin during " +
+                        purpose + " for " + entry.Id + ": the vessel lands without pushing, so its local-only commits are landed work (" + kept + ")");
+                    return false;
+                }
+            }
+
+            await RunGitAsync(repoPath, token, "branch", "-f", targetBranch, remoteRef).ConfigureAwait(false);
+            return true;
+        }
+
+        /// <summary>
+        /// Whether the entry's target branch may legitimately hold landed commits that were never
+        /// pushed: true when the effective landing mode is LocalMerge, resolved the same way the
+        /// landing path resolves it (voyage, then vessel, then global). The vessel-level mode is
+        /// checked as well, because the target branch is shared by every mission of the vessel.
+        /// When the mode cannot be read, the answer is true, so an unreadable record never causes
+        /// commits to be discarded.
+        /// </summary>
+        private async Task<bool> TargetHoldsUnpushedLandingsAsync(MergeEntry entry, CancellationToken token)
+        {
+            try
+            {
+                Vessel? vessel = null;
+                if (!String.IsNullOrEmpty(entry.VesselId))
+                {
+                    vessel = !String.IsNullOrEmpty(entry.TenantId)
+                        ? await _Database.Vessels.ReadAsync(entry.TenantId, entry.VesselId, token).ConfigureAwait(false)
+                        : await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+                }
+
+                Voyage? voyage = null;
+                if (!String.IsNullOrEmpty(entry.MissionId))
+                {
+                    Mission? mission = !String.IsNullOrEmpty(entry.TenantId)
+                        ? await _Database.Missions.ReadAsync(entry.TenantId, entry.MissionId, token).ConfigureAwait(false)
+                        : await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                    if (mission != null && !String.IsNullOrEmpty(mission.VoyageId))
+                    {
+                        voyage = !String.IsNullOrEmpty(entry.TenantId)
+                            ? await _Database.Voyages.ReadAsync(entry.TenantId, mission.VoyageId, token).ConfigureAwait(false)
+                            : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    }
+                }
+
+                LandingConfiguration entryConfiguration = LandingConfigurationResolver.Resolve(_Settings, vessel, voyage);
+                LandingConfiguration vesselConfiguration = LandingConfigurationResolver.Resolve(_Settings, vessel, null);
+                return entryConfiguration.LandingMode == LandingModeEnum.LocalMerge
+                    || vesselConfiguration.LandingMode == LandingModeEnum.LocalMerge;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve the landing mode for " + entry.Id +
+                    "; treating local-only target commits as landed work: " + ex.Message);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Summarize the commits reachable from <paramref name="localHead"/> but not from
+        /// <paramref name="remoteRef"/>: their count and the first few ids.
+        /// </summary>
+        private async Task<string> DescribeLocalOnlyCommitsAsync(string repoPath, string remoteRef, string localHead, CancellationToken token)
+        {
+            GitProcessResult count = await RunGitCapturingAsync(
+                repoPath, token, "rev-list", "--count", remoteRef + ".." + localHead).ConfigureAwait(false);
+            GitProcessResult list = await RunGitCapturingAsync(
+                repoPath, token, "rev-list", "--max-count=10", remoteRef + ".." + localHead).ConfigureAwait(false);
+            string total = count.ExitCode == 0 ? count.StandardOutput.Trim() : "unknown";
+            List<string> ids = new List<string>();
+            if (list.ExitCode == 0)
+            {
+                foreach (string line in list.StandardOutput.Split('\n'))
+                {
+                    string id = line.Trim();
+                    if (id.Length > 0) ids.Add(id);
+                }
+            }
+
+            return total + " local-only commit(s)" + (ids.Count > 0 ? ": " + String.Join(", ", ids) : "");
         }
 
         private async Task MergeIntegrationWorktreeAsync(MergeEntry entry, CancellationToken token)
@@ -1173,6 +1290,33 @@ namespace Armada.Core.Services
             if (String.Equals(targetHead, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase) ||
                 (!alreadyMerged && String.Equals(headBeforeMerge, integrationHeadAfterMerge, StringComparison.OrdinalIgnoreCase)))
             {
+                // A branch already contained in the target whose mission commit is also there
+                // landed before this entry ran, for example through a direct LocalMerge landing
+                // of the same mission. That is resolved as already landed, not failed as a no-op.
+                // A mission without a recorded commit keeps the no-op failure: an empty branch
+                // proves no work, while a recorded commit on the target proves landed work. On a
+                // vessel that lands by pushing, the commit must also be on origin: a local target
+                // that could not be reset may be stale-ahead, and its content is not landed.
+                if (alreadyMerged)
+                {
+                    string? landedCommit = await ResolveAlreadyLandedCommitAsync(entry, integrationPath, token).ConfigureAwait(false);
+                    if (!String.IsNullOrEmpty(landedCommit) &&
+                        (await IsAncestorAsync(integrationPath, landedCommit!, "refs/remotes/origin/" + entry.TargetBranch, token).ConfigureAwait(false) ||
+                         await TargetHoldsUnpushedLandingsAsync(entry, token).ConfigureAwait(false)))
+                    {
+                        _Logging.Info(_Header + "work already landed for " + entryTag + " (commit " + landedCommit + ")");
+                        entry.Status = MergeStatusEnum.Cancelled;
+                        entry.TestOutput = "Branch " + entry.BranchName + " and its mission commit " + landedCommit
+                            + " are already in " + entry.TargetBranch + "; the work landed before this entry ran, so there is nothing to merge.";
+                        entry.CompletedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                        await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
+                        await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                        return;
+                    }
+                }
+
                 string failureReason = "No-op merge queue entry: branch " + entry.BranchName +
                     " does not advance target branch " + entry.TargetBranch +
                     " (HEAD remains " + integrationHeadAfterMerge + ")";
@@ -2038,7 +2182,7 @@ namespace Armada.Core.Services
 
                 if (!await IsBranchCheckedOutInWorktreeAsync(repoPath, entry.TargetBranch, token).ConfigureAwait(false))
                 {
-                    await RunGitAsync(repoPath, token, "branch", "-f", entry.TargetBranch, "refs/remotes/origin/" + entry.TargetBranch).ConfigureAwait(false);
+                    await ResetLocalTargetToRemoteAsync(entry, repoPath, entry.TargetBranch, "failed-landing rollback", token).ConfigureAwait(false);
                 }
 
                 string remoteHead = await ResolveCommitAsync(repoPath, "refs/remotes/origin/" + entry.TargetBranch, token).ConfigureAwait(false);
@@ -2110,7 +2254,8 @@ namespace Armada.Core.Services
         /// to the expected integration commit before advertising the merge as landed. A stale
         /// or ineffective push is rejected here rather than treated as a successful delivery.
         /// Once verified, make the bare repository's local target branch match the fetched
-        /// remote target. When the target branch is checked out in a worktree, the local
+        /// remote target. When the target branch is checked out in a worktree, or when the move
+        /// would drop local-only landed commits of a vessel that lands without pushing, the local
         /// update is skipped and a structured event is emitted rather than failing the land.
         /// </summary>
         private async Task SynchronizeTargetBranchAfterPushAsync(MergeEntry entry, string repoPath, string targetBranch, string expectedIntegrationCommit, CancellationToken token)
@@ -2142,7 +2287,11 @@ namespace Armada.Core.Services
                 return;
             }
 
-            await RunGitAsync(repoPath, token, "branch", "-f", targetBranch, remoteRef).ConfigureAwait(false);
+            if (!await ResetLocalTargetToRemoteAsync(entry, repoPath, targetBranch, "post-push sync", token).ConfigureAwait(false))
+            {
+                await EmitTargetRefSyncSkippedAsync(entry, targetBranch, "local_only_landed_commits_kept", token).ConfigureAwait(false);
+                return;
+            }
 
             string localHead = (await RunGitCapturingAsync(repoPath, token, "rev-parse", "--verify", localRef).ConfigureAwait(false)).StandardOutput.Trim();
             if (!String.Equals(localHead, remoteHead, StringComparison.OrdinalIgnoreCase))
@@ -2913,8 +3062,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Emit a structured event when the local target ref sync is skipped because
-        /// the branch is checked out in a worktree.
+        /// Emit a structured event when the local target ref sync is skipped, naming the reason
+        /// (the branch is checked out in a worktree, or the local ref holds landed commits).
         /// </summary>
         private async Task EmitTargetRefSyncSkippedAsync(MergeEntry entry, string targetBranch, string reason, CancellationToken token)
         {

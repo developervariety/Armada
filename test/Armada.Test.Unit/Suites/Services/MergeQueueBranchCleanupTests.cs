@@ -126,6 +126,38 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         /// <summary>
+        /// Commit a file on a new branch cut from origin/main in the working clone and copy that
+        /// branch into the local bare repository, the way a captain branch reaches it.
+        /// </summary>
+        private async Task<string> CreateBareBranchWithCommitAsync(GitRepoSetup repos, string branchName, string filePath)
+        {
+            await RunGitAsync(repos.WorkingDir, "checkout", "-b", branchName, "origin/main").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repos.WorkingDir, filePath), branchName + "\n").ConfigureAwait(false);
+            await RunGitAsync(repos.WorkingDir, "add", filePath).ConfigureAwait(false);
+            await RunGitAsync(repos.WorkingDir, "commit", "-m", "Add " + filePath).ConfigureAwait(false);
+            string head = (await RunGitAsync(repos.WorkingDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+            await RunGitAsync(repos.WorkingDir, "checkout", "main").ConfigureAwait(false);
+            await RunGitAsync(repos.BareDir, "fetch", repos.WorkingDir, "+refs/heads/" + branchName + ":refs/heads/" + branchName).ConfigureAwait(false);
+            return head;
+        }
+
+        /// <summary>
+        /// True when <paramref name="ancestor"/> is reachable from <paramref name="descendant"/>.
+        /// </summary>
+        private async Task<bool> IsAncestorInRepoAsync(string repoPath, string ancestor, string descendant)
+        {
+            try
+            {
+                await RunGitAsync(repoPath, "merge-base", "--is-ancestor", ancestor, descendant).ConfigureAwait(false);
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Install a server-side pre-receive hook on a bare repo that rejects any push
         /// updating the given branch, so a land-push can be forced to fail without
         /// advancing the remote target.
@@ -724,6 +756,147 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string mainFiles = await RunGitAsync(repos.RemoteDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
                         AssertTrue(mainFiles.Contains("feature.txt"), "The captain file must be present on the remote default branch");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntryByIdAsync_LocalMergeTargetAheadOfOrigin_KeepsLocallyLandedWork", async () =>
+            {
+                // A LocalMerge landing advances the local target and deliberately pushes nothing, so
+                // on such a vessel the local target is legitimately ahead of origin. A later queue
+                // entry on the same vessel must build on that local target. Resetting it to origin
+                // removes the landed work from the branch.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_localmerge_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string landedBranch = "armada/captain-2/msn_test002";
+                    string landedBranchHead = await CreateBareBranchWithCommitAsync(repos, landedBranch, "landed.txt").ConfigureAwait(false);
+                    string remoteMainBefore = await ResolveGitRefAsync(repos.RemoteDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("local-merge-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.LocalMerge;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission landedMission = new Mission("Locally landed mission", "Lands through LocalMerge.");
+                        landedMission.VesselId = vessel.Id;
+                        landedMission.Persona = "Worker";
+                        landedMission.BranchName = landedBranch;
+                        landedMission.CommitHash = landedBranchHead;
+                        landedMission = await testDb.Driver.Missions.CreateAsync(landedMission).ConfigureAwait(false);
+
+                        LandingService landing = new LandingService(logging, testDb.Driver, settings, git);
+                        bool landed = await landing.MergeInDedicatedWorktreeAsync(vessel, landedMission, "main").ConfigureAwait(false);
+                        AssertTrue(landed, "Precondition: the LocalMerge landing must succeed");
+
+                        string localMainAfterLanding = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+                        AssertTrue(await IsAncestorInRepoAsync(repos.BareDir, landedBranchHead, localMainAfterLanding).ConfigureAwait(false),
+                            "Precondition: the landing must advance the local target");
+                        AssertEqual(remoteMainBefore, await ResolveGitRefAsync(repos.RemoteDir, "main").ConfigureAwait(false),
+                            "Precondition: a LocalMerge landing must not push");
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        string localMainAfterQueue = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+                        AssertTrue(await IsAncestorInRepoAsync(repos.BareDir, localMainAfterLanding, localMainAfterQueue).ConfigureAwait(false),
+                            "The locally landed commit " + localMainAfterLanding + " must remain on the local target, which is now " + localMainAfterQueue);
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Landed, updated!.Status, "The queued entry must land on top of the local target: " + (updated.TestOutput ?? ""));
+                        string mainFiles = await RunGitAsync(repos.BareDir, "ls-tree", "-r", "--name-only", "main").ConfigureAwait(false);
+                        AssertTrue(mainFiles.Contains("landed.txt"), "The locally landed file must still be on the local target");
+                        AssertTrue(mainFiles.Contains("feature.txt"), "The queued entry's file must be on the local target");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("ProcessEntryByIdAsync_LocalMergeMissionAlreadyLanded_ResolvesEntryWithoutMovingTarget", async () =>
+            {
+                // The same mission can land through the LocalMerge path and also reach the queue.
+                // The queue entry must resolve as already landed from the local target that holds
+                // the work, and must neither move that target nor push it.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_localmerge_dup_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string captainHead = await ResolveGitRefAsync(repos.RemoteDir, repos.CaptainBranch).ConfigureAwait(false);
+                    string remoteMainBefore = await ResolveGitRefAsync(repos.RemoteDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("local-merge-dup-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.LocalMerge;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Mission mission = new Mission("Doubly routed mission", "Lands through LocalMerge and is also queued.");
+                        mission.VesselId = vessel.Id;
+                        mission.Persona = "Worker";
+                        mission.BranchName = repos.CaptainBranch;
+                        mission.CommitHash = captainHead;
+                        mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        LandingService landing = new LandingService(logging, testDb.Driver, settings, git);
+                        bool landed = await landing.MergeInDedicatedWorktreeAsync(vessel, mission, "main").ConfigureAwait(false);
+                        AssertTrue(landed, "Precondition: the LocalMerge landing must succeed");
+                        string localMainAfterLanding = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.MissionId = mission.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                        AssertEqual(localMainAfterLanding, await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false),
+                            "The local target must still hold the LocalMerge landing");
+                        AssertEqual(remoteMainBefore, await ResolveGitRefAsync(repos.RemoteDir, "main").ConfigureAwait(false),
+                            "Resolving an already landed entry must not push the LocalMerge target");
+
+                        MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertNotNull(updated, "Entry should still exist");
+                        AssertEqual(MergeStatusEnum.Cancelled, updated!.Status, "An entry whose mission already landed resolves without a merge: " + (updated.TestOutput ?? ""));
+                        AssertContains("already in main", updated.TestOutput ?? "", "The resolution must say the work is already on the target");
                     }
                 }
                 finally

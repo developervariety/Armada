@@ -83,6 +83,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **The merge queue keeps LocalMerge landings on the local target:** a vessel
+  whose effective landing mode is `LocalMerge` merges into the local target and
+  pushes nothing, so its local target is legitimately ahead of origin. Integration
+  setup, the post-push sync and the failed-landing rollback reset the local
+  target to origin only when the move fast-forwards or the vessel lands by
+  pushing; otherwise they keep the ref and log a warning that names the kept
+  commits, and the post-push sync records a `target_ref_sync_skipped` event. A
+  queue entry whose mission commit is already on the target (and on origin for a
+  pushing vessel) is `Cancelled` as already landed instead of failing as a no-op.
 - **Restarting a mission of an ended voyage is refused:** REST, WebSocket and
   MCP restart share one rule that refuses a mission whose voyage is `Complete`,
   `Failed` or `Cancelled` with `code: "voyage_ended"`, names the voyage and its
