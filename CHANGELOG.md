@@ -83,6 +83,21 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Restarting a mission of an ended voyage is refused:** REST, WebSocket and
+  MCP restart share one rule that refuses a mission whose voyage is `Complete`,
+  `Failed` or `Cancelled` with `code: "voyage_ended"`, names the voyage and its
+  status, and changes nothing. Assignment cancels a `Pending` mission of an
+  ended voyage, so the restart would report success and then be undone;
+  dispatch a new voyage or a rescue instead.
+- **A voyage ends Complete only when its work landed or was never meant to
+  land:** a `Failed` voyage becomes `Complete` (`failed_voyage_landed`) only
+  when at least one mission is `Complete`; a failed stage that is later
+  cancelled keeps it `Failed`. A live voyage with a cancelled stage and no
+  `Complete` mission ends `Failed` (`nothing_landed`), and one whose every
+  mission was cancelled ends `Cancelled`. Voyages that land work, report-only
+  voyages whose missions complete, and voyages that ask for no landing still
+  complete.
+
 - **A captain brief carries only what its mode and persona can use:** an Audit
   or Research brief leaves out `engineering` and `testing` skills and states
   Git Anchors as facts, not new work or prior art; the memory read-first rule

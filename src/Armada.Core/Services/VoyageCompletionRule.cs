@@ -25,8 +25,9 @@ namespace Armada.Core.Services
     /// <see cref="TerminalVoyageMissionRule.IsTerminalVoyage"/>). This set belongs to the voyage
     /// lifecycle only; a mission, merge entry, landing job, Check run and objective each have their
     /// own terminal set. A Complete or Cancelled voyage is never rewritten. A Failed voyage moves only
-    /// to Complete, and only when the next two steps would complete it: its failed work was later
-    /// landed, for example by a retried landing. A Failed voyage is never written Failed again, so its
+    /// to Complete, and only when the next two steps would complete it and at least one mission is
+    /// Complete: its failed work was later landed, for example by a retried landing. A failed stage
+    /// that was cancelled instead is not evidence of landed work. A Failed voyage is never written Failed again, so its
     /// completion time stays, and it never returns to Open or InProgress.
     /// </description></item>
     /// <item><description>
@@ -34,7 +35,9 @@ namespace Armada.Core.Services
     /// not done (<see cref="IsMissionDone"/>) is kept. A voyage with produced work held for an operator
     /// decision is kept: the held mission lands or fails only when the operator clears or fails the
     /// hold. When every mission is done, the voyage is Failed if any mission failed
-    /// (<see cref="IsMissionFailed"/>); otherwise it is a completion candidate.
+    /// (<see cref="IsMissionFailed"/>). A voyage whose every mission was cancelled is Cancelled. A voyage
+    /// with a cancelled stage and no Complete mission is Failed: its pipeline was cut short and nothing
+    /// landed. Otherwise it is a completion candidate.
     /// </description></item>
     /// <item><description>
     /// Check gate. A completion candidate that is not fully report-only is decided by its Checks:
@@ -76,10 +79,22 @@ namespace Armada.Core.Services
         /// <summary>Failed: every mission is done and a Check failed.</summary>
         public const string ReasonCheckFailed = "check_failed";
 
+        /// <summary>
+        /// Failed: every mission is done and none failed, but a stage was cancelled and no mission is Complete, so the
+        /// pipeline was cut short and nothing landed.
+        /// </summary>
+        public const string ReasonNothingLanded = "nothing_landed";
+
+        /// <summary>Cancelled: every mission on the voyage was cancelled.</summary>
+        public const string ReasonAllCancelled = "all_cancelled";
+
         /// <summary>Complete: every mission is done, none failed, and no Check holds or fails it.</summary>
         public const string ReasonAllDone = "all_done";
 
-        /// <summary>Complete: a Failed voyage whose missions are now all done without failure and whose Checks are green or absent.</summary>
+        /// <summary>
+        /// Complete: a Failed voyage whose missions are now all done without failure, at least one of them Complete
+        /// (its work landed), and whose Checks are green or absent.
+        /// </summary>
         public const string ReasonFailedVoyageLanded = "failed_voyage_landed";
 
         /// <summary>
@@ -144,7 +159,9 @@ namespace Armada.Core.Services
             VoyageCompletionVerdict verdict = await EvaluateMissionsAndChecksAsync(database, voyage.TenantId, voyage.Id, missions, token).ConfigureAwait(false);
             if (voyage.Status != VoyageStatusEnum.Failed) return verdict;
 
-            return verdict.NewStatus == VoyageStatusEnum.Complete
+            // A Failed voyage completes only on evidence that work landed: a Complete mission. A failed stage that was
+            // later cancelled, or work that was produced but never landed, leaves it Failed.
+            return verdict.NewStatus == VoyageStatusEnum.Complete && missions.Any(m => m.Status == MissionStatusEnum.Complete)
                 ? VoyageCompletionVerdict.Finish(VoyageStatusEnum.Complete, ReasonFailedVoyageLanded)
                 : VoyageCompletionVerdict.Keep(ReasonVoyageTerminal);
         }
@@ -264,6 +281,15 @@ namespace Armada.Core.Services
 
             if (missions.Any(m => IsMissionFailed(m.Status)))
                 return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonMissionFailed);
+
+            // Cancelled counts as done so a voyage can finish, but it is not success. A voyage whose every mission was
+            // cancelled ends Cancelled; one with a cancelled stage and no Complete mission was cut short before
+            // anything landed and ends Failed. Work produced with no cancelled stage (a voyage that asked for no
+            // landing) still completes.
+            if (missions.All(m => m.Status == MissionStatusEnum.Cancelled))
+                return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Cancelled, ReasonAllCancelled);
+            if (!missions.Any(m => m.Status == MissionStatusEnum.Complete) && missions.Any(m => m.Status == MissionStatusEnum.Cancelled))
+                return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonNothingLanded);
 
             if (!VoyageReportOnlyClassifier.IsFullyReportOnly(missions))
             {

@@ -2056,7 +2056,9 @@ removed and a `mission.deleted` event is written.
 Restart a failed or cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description before restarting.
 It runs the same shared restart as `POST /api/v1/missions/{id}/restart` and `armada_restart_mission`: a `LandingFailed`
 mission is refused with `code: "use_retry_landing"` and a reason that names retry-landing, and any other status except
-`Failed` and `Cancelled` is refused with `code: "mission_not_restartable"`.
+`Failed` and `Cancelled` is refused with `code: "mission_not_restartable"`. A mission whose voyage is `Complete`, `Failed`
+or `Cancelled` is refused with `code: "voyage_ended"` and a reason that names the voyage and its status; dispatch a new
+voyage (or a rescue) for that work instead.
 
 **Request:**
 

@@ -1954,7 +1954,9 @@ Restart a failed or cancelled mission by resetting it to `Pending` for re-dispat
 
 REST, WebSocket `restart_mission` and MCP `armada_restart_mission` share one restart. Only a `Failed` or `Cancelled`
 mission is restarted. A `LandingFailed` mission keeps its produced work: the restart is refused and the reason names
-`POST /api/v1/missions/{id}/retry-landing` (MCP `armada_retry_landing`), which re-lands that work instead. A restart
+`POST /api/v1/missions/{id}/retry-landing` (MCP `armada_retry_landing`), which re-lands that work instead. A mission
+whose voyage is `Complete`, `Failed` or `Cancelled` is refused, and the reason names the voyage and its status: assignment
+cancels a `Pending` mission of an ended voyage, so dispatch a new voyage (or a rescue) for that work instead. A restart
 records a restart signal owned by the mission's owner, writes a `mission.restarted` event, and broadcasts the change.
 
 **Path Parameters:**
@@ -1980,7 +1982,7 @@ records a restart signal owned by the mission's owner, writes a `mission.restart
 **Errors:**
 - `400` - The request body is not a restart request
 - `404` - Mission not found
-- `409` - Mission is not in `Failed` or `Cancelled` status (a `LandingFailed` refusal names retry-landing), or the fleet has no capacity for the restarted work
+- `409` - Mission is not in `Failed` or `Cancelled` status (a `LandingFailed` refusal names retry-landing), its voyage is `Complete`, `Failed` or `Cancelled`, or the fleet has no capacity for the restarted work
 
 ---
 
@@ -1988,7 +1990,7 @@ records a restart signal owned by the mission's owner, writes a `mission.restart
 
 Rebase a `WorkProduced` or `LandingFailed` mission's branch onto the current target and re-attempt landing. The produced
 work is kept. After the attempt, the mission's voyage is decided again by the voyage completion rule, at any age: a
-`Failed` voyage whose failed work has now landed becomes `Complete` and raises the voyage completion hook. MCP
+`Failed` voyage whose failed work has now landed (at least one mission `Complete`, none `Failed`) becomes `Complete` and raises the voyage completion hook. MCP
 `armada_retry_landing` runs the same retry.
 
 **Response:** `200 OK` - `{ "Status": "landed", "MissionId": "msn_abc123", "MissionStatus": "Complete" }`
@@ -4700,7 +4702,7 @@ A recorded event representing a state change in the system.
 - `captain.stall_confirmed` - The stall evaluator confirmed that a captain is stalled; the message names the evidence
 - `captain.stall_cleared` - The stall evaluator found a signal inside the window, so a quiet captain is not stalled
 - `voyage.dispatched` - A voyage was created: by a dispatch with all of its missions, by an autonomous rescue with its missions, or without missions (the message then counts 0 missions)
-- `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, and its Checks green or absent
+- `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, a cancelled stage only beside a `Complete` mission, and its Checks green or absent
 - `voyage.deleted` - Voyage permanently deleted
 
 Each type in this list has a code path that writes it; a unit test compares the list with the event types the source writes.

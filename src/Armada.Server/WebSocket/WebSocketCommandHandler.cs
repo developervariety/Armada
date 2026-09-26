@@ -822,7 +822,8 @@ namespace Armada.Server.WebSocket
 
         /// <summary>
         /// Run the <c>restart_mission</c> command through the shared restart REST and MCP use: only a Failed or Cancelled
-        /// mission is restarted, and a LandingFailed mission is refused with a pointer to retry-landing.
+        /// mission is restarted, a LandingFailed mission is refused with a pointer to retry-landing, and a mission whose
+        /// voyage has ended is refused with a pointer to a new voyage.
         /// </summary>
         private async Task<object> RestartMissionCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {

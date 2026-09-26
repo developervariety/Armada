@@ -390,7 +390,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_restart_mission",
-                "Restart a Failed or Cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting. A LandingFailed mission keeps its produced work and is refused: use armada_retry_landing.",
+                "Restart a Failed or Cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting. A LandingFailed mission keeps its produced work and is refused: use armada_retry_landing. A mission whose voyage is Complete, Failed or Cancelled is refused: dispatch a new voyage or a rescue instead.",
                 new
                 {
                     type = "object",
@@ -410,7 +410,8 @@ namespace Armada.Server.Mcp.Tools
                     if (mission == null) return (object)new { Error = "Mission not found" };
 
                     // REST, WebSocket and MCP share one restart: the eligibility rule (LandingFailed is refused with a
-                    // pointer to retry-landing), the capacity gate, the owned signal, the event and the broadcast.
+                    // pointer to retry-landing; a mission of an ended voyage is refused), the capacity gate, the owned signal, the event
+                    // and the broadcast.
                     MissionRestartResult restart;
                     try
                     {

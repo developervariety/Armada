@@ -1008,7 +1008,8 @@ namespace Armada.Server.Routes
                 }
 
                 // REST, WebSocket and MCP share one restart: the eligibility rule (LandingFailed is refused with a
-                // pointer to retry-landing), the capacity gate, the owned signal, the event and the broadcast.
+                // pointer to retry-landing; a mission of an ended voyage is refused), the capacity gate, the owned signal, the event
+                // and the broadcast.
                 MissionRestartResult restart;
                 try
                 {
@@ -1039,7 +1040,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Restart a failed or cancelled mission")
-                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields. Any other status is refused with 409; a LandingFailed mission keeps its produced work, and the refusal names retry-landing.")
+                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields. Any other status is refused with 409; a LandingFailed mission keeps its produced work, and the refusal names retry-landing. A mission whose voyage is Complete, Failed or Cancelled is refused with 409 naming the voyage status: dispatch a new voyage or a rescue instead.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<MissionRestartRequest>("Optional updated instructions", false))
                 .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission"))

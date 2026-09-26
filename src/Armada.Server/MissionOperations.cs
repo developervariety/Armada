@@ -254,7 +254,9 @@ namespace Armada.Server
         /// Restart one mission: return a Failed or Cancelled mission to Pending through
         /// <see cref="MissionRestartService"/>, which owns the eligibility rule and the capacity gate, then record a
         /// restart signal owned by the mission's owner, write a <c>mission.restarted</c> event, and broadcast the
-        /// change. A LandingFailed mission is refused with a pointer to retry-landing.
+        /// change. A LandingFailed mission is refused with a pointer to retry-landing. A mission whose voyage has ended
+        /// (Complete, Failed or Cancelled) is refused with the voyage's status and a pointer to a new voyage, because
+        /// assignment cancels a Pending mission of an ended voyage. A refusal changes nothing.
         /// </summary>
         /// <param name="mission">Mission, already read under the caller's scope.</param>
         /// <param name="title">Optional new title; blank keeps the current one.</param>
@@ -268,11 +270,19 @@ namespace Armada.Server
             string? ineligible = MissionRestartService.FindIneligibility(mission, out string? code);
             if (ineligible != null) return MissionRestartResult.Refused(mission, code ?? MissionRestartService.NotRestartableCode, ineligible);
 
+            MissionRestartService restarter = new MissionRestartService(_Database, _Settings, _Logging);
+            Voyage? voyage = await restarter.ReadVoyageAsync(mission, token).ConfigureAwait(false);
+            string? voyageEnded = MissionRestartService.FindVoyageIneligibility(mission, voyage);
+            if (voyageEnded != null)
+            {
+                _Logging?.Info(_Header + "restart of mission " + mission.Id + " refused: " + voyageEnded);
+                return MissionRestartResult.Refused(mission, MissionRestartService.VoyageEndedCode, voyageEnded);
+            }
+
             Mission restarted;
             try
             {
-                restarted = await new MissionRestartService(_Database, _Settings, _Logging)
-                    .RestartAsync(mission, title, description, token).ConfigureAwait(false);
+                restarted = await restarter.RestartAsync(mission, title, description, token).ConfigureAwait(false);
             }
             catch (InvalidOperationException ex) when (ex is not FleetCapacityAdmissionException)
             {

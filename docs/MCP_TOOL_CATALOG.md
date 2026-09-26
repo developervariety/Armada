@@ -130,7 +130,9 @@ in order:
    Missions, merge entries, landing jobs and Checks each have their own
    terminal set. A `Complete` or `Cancelled` voyage stays as it is. A `Failed`
    voyage can move only to `Complete`. That happens when steps 2 to 4 would
-   complete it, for example after a retried landing lands its failed work. A
+   complete it and at least one mission is `Complete`, for example after a
+   retried landing lands its failed work. A failed stage that is later
+   `Cancelled`, or work that is produced but never landed, keeps it `Failed`. A
    `Failed` voyage is never written `Failed` again, so its completion time does
    not change. It never returns to `Open` or `InProgress`.
 2. A voyage with no missions stays open. A voyage stays open while any mission
@@ -139,7 +141,11 @@ in order:
    for operator review. All other mission statuses are finished:
    `WorkProduced`, `Complete`, `Failed`, `LandingFailed` and `Cancelled`.
 3. If a finished mission is `Failed` or `LandingFailed`, the voyage becomes
-   `Failed`.
+   `Failed`. If every mission is `Cancelled`, the voyage becomes `Cancelled`.
+   If a mission is `Cancelled` and no mission is `Complete`, the pipeline was
+   cut short before anything landed, and the voyage becomes `Failed`
+   (`nothing_landed`). A voyage whose missions are all `WorkProduced` (it asked
+   for no landing) goes on to step 4.
 4. If a voyage has code missions, its Checks decide the result. This includes
    Checks attached to its missions. A failed Check makes the voyage `Failed`,
    and a Pending or Running Check keeps it open. A voyage with green Checks or
@@ -153,6 +159,13 @@ ago it failed. The health loop and the landing drain visit `Open` and
 `InProgress` voyages, and `Failed` voyages that ended in the last 24 hours. The landing drain only applies the
 completion rule to a `Failed` voyage. It does not enqueue or rescue that
 voyage's work.
+
+`armada_restart_mission`, REST `POST /api/v1/missions/{id}/restart` and the
+WebSocket `restart_mission` command share one restart. A mission whose voyage
+is `Complete`, `Failed` or `Cancelled` is refused with `code: "voyage_ended"`
+and a reason that names the voyage and its status, and nothing changes.
+Assignment cancels a `Pending` mission of an ended voyage, so a restart there
+cannot run. Dispatch a new voyage, or a rescue, for that work instead.
 
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `nextOffset` until `hasMore` is false. Then verify `sha256`, `finalized`, and

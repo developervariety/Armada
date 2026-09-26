@@ -14,7 +14,9 @@ namespace Armada.Test.Unit.Suites.Routes
     /// <summary>
     /// Restarting a mission is one operation on REST, WebSocket and MCP. A LandingFailed mission keeps its produced
     /// work: every surface refuses to restart it and names retry-landing. A Failed mission returns to Pending, and every
-    /// surface writes the same event, broadcasts the same change, and records a restart signal its owner can read.
+    /// surface writes the same event, broadcasts the same change, and records a restart signal its owner can read. A
+    /// mission whose voyage has ended (Failed, Complete or Cancelled) is refused on every surface, because a mission of
+    /// an ended voyage is never assigned.
     /// </summary>
     public class MissionRestartParityTests : TestSuite
     {
@@ -73,6 +75,70 @@ namespace Armada.Test.Unit.Suites.Routes
                     }
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("RestartMission_MissionOfTerminalVoyage_IsRefusedAndNamesTheVoyageStatusOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    VoyageStatusEnum[] terminal = new[] { VoyageStatusEnum.Failed, VoyageStatusEnum.Complete, VoyageStatusEnum.Cancelled };
+                    foreach (string surface in Surfaces)
+                    {
+                        foreach (VoyageStatusEnum voyageStatus in terminal)
+                        {
+                            Mission mission = await SeedAsync(harness, surface + "-" + voyageStatus, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+                            Voyage voyage = await AttachVoyageAsync(harness, mission, voyageStatus).ConfigureAwait(false);
+                            harness.ResetRecordings();
+
+                            SurfaceReply reply = await RestartAsync(harness, surface, mission.Id).ConfigureAwait(false);
+
+                            string label = surface + " (" + voyageStatus + " voyage)";
+                            AssertTrue(reply.Refused, label + ": a mission of an ended voyage is not restarted: " + reply);
+                            AssertContains(voyage.Id, reply.Body, label + ": the refusal names the voyage: " + reply);
+                            AssertContains(voyageStatus.ToString(), reply.Body, label + ": the refusal names the voyage status: " + reply);
+                            AssertContains("new voyage", reply.Body, label + ": the refusal says to dispatch a new voyage: " + reply);
+                            Mission? stored = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                            AssertEqual(MissionStatusEnum.Cancelled, stored!.Status, label + ": the mission keeps its status");
+                            Voyage? storedVoyage = await harness.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                            AssertEqual(voyageStatus, storedVoyage!.Status, label + ": the voyage keeps its status");
+                            AssertEqual(0, harness.Events.Count, label + ": a refused restart writes no event");
+                        }
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RestartMission_MissionOfLiveVoyage_ReturnsToPendingOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    foreach (string surface in Surfaces)
+                    {
+                        Mission mission = await SeedAsync(harness, surface + "-live", MissionStatusEnum.Failed).ConfigureAwait(false);
+                        await AttachVoyageAsync(harness, mission, VoyageStatusEnum.InProgress).ConfigureAwait(false);
+                        harness.ResetRecordings();
+
+                        SurfaceReply reply = await RestartAsync(harness, surface, mission.Id).ConfigureAwait(false);
+
+                        AssertFalse(reply.Refused, surface + ": a mission of a live voyage is restarted: " + reply);
+                        Mission? stored = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Pending, stored!.Status, surface + ": the mission is Pending");
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task<Voyage> AttachVoyageAsync(SurfaceParityHarness harness, Mission mission, VoyageStatusEnum status)
+        {
+            bool ended = status == VoyageStatusEnum.Failed || status == VoyageStatusEnum.Complete || status == VoyageStatusEnum.Cancelled;
+            Voyage voyage = await harness.Driver.Voyages.CreateAsync(new Voyage("restart voyage " + status, "restart parity")
+            {
+                TenantId = mission.TenantId,
+                UserId = mission.UserId,
+                Status = status,
+                CompletedUtc = ended ? DateTime.UtcNow : (DateTime?)null
+            }).ConfigureAwait(false);
+            mission.VoyageId = voyage.Id;
+            await harness.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            return voyage;
         }
 
         private static async Task<Mission> SeedAsync(SurfaceParityHarness harness, string surface, MissionStatusEnum status)
