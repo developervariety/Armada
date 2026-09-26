@@ -2379,6 +2379,18 @@ namespace Armada.Server
                     }
                 }),
 
+                // A Judge PASS held until its Checks pass is decided here: released as it stands once
+                // they pass at the reviewed commit, rejected when one fails.
+                HealthLoopMaintenanceStep.EveryCycles("held Judge PASS release", () => 1, async stepToken =>
+                {
+                    if (_MissionService is MissionService missions)
+                    {
+                        int decided = await missions.ReleaseJudgeCheckWaitHoldsAsync(stepToken).ConfigureAwait(false);
+                        if (decided > 0)
+                            _Logging.Info(_Header + "decided " + decided + " Judge PASS(es) held for their Checks");
+                    }
+                }),
+
                 HealthLoopMaintenanceStep.EveryCycles("log rotation", () => 10, stepToken =>
                 {
                     _LogRotation.RotateAllInDirectory(Path.Combine(_Settings.LogDirectory, "captains"));

@@ -386,11 +386,27 @@ namespace Armada.Core.Services
         private const int _MaxMissingJudgeVerdictRetries = 2;
 
         /// <summary>
-        /// Maximum in-place re-runs of a Judge mission whose PASS is held because its independent
-        /// Checks are still Pending or Running. After this budget, the PASS is rejected as
-        /// unresolved rather than waiting forever.
+        /// How long a Judge PASS may wait in its check-wait hold. Past it the PASS is rejected as
+        /// unresolved, naming the Checks it waited on, rather than holding the voyage open forever.
         /// </summary>
-        private const int _MaxJudgeCheckWaitRetries = 3;
+        public TimeSpan JudgeCheckWaitBudget
+        {
+            get { return _JudgeCheckWaitBudget; }
+            set { _JudgeCheckWaitBudget = value < TimeSpan.FromMinutes(1) ? TimeSpan.FromMinutes(1) : value; }
+        }
+
+        private TimeSpan _JudgeCheckWaitBudget = TimeSpan.FromHours(2);
+
+        /// <summary>
+        /// Clock for the check-wait hold. Tests replace it to move time instead of waiting.
+        /// </summary>
+        internal Func<DateTime> UtcNowProvider
+        {
+            get { return _UtcNow; }
+            set { _UtcNow = value ?? (() => DateTime.UtcNow); }
+        }
+
+        private Func<DateTime> _UtcNow = () => DateTime.UtcNow;
 
         /// <summary>
         /// Marker a Judge review must contain to document an environmental exclusion when no
@@ -1429,6 +1445,15 @@ namespace Armada.Core.Services
             string reasonText = reason.Trim();
             string previousHold = mission.HeldForOperatorReviewReason ?? "no reason recorded";
 
+            // A PASS waiting on its Checks is not an operator decision: releasing it by hand would pass
+            // work whose Checks never passed at the reviewed commit. It releases itself when they pass.
+            if (JudgeCheckWaitHold.IsReason(mission.HeldForOperatorReviewReason))
+            {
+                throw new InvalidOperationException("Mission " + missionId + " is held until its independent Checks pass at the reviewed commit, "
+                    + "not for operator review. It is released automatically when they pass and rejected when one fails; "
+                    + "use action fail to reject it now. Hold: " + previousHold);
+            }
+
             ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -1438,6 +1463,18 @@ namespace Armada.Core.Services
                 operatorText, reasonText, previousHold, token).ConfigureAwait(false);
             _Logging.Info(_Header + "mission " + mission.Id + " operator review hold cleared by " + operatorText + ": " + reasonText);
 
+            return await ContinueReleasedPassAsync(mission, "Operator review hold cleared", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Run the handoff or landing a released Judge PASS was held in front of.
+        /// </summary>
+        /// <param name="mission">The mission, with its hold already cleared and persisted.</param>
+        /// <param name="releasedBy">Opening of the failure reason when the dock is gone.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The mission after handoff or landing.</returns>
+        private async Task<Mission> ContinueReleasedPassAsync(Mission mission, string releasedBy, CancellationToken token)
+        {
             // A mission waiting at a review gate continues through that gate's approval; the hold only
             // stood in front of it. A produced mission now runs the handoff or landing the hold stopped.
             if (mission.Status != MissionStatusEnum.WorkProduced) return mission;
@@ -1456,7 +1493,7 @@ namespace Armada.Core.Services
             if (dock == null)
             {
                 mission.Status = MissionStatusEnum.LandingFailed;
-                mission.FailureReason = "Operator review hold cleared but the mission dock was unavailable for landing.";
+                mission.FailureReason = releasedBy + " but the mission dock was unavailable for landing.";
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -1481,6 +1518,194 @@ namespace Armada.Core.Services
 
             Mission? landed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
             return landed ?? mission;
+        }
+
+        /// <summary>
+        /// Event type recorded when a Judge PASS held for its Checks is released or decided.
+        /// </summary>
+        public const string CheckWaitHoldDecidedEventType = "mission.check_hold_decided";
+
+        /// <summary>
+        /// Decide every Judge PASS held until its independent Checks pass. A PASS whose Checks all
+        /// passed at exactly the reviewed commit is released as it stands and proceeds to handoff or
+        /// landing without a new Judge run. A failed Check at that commit rejects it, as it would
+        /// have at completion. A PASS whose reviewed commit changed is re-run, because the review
+        /// no longer describes the work. A PASS still waiting past <see cref="JudgeCheckWaitBudget"/>
+        /// is rejected as unresolved. Any other PASS keeps waiting.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of held PASSes decided (released, rejected, or re-run).</returns>
+        public async Task<int> ReleaseJudgeCheckWaitHoldsAsync(CancellationToken token = default)
+        {
+            List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            int decided = 0;
+            foreach (Mission candidate in produced)
+            {
+                if (!JudgeCheckWaitHold.IsHeld(candidate)) continue;
+                if (!IsPersona(candidate.Persona, PersonaCatalog.Judge)) continue;
+
+                try
+                {
+                    if (await DecideJudgeCheckWaitHoldAsync(candidate, token).ConfigureAwait(false)) decided++;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not decide the check-wait hold of judge mission " + candidate.Id + ": " + ex.Message);
+                }
+            }
+
+            return decided;
+        }
+
+        private async Task<bool> DecideJudgeCheckWaitHoldAsync(Mission mission, CancellationToken token)
+        {
+            string holdReason = mission.HeldForOperatorReviewReason ?? String.Empty;
+            if (!JudgeCheckWaitHold.TryParse(holdReason, out DateTime sinceUtc, out string recordedCommit, out string? operatorReview))
+            {
+                _Logging.Warn(_Header + "judge mission " + mission.Id + " check-wait hold reason is not readable; it stays held: " + holdReason);
+                return false;
+            }
+
+            if (!JudgeCheckWaitHold.IsSameReviewedCommit(recordedCommit, mission.CommitHash))
+            {
+                // The review describes a commit the mission no longer carries: only a new review can
+                // decide the new one.
+                string moved = "reviewed commit changed from " + recordedCommit + " to " + (mission.CommitHash ?? "(none)");
+                await RecordCheckWaitDecisionAsync(mission, "rerun", moved, token).ConfigureAwait(false);
+                Dock? staleDock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+                await ResetMissionForReRunAsync(mission, MissionAttemptFactRules.JudgeCheckWaitReason, token).ConfigureAwait(false);
+                if (staleDock != null) await ReclaimMissionDockAsync(staleDock.Id, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "judge mission " + mission.Id + " re-run: " + moved);
+                return true;
+            }
+
+            JudgeCheckGate gate = await EvaluateJudgeCheckGateAsync(mission, token).ConfigureAwait(false);
+            switch (gate)
+            {
+                case JudgeCheckGate.GreenChecks:
+                case JudgeCheckGate.NoChecksWithExclusion:
+                    return await ReleaseCheckWaitPassAsync(mission, operatorReview, token).ConfigureAwait(false);
+
+                case JudgeCheckGate.HasFailed:
+                    await RejectCheckWaitPassAsync(mission, BuildFailedCheckRejectionReason(_LastJudgeGateChecks), token).ConfigureAwait(false);
+                    return true;
+
+                case JudgeCheckGate.NoChecksNoExclusion:
+                    await RejectCheckWaitPassAsync(mission, JudgeNoChecksFailureReason, token).ConfigureAwait(false);
+                    return true;
+
+                case JudgeCheckGate.HasPending:
+                default:
+                    TimeSpan waited = _UtcNow() - sinceUtc;
+                    if (waited < _JudgeCheckWaitBudget) return false;
+
+                    string unresolved = DescribeUnresolvedChecks(_LastJudgeGateChecks, _LastJudgeReviewedCommit);
+                    string reason =
+                        "Judge PASS rejected: independent Checks at the reviewed commit did not resolve within "
+                        + FormatWaitBudget(_JudgeCheckWaitBudget) + " (real-signal gate)."
+                        + (String.IsNullOrEmpty(unresolved)
+                            ? String.Empty
+                            : " Unresolved Checks: " + unresolved + ".")
+                        + " Inspect those Check records; the Judge captain is not the subject of this rejection.";
+                    await RejectCheckWaitPassAsync(mission, reason, token).ConfigureAwait(false);
+                    return true;
+            }
+        }
+
+        private async Task<bool> ReleaseCheckWaitPassAsync(Mission mission, string? operatorReview, CancellationToken token)
+        {
+            string checks = DescribeGreenChecks(_LastJudgeGateChecks);
+            if (!String.IsNullOrWhiteSpace(operatorReview))
+            {
+                // The Checks were only the first thing this PASS waited on; the review-substance hold
+                // still needs an operator.
+                mission.HeldForOperatorReviewReason = operatorReview;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await RecordCheckWaitDecisionAsync(mission, "operator_review",
+                    "Checks passed at " + mission.CommitHash + checks + "; the PASS stays held for operator review: " + operatorReview, token).ConfigureAwait(false);
+                return true;
+            }
+
+            ClearOperatorReviewHold(mission);
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await RecordCheckWaitDecisionAsync(mission, "released",
+                "Checks passed at the reviewed commit " + mission.CommitHash + checks + "; the Judge PASS is released without a new Judge run", token).ConfigureAwait(false);
+            _Logging.Info(_Header + "judge mission " + mission.Id + " PASS released: Checks passed at the reviewed commit " + mission.CommitHash);
+            await ContinueReleasedPassAsync(mission, "Judge PASS released after its Checks passed", token).ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task RejectCheckWaitPassAsync(Mission mission, string failureReason, CancellationToken token)
+        {
+            Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+
+            ClearOperatorReviewHold(mission);
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = failureReason;
+            mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, failureReason);
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.ProcessId = null;
+            mission.DockId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await RecordCheckWaitDecisionAsync(mission, "rejected", failureReason, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "judge mission " + mission.Id + " held PASS rejected: " + failureReason);
+
+            if (dock != null) await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
+        }
+
+        private async Task RecordCheckWaitDecisionAsync(Mission mission, string outcome, string detail, CancellationToken token)
+        {
+            await AppendMissionActivityAsync(mission.Id, "check-wait hold " + outcome + ": " + detail, token).ConfigureAwait(false);
+            ArmadaEvent evt = new ArmadaEvent(CheckWaitHoldDecidedEventType,
+                "Judge PASS check-wait hold " + outcome + " on mission " + mission.Id + ": " + detail)
+            {
+                TenantId = mission.TenantId,
+                UserId = mission.UserId,
+                EntityType = "mission",
+                EntityId = mission.Id,
+                MissionId = mission.Id,
+                VesselId = mission.VesselId,
+                VoyageId = mission.VoyageId
+            };
+            try
+            {
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record check-wait decision for mission " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        private static string DescribeGreenChecks(List<CheckRun>? checks)
+        {
+            if (checks == null) return String.Empty;
+            List<string> ids = checks
+                .Where(c => c != null && c.Status == CheckRunStatusEnum.Passed)
+                .Select(c => c.Id)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToList();
+            return ids.Count == 0 ? String.Empty : " (" + String.Join(", ", ids) + ")";
+        }
+
+        private static string FormatWaitBudget(TimeSpan budget)
+        {
+            if (budget.TotalHours >= 1 && budget.Minutes == 0) return ((int)budget.TotalHours) + " h";
+            return ((int)Math.Round(budget.TotalMinutes)) + " min";
         }
 
         /// <inheritdoc />
@@ -2535,9 +2760,10 @@ namespace Armada.Core.Services
                         // Real-signal gate: a Judge PASS must be backed by green independent Checks
                         // (Build/UnitTest from real command output the Judge did not produce), not by
                         // the agent's self-report or self-run tests. A failed Check overrides the PASS;
-                        // unresolved Checks hold the PASS until they land (bounded in-place re-run);
-                        // a PASS with no Checks at all is rejected unless the Judge documents an
-                        // environmental exclusion with the explicit marker.
+                        // unresolved Checks hold the PASS as it stands until they reach a verdict at the
+                        // reviewed commit (ReleaseJudgeCheckWaitHoldsAsync decides it later, without a
+                        // new Judge run); a PASS with no Checks at all is rejected unless the Judge
+                        // documents an environmental exclusion with the explicit marker.
                         // Each rejection branch already terminalizes the mission with a SPECIFIC
                         // FailureReason (the generic "Judge verdict: ..." fall-through below would
                         // otherwise overwrite it and misreport a PASS as a judge rejection).
@@ -2548,17 +2774,7 @@ namespace Armada.Core.Services
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
-                                string blocking = DescribeBlockingChecks(_LastJudgeGateChecks, CheckRunStatusEnum.Failed);
-                                string blockingEvidence = DescribeRejectingCheckEvidence(_LastJudgeGateChecks, CheckRunStatusEnum.Failed);
-                                mission.FailureReason =
-                                    "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)."
-                                    + (String.IsNullOrEmpty(blocking)
-                                        ? String.Empty
-                                        : " Failed Checks: " + blocking + ".")
-                                    + (String.IsNullOrEmpty(blockingEvidence)
-                                        ? String.Empty
-                                        : " Evidence: " + blockingEvidence + ".")
-                                    + " Resolve or re-run EVERY failed Check on this voyage before the Judge re-runs; a single unresolved record rejects the PASS.";
+                                mission.FailureReason = BuildFailedCheckRejectionReason(_LastJudgeGateChecks);
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 ClearOperatorReviewHold(mission);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -2568,35 +2784,25 @@ namespace Armada.Core.Services
                                 break;
 
                             case JudgeCheckGate.HasPending:
-                                if (mission.RecoveryAttempts < _MaxJudgeCheckWaitRetries)
                                 {
-                                    await ResetMissionForReRunAsync(mission, MissionAttemptFactRules.JudgeCheckWaitReason, token).ConfigureAwait(false);
-                                    retryingMissingVerdict = true;
+                                    // The review is finished; only its Checks are not. Keep the PASS and
+                                    // wait for their verdict at the reviewed commit instead of running
+                                    // the whole Judge again. The hold stops handoff and landing and keeps
+                                    // the dock for the landing the release runs.
                                     string holding = DescribeUnresolvedChecks(_LastJudgeGateChecks, _LastJudgeReviewedCommit);
-                                    _Logging.Info(_Header + "judge mission " + mission.Id +
-                                        " PASS held: independent Checks not green for the reviewed commit yet; re-running in place (attempt " +
-                                        mission.RecoveryAttempts + " of " + _MaxJudgeCheckWaitRetries + ")"
-                                        + (String.IsNullOrEmpty(holding) ? String.Empty : "; holding: " + holding));
-                                }
-                                else
-                                {
-                                    mission.Status = MissionStatusEnum.Failed;
-                                    mission.CompletedUtc = DateTime.UtcNow;
+                                    string? operatorReview = mission.HeldForOperatorReview ? mission.HeldForOperatorReviewReason : null;
+                                    mission.HeldForOperatorReview = true;
+                                    mission.HeldForOperatorReviewReason = JudgeCheckWaitHold.BuildReason(
+                                        _UtcNow(), mission.CommitHash, holding, operatorReview);
                                     mission.LastUpdateUtc = DateTime.UtcNow;
-                                    string unresolved = DescribeUnresolvedChecks(_LastJudgeGateChecks, _LastJudgeReviewedCommit);
-                                    mission.FailureReason =
-                                        "Judge PASS rejected: independent Checks never resolved after "
-                                        + _MaxJudgeCheckWaitRetries + " wait attempts (real-signal gate)."
-                                        + (String.IsNullOrEmpty(unresolved)
-                                            ? String.Empty
-                                            : " Unresolved Checks: " + unresolved + ".")
-                                        + " Inspect those Check records; the Judge captain is not the subject of this rejection.";
-                                    mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
-                                    ClearOperatorReviewHold(mission);
                                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                                    verdict = JudgeVerdict.Fail;
-                                    judgeGateRejected = true;
-                                    _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected: Checks unresolved after the wait budget");
+                                    await AppendMissionActivityAsync(mission.Id,
+                                        "Judge PASS held until the independent Checks pass at " + mission.CommitHash
+                                        + (String.IsNullOrEmpty(holding) ? String.Empty : "; waiting on: " + holding), token).ConfigureAwait(false);
+                                    _Logging.Info(_Header + "judge mission " + mission.Id +
+                                        " PASS held: independent Checks not green for the reviewed commit " + mission.CommitHash
+                                        + " yet; the PASS is released when they pass"
+                                        + (String.IsNullOrEmpty(holding) ? String.Empty : "; holding: " + holding));
                                 }
                                 break;
 
@@ -8507,6 +8713,26 @@ namespace Armada.Core.Services
         /// notice that one had been left unresolved.
         /// </summary>
         private List<CheckRun>? _LastJudgeGateChecks = null;
+
+        /// <summary>
+        /// The FailureReason for a Judge PASS rejected by a failed independent Check: the rule, the
+        /// failed records, and each one's commit and output tail.
+        /// </summary>
+        /// <param name="checks">The Checks collected by the gate. Null names no records.</param>
+        /// <returns>The failure reason.</returns>
+        internal static string BuildFailedCheckRejectionReason(List<CheckRun>? checks)
+        {
+            string blocking = DescribeBlockingChecks(checks, CheckRunStatusEnum.Failed);
+            string blockingEvidence = DescribeRejectingCheckEvidence(checks, CheckRunStatusEnum.Failed);
+            return "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)."
+                + (String.IsNullOrEmpty(blocking)
+                    ? String.Empty
+                    : " Failed Checks: " + blocking + ".")
+                + (String.IsNullOrEmpty(blockingEvidence)
+                    ? String.Empty
+                    : " Evidence: " + blockingEvidence + ".")
+                + " Resolve or re-run EVERY failed Check on this voyage before the Judge re-runs; a single unresolved record rejects the PASS.";
+        }
 
         /// <summary>
         /// Renders the Checks that block a Judge PASS as a compact, operator-actionable list.

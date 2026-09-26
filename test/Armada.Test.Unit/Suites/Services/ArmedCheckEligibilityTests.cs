@@ -229,6 +229,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A check armed while an earlier check waits for the host slot joins the slot queue without waiting for it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string workingDirectory = CreateWorkingDirectory();
+                    IDisposable? hostSlot = null;
+                    try
+                    {
+                        Vessel vessel = await CreateLiveDirectoryVesselAsync(testDb, workingDirectory).ConfigureAwait(false);
+                        Voyage voyage = new Voyage("landed-voyage");
+                        voyage.Status = VoyageStatusEnum.Complete;
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                        CheckRun first = await ArmRunnableCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+
+                        // Another caller (a definition-of-done gate or a long suite) holds the host slot,
+                        // so the first check waits in it for as long as the test decides.
+                        hostSlot = await HostWideCommandLock.AcquireAsync().ConfigureAwait(false);
+                        AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                        orchestrator.TriggerBackgroundSweep();
+                        bool firstQueued = await WaitUntilAsync(async () =>
+                            (await testDb.Driver.CheckRuns.ReadAsync(first.Id).ConfigureAwait(false))!.SlotRequestedUtc.HasValue).ConfigureAwait(false);
+                        AssertTrue(firstQueued, "the first check must reach the host slot queue");
+
+                        // Work moves on: a second check is armed while the first still waits.
+                        CheckRun second = await ArmRunnableCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                        orchestrator.TriggerBackgroundSweep();
+                        bool secondQueued = await WaitUntilAsync(async () =>
+                            (await testDb.Driver.CheckRuns.ReadAsync(second.Id).ConfigureAwait(false))!.SlotRequestedUtc.HasValue).ConfigureAwait(false);
+
+                        CheckRun? firstWhileHeld = await testDb.Driver.CheckRuns.ReadAsync(first.Id).ConfigureAwait(false);
+                        AssertTrue(secondQueued, "a newly armed check must be started by the next sweep, not wait until the earlier check finishes");
+                        AssertEqual(CheckRunStatusEnum.Pending, firstWhileHeld!.Status, "the host slot still serializes commands: nothing runs while another caller holds it");
+
+                        hostSlot.Dispose();
+                        hostSlot = null;
+                        bool bothDone = await WaitUntilAsync(async () =>
+                        {
+                            CheckRun? a = await testDb.Driver.CheckRuns.ReadAsync(first.Id).ConfigureAwait(false);
+                            CheckRun? b = await testDb.Driver.CheckRuns.ReadAsync(second.Id).ConfigureAwait(false);
+                            return a!.Status == CheckRunStatusEnum.Passed && b!.Status == CheckRunStatusEnum.Passed;
+                        }).ConfigureAwait(false);
+                        AssertTrue(bothDone, "both checks run once the host slot is free");
+                    }
+                    finally
+                    {
+                        hostSlot?.Dispose();
+                        DeleteDirectory(workingDirectory);
+                    }
+                }
+            });
+
             await RunTest("Sweep finds an eligible check behind two hundred ineligible checks", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -391,6 +442,22 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         private const string _DefaultBranchMarker = "measured-live-directory";
+
+        /// <summary>
+        /// Poll a condition until it holds or the deadline passes. The deadline only bounds a failing
+        /// run; a passing run returns as soon as the condition holds.
+        /// </summary>
+        private static async Task<bool> WaitUntilAsync(Func<Task<bool>> condition)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (await condition().ConfigureAwait(false)) return true;
+                await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
+            }
+
+            return await condition().ConfigureAwait(false);
+        }
 
         private static AuthContext BuildSystemAuth()
         {

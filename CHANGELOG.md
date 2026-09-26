@@ -119,6 +119,21 @@ upstream integrations and excludes changes already present at that baseline.
   "validation cancelled" activity line, and the mission keeps its `Cancelled`
   status.
 
+- **A newly armed Check starts on the next sweep:** the automatic Check sweep
+  starts each eligible Check on its own task, up to four in flight, and returns.
+  A re-armed or newly armed Check joins the host-wide command slot at once
+  instead of waiting until every Check of an earlier sweep finishes. The slot
+  still runs one build or test command at a time.
+
+- **A held Judge PASS is released without a new Judge run:** a PASS whose
+  independent Checks have not reached a verdict stays `WorkProduced` in a
+  `judge_check_wait` hold that names the reviewed commit. The health cycle
+  releases it to handoff or landing once every Check passes at exactly that
+  commit, rejects it when one fails there, and rejects it as unresolved after
+  two hours. A green at another commit never releases it, an operator clear
+  is refused, and the Judge runs again only when the reviewed commit changes.
+  A held PASS keeps its dock through the orphaned-dock sweep.
+
 - **Dock anchor and preserve refs stay in the vessel bare repository:** the
   `refs/armada/docks/*`, `refs/armada/missions/*` and `refs/armada-preserved/*`
   refs written when a dock is reclaimed are now local ref updates. A dock is a

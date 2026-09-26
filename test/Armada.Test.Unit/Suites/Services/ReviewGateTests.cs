@@ -265,6 +265,223 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(cancelledUtc, voyage.CompletedUtc, "The cancel time is not rewritten");
                 }
             });
+
+            await RunTest("A Judge PASS waiting on its Checks is held, not re-run, and lands when they pass at the reviewed commit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb).ConfigureAwait(false);
+
+                    Mission? waiting = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, waiting!.Status, "The PASS is held as it stands, not reset for a new Judge run: " + waiting.FailureReason);
+                    AssertContains("[ARMADA:VERDICT] PASS", waiting.AgentOutput ?? String.Empty, "The finished review is kept");
+                    AssertEqual(0, waiting.RecoveryAttempts, "Waiting on Checks spends no recovery budget");
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(waiting), "The PASS waits in the check-wait hold: " + waiting.HeldForOperatorReviewReason);
+                    AssertContains(_JudgeReviewedCommit, waiting.HeldForOperatorReviewReason ?? String.Empty, "The hold names the reviewed commit");
+                    AssertContains(held.UnitTest.Id, waiting.HeldForOperatorReviewReason ?? String.Empty, "The hold names the Check it waits on");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "A held PASS does not land");
+
+                    AssertEqual(0, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "Nothing is decided while the Check at the reviewed commit is still running");
+
+                    await SetCheckAsync(testDb, held.UnitTest.Id, CheckRunStatusEnum.Passed, _JudgeReviewedCommit).ConfigureAwait(false);
+                    AssertEqual(1, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "The held PASS is decided once its Checks pass");
+
+                    Mission? released = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(1, held.Landed.LandedMissionIds.Count, "The released PASS reaches the landing handler without a new Judge run");
+                    AssertEqual(held.Judge.Id, held.Landed.LandedMissionIds[0]);
+                    AssertEqual(MissionStatusEnum.Complete, released!.Status, "The released PASS completes through the normal landing path");
+                    AssertFalse(released.HeldForOperatorReview, "The hold is cleared");
+                    AssertEqual(0, released.RecoveryAttempts, "The release spends no recovery budget");
+
+                    EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                    {
+                        EventType = MissionService.CheckWaitHoldDecidedEventType, PageNumber = 1, PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, events.Objects.Count, "One decision event is recorded");
+                    AssertContains("released", events.Objects[0].Message ?? String.Empty, "The event says the PASS was released");
+                }
+            });
+
+            await RunTest("A held Judge PASS is never released by a green at another commit or by an operator clear", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb).ConfigureAwait(false);
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false)),
+                        "Fixture: the PASS waits in the check-wait hold");
+
+                    await SetCheckAsync(testDb, held.UnitTest.Id, CheckRunStatusEnum.Passed, _OtherCommit).ConfigureAwait(false);
+                    AssertEqual(0, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "A green for another commit says nothing about the reviewed commit");
+
+                    InvalidOperationException? refused = null;
+                    try
+                    {
+                        await held.Landed.Scenario.Missions.ClearOperatorReviewHoldAsync(held.Judge.Id, "operator-d", "looks fine").ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        refused = ex;
+                    }
+
+                    AssertNotNull(refused, "An operator cannot release a PASS whose Checks did not pass at the reviewed commit");
+                    Mission? still = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(still), "The PASS stays held");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "Nothing lands");
+                }
+            });
+
+            await RunTest("A held Judge PASS is rejected when a Check fails at the reviewed commit, not re-run", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb).ConfigureAwait(false);
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false)),
+                        "Fixture: the PASS waits in the check-wait hold");
+
+                    await SetCheckAsync(testDb, held.UnitTest.Id, CheckRunStatusEnum.Failed, _JudgeReviewedCommit).ConfigureAwait(false);
+                    AssertEqual(1, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "A failed Check decides the held PASS");
+
+                    Mission? rejected = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, rejected!.Status, "The PASS is rejected");
+                    AssertContains("Judge PASS rejected: an independent Check failed", rejected.FailureReason ?? String.Empty, "The reason names the gate");
+                    AssertContains(held.UnitTest.Id, rejected.FailureReason ?? String.Empty, "The reason names the failed Check");
+                    AssertFalse(rejected.HeldForOperatorReview, "A rejected PASS is no longer held");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "A rejected PASS never lands");
+                }
+            });
+
+            await RunTest("A held Judge PASS whose Checks never resolve is rejected after the wait budget", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb).ConfigureAwait(false);
+                    MissionService missions = held.Landed.Scenario.Missions;
+                    AssertEqual(0, await missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false), "Inside the budget the PASS keeps waiting");
+
+                    DateTime later = DateTime.UtcNow + missions.JudgeCheckWaitBudget + TimeSpan.FromMinutes(1);
+                    missions.UtcNowProvider = () => later;
+                    AssertEqual(1, await missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false), "Past the budget the PASS is decided");
+
+                    Mission? rejected = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, rejected!.Status, "An unresolved PASS is rejected rather than held forever");
+                    AssertContains("did not resolve within", rejected.FailureReason ?? String.Empty, "The reason names the wait budget");
+                    AssertContains(held.UnitTest.Id, rejected.FailureReason ?? String.Empty, "The reason names the unresolved Check");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "Nothing lands");
+                }
+            });
+
+            await RunTest("A held Judge PASS whose reviewed commit changed gets a new Judge run", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb).ConfigureAwait(false);
+                    Mission moved = (await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false))!;
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(moved), "Fixture: the PASS waits in the check-wait hold");
+                    moved.CommitHash = _OtherCommit;
+                    await testDb.Driver.Missions.UpdateAsync(moved).ConfigureAwait(false);
+                    await SetCheckAsync(testDb, held.UnitTest.Id, CheckRunStatusEnum.Passed, _JudgeReviewedCommit).ConfigureAwait(false);
+
+                    AssertEqual(1, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false), "The moved commit is decided");
+
+                    Mission? rerun = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, rerun!.Status, "A review of an older commit cannot decide the new one, so the Judge runs again");
+                    AssertFalse(rerun.HeldForOperatorReview, "The re-run starts without the hold");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "Nothing lands on a stale review");
+                }
+            });
+        }
+
+        private const string _JudgeReviewedCommit = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
+        private const string _OtherCommit = "0badf00d0badf00d0badf00d0badf00d0badf00d";
+
+        private sealed class CheckHeldJudgeScenario
+        {
+            public HeldJudgeScenario Landed { get; set; } = null!;
+            public Mission Judge { get; set; } = null!;
+            public CheckRun UnitTest { get; set; } = null!;
+        }
+
+        /// <summary>
+        /// Runs a Worker and then a Judge that PASSes while its UnitTest Check at the reviewed commit is
+        /// still running. The Build Check at that commit is green.
+        /// </summary>
+        private async Task<CheckHeldJudgeScenario> CompleteJudgeWaitingOnChecksAsync(TestDatabase testDb)
+        {
+            ReviewScenario scenario = await CreateScenarioAsync(testDb.Driver, includeDownstreamStage: true, workerRequiresReview: false).ConfigureAwait(false);
+            HeldJudgeScenario landed = new HeldJudgeScenario { Scenario = scenario };
+            scenario.Missions.OnMissionComplete = async (mission, dock) =>
+            {
+                landed.LandedMissionIds.Add(mission.Id);
+                mission.Status = MissionStatusEnum.Complete;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            };
+
+            await scenario.Missions.HandleCompletionAsync(scenario.WorkerCaptain, scenario.WorkerMission.Id).ConfigureAwait(false);
+            await scenario.Admiral.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+
+            Mission judge = await testDb.Driver.Missions.ReadAsync(scenario.DownstreamMission!.Id).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Expected the Judge mission after handoff.");
+            AssertEqual(MissionStatusEnum.InProgress, judge.Status, "Fixture: the Judge stage is running: " + judge.FailureReason);
+            Captain judgeCaptain = await testDb.Driver.Captains.ReadAsync(judge.CaptainId!).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Expected the Judge captain.");
+
+            judge.CommitHash = _JudgeReviewedCommit;
+            await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+            EnumerationResult<CheckRun> armed = await testDb.Driver.CheckRuns
+                .EnumerateAsync(new CheckRunQuery { VoyageId = scenario.Voyage.Id, PageSize = 100 }).ConfigureAwait(false);
+            foreach (CheckRun run in armed.Objects)
+                await testDb.Driver.CheckRuns.DeleteAsync(run.Id).ConfigureAwait(false);
+
+            await AddVoyageCheckAsync(testDb, scenario.Voyage.Id, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, _JudgeReviewedCommit).ConfigureAwait(false);
+            CheckRun unitTest = await AddVoyageCheckAsync(testDb, scenario.Voyage.Id, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Running, _JudgeReviewedCommit).ConfigureAwait(false);
+
+            string narrative = "The change covers every acceptance item and the tests exercise the primary and negative paths with specifics.";
+            scenario.Missions.OnGetMissionOutput = _ =>
+                "## Completeness\n" + narrative + "\n## Correctness\n" + narrative + "\n## Tests\n" + narrative
+                + "\n## Failure Modes\n" + narrative + "\n## Verdict\nPASS\n[ARMADA:VERDICT] PASS";
+
+            await scenario.Missions.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
+            landed.Judge = judge;
+            return new CheckHeldJudgeScenario { Landed = landed, Judge = judge, UnitTest = unitTest };
+        }
+
+        private static async Task<CheckRun> AddVoyageCheckAsync(TestDatabase testDb, string voyageId, CheckRunTypeEnum type, CheckRunStatusEnum status, string commit)
+        {
+            CheckRun run = new CheckRun
+            {
+                VoyageId = voyageId,
+                Label = type.ToString(),
+                Type = type,
+                Source = CheckRunSourceEnum.Armada,
+                Status = status,
+                Command = type == CheckRunTypeEnum.Build ? "dotnet build" : "dotnet test",
+                WorkingDirectory = Path.GetTempPath(),
+                CommitHash = commit,
+                StartedUtc = DateTime.UtcNow,
+                CompletedUtc = status == CheckRunStatusEnum.Running ? null : DateTime.UtcNow,
+                ExitCode = status == CheckRunStatusEnum.Passed ? 0 : (status == CheckRunStatusEnum.Failed ? 1 : null),
+                Summary = "check"
+            };
+            return await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
+        }
+
+        private static async Task SetCheckAsync(TestDatabase testDb, string checkRunId, CheckRunStatusEnum status, string commit)
+        {
+            CheckRun run = await testDb.Driver.CheckRuns.ReadAsync(checkRunId).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Expected the Check.");
+            run.Status = status;
+            run.CommitHash = commit;
+            run.CompletedUtc = DateTime.UtcNow;
+            run.ExitCode = status == CheckRunStatusEnum.Passed ? 0 : 1;
+            run.Output = status == CheckRunStatusEnum.Passed ? "tests passed" : "tests failed";
+            await testDb.Driver.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
         }
 
         /// <summary>Marks the voyage record Cancelled, as an operator cancel leaves it, and returns the cancel time.</summary>
@@ -309,7 +526,7 @@ namespace Armada.Test.Unit.Suites.Services
             Captain judgeCaptain = await testDb.Driver.Captains.ReadAsync(judge.CaptainId!).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Expected the Judge captain.");
 
-            // Checks armed at dispatch would hold the PASS for a re-run; this fixture judges the PASS with
+            // Checks armed at dispatch would hold the PASS until they run; this fixture judges the PASS with
             // the documented no-Checks exclusion so the review-substance decision is what is exercised.
             EnumerationResult<CheckRun> armed = await testDb.Driver.CheckRuns
                 .EnumerateAsync(new CheckRunQuery { VoyageId = scenario.Voyage.Id, PageSize = 100 }).ConfigureAwait(false);

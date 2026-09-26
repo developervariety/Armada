@@ -1,6 +1,7 @@
 namespace Armada.Server
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Linq;
     using System.Text.Json;
@@ -22,7 +23,14 @@ namespace Armada.Server
         /// </summary>
         public const string DeferredByDispatchHoldEvent = "check.auto_deferred_dispatch_hold";
 
-        private const int MaxChecksPerSweep = 3;
+        /// <summary>
+        /// Most checks this orchestrator keeps in flight at once. A check in flight has been stamped
+        /// and handed to the executor; most of them wait in the host-wide command slot, which still
+        /// runs one expensive command at a time. The bound limits how many isolated checkouts can
+        /// sit on disk waiting for that slot.
+        /// </summary>
+        public const int MaxConcurrentChecks = 4;
+
         private readonly string _Header = "[AutomaticCheckRunOrchestrator] ";
         private readonly DatabaseDriver _Database;
         private readonly CheckRunService _CheckRuns;
@@ -32,7 +40,14 @@ namespace Armada.Server
         private readonly StaleCheckSupersessionService _Supersession;
         private readonly DispatchHold? _DispatchHold;
         private DateTime? _ReportedHoldSetByUtc = null;
+
+        // Guards discovery only (supersession, eligibility, start). Execution runs outside it, so
+        // a long check never stops the next sweep from finding and starting a newly armed one.
         private readonly SemaphoreSlim _SweepGate = new SemaphoreSlim(1, 1);
+
+        // Checks started by this orchestrator and not yet finished, keyed by check run id, so a sweep
+        // never starts a record that an earlier sweep is still executing or queueing.
+        private readonly ConcurrentDictionary<string, Task> _InFlight = new ConcurrentDictionary<string, Task>(StringComparer.Ordinal);
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Web;
 
         /// <summary>
@@ -56,7 +71,9 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Start a non-blocking sweep if another sweep is not already running.
+        /// Start a non-blocking sweep unless another sweep is still choosing checks. The sweep starts
+        /// each eligible check and returns without waiting for it, so a check that runs for minutes
+        /// does not keep the next sweep from starting a check armed in the meantime.
         /// </summary>
         public void TriggerBackgroundSweep(CancellationToken token = default)
         {
@@ -66,7 +83,7 @@ namespace Armada.Server
             {
                 try
                 {
-                    await RunSweepAsync(token).ConfigureAwait(false);
+                    await StartEligibleChecksAsync(token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -83,11 +100,34 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Execute one bounded sweep of eligible pending checks.
+        /// Execute one sweep of eligible pending checks and wait for the checks it started.
         /// </summary>
+        /// <returns>The number of checks this sweep started and finished.</returns>
         public async Task<int> RunSweepAsync(CancellationToken token = default)
         {
+            List<Task> started;
+            await _SweepGate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                started = await StartEligibleChecksAsync(token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _SweepGate.Release();
+            }
+
+            await Task.WhenAll(started).ConfigureAwait(false);
+            return started.Count;
+        }
+
+        /// <summary>
+        /// Supersede stale records, then start every eligible pending check up to the in-flight bound.
+        /// Each started check runs on its own task; the returned tasks finish when their checks do.
+        /// </summary>
+        private async Task<List<Task>> StartEligibleChecksAsync(CancellationToken token)
+        {
             AuthContext auth = BuildSystemAuth();
+            List<Task> started = new List<Task>();
 
             // A green that measured an earlier commit must be replaced before eligible work is
             // chosen, so the Pending record it leaves behind is picked up in this same sweep. Left
@@ -114,27 +154,66 @@ namespace Armada.Server
             if (hold != null)
             {
                 await ReportHoldDeferralAsync(hold, token).ConfigureAwait(false);
-                return 0;
+                return started;
             }
 
             _ReportedHoldSetByUtc = null;
-            List<CheckRun> eligible = await FindEligiblePendingChecksAsync(token).ConfigureAwait(false);
-
-            if (eligible.Count == 0) return 0;
-
-            _Logging.Info(_Header + "executing " + eligible.Count + " eligible pending check(s)");
-            int executed = 0;
-            foreach (CheckRun pending in eligible)
+            int capacity = MaxConcurrentChecks - _InFlight.Count;
+            if (capacity <= 0)
             {
-                CheckRun result = await ExecutePendingAsync(auth, pending, token).ConfigureAwait(false);
-                executed++;
-
-                await RefreshLinkedReleasesAsync(auth, result, token).ConfigureAwait(false);
-                if (result.Status == CheckRunStatusEnum.Failed)
-                    await CreateFailureIncidentAsync(result, token).ConfigureAwait(false);
+                _Logging.Debug(_Header + "no check started: " + _InFlight.Count + " check(s) already in flight");
+                return started;
             }
 
-            return executed;
+            List<CheckRun> eligible = await FindEligiblePendingChecksAsync(capacity, token).ConfigureAwait(false);
+            if (eligible.Count == 0) return started;
+
+            _Logging.Info(_Header + "starting " + eligible.Count + " eligible pending check(s); "
+                + _InFlight.Count + " already in flight");
+            foreach (CheckRun pending in eligible)
+            {
+                Task? execution = StartExecution(auth, pending, token);
+                if (execution != null) started.Add(execution);
+            }
+
+            return started;
+        }
+
+        /// <summary>
+        /// Run one check on its own task and record it as in flight until it finishes.
+        /// </summary>
+        /// <returns>The task that finishes with the check, or null when the check is already in flight.</returns>
+        private Task? StartExecution(AuthContext auth, CheckRun pending, CancellationToken token)
+        {
+            TaskCompletionSource<bool> finished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!_InFlight.TryAdd(pending.Id, finished.Task)) return null;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    CheckRun result = await ExecutePendingAsync(auth, pending, token).ConfigureAwait(false);
+
+                    await RefreshLinkedReleasesAsync(auth, result, token).ConfigureAwait(false);
+                    if (result.Status == CheckRunStatusEnum.Failed)
+                        await CreateFailureIncidentAsync(result, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    _Logging.Info(_Header + "check " + pending.Id + " stopped by shutdown before a verdict");
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "check " + pending.Id + " execution failed: " + ex.Message);
+                }
+                finally
+                {
+                    _InFlight.TryRemove(pending.Id, out Task? _);
+                    finished.TrySetResult(true);
+                }
+            }, CancellationToken.None);
+
+            return finished.Task;
         }
 
         /// <summary>
@@ -158,7 +237,7 @@ namespace Armada.Server
             _ReportedHoldSetByUtc = hold.SetByUtc;
         }
 
-        private async Task<List<CheckRun>> FindEligiblePendingChecksAsync(CancellationToken token)
+        private async Task<List<CheckRun>> FindEligiblePendingChecksAsync(int limit, CancellationToken token)
         {
             CheckRunQuery query = new CheckRunQuery
             {
@@ -173,7 +252,7 @@ namespace Armada.Server
 
             try
             {
-                while (eligible.Count < MaxChecksPerSweep)
+                while (eligible.Count < limit)
                 {
                     EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
                     foreach (CheckRun run in page.Objects
@@ -181,9 +260,10 @@ namespace Armada.Server
                         .ThenBy(run => run.Id, StringComparer.Ordinal))
                     {
                         scanned++;
+                        if (_InFlight.ContainsKey(run.Id)) continue;
                         if (await IsEligibleAsync(run, token).ConfigureAwait(false))
                             eligible.Add(run);
-                        if (eligible.Count >= MaxChecksPerSweep) break;
+                        if (eligible.Count >= limit) break;
                     }
 
                     if (page.Objects.Count < query.PageSize || query.PageNumber >= page.TotalPages)

@@ -171,7 +171,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("JudgeCheckHoldRerun_SecondCompletionInsideWindow_IsProcessed", async () =>
+            await RunTest("JudgeCheckHoldCommitChangeRerun_SecondCompletionInsideWindow_IsProcessed", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -209,15 +209,22 @@ namespace Armada.Test.Unit.Suites.Services
                     int pid = await LaunchAsync(rig, rig.Primary).ConfigureAwait(false);
                     await ExitAsync(rig, rig.Primary, pid, 0).ConfigureAwait(false);
                     Mission held = await ReadJudgeAsync(rig).ConfigureAwait(false);
-                    AssertEqual(MissionStatusEnum.Pending, held.Status, "precondition: the PASS is held and the Judge re-runs in place");
-                    AssertEqual(1, held.RecoveryAttempts, "precondition: the hold re-run counted one attempt");
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(held), "precondition: the PASS waits for its Checks: " + held.Status);
+
+                    // The reviewed commit moves while the PASS waits, so the release sweep runs the Judge again.
+                    held.CommitHash = "2222222222222222222222222222222222222222";
+                    await rig.Db.Missions.UpdateAsync(held).ConfigureAwait(false);
+                    AssertEqual(1, await rig.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false), "precondition: the moved commit is decided");
+                    Mission rerun = await ReadJudgeAsync(rig).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, rerun.Status, "precondition: the Judge re-runs in place");
+                    AssertEqual(1, rerun.RecoveryAttempts, "precondition: the re-run counted one attempt");
 
                     int second = await LaunchAsync(rig, rig.Primary).ConfigureAwait(false);
                     await ExitAsync(rig, rig.Primary, second, 0).ConfigureAwait(false);
                     Mission after = await ReadJudgeAsync(rig).ConfigureAwait(false);
                     AssertTrue(after.Status != MissionStatusEnum.InProgress,
                         "the re-run Judge's completion inside the window must be processed, but the mission is still " + after.Status);
-                    AssertEqual(2, after.RecoveryAttempts, "the second completion ran the hold again");
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(after), "the second completion held its PASS for the running Check again");
                 }
             }).ConfigureAwait(false);
 

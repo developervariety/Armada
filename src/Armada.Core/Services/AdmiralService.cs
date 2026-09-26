@@ -2537,6 +2537,15 @@ namespace Armada.Core.Services
                             continue;
                         }
 
+                        // A held Judge PASS lands from its dock when the hold is released, so the dock
+                        // outlives the captain that produced it.
+                        List<Mission> producedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+                        if (producedMissions.Any(m => m.HeldForOperatorReview && m.DockId == dock.Id))
+                        {
+                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a held Judge PASS");
+                            continue;
+                        }
+
                         _Logging.Info(_Header + "reclaiming orphaned dock " + dock.Id + " (created " + dock.CreatedUtc + ", no active captain)");
                         try
                         {
