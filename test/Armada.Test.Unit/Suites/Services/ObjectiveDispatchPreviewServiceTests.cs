@@ -25,6 +25,26 @@ namespace Armada.Test.Unit.Suites.Services
         public override string Name => "Objective Dispatch Preview Service";
 
         /// <inheritdoc />
+        protected override Task AfterTestAsync()
+        {
+            foreach (string directory in PreviewHarness.CreatedDirectories)
+            {
+                try
+                {
+                    if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+            PreviewHarness.CreatedDirectories.Clear();
+            return Task.CompletedTask;
+        }
+
+        /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
             await RunTest("A configured busy captain proves role readiness without idle capacity", async () =>
@@ -1579,6 +1599,9 @@ namespace Armada.Test.Unit.Suites.Services
             public ObjectiveDispatchPreviewService Service { get; private set; } = null!;
             public string RepositoryDirectory { get; private set; } = String.Empty;
 
+            /// <summary>Temporary repository directories created by harnesses and not yet removed.</summary>
+            public static List<string> CreatedDirectories { get; } = new List<string>();
+
             public static async Task<PreviewHarness> CreateAsync(
                 TestDatabase testDb,
                 bool includeUnitTestCommand,
@@ -1588,6 +1611,7 @@ namespace Armada.Test.Unit.Suites.Services
                 PreviewHarness result = new PreviewHarness();
                 result.RepositoryDirectory = Path.Combine(Path.GetTempPath(), "armada-preview-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(result.RepositoryDirectory);
+                CreatedDirectories.Add(result.RepositoryDirectory);
                 result.Auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "UnitTest");
                 result.Vessel = new Vessel("preview-vessel", "https://example.test/preview.git")
                 {

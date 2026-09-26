@@ -92,6 +92,17 @@ upstream integrations and excludes changes already present at that baseline.
   the launch prompt, so a Judge without captain instructions now receives it.
   `captainInstructionByteBudget` defaults to 65,536 (0 selects the default),
   and an over-budget brief records a `mission.prompt_over_budget` warning.
+
+- **A retried mission's sibling checkouts are removed when its last dock is
+  reclaimed:** a superseded dock whose nested path now belongs to the live
+  retry releases its sibling leases instead of keeping them, and sibling
+  removal ignores a lease held by a dock that is already reclaimed. Before,
+  the leftover lease kept every sibling clone of the mission on disk after
+  both docks were gone.
+- **The dispatch preview test harness deletes its temporary repository
+  directories** after each test, so repeated unit runs no longer accumulate
+  empty `armada-preview-*` folders in the temp directory.
+
 - **Dock anchor and preserve refs stay in the vessel bare repository:** the
   `refs/armada/docks/*`, `refs/armada/missions/*` and `refs/armada-preserved/*`
   refs written when a dock is reclaimed are now local ref updates. A dock is a

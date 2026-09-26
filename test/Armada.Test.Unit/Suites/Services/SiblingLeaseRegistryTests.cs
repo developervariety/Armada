@@ -77,6 +77,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RemoveIfUnleased ignores a lease held by a reclaimed dock but keeps one held by an active dock", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+
+                try
+                {
+                    SiblingLeaseRegistry registry = new SiblingLeaseRegistry(logging, testDb.Driver, settings);
+                    string siblingPath = Path.Combine(settings.DocksDirectory, "ExampleVessel", "ReclaimedHolderSibling");
+
+                    Dock reclaimed = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
+                    Dock live = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
+                    Dock active = await CreateActiveDockAsync(testDb, "vsl_test").ConfigureAwait(false);
+                    await registry.TryAcquireAsync(reclaimed.Id, "vsl_test", siblingPath).ConfigureAwait(false);
+                    await registry.TryAcquireAsync(live.Id, "vsl_test", siblingPath).ConfigureAwait(false);
+                    await registry.TryAcquireAsync(active.Id, "vsl_test", siblingPath).ConfigureAwait(false);
+
+                    reclaimed.Active = false;
+                    await testDb.Driver.Docks.UpdateAsync(reclaimed).ConfigureAwait(false);
+
+                    bool removed = false;
+                    bool result = await registry.RemoveIfUnleasedAsync(live.Id, "vsl_test", siblingPath,
+                        (token) => { removed = true; return Task.CompletedTask; }).ConfigureAwait(false);
+                    AssertFalse(result, "An active holder must still keep the sibling.");
+                    AssertFalse(removed, "The removal action must not run while an active dock holds a lease.");
+
+                    result = await registry.RemoveIfUnleasedAsync(active.Id, "vsl_test", siblingPath,
+                        (token) => { removed = true; return Task.CompletedTask; }).ConfigureAwait(false);
+                    AssertTrue(result, "A lease left by a reclaimed dock must not keep the sibling once the last active holder releases.");
+                    AssertTrue(removed, "The removal action must run when only a reclaimed dock's lease remains.");
+                }
+                finally
+                {
+                    Cleanup(settings);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RemoveIfUnleased with no prior lease still runs the removal action", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

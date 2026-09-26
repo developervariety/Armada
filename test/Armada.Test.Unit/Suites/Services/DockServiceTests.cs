@@ -937,6 +937,76 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ReclaimAsync of a superseded retry dock releases its sibling leases so the live dock's reclaim removes the sibling", async () =>
+            {
+                // A retry re-provisions the same mission at the same nested path and reuses its
+                // sibling checkout. The superseded dock's reclaim must leave the shared path alone,
+                // but it may not keep holding the sibling: otherwise the live dock's reclaim finds
+                // a lease from a dock that no longer exists and leaves the sibling on disk forever.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    RecordingGitService git = new RecordingGitService();
+                    git.RevisionShaResult = "abc123";
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    List<SiblingRepo> siblings = new List<SiblingRepo>
+                    {
+                        new SiblingRepo
+                        {
+                            RepoUrl = "https://github.com/test/sibA.git",
+                            RelativePath = "../SibA",
+                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                            DefaultBranch = "main"
+                        }
+                    };
+
+                    Vessel vessel = new Vessel("sib-retry-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captainOne = await testDb.Driver.Captains.CreateAsync(new Captain("captain-retry-1")).ConfigureAwait(false);
+                    Captain captainTwo = await testDb.Driver.Captains.CreateAsync(new Captain("captain-retry-2")).ConfigureAwait(false);
+
+                    try
+                    {
+                        Dock? first = await service.ProvisionAsync(vessel, captainOne, "armada/captain-retry-1/msn_retry", "msn_retry").ConfigureAwait(false);
+                        AssertNotNull(first, "first dock should be provisioned");
+                        string siblingPath = Path.GetFullPath(Path.Combine(first!.WorktreePath!, "../SibA"));
+                        File.WriteAllText(Path.Combine(siblingPath, "checkout.marker"), "populated checkout");
+
+                        Dock? retry = await service.ProvisionAsync(vessel, captainTwo, "armada/captain-retry-2/msn_retry", "msn_retry").ConfigureAwait(false);
+                        AssertNotNull(retry, "the retry dock should be provisioned");
+                        AssertEqual(first.WorktreePath, retry!.WorktreePath, "the retry reuses the mission's nested path");
+
+                        await service.ReclaimAsync(first.Id).ConfigureAwait(false);
+                        AssertTrue(Directory.Exists(siblingPath), "the superseded dock must not remove the sibling the live retry is using");
+
+                        await service.ReclaimAsync(retry.Id).ConfigureAwait(false);
+                        AssertFalse(Directory.Exists(siblingPath), "reclaiming the live dock must remove the sibling once no live dock uses it");
+                    }
+                    finally
+                    {
+                        foreach (string dir in new[] { settings.DocksDirectory, settings.ReposDirectory, settings.LogDirectory })
+                        {
+                            if (Directory.Exists(dir))
+                            {
+                                try { Directory.Delete(dir, true); }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+            });
+
             await RunTest("ReclaimAsync does not delete worktree path owned by newer active dock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

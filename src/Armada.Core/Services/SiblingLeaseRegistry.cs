@@ -194,6 +194,22 @@ namespace Armada.Core.Services
             if (doc != null)
             {
                 doc.DockIds.RemoveAll(id => String.Equals(id, dockId, StringComparison.Ordinal));
+
+                // A holder whose dock is already reclaimed can never need the sibling again. Its
+                // lease is a leftover, so it must not keep the sibling on disk.
+                List<string> liveHolders = new List<string>();
+                foreach (string holder in doc.DockIds)
+                {
+                    HolderStateEnum state = await GetHolderStateAsync(holder, token).ConfigureAwait(false);
+                    if (state == HolderStateEnum.Inactive)
+                    {
+                        _Logging.Info(_Header + "ignoring lease on sibling " + siblingAbsolutePath + " held by reclaimed dock " + holder);
+                        continue;
+                    }
+                    liveHolders.Add(holder);
+                }
+                doc.DockIds = liveHolders;
+
                 if (doc.DockIds.Count > 0)
                 {
                     doc.UpdatedUtc = DateTime.UtcNow;

@@ -496,6 +496,13 @@ namespace Armada.Core.Services
                 await RemoveSiblingReposForDockAsync(dock, token).ConfigureAwait(false);
                 TryRemoveEmptyDockRoot(dock.WorktreePath);
             }
+            else
+            {
+                // The live dock that owns the path keeps the siblings, but this dock no longer needs
+                // them. Its leases must go now; a lease left behind makes the live dock's reclaim
+                // keep the siblings on disk after every user of them is gone.
+                await ReleaseSiblingLeasesForDockAsync(dock, token).ConfigureAwait(false);
+            }
 
             TryDeleteDockStartCommitFile(dock.Id);
 
@@ -1460,6 +1467,46 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Debug(_Header + "could not remove dock root for " + worktreePath + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Release this dock's leases on its sibling checkouts without removing them, for a dock
+        /// whose path now belongs to another active dock.
+        /// </summary>
+        private async Task ReleaseSiblingLeasesForDockAsync(Dock dock, CancellationToken token)
+        {
+            if (dock == null || String.IsNullOrEmpty(dock.WorktreePath)) return;
+
+            Vessel? vessel = null;
+            try
+            {
+                vessel = !String.IsNullOrEmpty(dock.TenantId)
+                    ? await _Database.Vessels.ReadAsync(dock.TenantId, dock.VesselId, token).ConfigureAwait(false)
+                    : await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read vessel " + dock.VesselId + " to release sibling leases: " + ex.Message);
+            }
+            if (vessel == null) return;
+
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            {
+                if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath)) continue;
+                string siblingWorktreePath = Path.GetFullPath(Path.Combine(dock.WorktreePath, sibling.RelativePath));
+                try
+                {
+                    await _Leases.ReleaseAsync(dock.Id, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not release sibling lease " + siblingWorktreePath + " for dock " + dock.Id + ": " + ex.Message);
+                }
             }
         }
 
