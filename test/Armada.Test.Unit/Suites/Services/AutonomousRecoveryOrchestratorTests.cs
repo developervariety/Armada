@@ -2062,6 +2062,40 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(!String.IsNullOrEmpty(judge.DependsOnMissionId), "The Judge stage depends on the rescue chain.");
             }).ConfigureAwait(false);
 
+            await RunTest("PlannerCommittedCode_RescueIsAWorkerWithAReJudge", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_pc", "usr_auto_pc").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_pc", "usr_auto_pc").ConfigureAwait(false);
+                Voyage parent = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent voyage", "Product pipeline")
+                {
+                    TenantId = "ten_auto_pc",
+                    UserId = "usr_auto_pc",
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                    MissionService.PlannerCommittedCodeReason + ": the Product Manager stage committed 3 file(s) that carry behaviour").ConfigureAwait(false);
+                failed.Persona = "Product Manager";
+                failed.VoyageId = parent.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one rescue should be dispatched.");
+                Mission worker = admiral.DispatchedMissions[0];
+                AssertEqual("Worker", worker.Persona, "A planner that committed code is rescued by a Worker, not by another planner.");
+                AssertTrue(!String.IsNullOrEmpty(worker.VoyageId), "The Worker rescue runs in a rescue voyage.");
+                List<Mission> loopMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertTrue(loopMissions.Any(item => String.Equals(item.Persona, "Judge", StringComparison.Ordinal)),
+                    "A Judge is chained so the planner's code cannot land unreviewed.");
+            }).ConfigureAwait(false);
+
             await RunTest("ReviseRetestRejudge_StandaloneWorkerFailure_KeepsAStandaloneRescue", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

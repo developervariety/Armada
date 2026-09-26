@@ -83,6 +83,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A consumer suite gets the flaky-test re-run:** when a consumer's unit-test
+  suite fails inside the definition-of-done gate and the `flake_score` decision
+  recommends it, only the failing classes run again in the same worktree, and
+  that re-run is the result. The re-run builder now narrows one existing
+  quoted `--filter "EXPR"` in place to `(EXPR)&(classes)`, so a wrapped command
+  such as `bash -c '... dotnet test ... --filter "Category!=Integration"'` can
+  be isolated; a compound command with no filter to narrow is declined.
+- **A planner that committed code is rescued by a Worker:** after a
+  `planner_committed_code` failure the automatic rescue is a Worker that
+  starts from the planner's commit, with a re-Judge chained. Before, it was the
+  same planner persona again, which repeated the failure.
 - **Stage skips accept the persona identifier form:** `skipStages` ignores
   spaces as well as case, so `ProductManager` names the stage
   `Product Manager`. Before, the identifier form was refused as unknown.

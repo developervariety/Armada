@@ -492,6 +492,7 @@ namespace Armada.Core.Services
             foreach (ConsumerDeclaration edge in consumers)
             {
                 DefinitionOfDoneResult result = await VerifyOneConsumerAsync(
+                    mission,
                     producer,
                     producerRef!,
                     edge,
@@ -504,6 +505,7 @@ namespace Armada.Core.Services
         }
 
         private async Task<DefinitionOfDoneResult> VerifyOneConsumerAsync(
+            Mission mission,
             Vessel producer,
             string producerRef,
             ConsumerDeclaration edge,
@@ -606,7 +608,7 @@ namespace Armada.Core.Services
                 if (ShouldRunConsumerTests(producerSibling, producerChangedPaths, consumer.Name))
                 {
                     DefinitionOfDoneResult testResult =
-                        await RunConsumerTestsAsync(consumer, consumerProfile, consumerWorktree, token).ConfigureAwait(false);
+                        await RunConsumerTestsAsync(mission, consumer, consumerProfile, consumerWorktree, token).ConfigureAwait(false);
                     if (!testResult.Passed) return testResult;
                 }
 
@@ -840,6 +842,7 @@ namespace Armada.Core.Services
         /// as a compilation failure.
         /// </summary>
         private async Task<DefinitionOfDoneResult> RunConsumerTestsAsync(
+            Mission mission,
             Vessel consumer,
             WorkflowProfile? consumerProfile,
             string consumerWorktree,
@@ -872,6 +875,15 @@ namespace Armada.Core.Services
 
             if (!result.Passed)
             {
+                // A consumer suite has load-sensitive tests of its own. Score the red and, when the model
+                // recommends it, re-run only the failing classes in the same worktree, as the producer's
+                // own suite does. The re-run is the truth; a red that stays red keeps its consumer label.
+                result = await MaybeRerunFlakyTestAsync(mission, effective, consumerWorktree, result, token,
+                    logLabel + " (flake re-run)", consumer.Id).ConfigureAwait(false);
+            }
+
+            if (!result.Passed)
+            {
                 _Logging.Warn(_Header + "consumer " + consumer.Name + " test suite failed against this change");
                 result.CommandLabel = "consumer_tests_failed: " + consumer.Name;
             }
@@ -891,7 +903,9 @@ namespace Armada.Core.Services
             string testCommand,
             string worktreePath,
             DefinitionOfDoneResult testResult,
-            CancellationToken token)
+            CancellationToken token,
+            string rerunLabel = "unit-test (flake re-run)",
+            string? historyVesselId = null)
         {
             if (_FlakeScoreAdapter == null) return testResult;
             if (testResult.FailureClass != DefinitionOfDoneFailureClassEnum.TestFail) return testResult;
@@ -906,7 +920,12 @@ namespace Armada.Core.Services
             bool crossBranch;
             try
             {
-                crossBranch = await HasRecentCrossBranchFailureAsync(mission, testResult.FailedTestNames, token).ConfigureAwait(false);
+                // A consumer failure is looked up in the consumer's own check history: that is where the
+                // same test failing on another branch would have been recorded.
+                Mission historyMission = mission;
+                if (!String.IsNullOrWhiteSpace(historyVesselId))
+                    historyMission = new Mission { Id = mission.Id, TenantId = mission.TenantId, VesselId = historyVesselId };
+                crossBranch = await HasRecentCrossBranchFailureAsync(historyMission, testResult.FailedTestNames, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -938,12 +957,26 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "flake_score " + verdict.Outcome + ": re-running " + classNames.Count + " failing class(es) in isolation");
-            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync("unit-test (flake re-run)", filteredCommand, worktreePath, token).ConfigureAwait(false);
+            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync(rerunLabel, filteredCommand, worktreePath, token).ConfigureAwait(false);
 
             // Record BOTH results: the original red and the isolated re-run. The re-run is the truth.
             _Logging.Info(_Header + "flake_score re-run outcome passed=" + rerunResult.Passed
                 + " (original failure class=" + testResult.FailureClass + ", label=" + testResult.CommandLabel + ")");
             return rerunResult;
+        }
+
+        /// <summary>
+        /// Test-only hook onto one consumer suite run, so its flake re-run can be proved with a scripted
+        /// failing command and a stubbed isolated re-run (<see cref="RunIsolatedRerunAsync"/>).
+        /// </summary>
+        internal Task<DefinitionOfDoneResult> EvaluateConsumerTestsForTestAsync(
+            Mission mission,
+            Vessel consumer,
+            WorkflowProfile consumerProfile,
+            string consumerWorktree,
+            CancellationToken token)
+        {
+            return RunConsumerTestsAsync(mission, consumer, consumerProfile, consumerWorktree, token);
         }
 
         /// <summary>

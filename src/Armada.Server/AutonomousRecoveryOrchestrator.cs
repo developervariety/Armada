@@ -1799,7 +1799,7 @@ namespace Armada.Server
             CancellationToken token)
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
-            string rescuePersona = ResolveRescuePersona(failedMission.Persona);
+            string rescuePersona = ResolveRescuePersona(failedMission.Persona, failedMission.FailureReason);
             Objective? owningObjective = await ResolveOwningObjectiveAsync(failedMission, token).ConfigureAwait(false);
             List<SelectedPlaybook> rescuePlaybooks = await ResolveRescuePlaybooksAsync(
                 failedMission,
@@ -2901,9 +2901,15 @@ namespace Armada.Server
             "portingreferenceanalyst"
         };
 
-        private static string ResolveRescuePersona(string? failedPersona)
+        private static string ResolveRescuePersona(string? failedPersona, string? failureReason = null)
         {
             if (IsReviewerPersona(failedPersona)) return "Worker";
+            // A planner that committed the implementation failed for committing, not for its plan. Its
+            // commit is the rescue's start point, so the rescue is the Worker that verifies and completes
+            // that commit; a second planner would commit again and fail the same way.
+            if (!String.IsNullOrWhiteSpace(failureReason)
+                && failureReason.TrimStart().StartsWith(MissionService.PlannerCommittedCodeReason, StringComparison.Ordinal))
+                return "Worker";
             return String.IsNullOrWhiteSpace(failedPersona) ? "Worker" : failedPersona.Trim();
         }
 

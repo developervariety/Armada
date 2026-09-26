@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -279,9 +280,67 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(command.Contains("FullyQualifiedName~SequenceRunnerTests"), "filter names the failing class");
                 AssertTrue(command.Contains("FullyQualifiedName~VinReaderTests"), "filter names the second class");
 
-                AssertTrue(!FlakeRerunCommand.TryBuild("dotnet test --filter Existing", classes, out _), "a command with an existing filter is declined");
+                AssertTrue(!FlakeRerunCommand.TryBuild("dotnet test --filter Existing", classes, out _), "a command with an unquoted existing filter is declined");
                 AssertTrue(!FlakeRerunCommand.TryBuild("python3 -m unittest", classes, out _), "a non-dotnet command is declined");
                 return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("FlakeRerunCommand_NarrowsOneQuotedFilterInPlace_AndDeclinesUnnarrowableCompounds", () =>
+            {
+                IReadOnlyList<string> classes = new List<string> { "VinConfirmFlowTests" };
+                string wrapped = "bash -c 'set -e; dotnet build Example.sln; dotnet test Example.sln --no-build --filter \"Category!=Integration\" --logger trx'; code=$?; exit $code";
+
+                bool built = FlakeRerunCommand.TryBuild(wrapped, classes, out string command);
+                AssertTrue(built, "a wrapped command with one quoted filter is narrowed");
+                AssertEqual("bash -c 'set -e; dotnet build Example.sln; dotnet test Example.sln --no-build --filter \"(Category!=Integration)&(FullyQualifiedName~VinConfirmFlowTests)\" --logger trx'; code=$?; exit $code",
+                    command, "the existing exclusion is kept and the class filter is added in the same place");
+
+                AssertTrue(!FlakeRerunCommand.TryBuild("bash -c 'dotnet test Example.sln'; exit 0", classes, out _),
+                    "a compound command with no filter to narrow is declined, since an appended filter would land on its last step");
+                AssertTrue(!FlakeRerunCommand.TryBuild("dotnet test A --filter \"X\"; dotnet test B --filter \"Y\"", classes, out _),
+                    "two filters cannot be narrowed exactly");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate_ConsumerSuiteFlake_RerunIsTruth_AndKeepsConsumerLabelWhenStillRed", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string worktree = Path.Combine(Path.GetTempPath(), "armada_flake_consumer_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(worktree);
+                try
+                {
+                    // The consumer suite prints one failing test and exits 1 before its dotnet test step runs;
+                    // the dotnet test step is still there for the re-run builder to narrow.
+                    string command = "bash -c 'echo \"  Failed Fleet.Core.Tests.SequenceRunnerTests.StepPauseMs_50 [1 ms]\"; "
+                        + "echo \"Failed!  - Failed: 1, Passed: 0, Total: 1\"; exit 1; dotnet test Example.sln --filter \"Category!=Integration\"'";
+                    Vessel consumer = new Vessel { Id = "vsl_consumer", Name = "ExampleConsumer" };
+                    WorkflowProfile profile = new WorkflowProfile { UnitTestCommand = command };
+
+                    FakeTypedDecisionClient passClient = new FakeTypedDecisionClient(FlakeResult(2.0, 0.95, 0.9));
+                    FlakeTestableGate passing = new FlakeTestableGate(db.Driver,
+                        BuildAdapter(db, passClient, BuildSettings(TypedDecisionModeEnum.Gate)), DefinitionOfDoneResult.Pass());
+                    DefinitionOfDoneResult cleared = await passing.EvaluateConsumerTestsForTestAsync(
+                        BuildInput().Mission!, consumer, profile, worktree, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertTrue(cleared.Passed, "a passing isolated re-run of the consumer's failing class clears the consumer red");
+                    AssertEqual(1, passing.RerunCalls);
+                    AssertContains("(Category!=Integration)&(FullyQualifiedName~SequenceRunnerTests)", passing.LastRerunCommand ?? "",
+                        "the re-run narrows the consumer's own filter to the failing class");
+
+                    FakeTypedDecisionClient redClient = new FakeTypedDecisionClient(FlakeResult(3.0, 0.99, 0.9));
+                    FlakeTestableGate failing = new FlakeTestableGate(db.Driver,
+                        BuildAdapter(db, redClient, BuildSettings(TypedDecisionModeEnum.Gate)),
+                        DefinitionOfDoneResult.Fail("consumer-tests (ExampleConsumer) (flake re-run)", 1, "still failing", DefinitionOfDoneFailureClassEnum.TestFail));
+                    DefinitionOfDoneResult red = await failing.EvaluateConsumerTestsForTestAsync(
+                        BuildInput().Mission!, consumer, profile, worktree, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertTrue(!red.Passed, "a consumer red that fails its isolated re-run stays red");
+                    AssertEqual("consumer_tests_failed: ExampleConsumer", red.CommandLabel, "a red consumer re-run keeps the consumer failure label");
+                }
+                finally
+                {
+                    try { Directory.Delete(worktree, true); } catch { }
+                }
             }).ConfigureAwait(false);
         }
 
@@ -304,6 +363,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public int RerunCalls { get; private set; }
 
+            public string? LastRerunCommand { get; private set; }
+
             public FlakeTestableGate(Armada.Core.Database.DatabaseDriver database, TypedFlakeScoreAdapter adapter, DefinitionOfDoneResult rerunResult)
                 : base(new DefinitionOfDoneSettings { Enabled = true }, database, new LoggingModule(), null, null, adapter)
             {
@@ -313,6 +374,7 @@ namespace Armada.Test.Unit.Suites.Services
             protected override Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(string label, string command, string worktreePath, CancellationToken token)
             {
                 RerunCalls++;
+                LastRerunCommand = command;
                 return Task.FromResult(_RerunResult);
             }
 
