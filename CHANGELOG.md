@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A merge entry for work that already landed is cancelled, not failed:**
+  when an entry's branch no longer exists and its mission commit is already
+  in the target branch, the entry is cancelled with that reason. Before, a
+  landing-drain entry that raced a landing failed after branch cleanup and
+  raised a false "merge failed" alert.
 - **A consumer suite red is re-run once in isolation:** when a declared
   consumer's unit-test suite fails inside the definition-of-done gate and the
   flake decision did not re-run it, up to three failing classes run again

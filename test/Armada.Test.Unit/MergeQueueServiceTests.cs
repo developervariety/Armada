@@ -244,6 +244,83 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("ProcessSingle_MissingBranchWhoseCommitAlreadyLanded_IsCancelledNotFailed", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_landed_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string landedCommit = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mqlanded-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(
+                            logging,
+                            testDb.Driver,
+                            settings,
+                            git,
+                            new MergeFailureClassifier());
+
+                        // The branch was deleted after its work landed; the mission commit is on main.
+                        Mission landed = new Mission("landed straggler");
+                        landed.VesselId = vessel.Id;
+                        landed.Status = MissionStatusEnum.WorkProduced;
+                        landed.CommitHash = landedCommit;
+                        landed = await testDb.Driver.Missions.CreateAsync(landed).ConfigureAwait(false);
+
+                        MergeEntry landedEntry = new MergeEntry();
+                        landedEntry.VesselId = vessel.Id;
+                        landedEntry.MissionId = landed.Id;
+                        landedEntry.BranchName = "armada/captain-1/msn_gone";
+                        landedEntry.TargetBranch = "main";
+                        landedEntry.Status = MergeStatusEnum.Queued;
+                        landedEntry.CreatedUtc = DateTime.UtcNow;
+                        landedEntry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(landedEntry).ConfigureAwait(false);
+
+                        MergeEntry? afterLanded = await service.ProcessSingleAsync(landedEntry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Cancelled, afterLanded!.Status, "an entry whose work already landed is cancelled, not failed");
+                        AssertContains("already in main", afterLanded.TestOutput ?? "", "the reason names the landed commit");
+
+                        // A missing branch with no landed commit still fails.
+                        Mission lost = new Mission("lost branch");
+                        lost.VesselId = vessel.Id;
+                        lost.Status = MissionStatusEnum.WorkProduced;
+                        lost = await testDb.Driver.Missions.CreateAsync(lost).ConfigureAwait(false);
+
+                        MergeEntry lostEntry = new MergeEntry();
+                        lostEntry.VesselId = vessel.Id;
+                        lostEntry.MissionId = lost.Id;
+                        lostEntry.BranchName = "armada/captain-1/msn_lost";
+                        lostEntry.TargetBranch = "main";
+                        lostEntry.Status = MergeStatusEnum.Queued;
+                        lostEntry.CreatedUtc = DateTime.UtcNow;
+                        lostEntry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(lostEntry).ConfigureAwait(false);
+
+                        MergeEntry? afterLost = await service.ProcessSingleAsync(lostEntry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Failed, afterLost!.Status, "a missing branch whose work never landed still fails");
+                        AssertContains("was not found", afterLost.TestOutput ?? "");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("ReconcilePullRequest_FiresIndexRefresh_WhenMissionComplete", async () =>
             {
                 // Pins the second call site added by the Worker: after the PR reconciler

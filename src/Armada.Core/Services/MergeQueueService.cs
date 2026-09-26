@@ -874,7 +874,7 @@ namespace Armada.Core.Services
                 }
 
                 await MergeIntegrationWorktreeAsync(entry, token).ConfigureAwait(false);
-                if (entry.Status == MergeStatusEnum.Failed) return false;
+                if (entry.Status == MergeStatusEnum.Failed || entry.Status == MergeStatusEnum.Cancelled) return false;
                 await PersistStatusAsync(entry, MergeStatusEnum.Testing, token, startedTests: true).ConfigureAwait(false);
                 return true;
             }
@@ -1070,6 +1070,25 @@ namespace Armada.Core.Services
             string? mergeRef = await ResolveMergeRefAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
             if (String.IsNullOrEmpty(mergeRef))
             {
+                // A branch deleted by branch cleanup after its work already landed is not a failure:
+                // a drain that raced the landing can queue it again. When the mission's recorded
+                // commit is already in the target, the entry has nothing to do and is cancelled with
+                // that reason instead of raising a failed merge.
+                string? landedCommit = await ResolveAlreadyLandedCommitAsync(entry, integrationPath, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(landedCommit))
+                {
+                    _Logging.Info(_Header + "branch not found but work already landed for " + entryTag + " (commit " + landedCommit + ")");
+                    entry.Status = MergeStatusEnum.Cancelled;
+                    entry.TestOutput = "Branch " + entry.BranchName + " no longer exists and its mission commit " + landedCommit
+                        + " is already in " + entry.TargetBranch + "; the work landed through another entry, so there is nothing to merge.";
+                    entry.CompletedUtc = DateTime.UtcNow;
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                    await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                    return;
+                }
+
                 _Logging.Warn(_Header + "merge failed (branch not found) for " + entryTag);
 
                 MergeFailureContext missingContext = new MergeFailureContext
@@ -2144,6 +2163,31 @@ namespace Armada.Core.Services
             }
 
             return commit;
+        }
+
+        /// <summary>
+        /// The entry's mission commit when it is already contained in the integration HEAD (the target
+        /// branch); otherwise null. Any read failure returns null so the caller keeps its failure path.
+        /// </summary>
+        private async Task<string?> ResolveAlreadyLandedCommitAsync(MergeEntry entry, string integrationPath, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(entry.MissionId)) return null;
+            try
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                string? commit = mission?.CommitHash;
+                if (String.IsNullOrWhiteSpace(commit)) return null;
+                return await IsAncestorAsync(integrationPath, commit!, "HEAD", token).ConfigureAwait(false) ? commit : null;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not check whether entry " + entry.Id + " already landed: " + ex.Message);
+                return null;
+            }
         }
 
         private async Task<bool> IsAncestorAsync(string workingDir, string ancestorRef, string descendantRef, CancellationToken token)
