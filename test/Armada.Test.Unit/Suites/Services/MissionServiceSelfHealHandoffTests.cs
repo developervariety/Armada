@@ -109,6 +109,42 @@ namespace Armada.Test.Unit.Suites.Services
             return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Wire an enabled definition-of-done gate, as the server does when the gate is on. The self-heal never runs
+        /// the gate; it only reads the results the gate recorded.
+        /// </summary>
+        private void WireDefinitionOfDoneGate(MissionService missions, SqliteDatabaseDriver db)
+        {
+            missions.DefinitionOfDone = new DefinitionOfDoneGate(
+                new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                db,
+                CreateLogging());
+        }
+
+        /// <summary>
+        /// A Worker whose agent finished and whose completion wrote WorkProduced, launched ten minutes ago. Whether its
+        /// gate recorded a result is up to the caller.
+        /// </summary>
+        private async Task<Mission> CreateProducedWorkerAsync(SqliteDatabaseDriver db, Vessel vessel, string branchName)
+        {
+            Mission worker = await CreateUpstreamAsync(db, vessel, "Worker", branchName).ConfigureAwait(false);
+            worker.StartedUtc = DateTime.UtcNow.AddMinutes(-10);
+            return await db.Missions.UpdateAsync(worker).ConfigureAwait(false);
+        }
+
+        private async Task RecordGateResultAsync(SqliteDatabaseDriver db, Mission mission, DefinitionOfDoneResult result, DateTime recordedUtc)
+        {
+            DefinitionOfDoneEvaluationRecord record = DefinitionOfDoneEvaluationRecord.FromResult(result, recordedUtc.AddSeconds(-30));
+            ArmadaEvent evt = new ArmadaEvent(DefinitionOfDoneEvaluationRecord.EventType, "Definition-of-done evaluation: " + record.Outcome);
+            evt.EntityType = "mission";
+            evt.EntityId = mission.Id;
+            evt.MissionId = mission.Id;
+            evt.VesselId = mission.VesselId;
+            evt.Payload = System.Text.Json.JsonSerializer.Serialize(record);
+            evt.CreatedUtc = recordedUtc;
+            await db.Events.CreateAsync(evt).ConfigureAwait(false);
+        }
+
         private static int CountOccurrences(string haystack, string needle)
         {
             int count = 0;
@@ -393,6 +429,126 @@ namespace Armada.Test.Unit.Suites.Services
                         "The retried pass must not re-run the handoff or double-inject the preamble.");
                     AssertEqual(1, CountOccurrences(afterSecond.Description ?? "", "## Prior Stage Output"),
                         "Prior-stage context stays injected exactly once across the deferral.");
+                }
+            });
+
+            // An admiral restart while a completion waits for the host-wide gate slot leaves the upstream at
+            // WorkProduced with no gate result and no in-flight completion entry. The self-heal must not read that
+            // as a verified stage.
+            await RunTest("TryAssign_UpstreamGateNeverRecorded_HoldsUpstreamInsteadOfHandingOff", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-interrupted").ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(
+                        testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                    await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
+
+                    bool firstAssigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                    Mission afterFirst = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    Mission upstream = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+
+                    AssertFalse(firstAssigned, "A dependent of a stage whose gate never recorded a result must not be assigned.");
+                    AssertEqual(MissionStatusEnum.Pending, afterFirst.Status, "The dependent stays Pending.");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, afterFirst.AssignmentState,
+                        "The dependent waits on its unverified dependency.");
+                    AssertNull(afterFirst.BranchName, "The unverified upstream branch must not be handed off.");
+                    AssertFalse((afterFirst.Description ?? "").Contains("## Prior Stage Output", StringComparison.Ordinal),
+                        "No prior-stage context may be injected from an unverified stage.");
+                    AssertEqual(MissionStatusEnum.WorkProduced, upstream.Status, "The upstream keeps its status.");
+                    AssertTrue(upstream.HeldForOperatorReview, "The unverified upstream is held for the operator, not left waiting silently.");
+                    AssertContains("definition_of_done_not_run", upstream.HeldForOperatorReviewReason ?? "",
+                        "The hold names the missing definition-of-done result.");
+
+                    bool secondAssigned = await missions.TryAssignAsync(afterFirst, vessel).ConfigureAwait(false);
+                    Mission afterSecond = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    AssertFalse(secondAssigned, "A later sweep pass must not hand off the held upstream either.");
+                    AssertNull(afterSecond.BranchName, "The held upstream branch is still not handed off.");
+                }
+            });
+
+            await RunTest("TryAssign_UpstreamGateResultFromEarlierLaunch_HoldsUpstream", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-relaunched").ConfigureAwait(false);
+                    // The pass belongs to a launch that ended before the current one started.
+                    await RecordGateResultAsync(testDb.Driver, worker, DefinitionOfDoneResult.Pass(), worker.StartedUtc!.Value.AddHours(-1)).ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(
+                        testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                    await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                    Mission readBack = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    Mission upstream = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+
+                    AssertFalse(assigned, "A pass recorded for an earlier launch does not verify the current one.");
+                    AssertNull(readBack.BranchName, "The current launch's branch must not be handed off.");
+                    AssertTrue(upstream.HeldForOperatorReview, "The upstream is held for the operator.");
+                }
+            });
+
+            await RunTest("TryAssign_UpstreamGatePassedThisLaunch_SelfHealsAndAssigns", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-verified").ConfigureAwait(false);
+                    await RecordGateResultAsync(testDb.Driver, worker, DefinitionOfDoneResult.Pass(), DateTime.UtcNow.AddMinutes(-1)).ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(
+                        testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                    Captain captain = await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                    Mission readBack = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    Mission upstream = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+
+                    AssertTrue(assigned, "A stage whose gate passed on this launch is handed off by the self-heal.");
+                    AssertEqual(captain.Id, readBack.CaptainId, "The dependent takes the idle eligible captain.");
+                    AssertEqual("armada/worker-verified", readBack.BranchName, "The verified branch is handed off.");
+                    AssertFalse(upstream.HeldForOperatorReview, "A verified upstream is not held.");
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_UpstreamGateNeverRecorded_HoldsInsteadOfRedriving", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Interrupted gate voyage")).ConfigureAwait(false);
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-dangling").ConfigureAwait(false);
+                    worker.VoyageId = voyage.Id;
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(
+                        testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                    testEngineer.VoyageId = voyage.Id;
+                    await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
+
+                    int redriven = await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission readBack = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    Mission upstream = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+
+                    AssertEqual(0, redriven, "A stage with no gate result is not re-driven.");
+                    AssertNull(readBack.BranchName, "The unverified branch is not handed off.");
+                    AssertTrue(upstream.HeldForOperatorReview, "The unverified upstream is held for the operator.");
                 }
             });
         }

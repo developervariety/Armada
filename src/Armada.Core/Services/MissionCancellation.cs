@@ -36,8 +36,9 @@ namespace Armada.Core.Services
         /// A mission whose status has no transition to Cancelled (Complete, Failed, Cancelled) is refused and keeps its
         /// outcome. When the mission's captain is working it and holds no other Assigned or InProgress mission, the
         /// captain is recalled first, which stops its agent process and releases it; if the recall throws, the cancel
-        /// is refused and the mission stays live. The mission is then written Cancelled, and every stage waiting on it
-        /// through its voyage's dependency chain is cancelled with it.
+        /// is refused and the mission stays live. The mission is then written Cancelled, a definition-of-done gate still
+        /// running for it is stopped, and every stage waiting on it through its voyage's dependency chain is cancelled
+        /// with it.
         /// </para>
         /// </summary>
         /// <param name="database">Database driver.</param>
@@ -108,6 +109,11 @@ namespace Armada.Core.Services
             mission.CompletedUtc = DateTime.UtcNow;
             mission.LastUpdateUtc = DateTime.UtcNow;
             Mission stored = await database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+            // A produced mission may still be inside its definition-of-done gate. The gate runs the vessel's full
+            // build and test command under the host-wide slot, so stop it: work nobody will land must not hold the
+            // slot other gates are waiting for. The completion handler records the gate as cancelled.
+            DefinitionOfDoneGateRuns.Cancel(stored.Id);
 
             List<Mission> dependents = await MissionDependentCancellation.CancelBlockedAsync(
                 database,

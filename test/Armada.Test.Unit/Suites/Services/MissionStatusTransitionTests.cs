@@ -139,6 +139,112 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A gate runs the vessel's full build and test command under the host-wide slot. A mission cancelled
+            // while its gate runs must stop that command and free the slot promptly, not hold it for the whole run.
+            await RunTest("Cancelling a mission stops its running DoD gate, frees the host slot and records the cancel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_dod_cancel_" + Guid.NewGuid().ToString("N"));
+                    Task? completion = null;
+                    string? worktreePath = null;
+                    try
+                    {
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                        MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                        missionService.DefinitionOfDone = new DefinitionOfDoneGate(
+                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false }, testDb.Driver, logging);
+
+                        TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
+                        worktreePath = entities.Dock.WorktreePath!;
+                        Directory.CreateDirectory(worktreePath);
+                        Mission mission = entities.Mission;
+                        mission.Persona = "Worker";
+                        await testDb.Driver.Missions.UpdateAsync(mission);
+
+                        // The build command outlasts the bound below, so only a stopped gate finishes inside it.
+                        string longBuild = OperatingSystem.IsWindows() ? "ping -n 21 127.0.0.1 >nul" : "sleep 20";
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "Cancel Gate Profile",
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = mission.VesselId,
+                            BuildCommand = longBuild,
+                            UnitTestCommand = "echo ok",
+                            IsDefault = true,
+                            Active = true
+                        });
+
+                        completion = missionService.HandleCompletionAsync(entities.Captain);
+
+                        // The gate leases the dock for its whole run, so a held lease means the gate is running.
+                        DateTime startDeadline = DateTime.UtcNow.AddSeconds(15);
+                        while (DateTime.UtcNow < startDeadline && !completion.IsCompleted && !DockLeaseRegistry.IsHeld(entities.Dock.Id))
+                        {
+                            await Task.Delay(25);
+                        }
+
+                        AssertTrue(DockLeaseRegistry.IsHeld(entities.Dock.Id), "The gate must be running before the cancel");
+                        await Task.Delay(300);
+
+                        Mission produced = (await testDb.Driver.Missions.ReadAsync(mission.Id))!;
+                        AssertEqual(MissionStatusEnum.WorkProduced, produced.Status, "The gate runs after WorkProduced is written");
+                        MissionCancellationResult cancel = await MissionCancellation.CancelAsync(
+                            testDb.Driver, produced, MissionCancellation.OperatorCancelReason, null);
+                        AssertTrue(cancel.Succeeded, "A produced mission can be cancelled");
+
+                        Task finished = await Task.WhenAny(completion, Task.Delay(TimeSpan.FromSeconds(10)));
+                        AssertTrue(finished == completion, "Cancelling the mission must stop its gate well before the build command ends");
+                        await completion;
+
+                        using (CancellationTokenSource slotWait = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+                        {
+                            using (IDisposable slot = await HostWideCommandLock.AcquireAsync(slotWait.Token))
+                            {
+                                AssertNotNull(slot, "The host-wide command slot is free once the gate stops");
+                            }
+                        }
+
+                        Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                        AssertEqual(MissionStatusEnum.Cancelled, stored!.Status, "The completion handler must not overwrite the cancel");
+
+                        string logPath = Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log");
+                        string activity = File.Exists(logPath) ? await File.ReadAllTextAsync(logPath) : String.Empty;
+                        AssertContains("validation cancelled: definition-of-done gate", activity,
+                            "The activity log records that the gate was cancelled");
+                        AssertFalse(activity.Contains("validation passed: definition-of-done gate", StringComparison.Ordinal),
+                            "A cancelled gate is not reported as passed. Activity: " + activity);
+                        AssertFalse(activity.Contains("validation failed", StringComparison.Ordinal),
+                            "A cancelled gate is not reported as failed. Activity: " + activity);
+
+                        EnumerationResult<ArmadaEvent> evaluations = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                        {
+                            MissionId = mission.Id,
+                            EventType = "mission.definition_of_done_evaluated",
+                            PageNumber = 1,
+                            PageSize = 10
+                        });
+                        AssertEqual(1, evaluations.Objects.Count, "One evaluation is recorded for the cancelled gate");
+                        AssertContains("\"Outcome\":\"Cancelled\"", evaluations.Objects[0].Payload ?? "",
+                            "The recorded evaluation names the cancel");
+                    }
+                    finally
+                    {
+                        if (completion != null)
+                        {
+                            await Task.WhenAny(completion, Task.Delay(TimeSpan.FromSeconds(30)));
+                        }
+
+                        if (worktreePath != null && Directory.Exists(worktreePath)) Directory.Delete(worktreePath, true);
+                        if (Directory.Exists(settings.LogDirectory)) Directory.Delete(settings.LogDirectory, true);
+                    }
+                }
+            });
+
             // Regression: a mission retried after a failed attempt kept the earlier attempt's
             // FailureReason forever. The requeue paths leave that text in place on purpose, so a
             // Pending mission shows why it is being retried -- but nothing cleared it when a later

@@ -103,6 +103,22 @@ upstream integrations and excludes changes already present at that baseline.
   directories** after each test, so repeated unit runs no longer accumulate
   empty `armada-preview-*` folders in the temp directory.
 
+- **A stage is handed off only on a recorded definition-of-done result:** the
+  lazy handoff dispatch runs for a dependent whose upstream was never handed
+  off, and the dangling-handoff recovery, read the upstream's latest gate
+  evaluation. They hand off only when it belongs to the upstream's current
+  launch and is `Passed`, `Skipped` or `NotVerifiable`. An upstream whose gate
+  never recorded a result, such as one whose completion an admiral restart
+  interrupted while the gate waited for the host command slot, is held for
+  operator review with a `definition_of_done_not_run:` reason, and its
+  dependents wait.
+- **Cancelling a mission stops its definition-of-done gate:** a mission cancel
+  or a status transition to `Cancelled` stops a gate still running or queued
+  for that mission. The gate's command process group is killed, the host-wide
+  command slot is released, completion records a `Cancelled` evaluation and a
+  "validation cancelled" activity line, and the mission keeps its `Cancelled`
+  status.
+
 - **Dock anchor and preserve refs stay in the vessel bare repository:** the
   `refs/armada/docks/*`, `refs/armada/missions/*` and `refs/armada-preserved/*`
   refs written when a dock is reclaimed are now local ref updates. A dock is a

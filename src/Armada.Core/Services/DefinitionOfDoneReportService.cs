@@ -268,7 +268,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Name a combination of outcome and fields that the record writer never produces, or return null. Passed
-        /// carries no skip or failure detail; Skipped and NotVerifiable carry a skipped reason and no failure detail;
+        /// carries no skip or failure detail; Skipped, NotVerifiable and Cancelled carry a skipped reason and no failure detail;
         /// Failed and EvaluationError carry a command label and no skipped reason.
         /// </summary>
         private static string? FindContradiction(DefinitionOfDoneEvaluationOutcomeEnum outcome, StoredEvaluationPayload stored)
@@ -286,6 +286,7 @@ namespace Armada.Core.Services
                     return null;
                 case DefinitionOfDoneEvaluationOutcomeEnum.Skipped:
                 case DefinitionOfDoneEvaluationOutcomeEnum.NotVerifiable:
+                case DefinitionOfDoneEvaluationOutcomeEnum.Cancelled:
                     if (String.IsNullOrEmpty(stored.SkippedReason)) return "has no skipped reason";
                     if (hasFailureDetail) return "carries failure details";
                     return null;

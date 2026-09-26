@@ -27,6 +27,12 @@ namespace Armada.Core.Services
         /// </summary>
         public const string OperatorHoldFailedEventType = "mission.hold_failed";
 
+        /// <summary>
+        /// Prefix of the operator-review hold reason placed on a produced mission whose definition-of-done gate has no
+        /// recorded result for its current launch.
+        /// </summary>
+        public const string DefinitionOfDoneNotRunHoldPrefix = "definition_of_done_not_run: ";
+
         /// <inheritdoc />
         public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
 
@@ -680,6 +686,16 @@ namespace Armada.Core.Services
                         return false;
                     }
 
+                    // Only the completion handler hands off a stage it has verified. A dependency that is not in flight
+                    // here may be one whose completion was interrupted -- by an admiral restart, say -- after
+                    // WorkProduced was written and before the definition-of-done gate recorded a result. Handing it
+                    // off would pass work the gate never checked, so the handoff requires the gate's recorded result
+                    // for the dependency's current launch; without it the dependency is held for the operator.
+                    if (await DeferForUnverifiedDependencyAsync(mission, dependency, token).ConfigureAwait(false))
+                    {
+                        return false;
+                    }
+
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                         " (" + dependency.Status + ") but handoff context was not propagated -- self-healing handoff before assignment");
                     await SelfHealDependentHandoffAsync(dependency, mission, token).ConfigureAwait(false);
@@ -1307,6 +1323,13 @@ namespace Armada.Core.Services
 
                 bool anyUnprepared = pendingDependents.Any(dep => !IsPipelineHandoffPrepared(dep, produced));
                 if (!anyUnprepared) continue;
+
+                string? missingGateResult = await DescribeMissingDefinitionOfDoneResultAsync(produced, token).ConfigureAwait(false);
+                if (missingGateResult != null)
+                {
+                    await HoldForMissingDefinitionOfDoneResultAsync(produced, missingGateResult, token).ConfigureAwait(false);
+                    continue;
+                }
 
                 _Logging.Warn(_Header + "re-driving dangling pipeline handoff for WorkProduced mission " + produced.Id +
                     " (" + pendingDependents.Count + " pending dependent(s) not prepared)");
@@ -2385,6 +2408,7 @@ namespace Armada.Core.Services
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work. A later
             // stage that committed production code re-verifies the declared consumers of the branch.
             bool failedForDodGate = false;
+            bool dodGateCancelled = false;
             if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
             {
@@ -2420,6 +2444,21 @@ namespace Armada.Core.Services
                     await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
                         DefinitionOfDoneEvaluationRecord.FromResult(dodResult, dodStartedUtc), token).ConfigureAwait(false);
                 }
+                catch (DefinitionOfDoneGateCancelledException)
+                {
+                    // The mission was cancelled while its gate ran. The cancel already wrote the mission's status, so
+                    // this handler must not write the in-memory WorkProduced copy back over it: read the stored row
+                    // and let the terminal path below clean up. Nothing is handed off or landed.
+                    dodGateCancelled = true;
+                    await AppendMissionActivityAsync(mission.Id,
+                        "validation cancelled: definition-of-done gate stopped because the mission was cancelled", token).ConfigureAwait(false);
+                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
+                        DefinitionOfDoneEvaluationRecord.Cancelled(dodStartedUtc, "mission cancelled while the gate ran"), token).ConfigureAwait(false);
+                    Mission? cancelledMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    if (cancelledMission != null) mission = cancelledMission;
+                    _Logging.Info(_Header + "mission " + mission.Id + " definition-of-done gate cancelled with the mission (status "
+                        + mission.Status + ")");
+                }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
                     throw;
@@ -2443,7 +2482,7 @@ namespace Armada.Core.Services
             }
 
             bool retryingMissingVerdict = false;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && !dodGateCancelled && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
@@ -2675,7 +2714,7 @@ namespace Armada.Core.Services
 
             bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
             bool awaitingManualReview = false;
-            if (!failedForScopeViolation && !failedForDodGate &&
+            if (!failedForScopeViolation && !failedForDodGate && !dodGateCancelled &&
                 mission.Status == MissionStatusEnum.WorkProduced &&
                 mission.RequiresReview)
             {
@@ -2702,7 +2741,7 @@ namespace Armada.Core.Services
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && !failedForIneffectiveRescue && !awaitingManualReview && !heldForOperatorReview)
+            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && !dodGateCancelled && !failedForIneffectiveRescue && !awaitingManualReview && !heldForOperatorReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }
@@ -7874,6 +7913,141 @@ namespace Armada.Core.Services
             await PrepareSingleDependentHandoffAsync(dependency, dependent, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
             foreach (string signalId in appliedSignalIds)
                 await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Park a dependent whose same-vessel dependency may not be handed off yet: the dependency is held for operator
+        /// review, or its definition-of-done gate has no recorded result for its current launch. The second case places
+        /// the hold, so the unverified work is visible to the operator instead of waiting silently.
+        /// </summary>
+        /// <param name="dependent">Dependent mission; parked at WaitingForDependency when deferred.</param>
+        /// <param name="dependency">Its dependency, read in this pass.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the dependent was deferred and must not be handed off or assigned.</returns>
+        private async Task<bool> DeferForUnverifiedDependencyAsync(Mission dependent, Mission dependency, CancellationToken token)
+        {
+            string? deferReason = null;
+            if (dependency.HeldForOperatorReview)
+            {
+                deferReason = "is held for operator review ("
+                    + (dependency.HeldForOperatorReviewReason ?? "no reason recorded") + ")";
+            }
+            else
+            {
+                string? missingGateResult = await DescribeMissingDefinitionOfDoneResultAsync(dependency, token).ConfigureAwait(false);
+                if (missingGateResult != null)
+                {
+                    await HoldForMissingDefinitionOfDoneResultAsync(dependency, missingGateResult, token).ConfigureAwait(false);
+                    deferReason = "has no definition-of-done result: " + missingGateResult;
+                }
+            }
+
+            if (deferReason == null) return false;
+
+            _Logging.Warn(_Header + "mission " + dependent.Id + " depends on " + dependency.Id + " (" + dependency.Status
+                + ") which " + deferReason + " -- not handing off; the dependent waits");
+            dependent.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+            await WriteAssignmentAsync(dependent, MissionStatusEnum.Pending, token).ConfigureAwait(false);
+            return true;
+        }
+
+        /// <summary>
+        /// Name why a produced mission may not be handed off for want of a definition-of-done result, or return null
+        /// when it may. The evidence is the gate's recorded evaluation: the latest one for the mission must be newer
+        /// than the mission's current launch and must be an outcome completion accepts (Passed, Skipped or
+        /// NotVerifiable). Mission status alone is not evidence, because WorkProduced is written before the gate runs.
+        /// A mission past WorkProduced, or a service with no gate wired, needs no evidence here.
+        /// </summary>
+        /// <param name="produced">Mission whose work would be handed off.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The reason the result is missing, or null.</returns>
+        private async Task<string?> DescribeMissingDefinitionOfDoneResultAsync(Mission produced, CancellationToken token)
+        {
+            if (_DefinitionOfDoneGate == null) return null;
+            if (produced.Status != MissionStatusEnum.WorkProduced) return null;
+
+            EnumerationResult<ArmadaEvent> page;
+            try
+            {
+                page = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = produced.Id,
+                    EventType = DefinitionOfDoneEvaluationRecord.EventType,
+                    Order = EnumerationOrderEnum.CreatedDescending,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return "its definition-of-done history could not be read (" + ex.GetType().Name + ")";
+            }
+
+            ArmadaEvent? latest = page.Objects.FirstOrDefault();
+            if (latest == null) return "no definition-of-done result is recorded for it";
+
+            if (produced.StartedUtc.HasValue && latest.CreatedUtc < produced.StartedUtc.Value)
+                return "its latest definition-of-done result belongs to an earlier launch";
+
+            DefinitionOfDoneEvaluationRecord? record = null;
+            if (!String.IsNullOrWhiteSpace(latest.Payload)
+                && latest.Payload!.Length <= DefinitionOfDoneEvaluationRecord.MaxStoredPayloadLength)
+            {
+                try
+                {
+                    record = JsonSerializer.Deserialize<DefinitionOfDoneEvaluationRecord>(latest.Payload);
+                }
+                catch (JsonException)
+                {
+                    record = null;
+                }
+            }
+
+            if (record == null) return "its latest definition-of-done result cannot be read";
+
+            if (record.Outcome != DefinitionOfDoneEvaluationOutcomeEnum.Passed
+                && record.Outcome != DefinitionOfDoneEvaluationOutcomeEnum.Skipped
+                && record.Outcome != DefinitionOfDoneEvaluationOutcomeEnum.NotVerifiable)
+            {
+                return "its latest definition-of-done result is " + record.Outcome;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Hold a produced mission whose definition-of-done gate has no result, so neither handoff nor landing passes
+        /// it on unverified. The hold uses the operator review hold: the operator clears it to accept the work as it
+        /// stands or fails it to send it to recovery. The write is conditional on the mission still being
+        /// WorkProduced, so a concurrent status change is never overwritten.
+        /// </summary>
+        /// <param name="produced">Mission to hold; mutated on success.</param>
+        /// <param name="missingReason">Why the gate result is missing.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task HoldForMissingDefinitionOfDoneResultAsync(Mission produced, string missingReason, CancellationToken token)
+        {
+            if (produced.HeldForOperatorReview) return;
+
+            produced.HeldForOperatorReview = true;
+            produced.HeldForOperatorReviewReason = DefinitionOfDoneNotRunHoldPrefix + missingReason
+                + ". The gate was interrupted before it recorded a result for this launch, so the work is unverified."
+                + " Clear the hold with armada_review_hold to accept it as it stands, or fail it to send it to recovery.";
+            produced.LastUpdateUtc = DateTime.UtcNow;
+            bool written = await _Database.Missions.TryUpdateIfStatusAsync(produced, MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            if (!written)
+            {
+                ClearOperatorReviewHold(produced);
+                _Logging.Info(_Header + "mission " + produced.Id + " left WorkProduced before its missing definition-of-done result could be held");
+                return;
+            }
+
+            await AppendMissionActivityAsync(produced.Id, "held for operator review: " + produced.HeldForOperatorReviewReason, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + produced.Id + " held for operator review: " + missingReason
+                + "; its dependents are not handed off until an operator clears or fails the hold");
         }
 
         private static readonly System.Text.Json.JsonSerializerOptions _MailboxJsonOptions = new System.Text.Json.JsonSerializerOptions

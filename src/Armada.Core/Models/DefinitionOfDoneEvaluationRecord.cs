@@ -192,6 +192,23 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// Build a record for a gate stopped because its mission was cancelled.
+        /// </summary>
+        /// <param name="startedUtc">Evaluation start time.</param>
+        /// <param name="reason">Reason text.</param>
+        /// <returns>Evaluation record without mission identity.</returns>
+        public static DefinitionOfDoneEvaluationRecord Cancelled(DateTime startedUtc, string reason)
+        {
+            return new DefinitionOfDoneEvaluationRecord
+            {
+                Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Cancelled,
+                SkippedReason = BoundLabel(reason),
+                StartedUtc = startedUtc,
+                CompletedUtc = DateTime.UtcNow
+            };
+        }
+
+        /// <summary>
         /// Build a record for an evaluation that threw. The exception message is not stored.
         /// </summary>
         /// <param name="startedUtc">Evaluation start time.</param>

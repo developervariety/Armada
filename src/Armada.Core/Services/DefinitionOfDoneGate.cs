@@ -125,6 +125,8 @@ namespace Armada.Core.Services
         /// <param name="stageStartCommit">Commit the dock started from, when known. A stage the gate does not
         /// apply to uses it to read only its own change when deciding whether to re-verify consumers.</param>
         /// <returns>A <see cref="DefinitionOfDoneResult"/> describing the gate outcome.</returns>
+        /// <exception cref="DefinitionOfDoneGateCancelledException">The mission was cancelled while the gate ran or
+        /// waited for the host-wide command slot. The command process is stopped and the slot released first.</exception>
         public async Task<DefinitionOfDoneResult> EvaluateAsync(
             Mission mission,
             Dock dock,
@@ -134,6 +136,39 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (dock == null) throw new ArgumentNullException(nameof(dock));
 
+            // The run is registered under the mission so a mission cancel can stop it: the gate observes the
+            // run's token, which the cancel trips, and every wait and command below honors that token.
+            using (DefinitionOfDoneGateRun run = DefinitionOfDoneGateRuns.Start(mission.Id, token))
+            {
+                DefinitionOfDoneResult result;
+                try
+                {
+                    result = await EvaluateCoreAsync(mission, dock, run.Token, stageStartCommit).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (run.CancelledByMission && !token.IsCancellationRequested)
+                {
+                    _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
+                    throw new DefinitionOfDoneGateCancelledException(mission.Id);
+                }
+
+                // A cancel can surface as an ordinary result, such as an interrupted command read as a failure.
+                // That result describes a run the cancel cut short, so it is never reported as the gate outcome.
+                if (run.CancelledByMission && !token.IsCancellationRequested)
+                {
+                    _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
+                    throw new DefinitionOfDoneGateCancelledException(mission.Id);
+                }
+
+                return result;
+            }
+        }
+
+        private async Task<DefinitionOfDoneResult> EvaluateCoreAsync(
+            Mission mission,
+            Dock dock,
+            CancellationToken token,
+            string? stageStartCommit)
+        {
             string? skipReason = ResolveSkipReason(mission);
             if (skipReason != null)
             {

@@ -220,6 +220,11 @@ namespace Armada.Server
                 }
 
                 mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+                // A mission moved to Cancelled stops any definition-of-done gate still running for it, the same as
+                // an operator cancel.
+                if (newStatus == MissionStatusEnum.Cancelled)
+                    DefinitionOfDoneGateRuns.Cancel(mission.Id);
             }
 
             Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);

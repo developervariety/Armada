@@ -18,17 +18,40 @@ payload is a `DefinitionOfDoneEvaluationRecord`, schema version 1:
 | `NotVerifiable` | The mission changed nothing, so the commands would measure the base commit. The gate did not run. |
 | `Failed` | A required command failed. Label, exit code, failure class and output tail are recorded. |
 | `EvaluationError` | The gate threw. Only the exception type is recorded, not its message. |
+| `Cancelled` | The mission was cancelled while the gate ran or waited for the host-wide command slot. The gate's command process was stopped and the slot released. No build or test result exists. |
 
 The record also holds the captain, dock, branch, the mission commit hash when
 known, the recovery attempt count, and start and end times. The failure output
 passes through the shared secret redactor and keeps only its last characters,
 4,000 at most including a truncation marker. On a long failure the gate's
 leading actionable-diagnostics section can fall outside that tail; the complete
-gate output remains in the mission `FailureReason`. A cancelled completion
-records nothing.
+gate output remains in the mission `FailureReason`. A completion stopped by
+server shutdown records nothing.
+
+Cancelling a mission (the operator cancel, or a status transition to
+`Cancelled`) stops a gate still running for it: the gate's command process
+group is killed, the host-wide command slot and dock lease are released, and
+completion records `Cancelled`. The mission keeps the `Cancelled` status the
+cancel wrote; it is not failed, handed off or landed.
 
 A failed event write is logged with the outcome and exception type. It never
 changes the gate outcome or the mission decision.
+
+## Handoff requires a recorded result
+
+Mission status is not evidence that the gate passed: completion writes
+`WorkProduced` before the gate runs. A completion interrupted after that write,
+for example by an admiral restart while the gate waits for the host-wide slot,
+leaves a `WorkProduced` mission with no gate result. The lazy handoff that
+dispatch runs for a dependent whose upstream was never handed off, and the
+dangling-handoff recovery, therefore read the upstream's latest evaluation
+event first. They hand off only when that event is newer than the upstream's
+current launch (`StartedUtc`) and its outcome is `Passed`, `Skipped` or
+`NotVerifiable`. Otherwise the upstream is held for operator review with a
+`definition_of_done_not_run:` reason and its dependents keep waiting. The
+operator clears the hold with `armada_review_hold` to accept the work as it
+stands, or fails it to send it to recovery. This applies only when a gate is
+wired.
 
 The server builds the gate only at startup, and only when
 `DefinitionOfDone.Enabled` is true. With no gate, completion records no
@@ -79,7 +102,7 @@ as a damaged row or a manual edit, and each rejection names its reason.
 | Outcome | Required | Rejected |
 | --- | --- | --- |
 | `Passed` | — | a skipped reason, command label, exit code, failure class or output tail |
-| `Skipped`, `NotVerifiable` | a skipped reason | a command label, exit code, failure class or output tail |
+| `Skipped`, `NotVerifiable`, `Cancelled` | a skipped reason | a command label, exit code, failure class or output tail |
 | `Failed`, `EvaluationError` | a command label | a skipped reason |
 
 The skipped reason and command label pass through the shared secret redactor

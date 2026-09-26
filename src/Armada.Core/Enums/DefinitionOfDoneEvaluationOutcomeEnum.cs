@@ -32,6 +32,12 @@ namespace Armada.Core.Enums
         /// <summary>
         /// The gate could not complete its evaluation because of an unexpected error.
         /// </summary>
-        EvaluationError
+        EvaluationError,
+
+        /// <summary>
+        /// The mission was cancelled while the gate ran or waited for the host-wide command slot. The gate was stopped
+        /// and produced no result; a cancelled gate is not evidence that a build or test ran.
+        /// </summary>
+        Cancelled
     }
 }

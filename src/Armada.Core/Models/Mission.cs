@@ -235,15 +235,16 @@ namespace Armada.Core.Models
         public string? ReconciledReason { get; set; } = null;
 
         /// <summary>
-        /// Whether a Judge PASS on this mission is held for operator review. While set, the Judge
-        /// completion path does not hand off or land the mission and the landing drain does not treat
-        /// the review chain as passed. Only an operator clears or fails the hold; nothing clears it
-        /// automatically.
+        /// Whether this mission's produced work is held for operator review: a Judge PASS the review
+        /// decision held, or a produced stage whose definition-of-done gate has no recorded result for
+        /// its current launch. While set, the mission is not handed off or landed and the landing drain
+        /// does not treat the review chain as passed. Only an operator clears or fails the hold; nothing
+        /// clears it automatically.
         /// </summary>
         public bool HeldForOperatorReview { get; set; } = false;
 
         /// <summary>
-        /// Why the Judge PASS is held for operator review. Null when <see cref="HeldForOperatorReview"/> is false.
+        /// Why the mission is held for operator review. Null when <see cref="HeldForOperatorReview"/> is false.
         /// </summary>
         public string? HeldForOperatorReviewReason { get; set; } = null;
 
