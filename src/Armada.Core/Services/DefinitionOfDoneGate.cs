@@ -46,6 +46,8 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private const int MaxConsumerRerunClasses = 3;
+
         private readonly string _Header = "[DefinitionOfDoneGate] ";
         private readonly DefinitionOfDoneSettings _Settings;
         private readonly DatabaseDriver _Database;
@@ -226,6 +228,7 @@ namespace Armada.Core.Services
                 FailOnConsumerVerificationError = _Settings.FailOnConsumerVerificationError,
                 RunConsumerTests = _Settings.RunConsumerTests,
                 VerifyConsumersAfterLaterStages = _Settings.VerifyConsumersAfterLaterStages,
+                RerunFailingConsumerClassesOnce = _Settings.RerunFailingConsumerClassesOnce,
                 DefaultConsumerTestTriggerPaths = new List<string>(_Settings.ConsumerTestTriggerPaths ?? new List<string>())
             };
 
@@ -882,8 +885,16 @@ namespace Armada.Core.Services
                 // A consumer suite has load-sensitive tests of its own. Score the red and, when the model
                 // recommends it, re-run only the failing classes in the same worktree, as the producer's
                 // own suite does. The re-run is the truth; a red that stays red keeps its consumer label.
+                DefinitionOfDoneResult suiteResult = result;
                 result = await MaybeRerunFlakyTestAsync(mission, effective, consumerWorktree, result, token,
                     logLabel + " (flake re-run)", consumer.Id).ConfigureAwait(false);
+
+                // The producer did not write the consumer's tests, so a consumer red is re-run once in
+                // isolation whatever the model says: a break the producer caused fails again alone, and a
+                // consumer test that loses a race under the loaded suite passes alone. The isolated
+                // re-run is the truth either way. Bounded to a few failing classes.
+                if (!result.Passed && ReferenceEquals(result, suiteResult) && _Settings.RerunFailingConsumerClassesOnce)
+                    result = await RerunFailingConsumerClassesAsync(consumer, effective, consumerWorktree, result, logLabel, token).ConfigureAwait(false);
             }
 
             if (!result.Passed)
@@ -893,6 +904,37 @@ namespace Armada.Core.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Re-run a consumer suite's failing classes once in isolation and return that result. Returns the
+        /// original failing result when the failure is not a test failure, the failing names are missing,
+        /// overflowed or span more classes than the bound, or no isolated command can be formed.
+        /// </summary>
+        private async Task<DefinitionOfDoneResult> RerunFailingConsumerClassesAsync(
+            Vessel consumer,
+            string testCommand,
+            string consumerWorktree,
+            DefinitionOfDoneResult testResult,
+            string logLabel,
+            CancellationToken token)
+        {
+            if (testResult.FailureClass != DefinitionOfDoneFailureClassEnum.TestFail) return testResult;
+            if (testResult.FailedTestNames == null || testResult.FailedTestNames.Count == 0 || testResult.FailedTestNamesOverflow)
+                return testResult;
+
+            IReadOnlyList<string> classNames = FlakeRerunCommand.DeriveClassNames(testResult.FailedTestNames);
+            if (classNames.Count == 0 || classNames.Count > MaxConsumerRerunClasses) return testResult;
+            if (!FlakeRerunCommand.TryBuild(testCommand, classNames, out string filteredCommand))
+            {
+                _Logging.Info(_Header + "consumer " + consumer.Name + " red could not be isolated for a re-run; the red stands");
+                return testResult;
+            }
+
+            _Logging.Info(_Header + "re-running " + classNames.Count + " failing class(es) of consumer " + consumer.Name + " in isolation");
+            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", filteredCommand, consumerWorktree, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "consumer " + consumer.Name + " isolated re-run passed=" + rerun.Passed);
+            return rerun;
         }
 
         /// <summary>

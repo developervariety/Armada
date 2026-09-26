@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A consumer suite red is re-run once in isolation:** when a declared
+  consumer's unit-test suite fails inside the definition-of-done gate and the
+  flake decision did not re-run it, up to three failing classes run again
+  alone and that result stands. `DefinitionOfDone.RerunFailingConsumerClassesOnce`
+  turns it off.
 - **Every rescue inside a voyage is re-judged:** an automatic rescue of any
   non-planner stage that failed inside a voyage (an analyst, TestEngineer or
   Linter as well as a Worker) now runs in a rescue voyage with the pipeline's

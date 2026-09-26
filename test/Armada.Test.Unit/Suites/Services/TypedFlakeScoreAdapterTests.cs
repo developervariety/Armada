@@ -265,6 +265,47 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, gate.RerunCalls);
             }).ConfigureAwait(false);
 
+            await RunTest("Gate_ConsumerSuiteRed_IsRerunOnceInIsolation_WhenTheModelRecommendsNoRerun", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string worktree = Path.Combine(Path.GetTempPath(), "armada_consumer_rerun_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(worktree);
+                try
+                {
+                    string command = "bash -c 'echo \"  Failed Fleet.Core.Tests.VinReaderTests.ReadAsync_Reply [20 s]\"; "
+                        + "echo \"Failed!  - Failed: 1, Passed: 0, Total: 1\"; exit 1; dotnet test Example.sln --filter \"Category!=Integration\"'";
+                    Vessel consumer = new Vessel { Id = "vsl_consumer", Name = "ExampleConsumer" };
+                    WorkflowProfile profile = new WorkflowProfile { UnitTestCommand = command };
+
+                    // The model reads the red as a real defect and recommends no re-run.
+                    FakeTypedDecisionClient noRerunClient = new FakeTypedDecisionClient(FlakeResult(0.0, 0.99, 0.1));
+                    FlakeTestableGate gate = new FlakeTestableGate(db.Driver,
+                        BuildAdapter(db, noRerunClient, BuildSettings(TypedDecisionModeEnum.Gate)), DefinitionOfDoneResult.Pass());
+                    DefinitionOfDoneResult cleared = await gate.EvaluateConsumerTestsForTestAsync(
+                        BuildInput().Mission!, consumer, profile, worktree, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertTrue(cleared.Passed, "a consumer class that passes alone clears the consumer red");
+                    AssertEqual(1, gate.RerunCalls, "exactly one isolated re-run");
+                    AssertContains("(Category!=Integration)&(FullyQualifiedName~VinReaderTests)", gate.LastRerunCommand ?? "",
+                        "the re-run narrows the consumer's own filter to the failing class");
+
+                    FakeTypedDecisionClient offClient = new FakeTypedDecisionClient(FlakeResult(0.0, 0.99, 0.1));
+                    FlakeTestableGate off = new FlakeTestableGate(db.Driver,
+                        BuildAdapter(db, offClient, BuildSettings(TypedDecisionModeEnum.Gate)), DefinitionOfDoneResult.Pass(),
+                        new DefinitionOfDoneSettings { Enabled = true, RerunFailingConsumerClassesOnce = false });
+                    DefinitionOfDoneResult red = await off.EvaluateConsumerTestsForTestAsync(
+                        BuildInput().Mission!, consumer, profile, worktree, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertTrue(!red.Passed, "with the setting off and no model recommendation the consumer red stands");
+                    AssertEqual(0, off.RerunCalls, "no re-run with the setting off");
+                    AssertEqual("consumer_tests_failed: ExampleConsumer", red.CommandLabel);
+                }
+                finally
+                {
+                    try { Directory.Delete(worktree, true); } catch { }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("FlakeRerunCommand_DerivesClassAndBuildsDotnetFilter", () =>
             {
                 IReadOnlyList<string> classes = FlakeRerunCommand.DeriveClassNames(new List<string>
@@ -365,8 +406,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public string? LastRerunCommand { get; private set; }
 
-            public FlakeTestableGate(Armada.Core.Database.DatabaseDriver database, TypedFlakeScoreAdapter adapter, DefinitionOfDoneResult rerunResult)
-                : base(new DefinitionOfDoneSettings { Enabled = true }, database, new LoggingModule(), null, null, adapter)
+            public FlakeTestableGate(Armada.Core.Database.DatabaseDriver database, TypedFlakeScoreAdapter adapter, DefinitionOfDoneResult rerunResult, DefinitionOfDoneSettings? settings = null)
+                : base(settings ?? new DefinitionOfDoneSettings { Enabled = true }, database, new LoggingModule(), null, null, adapter)
             {
                 _RerunResult = rerunResult;
             }
