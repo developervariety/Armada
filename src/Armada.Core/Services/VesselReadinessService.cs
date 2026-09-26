@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Text;
     using System.Text.RegularExpressions;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -17,7 +18,6 @@ namespace Armada.Core.Services
     /// </summary>
     public class VesselReadinessService
     {
-        private static readonly Regex _CommandSegmentSplit = new Regex(@"\s*(?:&&|\|\||;|\r?\n)\s*", RegexOptions.Compiled);
         private static readonly Regex _TokenRegex = new Regex("^\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s]+))", RegexOptions.Compiled);
         // Shell builtins are never PATH executables, so probing them as command dependencies
         // always fails. "exit", "return" and ":" matter in particular: a command segment such as
@@ -645,20 +645,66 @@ namespace Armada.Core.Services
             }
         }
 
-        private static IEnumerable<string> ExtractPrimaryDependencies(string command)
+        internal static IEnumerable<string> ExtractPrimaryDependencies(string command)
         {
             if (String.IsNullOrWhiteSpace(command))
                 yield break;
 
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string segment in _CommandSegmentSplit.Split(command))
+            foreach (string segment in SplitCommandSegments(command))
             {
                 string? dependency = ExtractDependencyFromSegment(segment);
                 if (String.IsNullOrWhiteSpace(dependency)) continue;
                 if (seen.Add(dependency))
                     yield return dependency;
             }
+        }
+
+        /// <summary>
+        /// Split a command into the segments a shell runs one after another: at <c>&amp;&amp;</c>,
+        /// <c>||</c>, <c>;</c> and line breaks outside double quotes. Text inside double quotes is an
+        /// argument, never a command, so a separator there does not start a segment. Single quotes are
+        /// not treated as quoting, so the steps of a <c>bash -c '...'</c> body are still probed.
+        /// </summary>
+        private static List<string> SplitCommandSegments(string command)
+        {
+            List<string> segments = new List<string>();
+            StringBuilder current = new StringBuilder();
+            bool inDouble = false;
+            for (int i = 0; i < command.Length; i++)
+            {
+                char ch = command[i];
+                if (ch == '\\' && inDouble && i + 1 < command.Length)
+                {
+                    current.Append(ch).Append(command[i + 1]);
+                    i++;
+                    continue;
+                }
+
+                if (ch == '"') inDouble = !inDouble;
+
+                if (!inDouble)
+                {
+                    int separatorLength = 0;
+                    if (ch == ';' || ch == '\n') separatorLength = 1;
+                    else if (ch == '\r' && i + 1 < command.Length && command[i + 1] == '\n') separatorLength = 2;
+                    else if ((ch == '&' || ch == '|') && i + 1 < command.Length && command[i + 1] == ch) separatorLength = 2;
+
+                    if (separatorLength > 0)
+                    {
+                        segments.Add(current.ToString().Trim());
+                        current.Clear();
+                        i += separatorLength - 1;
+                        continue;
+                    }
+                }
+
+                current.Append(ch);
+            }
+
+            segments.Add(current.ToString().Trim());
+            return segments;
         }
 
         private static string? ExtractDependencyFromSegment(string segment)

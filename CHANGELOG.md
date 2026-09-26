@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Readiness ignores separators inside double quotes:** the command
+  dependency probe splits a command at `;`, `&&`, `||` and line breaks only
+  outside double quotes. Before, a quoted message such as
+  `echo "...; left unchanged"` made every Check on the profile fail with
+  `The command dependency 'left' could not be found`.
 - **A consumer suite gets the flaky-test re-run:** when a consumer's unit-test
   suite fails inside the definition-of-done gate and the `flake_score` decision
   recommends it, only the failing classes run again in the same worktree, and

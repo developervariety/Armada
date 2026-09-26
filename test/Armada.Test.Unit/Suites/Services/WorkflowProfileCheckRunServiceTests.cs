@@ -1531,6 +1531,21 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Readiness never probes text inside double quotes as a command dependency", async () =>
+            {
+                string command = "bash -c 'set -e; if [ -d ../Sibling/.git ]; then git -C ../Sibling fetch --quiet origin; "
+                    + "else echo \"armada: ../Sibling is provisioned; left unchanged && kept || skipped\"; fi; dotnet build Example.sln'";
+
+                List<string> dependencies = VesselReadinessService.ExtractPrimaryDependencies(command).ToList();
+
+                AssertTrue(dependencies.Contains("git"), "a command inside the bash -c body is still probed");
+                AssertTrue(dependencies.Contains("dotnet"), "the last step of the bash -c body is still probed");
+                AssertFalse(dependencies.Contains("left"), "a word after a semicolon inside double quotes is not a command");
+                AssertFalse(dependencies.Contains("kept"), "a word after && inside double quotes is not a command");
+                AssertFalse(dependencies.Contains("skipped"), "a word after || inside double quotes is not a command");
+                await Task.CompletedTask.ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("Landing preview does not count a failed check with zero exit code as passed", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
