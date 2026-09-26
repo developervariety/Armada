@@ -519,7 +519,7 @@ namespace Test.Shared.Suites.Services
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertContains("## Captain Instructions", content, "Custom captain instructions should still be included");
                         AssertContains("brief explanation", content, "Original captain instruction text should be preserved");
-                        AssertContains("## Required Output Contract", content, "Generated instructions should append a structured output contract");
+                        AssertEqual(1, Regex.Matches(content, "^## Required Output Contract$", RegexOptions.Multiline).Count, "Generated instructions state the output contract exactly once");
                         AssertContains("## Completeness", content, "Judge output contract should require Completeness");
                         AssertContains("## Failure Modes", content, "Judge output contract should require Failure Modes");
                         AssertContains("[ARMADA:VERDICT] PASS", content, "Judge output contract should preserve the standalone verdict signal");
@@ -711,8 +711,9 @@ namespace Test.Shared.Suites.Services
                         mission, vessel, captain, dock, templateService).ConfigureAwait(false);
 
                     AssertContains("test engineer", prompt.ToLowerInvariant());
-                    AssertContains("## Coverage Added", prompt);
-                    AssertContains("[ARMADA:RESULT] COMPLETE", prompt);
+                    AssertContains(MissionPromptBuilder.LaunchContractPointer, prompt, "the launch prompt points at the output contract");
+                    AssertFalse(prompt.Contains("## Coverage Added"), "the launch prompt does not restate the output contract");
+                    AssertFalse(prompt.Contains("[ARMADA:RESULT]"), "the launch prompt does not restate the output contract");
                     AssertContains("Write tests", prompt);
                     AssertContains("CODEX.md", prompt);
                     AssertContains("After reading it, perform the mission now", prompt);
@@ -789,7 +790,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("judge_launch_prompt_repeats_structured_verdict_contract", "Judge launch prompt repeats structured verdict contract", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("judge_launch_prompt_points_at_the_verdict_contract", "Judge launch prompt points at the verdict contract instead of restating it", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -812,10 +813,10 @@ namespace Test.Shared.Suites.Services
                     string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(
                         mission, vessel, captain, dock, templateService).ConfigureAwait(false);
 
-                    AssertContains("## Completeness", prompt);
-                    AssertContains("## Failure Modes", prompt);
-                    AssertContains("[ARMADA:VERDICT] PASS", prompt);
-                    AssertContains("follow it exactly", prompt);
+                    AssertContains("judge agent", prompt, "the launch prompt names the role");
+                    AssertContains(MissionPromptBuilder.LaunchContractPointer, prompt, "the launch prompt points at the output contract");
+                    AssertFalse(prompt.Contains("## Completeness"), "the launch prompt does not list the Judge sections");
+                    AssertFalse(prompt.Contains("[ARMADA:VERDICT]"), "the launch prompt does not restate the verdict signal");
                 }
             }));
 

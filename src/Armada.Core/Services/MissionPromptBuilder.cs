@@ -125,8 +125,7 @@ namespace Armada.Core.Services
             Vessel vessel,
             Captain? captain = null,
             Dock? dock = null,
-            TestOwnershipEnum ownership = TestOwnershipEnum.Unknown,
-            string? judgePrimaryLens = null)
+            TestOwnershipEnum ownership = TestOwnershipEnum.Unknown)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
@@ -149,7 +148,9 @@ namespace Armada.Core.Services
                 ["SelectedPlaybooksMarkdown"] = "",
                 ["CaptainId"] = captain?.Id ?? "",
                 ["CaptainName"] = captain?.Name ?? "",
-                ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona, mission.Mode, judgePrimaryLens),
+                // The captain's own instructions only. The persona output contract is stated once, in
+                // Mission Instructions, so it is never restated here.
+                ["CaptainInstructions"] = captain?.SystemInstructions?.Trim() ?? String.Empty,
                 // Always written, empty string included: RenderAsync substitutes only keys present in
                 // the dictionary and would otherwise leave a literal {TestOwnership} in the brief.
                 //
@@ -320,44 +321,35 @@ namespace Armada.Core.Services
 
         private static string BuildBootstrapRoleSummary(string? persona, bool readOnly = false, MissionModeEnum mode = MissionModeEnum.Implementation)
         {
-            // A read-only mission must not be greeted with a producing role line: a TestEngineer
-            // told to "include Coverage Added" while the rules block forbids edits, commits, builds
-            // and test runs cannot satisfy both. The role greeting agrees with the mode instead.
-            if (readOnly)
+            // The launch prompt names the role and points at the output contract; it never restates the
+            // contract. The contract is stated once, in the Mission Instructions section of the instruction
+            // file, so the section list and terminal-marker rules cannot drift between two copies.
+            string? role = PersonaCatalog.NormalizeName(persona) switch
             {
-                string normalized = PersonaCatalog.NormalizeName(persona);
-                // A read-only Judge is validated against the report sections, so the launch prompt
-                // must name those and never the implementation ones: a captain that obeys a prompt
-                // naming the other set fails its own verdict validation.
-                if (normalized == PersonaCatalog.Judge)
-                {
-                    return "You are an Armada judge agent on a " + mode + " mission. Validate the report and its evidence, not a code change. " +
-                        "Include " + JudgeReviewSections.Headings(true) + " sections, and end with exactly one standalone " +
-                        "[ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. " +
-                        "Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run.";
-                }
-
-                if (normalized == PersonaCatalog.Worker || normalized == PersonaCatalog.TestEngineer || normalized == PersonaCatalog.Linter)
-                {
-                    string role = normalized == PersonaCatalog.TestEngineer ? "test engineer" : (normalized == PersonaCatalog.Linter ? "linter" : "worker");
-                    return "You are an Armada " + role +
-                        " agent on a " + mode + " mission. Your deliverable is a report, not a code change: " +
-                        "do not edit, commit, or push. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.";
-                }
-            }
-
-            return PersonaCatalog.NormalizeName(persona) switch
-            {
-                PersonaCatalog.Architect => "You are an Armada architect agent. Respond only with real [ARMADA:MISSION] blocks. Do not emit [ARMADA:VERDICT] lines.",
-                PersonaCatalog.ProductManager => "You are an Armada product manager agent. Include `## Product Vision`, `## Use Cases`, `## Experience Requirements`, `## Validation`, and `## Future Readiness` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.UsabilityEngineer => "You are an Armada usability engineer agent. Include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.Worker => "You are an Armada worker agent. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.",
-                PersonaCatalog.TestEngineer => "You are an Armada test engineer agent. Include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.Linter => "You are an Armada linter agent. Evaluate the changed code and documentation for style and correctness, fix clear in-scope violations, and include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.Judge => "You are an Armada judge agent. Include " + JudgeReviewSections.Headings(false) + " sections. When the brief lists acceptance criteria, also include `## Acceptance Criteria` with one line per criterion copying its exact text, then MET with file:line or command: `...` evidence, or NOT MET; NOT MET forbids PASS. When the mission is [DOD:DOC-ONLY] and the diff is non-code, do not run the full suite. End with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run.",
-                _ => "You are an Armada captain executing a mission."
+                PersonaCatalog.Architect => "architect",
+                PersonaCatalog.ProductManager => "product manager",
+                PersonaCatalog.UsabilityEngineer => "usability engineer",
+                PersonaCatalog.Worker => "worker",
+                PersonaCatalog.TestEngineer => "test engineer",
+                PersonaCatalog.Linter => "linter",
+                PersonaCatalog.Judge => "judge",
+                _ => null
             };
+
+            string identity = role == null
+                ? "You are an Armada captain executing a mission"
+                : "You are an Armada " + role + " agent";
+            if (readOnly) identity += " on a " + mode + " mission";
+
+            return identity + ". " + LaunchContractPointer;
         }
+
+        /// <summary>
+        /// The launch prompt's pointer to the output contract, which the instruction file states once in its
+        /// Mission Instructions section.
+        /// </summary>
+        internal const string LaunchContractPointer =
+            "Your output contract is in the Mission Instructions section of the instruction file; follow it exactly.";
 
         private static string SummarizeText(string? input, int maxChars)
         {
@@ -380,20 +372,6 @@ namespace Armada.Core.Services
                 return personaSummary;
 
             return GetPersonaPromptFallback(persona);
-        }
-
-        private static string BuildCaptainInstructions(string? existingInstructions, string? persona, MissionModeEnum mode, string? judgePrimaryLens = null)
-        {
-            string existing = existingInstructions?.Trim() ?? String.Empty;
-            string outputContract = GetPersonaOutputContract(persona, mode, judgePrimaryLens);
-
-            if (String.IsNullOrEmpty(outputContract))
-                return existing;
-
-            if (String.IsNullOrEmpty(existing))
-                return outputContract;
-
-            return existing + "\n\n## Required Output Contract\n" + outputContract;
         }
 
         /// <summary>

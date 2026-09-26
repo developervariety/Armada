@@ -131,8 +131,9 @@ namespace Armada.Core.Context
             List<ContextBriefFile> readFirst = files.Where(f => f.ReadFirst).ToList();
             List<ContextBriefFile> reference = files.Where(f => !f.ReadFirst).ToList();
 
+            // Mode-neutral on purpose: the same wording reaches a read-only mission, which changes nothing.
             sb.Append("\n### Read first\n");
-            sb.Append("Read each of these files in full, in this order, before you change anything. ");
+            sb.Append("Read each of these files in full, in this order, before you begin the mission's work. ");
             sb.Append("Each file fits in one read. Do not skip one because the list is long.\n");
             if (noCore) sb.Append("\n_No core rules were resolved._\n");
             foreach (ContextBriefFile f in readFirst) AppendFileLine(sb, f);

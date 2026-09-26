@@ -463,11 +463,19 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Byte budget for a generated captain instruction file. When it is above 0, a brief over the budget
-        /// is logged, and the total-budget backstop elides content modules and the embedded description to
-        /// fit. 0 (the default) disables both: memory and an oversized description are delivered as bounded
-        /// dock files, so no mission text is cut to fit a total. Every brief's size is still recorded in the
-        /// mission.prompt_budget telemetry event. Must be >= 0.
+        /// Default byte budget for a generated captain instruction file: 64 KiB. Measured briefs run from about
+        /// 18 KB (read-only) to about 49 KB (a Judge carrying a stage handoff), so a normal brief never reaches it,
+        /// while a brief that has regressed to two or three times that size does.
+        /// </summary>
+        public const int DefaultCaptainInstructionByteBudget = 65536;
+
+        /// <summary>
+        /// Byte budget for a generated captain instruction file. A brief assembled over the budget records a
+        /// mission.prompt_over_budget warning event, and the total-budget backstop elides content modules and the
+        /// embedded description to fit. Memory and an oversized description are delivered as bounded dock files,
+        /// so they never count against it. Every brief's size is recorded in the mission.prompt_budget telemetry
+        /// event. The budget is always enforced: 0 selects <see cref="DefaultCaptainInstructionByteBudget"/>.
+        /// Must be >= 0.
         /// </summary>
         public int CaptainInstructionByteBudget
         {
@@ -475,7 +483,7 @@ namespace Armada.Core.Settings
             set
             {
                 if (value < 0) throw new ArgumentOutOfRangeException(nameof(CaptainInstructionByteBudget), "Must be >= 0");
-                _CaptainInstructionByteBudget = value;
+                _CaptainInstructionByteBudget = value == 0 ? DefaultCaptainInstructionByteBudget : value;
             }
         }
 
@@ -998,7 +1006,7 @@ namespace Armada.Core.Settings
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _MaxConcurrentCaptainWorkloads = 0;
-        private int _CaptainInstructionByteBudget = 0;
+        private int _CaptainInstructionByteBudget = DefaultCaptainInstructionByteBudget;
         private string? _AiMemoryRoot = null;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();

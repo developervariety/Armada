@@ -83,6 +83,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A captain brief carries only what its mode and persona can use:** an Audit
+  or Research brief leaves out `engineering` and `testing` skills and states
+  Git Anchors as facts, not new work or prior art; the memory read-first rule
+  no longer assumes the mission edits; Runtime Signals verdict lines reach only
+  a Judge and the Architect rule only an Architect. The output contract is
+  stated once in Mission Instructions, not also in the captain instructions and
+  the launch prompt, so a Judge without captain instructions now receives it.
+  `captainInstructionByteBudget` defaults to 65,536 (0 selects the default),
+  and an over-budget brief records a `mission.prompt_over_budget` warning.
 - **Dock anchor and preserve refs stay in the vessel bare repository:** the
   `refs/armada/docks/*`, `refs/armada/missions/*` and `refs/armada-preserved/*`
   refs written when a dock is reclaimed are now local ref updates. A dock is a

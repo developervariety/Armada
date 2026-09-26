@@ -105,6 +105,31 @@ the other vessel context sections. The Recall Existing Memory guidance in each
 built-in persona template tells the captain to read that section when the brief
 carries one.
 
+The persona output contract appears once, in the `# Mission Instructions`
+section. A read-only mission's persona prompt is its contract; a producing
+mission's persona template is followed by a `## Required Output Contract`
+block. The captain's own instructions carry no contract, and the launch prompt
+names the role and points at the contract without restating it.
+
+A brief carries only what the mission's mode and persona can use:
+
+- An Audit or Research mission receives no project-profile skill whose
+  category is `engineering` or `testing`; a skill with another category, or
+  none, reaches every mode.
+- The Shared Memory read-first list asks the captain to read the files before
+  it begins the mission's work, which holds for a read-only mission too.
+- On a read-only mission the Git Anchors block states the same facts to report:
+  an absent path is only absent, not new work, and subject terms are listed as
+  tracked content, not prior art.
+- The Runtime Signals verdict lines reach only a Judge, and the Architect
+  signal rule reaches only an Architect.
+
+The instruction file has a byte budget, `captainInstructionByteBudget`
+(default 65,536; `0` selects the default). A brief assembled over it records a
+`mission.prompt_over_budget` warning event naming the budget, the assembled
+and written sizes, the largest modules and every module the backstop
+shortened.
+
 When commit metadata is on and the mission is not read-only, the launch prompt
 ends with the `commit.instructions_preamble` text and the Armada trailers. The
 preamble requires a summary line and a full manifest of every file added,

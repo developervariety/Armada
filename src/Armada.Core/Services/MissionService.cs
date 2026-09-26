@@ -2957,7 +2957,7 @@ namespace Armada.Core.Services
 
             TestOwnershipEnum testOwnership = await ResolveTestOwnershipAsync(mission, vessel, token).ConfigureAwait(false);
             string? judgePrimaryLens = await ResolveJudgeLensAsync(mission, token).ConfigureAwait(false);
-            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, testOwnership, judgePrimaryLens);
+            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, testOwnership);
             List<MissionPlaybookSnapshot> playbookSnapshots = await LoadMissionPlaybookSnapshotsAsync(mission, token).ConfigureAwait(false);
 
             string content = "";
@@ -3029,7 +3029,8 @@ namespace Armada.Core.Services
             // The vessel's project-profile skills, injected as their own section. Tracked through the
             // ledger like every other module: an untracked section still costs the captain its bytes,
             // and an oversized brief must be visible in the accounting rather than shipping silently.
-            string skillsMarkdown = await ResolveSkillsMarkdownAsync(vessel, token).ConfigureAwait(false);
+            // A read-only mission receives only the skills that do not govern code edits.
+            string skillsMarkdown = await ResolveSkillsMarkdownAsync(vessel, token, mission.IsReadOnlyMode).ConfigureAwait(false);
             if (!String.IsNullOrWhiteSpace(skillsMarkdown))
             {
                 content += ledger.Track("mission.skills", "## Skills\n\n" + skillsMarkdown + "\n");
@@ -3096,10 +3097,10 @@ namespace Armada.Core.Services
 
             // Git anchors: the base commit, the recent history of the paths this mission names, and
             // whether its subject terms already exist here. Every mission mode gets them, including
-            // read-only ones -- establishing what already exists IS most of an Audit's work, so an
-            // audit captain benefits from them at least as much as an implementing one.
+            // read-only ones -- establishing what already exists IS most of an Audit's work. A read-only
+            // mission gets them as facts to report, never as "new work" or prior art to build on.
             GitAnchors gitAnchors = await ResolveDispatchGitAnchorsAsync(worktreePath, mission, vessel, token).ConfigureAwait(false);
-            string gitAnchorsSection = BuildGitAnchorsSection(gitAnchors);
+            string gitAnchorsSection = BuildGitAnchorsSection(gitAnchors, mission.IsReadOnlyMode);
             if (!String.IsNullOrEmpty(gitAnchorsSection))
             {
                 content += ledger.Track("mission.git_anchors", gitAnchorsSection);
@@ -3132,9 +3133,15 @@ namespace Armada.Core.Services
             string boundedDescription = BoundMetadataDescription(mission.Description, descriptionFiles);
             templateParams["MissionDescription"] = boundedDescription;
 
+            // The output contract is stated here and nowhere else in the brief. A read-only mission's persona
+            // prompt IS its contract; a producing mission's persona template is followed by the code-owned
+            // contract, because the template carries role guidance and the contract carries the rules the
+            // stage is validated against.
             string personaPrompt = mission.IsReadOnlyMode
                 ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens)
-                : await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false);
+                : AppendOutputContract(
+                    await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false),
+                    MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens));
             templateParams["PersonaPrompt"] = personaPrompt;
 
             content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
@@ -3203,7 +3210,9 @@ namespace Armada.Core.Services
             }
 
             content += "\n";
-            content += ledger.Track("mission.progress_signals", await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false));
+            content += ledger.Track("mission.progress_signals", FilterRuntimeSignalsForPersona(
+                await ResolveSectionAsync("mission.progress_signals", templateParams, token).ConfigureAwait(false),
+                mission.Persona));
 
             // Papercuts apply to every mission mode: an audit meets stale docs and dead links exactly as
             // an implementation does. Judge and Architect are excluded -- a judge reports what it finds
@@ -3263,6 +3272,8 @@ namespace Armada.Core.Services
             // budget after every per-module cap, elide the largest content modules in place so no
             // mission ships an over-budget brief. The persona prompt, rules, and metadata skeleton are
             // never elided -- only the content-bearing modules that repeat vessel or mission context.
+            int assembledBytes = System.Text.Encoding.UTF8.GetByteCount(content);
+            List<KeyValuePair<string, int>> assembledModules = ledger.GetModulesLargestFirst();
             content = EnforceTotalBriefBudget(content, ledger, _Settings.CaptainInstructionByteBudget, boundedDescription);
 
             Directory.CreateDirectory(Path.GetDirectoryName(instructionsPath)!);
@@ -3328,6 +3339,126 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "generated mission instructions at " + instructionsPath);
 
             await RecordPromptBudgetAsync(mission, captain, ledger, instructionsRelativePath, content, memorySlimming, token).ConfigureAwait(false);
+            await RecordPromptOverBudgetAsync(mission, captain, assembledBytes, assembledModules, ledger, content, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Event type recorded when an assembled captain brief exceeds the instruction byte budget.
+        /// </summary>
+        internal const string PromptOverBudgetEventType = "mission.prompt_over_budget";
+
+        /// <summary>
+        /// Records a named warning event when the assembled brief exceeded the captain instruction byte budget,
+        /// whether or not the total-budget backstop then brought it within the budget. The event names the
+        /// assembled and written sizes, the budget, the largest modules as assembled, and every module the
+        /// backstop shortened, so an operator can see what grew and what the captain lost. Telemetry never fails
+        /// a dispatch, so every error is logged and swallowed.
+        /// </summary>
+        /// <param name="mission">Mission the instructions were generated for.</param>
+        /// <param name="captain">Captain the instructions were generated for; may be null.</param>
+        /// <param name="assembledBytes">UTF-8 size of the brief before the backstop ran.</param>
+        /// <param name="assembledModules">Per-module sizes before the backstop ran, largest first.</param>
+        /// <param name="ledger">Ledger after the backstop ran.</param>
+        /// <param name="content">Final file content.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task RecordPromptOverBudgetAsync(
+            Mission mission,
+            Captain? captain,
+            int assembledBytes,
+            List<KeyValuePair<string, int>> assembledModules,
+            PromptModuleLedger ledger,
+            string content,
+            CancellationToken token)
+        {
+            int budget = _Settings.CaptainInstructionByteBudget;
+            if (budget <= 0 || assembledBytes <= budget) return;
+
+            try
+            {
+                int writtenBytes = System.Text.Encoding.UTF8.GetByteCount(content ?? "");
+                List<string> elided = new List<string>();
+                Dictionary<string, int> largest = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, int> entry in assembledModules)
+                {
+                    if (largest.Count < 5) largest[entry.Key] = entry.Value;
+                    int after;
+                    if (ledger.Modules.TryGetValue(entry.Key, out after) && after < entry.Value) elided.Add(entry.Key);
+                }
+
+                _Logging.Warn(_Header + "mission " + mission.Id + " brief assembled at " + assembledBytes +
+                    " bytes, over the " + budget + " byte budget; written at " + writtenBytes + " bytes" +
+                    (elided.Count > 0 ? " after shortening " + String.Join(", ", elided) : ""));
+
+                ArmadaEvent evt = new ArmadaEvent(
+                    PromptOverBudgetEventType,
+                    "Instruction file assembled at " + assembledBytes + " bytes, over the " + budget + " byte budget");
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.CaptainId = captain?.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    MissionId = mission.Id,
+                    Runtime = captain != null ? captain.Runtime.ToString() : null,
+                    ByteBudget = budget,
+                    AssembledBytes = assembledBytes,
+                    WrittenBytes = writtenBytes,
+                    StillOverBudget = writtenBytes > budget,
+                    LargestModules = largest,
+                    ShortenedModules = elided
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record over-budget warning for " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Appends the code-owned output contract to a producing persona's prompt under its own heading.
+        /// Returns the prompt unchanged when the persona has no contract.
+        /// </summary>
+        /// <param name="personaPrompt">Rendered persona template.</param>
+        /// <param name="outputContract">The persona's output contract, or empty.</param>
+        /// <returns>The persona prompt followed by the contract.</returns>
+        internal static string AppendOutputContract(string personaPrompt, string outputContract)
+        {
+            if (String.IsNullOrWhiteSpace(outputContract)) return personaPrompt ?? String.Empty;
+            string prompt = (personaPrompt ?? String.Empty).TrimEnd();
+            if (prompt.Length == 0) return "## Required Output Contract\n" + outputContract;
+            return prompt + "\n\n## Required Output Contract\n" + outputContract;
+        }
+
+        /// <summary>
+        /// Drops the Runtime Signals lines that belong to another persona: the verdict lines reach only a
+        /// Judge, and the Architect line reaches only an Architect. Every other line is kept, so an
+        /// operator-edited template keeps its own wording.
+        /// </summary>
+        /// <param name="section">Rendered runtime-signals section.</param>
+        /// <param name="persona">Mission persona.</param>
+        /// <returns>The section with only the lines this persona can use.</returns>
+        internal static string FilterRuntimeSignalsForPersona(string section, string? persona)
+        {
+            if (String.IsNullOrEmpty(section)) return section ?? String.Empty;
+
+            bool judge = PersonaCatalog.Matches(persona, PersonaCatalog.Judge);
+            bool architect = PersonaCatalog.Matches(persona, PersonaCatalog.Architect);
+
+            string[] lines = section.Split('\n');
+            List<string> kept = new List<string>(lines.Length);
+            foreach (string line in lines)
+            {
+                string trimmed = line.TrimStart();
+                if (!judge && trimmed.StartsWith("- `[ARMADA:VERDICT]", StringComparison.Ordinal)) continue;
+                if (!architect && trimmed.StartsWith("Architect missions", StringComparison.Ordinal)) continue;
+                kept.Add(line);
+            }
+
+            return String.Join("\n", kept);
         }
 
         /// <summary>
@@ -4109,8 +4240,10 @@ namespace Armada.Core.Services
         /// either duplicates landed work or stops to ask.
         /// </summary>
         /// <param name="anchors">Resolved anchors.</param>
+        /// <param name="readOnly">True for an Audit or Research mission. The same facts are stated as things to
+        /// report: an absent path is not "new work", and a subject term is not prior art to build on.</param>
         /// <returns>The git anchors section, or an empty string when there is nothing to state.</returns>
-        internal static string BuildGitAnchorsSection(GitAnchors anchors)
+        internal static string BuildGitAnchorsSection(GitAnchors anchors, bool readOnly = false)
         {
             if (anchors == null) return "";
 
@@ -4128,7 +4261,7 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(anchors.TargetBranch))
                 builder.Append("- Target branch: `" + anchors.TargetBranch + "`\n");
             if (!String.IsNullOrEmpty(anchors.BaseCommit))
-                builder.Append("- Your work starts at (this checkout's HEAD): `" + anchors.BaseCommit + "`\n");
+                builder.Append((readOnly ? "- This checkout's HEAD: `" : "- Your work starts at (this checkout's HEAD): `") + anchors.BaseCommit + "`\n");
             if (!String.IsNullOrEmpty(anchors.TargetTip))
             {
                 builder.Append("- Target branch tip at dispatch: `" + anchors.TargetTip + "`\n");
@@ -4158,7 +4291,8 @@ namespace Armada.Core.Services
                             continue;
                         }
 
-                        builder.Append("- `" + file.Path + "` does not exist on this checkout. It is new work, not an edit.\n");
+                        builder.Append("- `" + file.Path + "` does not exist on this checkout." +
+                            (readOnly ? "\n" : " It is new work, not an edit.\n"));
                         continue;
                     }
 
@@ -4186,7 +4320,9 @@ namespace Armada.Core.Services
 
             if (anchors.PriorArt.Count > 0)
             {
-                builder.Append("\n### Prior art for this mission's subject terms\n");
+                builder.Append(readOnly
+                    ? "\n### Tracked content for this mission's subject terms\n"
+                    : "\n### Prior art for this mission's subject terms\n");
                 foreach (GitAnchorPriorArt priorArt in anchors.PriorArt)
                 {
                     if (!priorArt.Found)
@@ -4194,7 +4330,7 @@ namespace Armada.Core.Services
                         // Named against the commit the search actually ran on, which is this
                         // checkout's HEAD. Attributing it to the target tip would overstate the
                         // claim whenever the dock was cut from an older base.
-                        builder.Append("- `" + priorArt.Term + "`: VERIFIED ABSENT from tracked content as of `" +
+                        builder.Append("- `" + priorArt.Term + (readOnly ? "`: not found in tracked content as of `" : "`: VERIFIED ABSENT from tracked content as of `") +
                             (String.IsNullOrEmpty(anchors.BaseCommit) ? "this checkout" : anchors.BaseCommit) +
                             "`.\n");
                         continue;
@@ -5041,8 +5177,10 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="vessel">Vessel the mission runs against.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="readOnlyMission">True for an Audit or Research mission, which receives only the skills
+        /// that do not govern code edits (see <see cref="SkillGovernsCodeEdits"/>).</param>
         /// <returns>Rendered skills markdown, or an empty string when nothing applies.</returns>
-        internal async Task<string> ResolveSkillsMarkdownAsync(Vessel vessel, CancellationToken token)
+        internal async Task<string> ResolveSkillsMarkdownAsync(Vessel vessel, CancellationToken token, bool readOnlyMission = false)
         {
             if (vessel == null) return String.Empty;
 
@@ -5072,6 +5210,7 @@ namespace Armada.Core.Services
                     if (byId.TryGetValue(reference.Trim(), out Skill? byIdMatch)) resolved = byIdMatch;
                     else if (byName.TryGetValue(reference.Trim(), out Skill? byNameMatch)) resolved = byNameMatch;
                     if (resolved == null || String.IsNullOrWhiteSpace(resolved.Content)) continue;
+                    if (readOnlyMission && SkillGovernsCodeEdits(resolved)) continue;
                     blocks.Add("### " + resolved.Name + "\n\n" + resolved.Content.Trim());
                 }
 
@@ -5082,6 +5221,29 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "error resolving skills for vessel " + vessel.Id + ": " + ex.Message);
                 return String.Empty;
             }
+        }
+
+        /// <summary>
+        /// Skill categories whose skills govern how code is edited, structured, or tested. A read-only mission
+        /// edits nothing, so a skill in one of these categories only costs it context.
+        /// </summary>
+        internal static readonly string[] EditGoverningSkillCategories = { "engineering", "testing" };
+
+        /// <summary>
+        /// Reports whether a skill governs code edits, judged by its category. A skill with no category is
+        /// treated as general guidance and reaches every mission mode.
+        /// </summary>
+        /// <param name="skill">The skill.</param>
+        /// <returns>True when the skill's category is an edit-governing category.</returns>
+        internal static bool SkillGovernsCodeEdits(Skill skill)
+        {
+            if (skill == null || String.IsNullOrWhiteSpace(skill.Category)) return false;
+            string category = skill.Category.Trim();
+            foreach (string editCategory in EditGoverningSkillCategories)
+            {
+                if (String.Equals(category, editCategory, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         /// <summary>

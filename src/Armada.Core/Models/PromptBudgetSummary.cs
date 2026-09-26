@@ -34,7 +34,7 @@ namespace Armada.Core.Models
         /// <summary>Number of distinct modules written to the file.</summary>
         public int ModuleCount { get; set; }
 
-        /// <summary>Configured CaptainInstructionByteBudget; 0 means the warning is disabled.</summary>
+        /// <summary>CaptainInstructionByteBudget in force when the brief was generated.</summary>
         public int ByteBudget { get; set; }
 
         /// <summary>True when InstructionFileBytes exceeds ByteBudget (and the budget is enabled).</summary>

@@ -85,9 +85,9 @@ namespace Armada.Test.Unit.Suites.Services
                     foreach (string section in new[] { "## Code Style", "## Code Correctness", "## Documentation", "## Fixes Applied", "## Residual Issues" })
                     {
                         AssertContains(section, embeddedPrompt, "persona.linter embedded template");
-                        AssertContains(section, templateParams["CaptainInstructions"], "Linter captain instructions");
+                        AssertContains(section, MissionPromptBuilder.GetPersonaOutputContract("Linter"), "Linter output contract");
                         AssertContains(section, fallbackPrompt, "Linter fallback prompt");
-                        AssertContains(section, launchPrompt, "Linter launch prompt");
+                        AssertFalse(launchPrompt.Contains(section, StringComparison.Ordinal), "the Linter launch prompt points at the contract rather than restating " + section);
                         AssertContains(section, handoffPreamble, "Linter handoff preamble");
                     }
 

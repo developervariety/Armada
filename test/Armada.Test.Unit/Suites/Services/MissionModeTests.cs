@@ -295,7 +295,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A read-only Judge brief and launch prompt name only the report sections", async () =>
+            await RunTest("A read-only Judge brief names only the report sections and its launch prompt points at them", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -342,10 +342,17 @@ namespace Armada.Test.Unit.Suites.Services
                         implDock.WorktreePath = implDir;
                         string implLaunch = await MissionPromptBuilder.BuildLaunchPromptAsync(implementation, vessel, captain, implDock, null);
 
+                        // The sections are the output contract, which the brief states once; the launch prompt
+                        // only points at it.
+                        foreach (string launch in new[] { auditLaunch, implLaunch })
+                        {
+                            AssertFalse(launch.Contains("`## ", StringComparison.Ordinal), "a Judge launch prompt must not restate the section list");
+                            AssertContains(MissionPromptBuilder.LaunchContractPointer, launch, "a Judge launch prompt points at the output contract");
+                        }
+
                         Dictionary<string, string> readOnlyTexts = new Dictionary<string, string>
                         {
-                            ["brief"] = auditBrief,
-                            ["launch prompt"] = auditLaunch
+                            ["brief"] = auditBrief
                         };
                         foreach (KeyValuePair<string, string> readOnlyText in readOnlyTexts)
                         {
@@ -359,8 +366,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Dictionary<string, string> implTexts = new Dictionary<string, string>
                         {
-                            ["brief"] = implBrief,
-                            ["launch prompt"] = implLaunch
+                            ["brief"] = implBrief
                         };
                         foreach (KeyValuePair<string, string> implText in implTexts)
                         {

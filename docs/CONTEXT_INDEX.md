@@ -219,9 +219,9 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
   the metadata cap (12,000 characters) is embedded as its head and newest
   handoff block, and the full text is written under `_briefing/mission/` in the
   same bounded files; the elision marker names them. A copy is kept under
-  `<mission id>.mission/`. The instruction-file byte budget
-  (`captainInstructionByteBudget`) defaults to `0`, which records every brief's
-  size but never elides mission text to fit a total.
+  `<mission id>.mission/`. Neither counts against the instruction-file byte
+  budget (`captainInstructionByteBudget`, default 65,536), so the budget
+  bounds the brief itself; `docs/PERSONAS.md` describes its warning event.
 - **Fail-safe.** When no context index was built, or retrieval returns a
   degraded (fail-safe) result or no core, the section falls back to the full
   read-every-file memory section and logs a warning. A failure therefore

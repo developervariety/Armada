@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Text.RegularExpressions;
+    using Armada.Core.Context;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -2046,6 +2047,293 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(unknown, "an out-of-range alias must not resolve");
             });
 
+            // Mode- and persona-gated brief modules. Each test renders a production-shaped brief (seeded
+            // templates, project-profile skills, captain instructions, dock git anchors, shared memory, code
+            // index) and asserts on the file the captain receives.
+            await RunTest("Brief module ledger for a Research Worker and an Implementation Worker", async () =>
+            {
+                SampleBrief research = await RenderSampleBriefAsync(MissionModeEnum.Research, "Worker");
+                SampleBrief implementation = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Worker");
+
+                foreach (SampleBrief brief in new[] { research, implementation })
+                {
+                    Console.WriteLine("  [brief-ledger] " + brief.Label + " file=" + brief.FileBytes + " launch=" + brief.LaunchPromptBytes);
+                    foreach (KeyValuePair<string, int> module in brief.Modules.OrderByDescending(m => m.Value))
+                        Console.WriteLine("  [brief-ledger] " + brief.Label + " " + module.Key + "=" + module.Value);
+                }
+
+                AssertTrue(research.UntrackedBytes < 100, "the ledger accounts for every module of the Research brief; untracked " + research.UntrackedBytes);
+                AssertTrue(research.FileBytes < implementation.FileBytes, "a Research brief is smaller than the Implementation brief for the same mission");
+            });
+
+            await RunTest("A read-only brief leaves out skills that govern code edits", async () =>
+            {
+                SampleBrief research = await RenderSampleBriefAsync(MissionModeEnum.Research, "Worker");
+                SampleBrief audit = await RenderSampleBriefAsync(MissionModeEnum.Audit, "Worker");
+                SampleBrief implementation = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Worker");
+
+                foreach (SampleBrief readOnly in new[] { research, audit })
+                {
+                    AssertFalse(readOnly.Content.Contains("### dry", StringComparison.Ordinal), readOnly.Label + " must not carry the engineering skill dry");
+                    AssertFalse(readOnly.Content.Contains("### project-structure", StringComparison.Ordinal), readOnly.Label + " must not carry the engineering skill project-structure");
+                    AssertContains("### reading-evidence", readOnly.Content, readOnly.Label + " keeps a skill with no edit-governing category");
+                }
+
+                AssertContains("### dry", implementation.Content, "an Implementation brief keeps the engineering skills");
+                AssertContains("### project-structure", implementation.Content, "an Implementation brief keeps the engineering skills");
+            });
+
+            await RunTest("The Shared Memory read-first list never tells a read-only captain to change anything", async () =>
+            {
+                ContextRetrievalResult result = new ContextRetrievalResult();
+                result.Core.Add(new ContextChunk { Topic = "memory.shared.core", Path = "shared/core.md", Text = "Core rule text.", Tier = ContextTierEnum.Core });
+                result.Leaves.Add(new ContextChunk { Topic = "memory.repos.example.leaf", Path = "repos/example/README.md", Text = "Leaf rule text." });
+
+                ContextBriefDelivery delivery = ContextBriefRenderer.RenderDelivery(result, "/memory-root", "example", true);
+
+                AssertContains("### Read first", delivery.Section, "the read-first list is still rendered");
+                AssertFalse(delivery.Section.Contains("change anything", StringComparison.OrdinalIgnoreCase),
+                    "the read-first rule must not assume the mission edits files");
+                AssertFalse(Regex.IsMatch(delivery.Section, @"\b(edit|commit|implement)\b", RegexOptions.IgnoreCase),
+                    "the memory section must use no implementing verb that contradicts a read-only mission");
+            });
+
+            await RunTest("A read-only brief states git anchors as facts, not new work or prior art", async () =>
+            {
+                SampleBrief research = await RenderSampleBriefAsync(MissionModeEnum.Research, "Worker");
+                SampleBrief implementation = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Worker");
+
+                AssertContains("## Git Anchors", research.Content, "a read-only brief still carries the anchors");
+                AssertContains("`src/Widget/Widget.cs` does not exist on this checkout.", research.Content, "the absent path is still stated");
+                AssertFalse(research.Content.Contains("new work", StringComparison.OrdinalIgnoreCase), "a read-only brief must not call an absent path new work");
+                AssertFalse(research.Content.Contains("Prior art", StringComparison.Ordinal), "a read-only brief must not frame subject terms as prior art");
+                AssertFalse(research.Content.Contains("Your work starts at", StringComparison.Ordinal), "a read-only brief does not describe a starting point for work");
+                AssertContains("`WidgetRegistry`: not found in tracked content", research.Content, "an absent term is still reported");
+
+                AssertContains("It is new work, not an edit.", implementation.Content, "an Implementation brief keeps the new-work wording");
+                AssertContains("### Prior art for this mission's subject terms", implementation.Content, "an Implementation brief keeps prior art");
+            });
+
+            await RunTest("Runtime Signals carry verdict lines only for a Judge and the Architect line only for an Architect", async () =>
+            {
+                SampleBrief worker = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Worker");
+                SampleBrief judge = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Judge");
+                SampleBrief architect = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Architect");
+
+                string workerSignals = SectionOf(worker.Content, "## Runtime Signals");
+                string judgeSignals = SectionOf(judge.Content, "## Runtime Signals");
+                string architectSignals = SectionOf(architect.Content, "## Runtime Signals");
+
+                AssertContains("[ARMADA:RESULT] COMPLETE", workerSignals, "a Worker keeps its result signal");
+                AssertFalse(workerSignals.Contains("[ARMADA:VERDICT]", StringComparison.Ordinal), "a Worker brief carries no verdict signal");
+                AssertFalse(workerSignals.Contains("Architect missions", StringComparison.Ordinal), "a Worker brief carries no Architect signal rule");
+
+                AssertContains("`[ARMADA:VERDICT] PASS`", judgeSignals, "a Judge keeps the verdict signals");
+                AssertContains("`[ARMADA:VERDICT] NEEDS_REVISION`", judgeSignals, "a Judge keeps the verdict signals");
+                AssertFalse(judgeSignals.Contains("Architect missions", StringComparison.Ordinal), "a Judge brief carries no Architect signal rule");
+
+                AssertContains("Architect missions must not emit", architectSignals, "an Architect keeps its signal rule");
+                AssertFalse(architectSignals.Contains("`[ARMADA:VERDICT] PASS`", StringComparison.Ordinal), "an Architect brief lists no verdict signal");
+            });
+
+            await RunTest("The output contract is emitted once, not in the captain instructions or the launch prompt", async () =>
+            {
+                SampleBrief research = await RenderSampleBriefAsync(MissionModeEnum.Research, "Worker");
+                string researchContract = MissionPromptBuilder.GetPersonaOutputContract("Worker", MissionModeEnum.Research);
+                AssertEqual(1, CountOccurrences(research.Content, researchContract), "the Research contract appears once in the brief");
+                AssertTrue(CountOccurrences(research.Content, "## Required Output Contract") <= 1, "the contract heading appears at most once");
+                AssertFalse(research.LaunchPrompt.Contains("[ARMADA:RESULT]", StringComparison.Ordinal), "the launch prompt does not restate the contract");
+
+                SampleBrief judge = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Judge");
+                AssertEqual(1, CountOccurrences(judge.Content, "DELIVERY-EVIDENCE RULE"), "the Judge contract appears once in a brief with captain instructions");
+                AssertFalse(judge.LaunchPrompt.Contains("[ARMADA:VERDICT]", StringComparison.Ordinal), "the launch prompt does not restate the Judge contract");
+                AssertFalse(judge.LaunchPrompt.Contains("## Completeness", StringComparison.Ordinal), "the launch prompt does not list the Judge sections");
+
+                SampleBrief bareJudge = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Judge", captainInstructions: false);
+                AssertEqual(1, CountOccurrences(bareJudge.Content, "DELIVERY-EVIDENCE RULE"), "a captain with no instructions of its own still receives the Judge contract once");
+            });
+
+            await RunTest("The instruction byte budget is enforced by default and 0 selects the default", async () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                AssertTrue(settings.CaptainInstructionByteBudget > 0, "the default budget must be enforced");
+                int fallback = settings.CaptainInstructionByteBudget;
+                settings.CaptainInstructionByteBudget = 0;
+                AssertEqual(fallback, settings.CaptainInstructionByteBudget, "a stored 0 selects the default rather than disabling the budget");
+                settings.CaptainInstructionByteBudget = 40000;
+                AssertEqual(40000, settings.CaptainInstructionByteBudget, "an explicit budget is kept");
+                AssertThrows<ArgumentOutOfRangeException>(() => settings.CaptainInstructionByteBudget = -1);
+                await Task.CompletedTask;
+            });
+
+            await RunTest("An over-budget brief records a named warning event", async () =>
+            {
+                SampleBrief over = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Worker", byteBudget: 4000);
+                AssertEqual(1, over.OverBudgetPayloads.Count, "one mission.prompt_over_budget event is recorded");
+                string payload = over.OverBudgetPayloads[0];
+                AssertContains("\"ByteBudget\":4000", payload, "the event names the budget");
+                AssertContains("\"AssembledBytes\":", payload, "the event names the assembled size");
+                AssertContains("\"LargestModules\":", payload, "the event names the largest modules");
+
+                SampleBrief under = await RenderSampleBriefAsync(MissionModeEnum.Implementation, "Worker", byteBudget: 5000000);
+                AssertEqual(0, under.OverBudgetPayloads.Count, "a brief within budget records no warning");
+            });
+        }
+
+        /// <summary>
+        /// A rendered sample brief: the file, its ledger, the launch prompt and any over-budget events.
+        /// </summary>
+        private sealed class SampleBrief
+        {
+            public string Label { get; set; } = "";
+            public string Content { get; set; } = "";
+            public int FileBytes { get; set; }
+            public int UntrackedBytes { get; set; }
+            public Dictionary<string, int> Modules { get; set; } = new Dictionary<string, int>();
+            public string LaunchPrompt { get; set; } = "";
+            public int LaunchPromptBytes { get; set; }
+            public List<string> OverBudgetPayloads { get; set; } = new List<string>();
+        }
+
+        private const string SampleSkillDry =
+            "One rule, one home. Find duplication by inventory, not by reading.\n\n" +
+            "1. Before adding a type, helper, catalogue, or test, grep for the capability\n   and count the definitions. Report what you found.\n" +
+            "2. Re-use a landed seam. Consume the existing type and write only the missing\n   behaviour. Declare the reuse.\n" +
+            "3. Edit the file that owns the subject. A new sibling file splits the subject\n   and both halves drift. A new file needs a stated reason.\n" +
+            "4. Where a rule has several entry points, compare them across the whole input\n   domain, not the case in the brief. Prefer one owner; otherwise make each\n   caller delegate, and assert the delegation.\n\n" +
+            "Not duplication -- do not \"fix\" these:\n\n" +
+            "5. Parallel structure: parametrized cases, distinct methods on one type, an\n   API-level test and a service-level test of one subject.\n" +
+            "6. A deliberate divergence. Diff two similar routines before assuming they\n   share a construct. Report it; do not flatten it.\n" +
+            "7. A ported construct. Source fidelity outranks this skill.";
+
+        private const string SampleSkillProjectStructure =
+            "Match the layout that governs the area you edit. The repository root does not\ntell you the local pattern.\n\n" +
+            "1. Open the sibling directory first. The shape the neighbours follow is the\n   shape your change follows.\n" +
+            "2. Feature or slice folder: keep the whole slice inside it -- endpoint, handler,\n   service, model.\n" +
+            "3. Domain slice: add your folder beside its peers and mirror a peer's shape.\n" +
+            "4. Layered area: respect the dependency direction.\n" +
+            "5. No shared or common bucket for a type one slice uses.\n" +
+            "6. A test mirrors the path of the code it covers and extends the suite that\n   owns the subject.\n" +
+            "7. Namespace and file name follow the folder. One public type per file.\n" +
+            "8. Do not introduce an architectural pattern the brief did not ask for.";
+
+        /// <summary>
+        /// Renders a production-shaped brief on a sample vessel: seeded templates, a project profile with two
+        /// engineering skills and one uncategorized skill, captain instructions, completed dock git anchors, a
+        /// shared-memory root and the code-index section. Returns what the captain receives.
+        /// </summary>
+        private async Task<SampleBrief> RenderSampleBriefAsync(MissionModeEnum mode, string persona, int byteBudget = 0, bool captainInstructions = true)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+            {
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+                if (byteBudget > 0) settings.CaptainInstructionByteBudget = byteBudget;
+                settings.CodeIndex.Enabled = true;
+                string memoryRoot = Path.Combine(Path.GetTempPath(), "armada_sample_memory_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(memoryRoot, "shared"));
+                await File.WriteAllTextAsync(Path.Combine(memoryRoot, "shared", "INDEX.md"), "# Memory Index\n");
+                settings.AiMemoryRoot = memoryRoot;
+                StubGitService git = new StubGitService();
+                IPromptTemplateService templateService;
+                MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
+                await templateService.SeedDefaultsAsync();
+
+                string worktree = Path.Combine(Path.GetTempPath(), "armada_sample_brief_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(worktree);
+
+                try
+                {
+                    Vessel vessel = new Vessel("SampleVessel", "https://github.com/test/sample");
+                    vessel.ProjectContext = "SampleVessel is a service library. Keep work in src/ and verify with the build and test profile.";
+                    vessel.EnableModelContext = true;
+                    vessel.ModelContext = "Use the code search tool when available, then read the matching source. Native captain memory is advice; verify it against the current checkout.";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel);
+
+                    foreach (Skill skill in new[]
+                    {
+                        new Skill { Name = "dry", Category = "engineering", Content = SampleSkillDry },
+                        new Skill { Name = "project-structure", Category = "engineering", Content = SampleSkillProjectStructure },
+                        new Skill { Name = "reading-evidence", Content = "Quote the file and line for every claim." }
+                    })
+                    {
+                        await testDb.Driver.Skills.CreateAsync(skill);
+                    }
+
+                    ProjectProfile profile = new ProjectProfile();
+                    profile.Name = "sample-profile";
+                    profile.VesselId = vessel.Id;
+                    profile.Skills = new List<string> { "dry", "project-structure", "reading-evidence" };
+                    await testDb.Driver.ProjectProfiles.CreateAsync(profile);
+
+                    Captain captain = new Captain("sample-captain");
+                    captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+                    if (captainInstructions)
+                    {
+                        captain.SystemInstructions = "You are an Armada specialist captain. Keep work scoped, run relevant checks, and report exact evidence.";
+                    }
+                    captain = await testDb.Driver.Captains.CreateAsync(captain);
+
+                    Mission mission = new Mission();
+                    mission.Title = "Measure the widget registry";
+                    mission.Description = "Examine `src/Widget/Widget.cs` and the WidgetRegistry type, and report what the registry resolves.";
+                    mission.Persona = persona;
+                    mission.Mode = mode;
+                    mission.CaptainId = captain.Id;
+                    mission.BranchName = "armada/sample";
+
+                    string baseCommit = new string('a', 40);
+                    Dock dock = new Dock(vessel.Id) { CaptainId = captain.Id, WorktreePath = worktree, BranchName = mission.BranchName };
+                    GitAnchors anchors = new GitAnchors { BaseCommit = baseCommit, TargetBranch = "main", TargetTip = baseCommit };
+                    anchors.Files.Add(new GitAnchorFileHistory { Path = "src/Widget/Widget.cs" });
+                    anchors.PriorArt.Add(new GitAnchorPriorArt { Term = "WidgetRegistry", Found = false });
+                    anchors.PriorArt.Add(new GitAnchorPriorArt { Term = "Widget", Found = true, MatchingFileCount = 2, SampleLocations = new List<string> { "src/Other.cs:12" } });
+                    dock.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+                    {
+                        DockId = dock.Id, MissionId = mission.Id, VesselId = vessel.Id,
+                        ProvisionedCommit = baseCommit, ProvisionedUtc = DateTime.UtcNow, ResolvedUtc = DateTime.UtcNow,
+                        State = DockGitAnchorStateEnum.Complete, Anchors = anchors
+                    };
+                    dock = await testDb.Driver.Docks.CreateAsync(dock);
+                    mission.DockId = dock.Id;
+
+                    await service.GenerateClaudeMdAsync(worktree, mission, vessel, captain);
+
+                    SampleBrief brief = new SampleBrief();
+                    brief.Label = mode + " " + persona;
+                    brief.Content = await File.ReadAllTextAsync(Path.Combine(worktree, "CLAUDE.md"));
+                    brief.FileBytes = System.Text.Encoding.UTF8.GetByteCount(brief.Content);
+
+                    List<ArmadaEvent> budgets = await testDb.Driver.Events.EnumerateByTypeAsync("mission.prompt_budget", 10);
+                    AssertEqual(1, budgets.Count, "one prompt-budget event per brief");
+                    PromptBudgetModules? ledger = System.Text.Json.JsonSerializer.Deserialize<PromptBudgetModules>(budgets[0].Payload ?? "{}");
+                    brief.Modules = ledger?.Modules ?? new Dictionary<string, int>();
+                    brief.UntrackedBytes = brief.FileBytes - brief.Modules.Values.Sum();
+
+                    foreach (ArmadaEvent evt in await testDb.Driver.Events.EnumerateByTypeAsync("mission.prompt_over_budget", 10))
+                        brief.OverBudgetPayloads.Add(evt.Payload ?? "");
+
+                    brief.LaunchPrompt = await MissionPromptBuilder.BuildLaunchPromptAsync(mission, vessel, captain, dock, templateService);
+                    brief.LaunchPromptBytes = System.Text.Encoding.UTF8.GetByteCount(brief.LaunchPrompt);
+                    return brief;
+                }
+                finally
+                {
+                    try { Directory.Delete(worktree, true); } catch { }
+                    try { Directory.Delete(memoryRoot, true); } catch { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The text of one level-two section, from its heading to the next level-two heading.
+        /// </summary>
+        private static string SectionOf(string content, string heading)
+        {
+            int start = content.IndexOf(heading, StringComparison.Ordinal);
+            if (start < 0) return "";
+            int next = content.IndexOf("\n## ", start + heading.Length, StringComparison.Ordinal);
+            return next < 0 ? content.Substring(start) : content.Substring(start, next - start);
         }
 
         private static int CountOccurrences(string haystack, string needle)
