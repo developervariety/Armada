@@ -778,19 +778,21 @@ namespace Armada.Core.Services
         /// </summary>
         /// <remarks>
         /// Keyed by identity rather than by branch: a dock id is always present and always unique,
-        /// where a branch name is neither. Best-effort -- never throws, never blocks reclaim.
+        /// where a branch name is neither. The dock is a worktree of the vessel bare, so a local
+        /// ref update lands in the bare; a push would go to the bare's origin, the hosted remote.
+        /// Best-effort -- never throws, never blocks reclaim.
         /// </remarks>
         private async Task AnchorDockCommitAsync(Dock dock, CancellationToken token)
         {
             try
             {
-                await _Git.PushRefSpecAsync(
+                await _Git.CopyRefAsync(
                     dock.WorktreePath!, "HEAD", "refs/armada/docks/" + dock.Id, token).ConfigureAwait(false);
 
                 string? missionId = await ResolveDockMissionIdAsync(dock, token).ConfigureAwait(false);
                 if (!String.IsNullOrWhiteSpace(missionId))
                 {
-                    await _Git.PushRefSpecAsync(
+                    await _Git.CopyRefAsync(
                         dock.WorktreePath!, "HEAD", "refs/armada/missions/" + missionId, token).ConfigureAwait(false);
                 }
 
@@ -847,7 +849,7 @@ namespace Armada.Core.Services
             try
             {
                 string destRef = "refs/armada-preserved/" + dock.BranchName;
-                await _Git.PushRefSpecAsync(dock.WorktreePath, "HEAD", destRef, token).ConfigureAwait(false);
+                await _Git.CopyRefAsync(dock.WorktreePath, "HEAD", destRef, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "preserved dock branch " + dock.BranchName +
                     " as " + destRef + " for dock " + dock.Id);
             }

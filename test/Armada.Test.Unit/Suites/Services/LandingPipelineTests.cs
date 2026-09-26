@@ -398,11 +398,12 @@ namespace Armada.Test.Unit.Suites.Services
                         await dockService.ReclaimAsync(dock.Id);
 
                         AssertTrue(
-                            git.PushCalls.Any(call => call.EndsWith("HEAD:refs/armada/docks/" + dock.Id, StringComparison.Ordinal)),
+                            git.OperationCalls.Contains("copy-ref:HEAD:refs/armada/docks/" + dock.Id),
                             "Reclaim must anchor the dock HEAD under a dock-keyed ref");
                         AssertTrue(
-                            git.PushCalls.Any(call => call.EndsWith("HEAD:refs/armada/missions/" + mission.Id, StringComparison.Ordinal)),
+                            git.OperationCalls.Contains("copy-ref:HEAD:refs/armada/missions/" + mission.Id),
                             "Reclaim must anchor the dock HEAD under the owning mission's ref");
+                        AssertEqual(0, git.PushCalls.Count, "Anchoring is a local ref update; nothing may be pushed to the vessel remote");
                     }
                     finally
                     {

@@ -113,6 +113,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(
                         git.ForceUpdateBranchRefCalls[0].Contains(_ProducedCommit),
                         "The branch must advance to the dock HEAD produced commit, got: " + git.ForceUpdateBranchRefCalls[0]);
+                    AssertEqual(0, git.PushCalls.Count,
+                        "Advancing the branch is local to the vessel bare; nothing may be pushed to its remote, got: " + String.Join(", ", git.PushCalls));
 
                     try
                     {

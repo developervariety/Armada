@@ -849,12 +849,91 @@ namespace Armada.Test.Unit.Suites.Services
 
                     await service.ReclaimAsync(dock!.Id).ConfigureAwait(false);
 
-                    RefSpecPush? preserved = git.PushedRefSpecs.FirstOrDefault(p =>
+                    RefSpecPush? preserved = git.CopiedRefs.FirstOrDefault(p =>
                         p.DestRef == "refs/armada-preserved/" + dockBranch);
-                    AssertNotNull(preserved, "dock branch must be mirrored into the bare before teardown");
+                    AssertNotNull(preserved, "dock branch must be copied into the bare before teardown");
+                    AssertEqual(0, git.PushedRefSpecs.Count, "preserving a dock must not push anything to the vessel remote");
                     AssertFalse(
                         Directory.Exists(dock.WorktreePath!),
                         "worktree should still be torn down after preservation");
+                }
+            });
+
+            await RunTest("ReclaimAsync keeps dock anchor and preserve refs in the vessel bare and off its remote", async () =>
+            {
+                // The vessel bare's origin is the hosted remote, and a dock worktree resolves "origin"
+                // to that same remote. Anchor and preserve refs name missions and docks; they belong in
+                // the bare, where recovery reads them, and must never reach the remote.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitService git = new GitService(logging);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-dockservice-" + Guid.NewGuid().ToString("N"));
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    string remoteDir = Path.Combine(rootDir, "remote.git");
+
+                    try
+                    {
+                        Directory.CreateDirectory(sourceDir);
+                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                        await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
+
+                        Vessel vessel = new Vessel("anchor-vessel", remoteDir);
+                        vessel.DefaultBranch = "main";
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-anchor")).ConfigureAwait(false);
+
+                        string dockBranch = "armada/captain-anchor/msn_anchor";
+                        Dock? dock = await service.ProvisionAsync(vessel, captain, dockBranch, "msn_anchor").ConfigureAwait(false);
+                        AssertNotNull(dock, "dock should be provisioned");
+
+                        string worktree = dock!.WorktreePath!;
+                        await RunGitAsync(worktree, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(worktree, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(worktree, "work.txt"), "captain work\n").ConfigureAwait(false);
+                        await RunGitAsync(worktree, "add", "work.txt").ConfigureAwait(false);
+                        await RunGitAsync(worktree, "commit", "-m", "Captain work").ConfigureAwait(false);
+                        string produced = (await RunGitAsync(worktree, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                        Vessel? reloaded = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                        string bare = reloaded!.LocalPath!;
+
+                        await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
+
+                        string preserved = (await RunGitAsync(bare, "rev-parse", "refs/armada-preserved/" + dockBranch).ConfigureAwait(false)).Trim();
+                        string anchored = (await RunGitAsync(bare, "rev-parse", "refs/armada/docks/" + dock.Id).ConfigureAwait(false)).Trim();
+                        AssertEqual(produced, preserved, "the preserve ref must hold the dock's produced commit in the vessel bare");
+                        AssertEqual(produced, anchored, "the dock anchor must hold the dock's produced commit in the vessel bare");
+
+                        string remoteRefs = await RunGitAsync(remoteDir, "for-each-ref", "--format=%(refname)").ConfigureAwait(false);
+                        AssertFalse(remoteRefs.Contains("refs/armada"), "no Armada anchor or preserve ref may reach the remote, got: " + remoteRefs);
+                        AssertFalse(remoteRefs.Contains(dockBranch), "the mission branch must not reach the remote, got: " + remoteRefs);
+                    }
+                    finally
+                    {
+                        foreach (string dir in new[] { rootDir, settings.DocksDirectory, settings.ReposDirectory, settings.LogDirectory })
+                        {
+                            if (Directory.Exists(dir))
+                            {
+                                try { Directory.Delete(dir, true); }
+                                catch { }
+                            }
+                        }
+                    }
                 }
             });
 
@@ -2642,6 +2721,12 @@ namespace Armada.Test.Unit.Suites.Services
             public Task PushRefSpecAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
             {
                 PushedRefSpecs.Add(new RefSpecPush { RepoPath = repoPath, SrcRef = srcRef, DestRef = destRef });
+                return Task.CompletedTask;
+            }
+            public List<RefSpecPush> CopiedRefs { get; } = new List<RefSpecPush>();
+            public Task CopyRefAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
+            {
+                CopiedRefs.Add(new RefSpecPush { RepoPath = repoPath, SrcRef = srcRef, DestRef = destRef });
                 return Task.CompletedTask;
             }
             public Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default) => Task.FromResult("refs/heads/main");

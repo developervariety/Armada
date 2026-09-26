@@ -83,6 +83,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Dock anchor and preserve refs stay in the vessel bare repository:** the
+  `refs/armada/docks/*`, `refs/armada/missions/*` and `refs/armada-preserved/*`
+  refs written when a dock is reclaimed are now local ref updates. A dock is a
+  worktree of the vessel bare, whose `origin` is the hosted remote, so the old
+  push sent every anchor, with mission and dock IDs in its name, to that
+  remote. The stage handoff also advances the mission branch in the bare only
+  and no longer pushes it. Mission branches reach the remote only through the
+  pull-request landing path.
+
 - **A merge entry for work that already landed is cancelled, not failed:**
   when an entry's branch no longer exists and its mission commit is already
   in the target branch, the entry is cancelled with that reason. Before, a

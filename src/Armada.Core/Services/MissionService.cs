@@ -6898,9 +6898,9 @@ namespace Armada.Core.Services
         /// captured to <c>refs/armada-preserved/&lt;branch&gt;</c> when the dock is reclaimed. The
         /// next attached stage (TestEngineer, Judge) then cuts its dock from the stale branch ref and
         /// silently loses the prior stage's source-fidelity work. This method resolves the produced
-        /// commit from the still-alive dock HEAD and force-advances both the local branch ref and
-        /// <c>origin/&lt;branch&gt;</c> to it, so the next stage's stage-lag guard fast-forwards to
-        /// the complete work.
+        /// commit from the still-alive dock HEAD and force-advances the branch ref in the vessel bare
+        /// to it, so the next stage's dock, cut from that bare, starts at the complete work. The
+        /// branch is not pushed to the bare's remote.
         /// </remarks>
         /// <param name="completedMission">The upstream stage that produced the work.</param>
         /// <param name="token">Cancellation token.</param>
@@ -6938,8 +6938,9 @@ namespace Armada.Core.Services
                     return;
                 }
 
+                // Local only: the next stage's dock is cut from the vessel bare. The bare's origin is
+                // the hosted remote, and a mission branch never goes there outside the PR landing path.
                 await _Git.ForceUpdateBranchRefAsync(vessel.LocalPath, completedMission.BranchName, producedCommit, token).ConfigureAwait(false);
-                await _Git.PushRefSpecAsync(vessel.LocalPath, branchRef, branchRef, token).ConfigureAwait(false);
 
                 _Logging.Info(_Header + "stage-lag hardening: advanced branch " + completedMission.BranchName +
                     " to produced commit " + producedCommit + " from stage " + completedMission.Id +
