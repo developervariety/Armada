@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Every rescue inside a voyage is re-judged:** an automatic rescue of any
+  non-planner stage that failed inside a voyage (an analyst, TestEngineer or
+  Linter as well as a Worker) now runs in a rescue voyage with the pipeline's
+  later stages and the Judge chained after it, starting after the rescued
+  stage. Before, only a Worker rescue was chained; any other rescue ran
+  standalone and could land through LocalMerge without a Judge.
 - **Readiness ignores separators inside double quotes:** the command
   dependency probe splits a command at `;`, `&&`, `||` and line breaks only
   outside double quotes. Before, a quoted message such as

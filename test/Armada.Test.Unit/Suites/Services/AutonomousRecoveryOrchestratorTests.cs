@@ -2096,6 +2096,41 @@ namespace Armada.Test.Unit.Suites.Services
                     "A Judge is chained so the planner's code cannot land unreviewed.");
             }).ConfigureAwait(false);
 
+            await RunTest("ReviseRetestRejudge_LinterGateFailureInsideVoyage_ChainsReJudgeOntoTheRescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_ln", "usr_auto_ln").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_ln", "usr_auto_ln").ConfigureAwait(false);
+                Voyage parent = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent voyage", "Tested pipeline")
+                {
+                    TenantId = "ten_auto_ln",
+                    UserId = "usr_auto_ln",
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                    "DoD gate failed: classification=TestFail; consumer_tests_failed: ExampleConsumer command exited 1").ConfigureAwait(false);
+                failed.Persona = "Linter";
+                failed.VoyageId = parent.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one rescue should be dispatched as the loop root.");
+                Mission rescue = admiral.DispatchedMissions[0];
+                AssertEqual("Linter", rescue.Persona, "A failed Linter is rescued by a Linter.");
+                AssertTrue(!String.IsNullOrEmpty(rescue.VoyageId),
+                    "A stage that failed inside a voyage is rescued inside a rescue voyage, never as a standalone mission that could land unreviewed.");
+                List<Mission> loopMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(rescue.VoyageId!).ConfigureAwait(false);
+                AssertTrue(loopMissions.Any(item => String.Equals(item.Persona, "Judge", StringComparison.Ordinal)),
+                    "A Judge is chained so the rescued code cannot land unreviewed.");
+            }).ConfigureAwait(false);
+
             await RunTest("ReviseRetestRejudge_StandaloneWorkerFailure_KeepsAStandaloneRescue", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

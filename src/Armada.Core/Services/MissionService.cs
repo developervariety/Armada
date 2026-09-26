@@ -10516,7 +10516,9 @@ namespace Armada.Core.Services
         /// True for the personas whose deliverable is a plan, never code: the Product Manager and
         /// the Architect.
         /// </summary>
-        internal static bool IsPlannerPersona(string? persona)
+        /// <param name="persona">Persona name.</param>
+        /// <returns>True for a planner persona.</returns>
+        public static bool IsPlannerPersona(string? persona)
         {
             if (String.IsNullOrWhiteSpace(persona)) return false;
             return String.Equals(persona, "Architect", StringComparison.OrdinalIgnoreCase)

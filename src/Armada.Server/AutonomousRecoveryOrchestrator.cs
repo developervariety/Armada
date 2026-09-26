@@ -1843,15 +1843,16 @@ namespace Armada.Server
                 RecoveryAttempts = attemptNumber
             };
 
-            // A Worker revision must be re-verified before it lands rather than landing with no
+            // A rescue that commits must be re-verified before it lands rather than landing with no
             // review. That holds for a reviewer rejection (a Judge NEEDS_REVISION recovered by a
-            // Worker) AND for a Worker that failed its gate inside a voyage: the pipeline cancelled
-            // that voyage's TestEngineer and Judge when the Worker failed, so a standalone rescue
-            // would be the only stage left, pass its own gate, and land through LocalMerge with no
-            // reviewer ever reading the final code. Chain a re-Judge (and re-TestEngineer where the
-            // vessel pipeline defines one) onto the revision in both cases. A standalone mission
-            // with no voyage never had review stages and keeps its standalone rescue.
-            bool chainReReview = String.Equals(rescuePersona, "Worker", StringComparison.Ordinal)
+            // Worker) AND for any stage that failed its gate inside a voyage -- a Worker, an analyst,
+            // a TestEngineer or a Linter: the pipeline cancelled that voyage's later stages when the
+            // stage failed, so a standalone rescue would be the only stage left, pass its own gate,
+            // and land through LocalMerge with no reviewer ever reading the final code. Chain the
+            // pipeline's later stages, ending in the Judge, onto the rescue in every such case. A
+            // planner rescue emits a plan, not a landing, and a standalone mission with no voyage
+            // never had review stages; both keep a standalone rescue.
+            bool chainReReview = !MissionService.IsPlannerPersona(rescuePersona)
                 && (IsReviewerPersona(failedMission.Persona) || !String.IsNullOrEmpty(failedMission.VoyageId));
 
             if (!chainReReview)
@@ -2122,6 +2123,7 @@ namespace Armada.Server
                 List<PipelineStage> downstreamStages = await ResolveRecoveryStagesAsync(
                     failedMission,
                     recoveryPipeline,
+                    workerRescue.Persona,
                     token).ConfigureAwait(false);
                 foreach (IGrouping<int, PipelineStage> stageGroup in downstreamStages.GroupBy(item => item.Order).OrderBy(item => item.Key))
                 {
@@ -2268,11 +2270,18 @@ namespace Armada.Server
         private async Task<List<PipelineStage>> ResolveRecoveryStagesAsync(
             Mission failedMission,
             Pipeline? recoveryPipeline,
+            string? rescuePersona,
             CancellationToken token)
         {
             if (recoveryPipeline != null)
             {
+                // The chain continues after the rescued stage: a Linter rescue is followed by the
+                // stages after the Linter, not by a second analyst and TestEngineer pass. A persona
+                // the pipeline does not name anchors at its Worker stage.
                 PipelineStage? workerStage = recoveryPipeline.Stages
+                    .OrderBy(item => item.Order)
+                    .FirstOrDefault(item => PersonaCatalog.Matches(item.PersonaName, rescuePersona))
+                    ?? recoveryPipeline.Stages
                     .OrderBy(item => item.Order)
                     .FirstOrDefault(item => String.Equals(item.PersonaName, "Worker", StringComparison.OrdinalIgnoreCase));
                 if (workerStage != null)
