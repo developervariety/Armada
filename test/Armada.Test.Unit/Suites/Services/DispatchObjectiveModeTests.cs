@@ -501,6 +501,30 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("skipStages names a spaced stage by its persona identifier form", async () =>
+            {
+                Pipeline product = new Pipeline("ProductExample");
+                product.Stages = new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Product Manager"),
+                    new PipelineStage(2, PersonaCatalog.Worker),
+                    new PipelineStage(3, "Usability Engineer"),
+                    new PipelineStage(4, PersonaCatalog.Judge)
+                };
+
+                PipelineStageSkipResult result = PipelineStageSkip.Apply(product, new StageSkipRequest
+                {
+                    Stages = new List<string> { "ProductManager", "usability engineer" },
+                    ConfirmedBy = "operator"
+                });
+
+                AssertEqual(2, result.SkippedStages.Count, "both spaced stages are skipped");
+                AssertEqual("Product Manager", result.SkippedStages[0].PersonaName);
+                AssertEqual("Usability Engineer", result.SkippedStages[1].PersonaName);
+                AssertEqual(2, result.Pipeline!.Stages.Count, "the Worker and the Judge remain");
+                await Task.CompletedTask.ConfigureAwait(false);
+            });
+
             await RunTest("Alias dispatch and a skipped whole order group chain the remaining stages across the gap", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

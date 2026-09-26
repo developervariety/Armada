@@ -83,6 +83,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Stage skips accept the persona identifier form:** `skipStages` ignores
+  spaces as well as case, so `ProductManager` names the stage
+  `Product Manager`. Before, the identifier form was refused as unknown.
 - **A later pipeline stage re-verifies declared consumers:** when a stage the
   definition-of-done gate does not apply to commits production code, the
   consumer build and triggered consumer suites run again against the branch as

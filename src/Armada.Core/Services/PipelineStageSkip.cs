@@ -122,7 +122,7 @@ namespace Armada.Core.Services
 
             foreach (string name in request!.Stages)
             {
-                if (!stages.Any(stage => PersonaCatalog.Matches(stage.PersonaName, name)))
+                if (!stages.Any(stage => NamesStage(stage.PersonaName, name)))
                 {
                     throw new StageSkipRefusedException(UnknownPersonaCode, name,
                         "skipStages names \"" + name + "\", which is not a stage of the effective pipeline ("
@@ -131,7 +131,7 @@ namespace Armada.Core.Services
             }
 
             List<PipelineStage> skipped = stages
-                .Where(stage => request.Stages.Any(name => PersonaCatalog.Matches(stage.PersonaName, name)))
+                .Where(stage => request.Stages.Any(name => NamesStage(stage.PersonaName, name)))
                 .ToList();
             List<PipelineStage> kept = stages.Where(stage => !skipped.Contains(stage)).ToList();
 
@@ -213,6 +213,23 @@ namespace Armada.Core.Services
                         + voyage.Id + " stage " + stage.PersonaName + ": " + ex.Message);
                 }
             }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        /// <summary>
+        /// Whether a requested skip name names a pipeline stage. A stage's persona name can hold spaces
+        /// ("Product Manager") while callers write the persona identifier form ("ProductManager"), so
+        /// the comparison ignores spaces as well as case.
+        /// </summary>
+        private static bool NamesStage(string? stagePersona, string? requested)
+        {
+            if (PersonaCatalog.Matches(stagePersona, requested)) return true;
+            string left = PersonaCatalog.NormalizeName(stagePersona).Replace(" ", String.Empty);
+            string right = PersonaCatalog.NormalizeName(requested).Replace(" ", String.Empty);
+            return left.Length > 0 && String.Equals(left, right, StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion

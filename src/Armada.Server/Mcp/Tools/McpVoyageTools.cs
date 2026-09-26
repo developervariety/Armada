@@ -178,7 +178,7 @@ namespace Armada.Server.Mcp.Tools
                         skipStages = new
                         {
                             type = "array",
-                            description = "Optional persona names of pipeline stages you confirm this voyage does not need, for example [\"TestEngineer\"]. The stages are dropped when the voyage is materialised and the remaining stages chain across the gap; one voyage.stage_skipped event is recorded per stage. The Judge can never be skipped (stage_skip_judge_refused), and a name that is not a stage of the effective pipeline refuses the dispatch (stage_skip_unknown_persona). Nothing is skipped unless you name it here.",
+                            description = "Optional persona names of pipeline stages you confirm this voyage does not need, for example [\"TestEngineer\"]. Case and spaces are ignored, so \"ProductManager\" names the stage \"Product Manager\". The stages are dropped when the voyage is materialised and the remaining stages chain across the gap; one voyage.stage_skipped event is recorded per stage. The Judge can never be skipped (stage_skip_judge_refused), and a name that is not a stage of the effective pipeline refuses the dispatch (stage_skip_unknown_persona). Nothing is skipped unless you name it here.",
                             items = new { type = "string" }
                         },
                         skipStagesReason = new { type = "string", description = "Optional reason for skipStages, recorded on each voyage.stage_skipped event." }
