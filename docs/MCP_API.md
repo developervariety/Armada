@@ -342,6 +342,13 @@ scheduler reads an operator-confirmed skip from the objective's
 `preparation.stageSkip` (`stages`, `reason`, `confirmedBy`, `confirmedUtc`) and
 honours it only when `confirmedBy` is set; otherwise it skips the objective as
 `stage_skip_unconfirmed`. A refinement summary never writes this field.
+An autonomous rescue carries the skips recorded on the voyage it rescues: it
+reads that voyage's `voyage.stage_skipped` events, drops the same stages from
+the rescue chain through the same rule, and records one `voyage.stage_skipped`
+event per carried stage on the rescue voyage, with the original `Reason` plus
+`carried from <voyage id>` and the original `Confirmer`. A skip is not carried
+when the failure reason or review comment names that stage's persona, and the
+Judge is never skipped. A voyage with no recorded skip gets the full chain.
 `preview_objective_dispatch` lists `effectivePipelineStages` after that same
 `PipelineStageSkip` rule, names `skippedPipelineStages`, reports whether the
 stored skip is confirmed, and surfaces the named refusal a stored skip would hit

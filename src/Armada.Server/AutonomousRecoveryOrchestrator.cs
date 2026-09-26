@@ -2125,6 +2125,13 @@ namespace Armada.Server
                     recoveryPipeline,
                     workerRescue.Persona,
                     token).ConfigureAwait(false);
+                List<CarriedStageSkip> carriedSkips = await ApplyCarriedStageSkipsAsync(
+                    failedMission,
+                    workerRescue.Persona,
+                    downstreamStages,
+                    token).ConfigureAwait(false);
+                if (carriedSkips.Count > 0)
+                    downstreamStages = carriedSkips[carriedSkips.Count - 1].RemainingStages;
                 foreach (IGrouping<int, PipelineStage> stageGroup in downstreamStages.GroupBy(item => item.Order).OrderBy(item => item.Key))
                 {
                     string groupDependencyId = upstreamMissionId;
@@ -2147,6 +2154,12 @@ namespace Armada.Server
 
                     if (!String.IsNullOrWhiteSpace(lastMissionInGroup))
                         upstreamMissionId = lastMissionInGroup;
+                }
+
+                foreach (CarriedStageSkip carried in carriedSkips)
+                {
+                    await PipelineStageSkip.EmitSkippedEventsAsync(
+                        _Database, _Logging, rescueVoyage, carried.Result, carried.Request, token).ConfigureAwait(false);
                 }
 
                 // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
@@ -2302,6 +2315,195 @@ namespace Armada.Server
                 fallback.Add(new PipelineStage(order++, "TestEngineer"));
             fallback.Add(new PipelineStage(order, "Judge"));
             return fallback;
+        }
+
+        // A rescue keeps the stage skips its failed voyage recorded. The skips are read from the
+        // voyage.stage_skipped events of the failed voyage, because a dispatch records a skip only
+        // there; a rescue records its carried skips the same way, so a rescue of a rescue keeps them
+        // too. Each carried skip goes through PipelineStageSkip.Apply, the rule every dispatch uses,
+        // keeps its original reason and confirmer, and says which voyage it was carried from.
+        //
+        // Exception: a skip is not carried when the failure names the skipped stage's persona (in
+        // the failure reason or the review comment). A Judge that rejects the work because no
+        // TestEngineer ran is asking for that stage, so the rescue runs it. The Judge is never
+        // skipped. A stage the rescue chain does not contain is ignored, and a voyage with no
+        // recorded skip keeps the full chain.
+        //
+        // Returns one entry per distinct reason and confirmer, applied in order; the last entry's
+        // RemainingStages is the chain to build. An empty list means nothing was skipped.
+        internal async Task<List<CarriedStageSkip>> ApplyCarriedStageSkipsAsync(
+            Mission failedMission,
+            string? rescuePersona,
+            List<PipelineStage> downstreamStages,
+            CancellationToken token)
+        {
+            List<CarriedStageSkip> applied = new List<CarriedStageSkip>();
+            if (failedMission == null || String.IsNullOrWhiteSpace(failedMission.VoyageId)) return applied;
+            if (downstreamStages == null || downstreamStages.Count == 0) return applied;
+
+            List<RecordedStageSkip> recorded = await ReadRecordedStageSkipsAsync(failedMission.VoyageId, token).ConfigureAwait(false);
+            if (recorded.Count == 0) return applied;
+
+            string failureText = (failedMission.FailureReason ?? "") + "\n" + (failedMission.ReviewComment ?? "");
+            List<RecordedStageSkip> carried = new List<RecordedStageSkip>();
+            foreach (RecordedStageSkip skip in recorded)
+            {
+                if (PersonaCatalog.Matches(skip.Persona, PersonaCatalog.Judge)) continue;
+                if (PipelineStageSkip.NamesStage(rescuePersona, skip.Persona)) continue;
+                if (FailureNamesPersona(failureText, skip.Persona))
+                {
+                    _Logging.Info(_Header + "rescue of voyage " + failedMission.VoyageId + " runs skipped stage "
+                        + skip.Persona + " because the failure names it");
+                    continue;
+                }
+                carried.Add(skip);
+            }
+
+            // The rescue Worker anchors the chain so a skip can never leave the Judge alone, the
+            // same shape PipelineStageSkip.Apply refuses for a dispatch.
+            PipelineStage anchor = new PipelineStage(
+                downstreamStages.Min(item => item.Order) - 1,
+                String.IsNullOrWhiteSpace(rescuePersona) ? PersonaCatalog.Worker : rescuePersona);
+            List<PipelineStage> remaining = downstreamStages.ToList();
+
+            foreach (IGrouping<string, RecordedStageSkip> group in carried
+                .GroupBy(item => item.Reason + "\u0001" + item.Confirmer, StringComparer.Ordinal))
+            {
+                List<string> names = group
+                    .Select(item => item.Persona)
+                    .Where(name => remaining.Any(stage => PipelineStageSkip.NamesStage(stage.PersonaName, name)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (names.Count == 0) continue;
+
+                RecordedStageSkip first = group.First();
+                StageSkipRequest request = new StageSkipRequest
+                {
+                    Stages = names,
+                    Reason = first.Reason + "; carried from " + failedMission.VoyageId,
+                    ConfirmedBy = first.Confirmer,
+                    ConfirmedUtc = DateTime.UtcNow
+                };
+
+                Pipeline chain = new Pipeline("RescueChain")
+                {
+                    Stages = new List<PipelineStage> { anchor }.Concat(remaining).ToList()
+                };
+                try
+                {
+                    PipelineStageSkipResult result = PipelineStageSkip.Apply(chain, request);
+                    remaining = (result.Pipeline?.Stages ?? new List<PipelineStage>())
+                        .Where(stage => !ReferenceEquals(stage, anchor))
+                        .ToList();
+                    applied.Add(new CarriedStageSkip(result, request, remaining));
+                }
+                catch (StageSkipRefusedException ex)
+                {
+                    _Logging.Warn(_Header + "rescue of voyage " + failedMission.VoyageId + " keeps stages "
+                        + String.Join(", ", names) + ": carried skip refused (" + ex.Message + ")");
+                }
+            }
+
+            return applied;
+        }
+
+        // Read the voyage.stage_skipped events recorded on a voyage, one per persona.
+        private async Task<List<RecordedStageSkip>> ReadRecordedStageSkipsAsync(string voyageId, CancellationToken token)
+        {
+            List<RecordedStageSkip> skips = new List<RecordedStageSkip>();
+            List<ArmadaEvent> events = await _Database.Events
+                .EnumerateByEntityAsync("voyage", voyageId, 1000, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in events
+                .Where(item => String.Equals(item.EventType, PipelineStageSkip.StageSkippedEventType, StringComparison.Ordinal))
+                .OrderBy(item => item.CreatedUtc))
+            {
+                RecordedStageSkip? skip = ParseRecordedStageSkip(evt.Payload);
+                if (skip == null)
+                {
+                    _Logging.Warn(_Header + "unreadable " + PipelineStageSkip.StageSkippedEventType + " event " + evt.Id
+                        + " on voyage " + voyageId + "; its skip is not carried");
+                    continue;
+                }
+                if (skips.Any(item => PipelineStageSkip.NamesStage(item.Persona, skip.Persona))) continue;
+                skips.Add(skip);
+            }
+
+            return skips;
+        }
+
+        private static RecordedStageSkip? ParseRecordedStageSkip(string? payload)
+        {
+            if (String.IsNullOrWhiteSpace(payload)) return null;
+            try
+            {
+                using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(payload);
+                string? persona = ReadJsonString(document.RootElement, "Persona");
+                if (String.IsNullOrWhiteSpace(persona)) return null;
+                string? reason = ReadJsonString(document.RootElement, "Reason");
+                string? confirmer = ReadJsonString(document.RootElement, "Confirmer");
+                return new RecordedStageSkip(
+                    persona.Trim(),
+                    String.IsNullOrWhiteSpace(reason) ? "operator-confirmed skip" : reason.Trim(),
+                    String.IsNullOrWhiteSpace(confirmer) ? "unknown" : confirmer.Trim());
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return null;
+            }
+        }
+
+        private static string? ReadJsonString(System.Text.Json.JsonElement root, string name)
+        {
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+            foreach (System.Text.Json.JsonProperty property in root.EnumerateObject())
+            {
+                if (String.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)
+                    && property.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                    return property.Value.GetString();
+            }
+            return null;
+        }
+
+        // Whether the failure text names a persona, ignoring case and spaces, so "TestEngineer"
+        // and "Test Engineer" both name the TestEngineer stage.
+        private static bool FailureNamesPersona(string failureText, string persona)
+        {
+            string compactPersona = PersonaCatalog.NormalizeName(persona).Replace(" ", String.Empty);
+            if (compactPersona.Length == 0) return false;
+            string compactText = failureText.Replace(" ", String.Empty);
+            return compactText.IndexOf(compactPersona, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private sealed class RecordedStageSkip
+        {
+            public RecordedStageSkip(string persona, string reason, string confirmer)
+            {
+                Persona = persona;
+                Reason = reason;
+                Confirmer = confirmer;
+            }
+
+            public string Persona { get; }
+            public string Reason { get; }
+            public string Confirmer { get; }
+        }
+
+        /// <summary>
+        /// One carried skip applied to a rescue chain: the skip result, the request that produced it,
+        /// and the chain stages left after it.
+        /// </summary>
+        internal sealed class CarriedStageSkip
+        {
+            public CarriedStageSkip(PipelineStageSkipResult result, StageSkipRequest request, List<PipelineStage> remainingStages)
+            {
+                Result = result;
+                Request = request;
+                RemainingStages = remainingStages;
+            }
+
+            public PipelineStageSkipResult Result { get; }
+            public StageSkipRequest Request { get; }
+            public List<PipelineStage> RemainingStages { get; }
         }
 
         private async Task PersistRescuePlaybookSnapshotsAsync(Mission mission, CancellationToken token)

@@ -98,6 +98,14 @@ upstream integrations and excludes changes already present at that baseline.
   `XDG_DATA_HOME`), resolved by the same helper a launch uses. Before, the
   probe ran on the shared login, so a Cursor edit read as a credit or
   authentication failure for a model the account serves.
+- **A rescue keeps the stage skips of the voyage it rescues:** the autonomous
+  rescue reads the failed voyage's `voyage.stage_skipped` events, drops those
+  stages from the rescue chain through the dispatch skip rule, and records a
+  skip event on the rescue voyage with the original reason plus "carried from"
+  the voyage. A stage whose persona the failure names still runs, and the
+  Judge always runs. Before, a rescue rebuilt the whole objective pipeline and
+  re-ran the skipped stages.
+
 - **A merge entry for work that already landed is cancelled, not failed:**
   when an entry's branch no longer exists and its mission commit is already
   in the target branch, the entry is cancelled with that reason. Before, a

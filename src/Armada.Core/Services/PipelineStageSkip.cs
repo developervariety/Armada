@@ -215,16 +215,15 @@ namespace Armada.Core.Services
             }
         }
 
-        #endregion
-
-        #region Private-Methods
-
         /// <summary>
         /// Whether a requested skip name names a pipeline stage. A stage's persona name can hold spaces
         /// ("Product Manager") while callers write the persona identifier form ("ProductManager"), so
         /// the comparison ignores spaces as well as case.
         /// </summary>
-        private static bool NamesStage(string? stagePersona, string? requested)
+        /// <param name="stagePersona">Persona name of the pipeline stage.</param>
+        /// <param name="requested">Requested skip name.</param>
+        /// <returns>True when the name names the stage.</returns>
+        public static bool NamesStage(string? stagePersona, string? requested)
         {
             if (PersonaCatalog.Matches(stagePersona, requested)) return true;
             string left = PersonaCatalog.NormalizeName(stagePersona).Replace(" ", String.Empty);

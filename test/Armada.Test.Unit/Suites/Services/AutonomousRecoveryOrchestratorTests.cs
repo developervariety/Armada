@@ -2267,6 +2267,61 @@ namespace Armada.Test.Unit.Suites.Services
                 Objective? ownerAfter = await testDb.Driver.Objectives.ReadAsync(owner.Id).ConfigureAwait(false);
                 AssertEqual(2, ownerAfter!.VoyageIds.Count,
                     "A repeat callback must link exactly one recovery voyage to the objective.");
+
+                List<ArmadaEvent> rescueSkips = await ReadStageSkippedEventsAsync(testDb, worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(0, rescueSkips.Count, "A rescue of a voyage without recorded skips must record no skip.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue of a voyage with recorded stage skips omits those stages and records the carried skips", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                (Mission failed, Voyage parentVoyage, RecordingAdmiralService admiral, AutonomousRecoveryOrchestrator orchestrator) =
+                    await CreateSkippedStageRescueAsync(testDb, "ten_recovery_skip", "Judge verdict: NEEDS_REVISION. The error path swallows the exception.")
+                        .ConfigureAwait(false);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one rescue should be dispatched.");
+                Mission worker = admiral.DispatchedMissions[0];
+                List<Mission> recoveryMissions = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(
+                    "Worker,Judge",
+                    String.Join(",", recoveryMissions.OrderBy(item => item.StageOrder ?? 0).Select(item => item.Persona)),
+                    "The rescue must not re-add the stages the failed voyage skipped.");
+                Mission judge = recoveryMissions.Single(item => item.Persona == "Judge");
+                AssertEqual(worker.Id, judge.DependsOnMissionId, "The Judge must chain across the skipped stages to the Worker.");
+
+                List<ArmadaEvent> rescueSkips = await ReadStageSkippedEventsAsync(testDb, worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(2, rescueSkips.Count, "The rescue voyage must record one skip event per carried stage.");
+                foreach (string persona in new[] { "PortingReferenceAnalyst", "TestEngineer" })
+                {
+                    ArmadaEvent evt = rescueSkips.Single(item => (item.Payload ?? "").Contains("\"Persona\":\"" + persona + "\""));
+                    AssertContains("reference already verified", evt.Payload ?? "", "The carried skip must keep the original reason.");
+                    AssertContains("carried from " + parentVoyage.Id, evt.Payload ?? "", "The carried skip must name the voyage it came from.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue keeps a skipped stage when the failure names that stage's responsibility", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                (Mission failed, Voyage parentVoyage, RecordingAdmiralService admiral, AutonomousRecoveryOrchestrator orchestrator) =
+                    await CreateSkippedStageRescueAsync(testDb, "ten_recovery_skip_kept", "Judge verdict: NEEDS_REVISION. No TestEngineer ran, so the new branch has no regression test.")
+                        .ConfigureAwait(false);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                Mission worker = admiral.DispatchedMissions.Single();
+                List<Mission> recoveryMissions = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(
+                    "Worker,TestEngineer,Judge",
+                    String.Join(",", recoveryMissions.OrderBy(item => item.StageOrder ?? 0).Select(item => item.Persona)),
+                    "A skipped stage the failure names must run in the rescue; the other skip is still carried.");
+
+                List<ArmadaEvent> rescueSkips = await ReadStageSkippedEventsAsync(testDb, worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(1, rescueSkips.Count, "Only the stage the failure does not name is recorded as skipped.");
+                AssertContains("\"Persona\":\"PortingReferenceAnalyst\"", rescueSkips[0].Payload ?? "", "The analyst skip is the one carried.");
             }).ConfigureAwait(false);
 
             await RunTest("Chained rescue stage preserves Research mode and playbook context", async () =>
@@ -3340,6 +3395,75 @@ namespace Armada.Test.Unit.Suites.Services
             };
 
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        // A failed Judge on an objective voyage dispatched with the analyst and the TestEngineer
+        // skipped. The skip events are written by the same helper a dispatch uses.
+        private static async Task<(Mission Failed, Voyage ParentVoyage, RecordingAdmiralService Admiral, AutonomousRecoveryOrchestrator Orchestrator)>
+            CreateSkippedStageRescueAsync(TestDatabase testDb, string tenantId, string failureReason)
+        {
+            string userId = "usr_" + tenantId;
+            await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+            Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("ReferencePortingSkipRecovery")
+            {
+                TenantId = vessel.TenantId,
+                Stages = new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Worker"),
+                    new PipelineStage(2, "PortingReferenceAnalyst"),
+                    new PipelineStage(3, "TestEngineer"),
+                    new PipelineStage(4, "Judge") { RequiresReview = true }
+                }
+            }).ConfigureAwait(false);
+
+            Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent skipped-stage port")
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Status = VoyageStatusEnum.Failed
+            }).ConfigureAwait(false);
+            StageSkipRequest skip = new StageSkipRequest
+            {
+                Stages = new List<string> { "PortingReferenceAnalyst", "TestEngineer" },
+                Reason = "reference already verified",
+                ConfirmedBy = "operator"
+            };
+            PipelineStageSkipResult skipResult = PipelineStageSkip.Apply(pipeline, skip);
+            await PipelineStageSkip.EmitSkippedEventsAsync(testDb.Driver, null, parentVoyage, skipResult, skip).ConfigureAwait(false);
+
+            Mission failed = await CreateFailedMissionAsync(testDb, vessel, failureReason).ConfigureAwait(false);
+            failed.Persona = "Judge";
+            failed.VoyageId = parentVoyage.Id;
+            failed.Mode = MissionModeEnum.Implementation;
+            await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+            await testDb.Driver.Objectives.CreateAsync(new Objective
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Title = "Skipped-stage owner",
+                Status = ObjectiveStatusEnum.InProgress,
+                VesselIds = new List<string> { vessel.Id },
+                VoyageIds = new List<string> { parentVoyage.Id },
+                SuggestedPipelineId = pipeline.Id
+            }).ConfigureAwait(false);
+
+            RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+            AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                testDb.Driver,
+                admiral,
+                new IncidentService(testDb.Driver),
+                new RunbookService(testDb.Driver, new LoggingModule()),
+                StandardRecoveryTierSettings());
+            return (failed, parentVoyage, admiral, orchestrator);
+        }
+
+        private static async Task<List<ArmadaEvent>> ReadStageSkippedEventsAsync(TestDatabase testDb, string voyageId)
+        {
+            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByEntityAsync("voyage", voyageId, 500).ConfigureAwait(false);
+            return events.Where(item => item.EventType == PipelineStageSkip.StageSkippedEventType).ToList();
         }
 
         // Produces a mission the way production does: a WorkProduced stage with no commit under an ended
