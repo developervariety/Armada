@@ -105,7 +105,9 @@ upstream integrations and excludes changes already present at that baseline.
 - **A later pipeline stage re-verifies declared consumers:** when a stage the
   definition-of-done gate does not apply to commits production code, the
   consumer build and triggered consumer suites run again against the branch as
-  that stage leaves it. A stage that changed only test files is not re-verified.
+  that stage leaves it. A stage whose commits change only test files is not
+  re-verified; untracked files in the dock, such as the briefing folder, do not
+  count as a change.
   Before, only the Worker stage verified consumers, so a later stage could land
   a consumer break. `DefinitionOfDone.VerifyConsumersAfterLaterStages` turns it
   off.

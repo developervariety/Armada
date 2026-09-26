@@ -312,9 +312,13 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    IReadOnlyList<string> stagePaths = await _Git!.GetChangedFilesSinceAsync(worktreePath!, stageStartCommit!, token).ConfigureAwait(false);
+                    // Committed changes only: a dock also holds untracked files Armada writes for the
+                    // captain (the briefing folder, runtime instruction files), and only commits land.
+                    ChangedPathsRead stageRead = await _Git!.GetChangedFilePathsAgainstBaseAsync(worktreePath!, stageStartCommit!, token).ConfigureAwait(false);
+                    if (stageRead == null || !stageRead.Available)
+                        throw new InvalidOperationException(stageRead?.FormatReason() ?? "the git seam returned no changed-path result");
                     bool changedProduction = false;
-                    foreach (string rawPath in stagePaths)
+                    foreach (string rawPath in stageRead.Paths)
                     {
                         if (String.IsNullOrWhiteSpace(rawPath)) continue;
                         if (!IsLikelyTestPath(rawPath.Replace('\\', '/'))) { changedProduction = true; break; }

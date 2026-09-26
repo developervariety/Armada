@@ -1187,7 +1187,6 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService
                     {
                         CreateWorktreeDirectories = true,
-                        ChangedFilesSinceResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" },
                         ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" }
                     };
 
@@ -1210,7 +1209,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("A later stage that changed only test files does not re-verify consumers", async () =>
+            await RunTest("A later stage whose commits change only test files does not re-verify consumers, whatever sits untracked in its dock", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
@@ -1225,8 +1224,9 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService
                     {
                         CreateWorktreeDirectories = true,
-                        ChangedFilesSinceResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core.Tests/SignerTests.cs" },
-                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" }
+                        // Untracked files Armada writes into every dock must not count as the stage's change.
+                        ChangedFilesSinceResult = new List<string> { "_briefing/memory/01-core.md", "CURSOR.md", "src/ExampleProducer/ExampleProducer.Core/Signer.cs" },
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core.Tests/SignerTests.cs" }
                     };
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
@@ -1263,7 +1263,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService
                     {
                         CreateWorktreeDirectories = true,
-                        ChangedFilesSinceResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" }
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" }
                     };
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
