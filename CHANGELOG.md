@@ -92,6 +92,12 @@ upstream integrations and excludes changes already present at that baseline.
   and no longer pushes it. Mission branches reach the remote only through the
   pull-request landing path.
 
+- **Model validation runs on the captain's account login:** creating or
+  editing a captain on a usage-routing account probes the model with that
+  account's login (`CURSOR_API_KEY`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR` or
+  `XDG_DATA_HOME`), resolved by the same helper a launch uses. Before, the
+  probe ran on the shared login, so a Cursor edit read as a credit or
+  authentication failure for a model the account serves.
 - **A merge entry for work that already landed is cancelled, not failed:**
   when an entry's branch no longer exists and its mission commit is already
   in the target branch, the entry is cancelled with that reason. Before, a

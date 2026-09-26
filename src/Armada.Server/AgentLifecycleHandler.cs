@@ -646,6 +646,15 @@ namespace Armada.Server
 
             try
             {
+                // The probe runs on the captain's own account login, as its launch does. An account that cannot supply
+                // its login fails here with the reason a launch would refuse with.
+                CaptainLaunchIsolationPlan? accountPlan = null;
+                if (captain != null)
+                {
+                    accountPlan = new CaptainLaunchIsolationPlan();
+                    ApplyCaptainAccountLogin(accountPlan, captain, enforceRequiredLogin: false);
+                }
+
                 await InitializeValidationWorkspaceAsync(runtimeType, validationDirectory, token).ConfigureAwait(false);
 
                 processId = await runtime.StartAsync(
@@ -653,7 +662,8 @@ namespace Armada.Server
                     "Respond with the single word OK.",
                     model: model,
                     captain: captain,
-                    token: token).ConfigureAwait(false);
+                    token: token,
+                    isolationPlan: accountPlan).ConfigureAwait(false);
 
                 Task completedTask = await Task.WhenAny(
                     exitSource.Task,
@@ -956,8 +966,7 @@ namespace Armada.Server
 
             // The account login switch applies whether or not MCP isolation is seeded. A captain on an account whose
             // login is missing fails this launch with a named reason instead of running on the shared login.
-            UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id);
-            CaptainLaunchIsolationPlanner.ApplyAccount(plan, captain, account, requireAccountLogin: _Settings.ModelTier.UsageRouting.RequireAccountLogin);
+            UsageAccountSettings? account = ApplyCaptainAccountLogin(plan, captain, enforceRequiredLogin: true);
             if (account != null)
             {
                 // A login the runtime last reported as rejected refuses the launch too; this reads the cached probe only.
@@ -979,6 +988,25 @@ namespace Armada.Server
             }
 
             return plan;
+        }
+
+        /// <summary>
+        /// Add the captain's usage-routing account login (CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_DATA_HOME or
+        /// CURSOR_API_KEY) to a plan. A mission launch and a model-validation probe both resolve the login here, so a
+        /// model is validated on the same login the captain launches with, never on the shared login.
+        /// </summary>
+        /// <param name="plan">Plan to extend.</param>
+        /// <param name="captain">Captain being launched or validated.</param>
+        /// <param name="enforceRequiredLogin">Apply requireAccountLogin. A launch enforces it; validation does not,
+        /// because a captain is created before an account can list it.</param>
+        /// <returns>The captain's account, or null.</returns>
+        /// <exception cref="CaptainAccountLaunchException">The account cannot supply its login.</exception>
+        private UsageAccountSettings? ApplyCaptainAccountLogin(CaptainLaunchIsolationPlan plan, Captain captain, bool enforceRequiredLogin)
+        {
+            UsageRoutingSettings routing = _Settings.ModelTier.UsageRouting;
+            UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(routing, captain.Id);
+            CaptainLaunchIsolationPlanner.ApplyAccount(plan, captain, account, requireAccountLogin: enforceRequiredLogin && routing.RequireAccountLogin);
+            return account;
         }
 
         /// <summary>

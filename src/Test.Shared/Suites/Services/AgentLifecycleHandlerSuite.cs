@@ -104,6 +104,55 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("validate_captain_model_async_uses_the_captain_account_login", "ValidateCaptainModelAsync runs the probe on the captain's usage-routing account login, as a launch does", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    Captain captain = new Captain("account-captain", AgentRuntimeEnum.Cursor) { Model = "account-model" };
+                    BindCursorAccount(settings, captain, shim.WriteAccountKeyFile());
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+
+                    AssertNull(error, "A model the captain's account serves must validate on that account's login: " + error);
+                }
+            }));
+
+            cases.Add(CaseAsync("validate_captain_model_async_reports_a_model_the_account_cannot_serve", "ValidateCaptainModelAsync still reports a model the captain's account cannot serve", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    Captain captain = new Captain("account-captain", AgentRuntimeEnum.Cursor) { Model = "bad-model" };
+                    BindCursorAccount(settings, captain, shim.WriteAccountKeyFile());
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+
+                    AssertNotNull(error, "A model the account cannot serve must fail validation");
+                    AssertContains("unknown model 'bad-model'", error!, "The error must carry the runtime's reason");
+                    AssertFalse(ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(error), "An unserved model must not read as a credit or authentication failure: " + error);
+                }
+            }));
+
+            cases.Add(CaseAsync("validate_captain_model_async_names_an_unavailable_account_login", "ValidateCaptainModelAsync names the account reason when the captain's account login is unavailable", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CursorShimScope shim = CursorShimScope.Create())
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    Captain captain = new Captain("account-captain", AgentRuntimeEnum.Cursor) { Model = "account-model" };
+                    string missingKeyFile = Path.Combine(Path.GetTempPath(), "armada_missing_" + Guid.NewGuid().ToString("N"), AccountLoginPaths.CursorKeyFileName);
+                    BindCursorAccount(settings, captain, missingKeyFile);
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+
+                    AssertNotNull(error, "An account whose login is unavailable must fail validation");
+                    AssertContains(CaptainAccountLaunch.ReasonCredentialUnavailable, error!, "The error must name the account reason a launch would refuse with");
+                }
+            }));
+
             cases.Add(CaseAsync("validate_captain_model_async_requires_mux_endpoint", "ValidateCaptainModelAsync requires Mux endpoint", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -792,6 +841,17 @@ namespace Test.Shared.Suites.Services
                 modelValidationTimeout);
         }
 
+        private static void BindCursorAccount(ArmadaSettings settings, Captain captain, string keyFile)
+        {
+            settings.ModelTier.UsageRouting.Accounts.Add(new UsageAccountSettings
+            {
+                Id = "cursor-test",
+                Runtime = AgentRuntimeEnum.Cursor,
+                LaunchCredentialFile = keyFile,
+                CaptainIds = new List<string> { captain.Id }
+            });
+        }
+
         private static LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -1216,9 +1276,23 @@ namespace Test.Shared.Suites.Services
                 return new CursorShimScope(tempDirectory, argsFile, originalPath, windowsShimPath, windowsShimBackupPath);
             }
 
+            /// <summary>
+            /// Write an account key file and make the shim accept <c>account-model</c> only when the launch
+            /// presents that key as CURSOR_API_KEY; without it the shim answers as Cursor does to a missing login.
+            /// </summary>
+            public string WriteAccountKeyFile()
+            {
+                string key = "test" + "-cursor-account-" + Guid.NewGuid().ToString("N");
+                string keyFile = Path.Combine(_tempDirectory, AccountLoginPaths.CursorKeyFileName);
+                File.WriteAllText(keyFile, key + "\n");
+                Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_ACCOUNT_KEY", key);
+                return keyFile;
+            }
+
             public void Dispose()
             {
                 Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_ARGS_FILE", null);
+                Environment.SetEnvironmentVariable("ARMADA_TEST_CURSOR_ACCOUNT_KEY", null);
                 Environment.SetEnvironmentVariable("PATH", _originalPath);
 
                 if (OperatingSystem.IsWindows() && !String.IsNullOrEmpty(_windowsShimPath))
@@ -1259,6 +1333,10 @@ namespace Test.Shared.Suites.Services
                     "  >&2 echo unknown model '%MODEL%'\r\n" +
                     "  exit /b 3\r\n" +
                     ")\r\n" +
+                    "if /I \"%MODEL%\"==\"account-model\" if not \"%CURSOR_API_KEY%\"==\"%ARMADA_TEST_CURSOR_ACCOUNT_KEY%\" (\r\n" +
+                    "  >&2 echo Error: Authentication required. Please run 'cursor-agent login' first.\r\n" +
+                    "  exit /b 1\r\n" +
+                    ")\r\n" +
                     "if /I \"%MODEL%\"==\"hang-model\" (\r\n" +
                     "  ping 127.0.0.1 -n 10 >nul\r\n" +
                     "  exit /b 0\r\n" +
@@ -1284,6 +1362,10 @@ namespace Test.Shared.Suites.Services
                     "if [ \"$model\" = \"bad-model\" ]; then\n" +
                     "  printf '%s\\n' \"unknown model '$model'\" >&2\n" +
                     "  exit 3\n" +
+                    "fi\n" +
+                    "if [ \"$model\" = \"account-model\" ] && { [ -z \"$CURSOR_API_KEY\" ] || [ \"$CURSOR_API_KEY\" != \"$ARMADA_TEST_CURSOR_ACCOUNT_KEY\" ]; }; then\n" +
+                    "  printf '%s\\n' \"Error: Authentication required. Please run 'cursor-agent login' first.\" >&2\n" +
+                    "  exit 1\n" +
                     "fi\n" +
                     "if [ \"$model\" = \"hang-model\" ]; then\n" +
                     "  sleep 10\n" +

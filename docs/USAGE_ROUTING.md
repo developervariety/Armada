@@ -419,6 +419,13 @@ accept billing terms.
   `usage_exhausted_or_account_capacity`; the preview returns it, and the
   scheduler logs it for the mission that waits as `WaitingForProviderUsage`. A launch that still reaches such an account fails
   with the same reason; it never falls back to the shared login.
+- Captain model validation (create, and an update that changes the runtime,
+  model, endpoint or credentials) runs its probe on the captain's account
+  login, resolved exactly as a launch resolves it. A model the account cannot
+  serve is refused with the runtime's reason; an account that cannot supply
+  its login is refused with the account reason above. `requireAccountLogin`
+  is enforced at launch only, because a captain exists before an account can
+  list it.
 
 ### Logging in from the Dashboard
 
