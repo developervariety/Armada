@@ -103,6 +103,11 @@ namespace Armada.Core.Models
         public bool RunConsumerTests { get; set; } = false;
 
         /// <summary>
+        /// Whether a later pipeline stage that commits production code re-verifies the declared consumers.
+        /// </summary>
+        public bool VerifyConsumersAfterLaterStages { get; set; } = false;
+
+        /// <summary>
         /// Global consumer-test trigger prefixes. A producer sibling declaration with its own prefixes overrides these per edge.
         /// </summary>
         public List<string> DefaultConsumerTestTriggerPaths { get; set; } = new List<string>();

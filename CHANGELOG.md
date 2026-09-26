@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A later pipeline stage re-verifies declared consumers:** when a stage the
+  definition-of-done gate does not apply to commits production code, the
+  consumer build and triggered consumer suites run again against the branch as
+  that stage leaves it. A stage that changed only test files is not re-verified.
+  Before, only the Worker stage verified consumers, so a later stage could land
+  a consumer break. `DefinitionOfDone.VerifyConsumersAfterLaterStages` turns it
+  off.
 - **The sibling-tip preflight fact judges only a sibling's own commits:** a
   commit the brief cites is compared with a sibling tip only when that sibling
   holds it. Before, a brief citing the vessel's own commits (a start commit, a

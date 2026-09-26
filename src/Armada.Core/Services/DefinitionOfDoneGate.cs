@@ -120,18 +120,25 @@ namespace Armada.Core.Services
         /// <param name="mission">The mission being completed.</param>
         /// <param name="dock">The captain's dock, used to locate the worktree.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="stageStartCommit">Commit the dock started from, when known. A stage the gate does not
+        /// apply to uses it to read only its own change when deciding whether to re-verify consumers.</param>
         /// <returns>A <see cref="DefinitionOfDoneResult"/> describing the gate outcome.</returns>
         public async Task<DefinitionOfDoneResult> EvaluateAsync(
             Mission mission,
             Dock dock,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            string? stageStartCommit = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (dock == null) throw new ArgumentNullException(nameof(dock));
 
             string? skipReason = ResolveSkipReason(mission);
             if (skipReason != null)
-                return DefinitionOfDoneResult.Skipped(skipReason);
+            {
+                if (!AppliesLaterStageConsumerCheck(mission))
+                    return DefinitionOfDoneResult.Skipped(skipReason);
+                return await EvaluateLaterStageConsumersAsync(mission, dock, stageStartCommit, skipReason, token).ConfigureAwait(false);
+            }
 
             string? worktreePath = dock.WorktreePath;
             if (String.IsNullOrWhiteSpace(worktreePath))
@@ -218,6 +225,7 @@ namespace Armada.Core.Services
                 VerifyDeclaredConsumers = _Settings.VerifyDeclaredConsumers,
                 FailOnConsumerVerificationError = _Settings.FailOnConsumerVerificationError,
                 RunConsumerTests = _Settings.RunConsumerTests,
+                VerifyConsumersAfterLaterStages = _Settings.VerifyConsumersAfterLaterStages,
                 DefaultConsumerTestTriggerPaths = new List<string>(_Settings.ConsumerTestTriggerPaths ?? new List<string>())
             };
 
@@ -255,6 +263,98 @@ namespace Armada.Core.Services
                 return "mission description contains doc-only opt-out marker";
 
             return null;
+        }
+
+        /// <summary>
+        /// Whether a mission the gate skips is a later pipeline stage that must still re-verify the
+        /// declared consumers of the branch it continues. Only the persona rule may have skipped it: a
+        /// disabled gate or a doc-only mission stays skipped.
+        /// </summary>
+        private bool AppliesLaterStageConsumerCheck(Mission mission)
+        {
+            if (!_Settings.Enabled || !_Settings.VerifyDeclaredConsumers || !_Settings.VerifyConsumersAfterLaterStages) return false;
+            if (_Git == null) return false;
+            if (IsPersonaApplicable(mission.Persona)) return false;
+            if (HasDocOnlyMarker(mission.Description)) return false;
+            return !String.IsNullOrWhiteSpace(mission.VesselId);
+        }
+
+        /// <summary>
+        /// Re-verify the declared consumers for a later stage that committed to the branch. The stage's
+        /// own change decides whether anything runs: a change to test files only cannot break a consumer,
+        /// so it stays skipped. Any other change, or a change that cannot be read, runs the same consumer
+        /// verification the applied stage ran, against the branch as this stage leaves it. A vessel with
+        /// no declared consumer stays skipped with the persona reason.
+        /// </summary>
+        private async Task<DefinitionOfDoneResult> EvaluateLaterStageConsumersAsync(
+            Mission mission,
+            Dock dock,
+            string? stageStartCommit,
+            string skipReason,
+            CancellationToken token)
+        {
+            string? worktreePath = dock.WorktreePath;
+            if (String.IsNullOrWhiteSpace(worktreePath)) return DefinitionOfDoneResult.Skipped(skipReason);
+
+            Vessel? producer = await ReadVesselAsync(mission.TenantId, mission.VesselId!, token).ConfigureAwait(false);
+            if (producer == null) return DefinitionOfDoneResult.Skipped(skipReason);
+
+            List<Vessel> allVessels = await EnumerateVesselsAsync(mission.TenantId, token).ConfigureAwait(false);
+            if (ConsumerVesselResolver.Resolve(producer.Id, producer.Name, allVessels).Count == 0)
+                return DefinitionOfDoneResult.Skipped(skipReason);
+
+            string? unreadReason = null;
+            if (String.IsNullOrWhiteSpace(stageStartCommit))
+            {
+                unreadReason = "the stage start commit is not known";
+            }
+            else
+            {
+                try
+                {
+                    IReadOnlyList<string> stagePaths = await _Git!.GetChangedFilesSinceAsync(worktreePath!, stageStartCommit!, token).ConfigureAwait(false);
+                    bool changedProduction = false;
+                    foreach (string rawPath in stagePaths)
+                    {
+                        if (String.IsNullOrWhiteSpace(rawPath)) continue;
+                        if (!IsLikelyTestPath(rawPath.Replace('\\', '/'))) { changedProduction = true; break; }
+                    }
+
+                    if (!changedProduction)
+                    {
+                        return DefinitionOfDoneResult.Skipped(skipReason
+                            + "; this stage changed no production file, so its declared consumers are not re-verified");
+                    }
+                }
+                catch (Exception ex) when (!token.IsCancellationRequested)
+                {
+                    unreadReason = ex.GetType().Name + ": " + ex.Message;
+                }
+            }
+
+            if (unreadReason != null)
+            {
+                _Logging.Warn(_Header + "re-verifying consumers for " + (mission.Persona ?? "(none)") + " mission " + mission.Id
+                    + " because its own change could not be read: " + unreadReason);
+            }
+            else
+            {
+                _Logging.Info(_Header + (mission.Persona ?? "(none)") + " mission " + mission.Id
+                    + " committed production changes after the applied stage; re-verifying declared consumers");
+            }
+
+            DockLeaseRegistry.Acquire(dock.Id);
+            try
+            {
+                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+                {
+                    return await VerifyDeclaredConsumersAsync(mission, worktreePath!, token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                DockLeaseRegistry.Release(dock.Id);
+            }
         }
 
         private async Task<DefinitionOfDoneResult> RunGateCommandsAsync(

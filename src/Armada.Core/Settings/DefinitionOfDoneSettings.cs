@@ -117,6 +117,20 @@ namespace Armada.Core.Settings
         public bool RunConsumerTests { get; set; } = true;
 
         /// <summary>
+        /// Whether a pipeline stage the gate does not apply to re-verifies the declared consumers when
+        /// it commits production code. Defaults to true.
+        /// </summary>
+        /// <remarks>
+        /// The gate verifies consumers at the stage it applies to, but later stages continue the same
+        /// branch and can commit to it: an analyst, a test engineer or a linter can change a public
+        /// shape after the Worker's gate passed, and the branch then lands with a consumer break nobody
+        /// measured. A later stage whose own commits change only test files cannot break a consumer and
+        /// is not re-verified; any other change re-runs the consumer build and, on a triggering path,
+        /// the consumer suite. The stage's own build and tests are not re-run here.
+        /// </remarks>
+        public bool VerifyConsumersAfterLaterStages { get; set; } = true;
+
+        /// <summary>
         /// Producer-relative path prefixes that trigger the consumer's unit-test suite when a
         /// producer change touches a non-test file under any of them. Used for a consumer edge
         /// whose sibling declaration carries no <c>ConsumerTestTriggerPaths</c> of its own. A
@@ -149,6 +163,7 @@ namespace Armada.Core.Settings
             VerifyDeclaredConsumers = source.VerifyDeclaredConsumers;
             FailOnConsumerVerificationError = source.FailOnConsumerVerificationError;
             RunConsumerTests = source.RunConsumerTests;
+            VerifyConsumersAfterLaterStages = source.VerifyConsumersAfterLaterStages;
             ConsumerTestTriggerPaths = new List<string>(source.ConsumerTestTriggerPaths ?? new List<string>());
         }
 

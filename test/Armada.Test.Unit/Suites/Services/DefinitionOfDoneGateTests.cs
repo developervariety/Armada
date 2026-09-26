@@ -1170,6 +1170,120 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A later stage that commits production code re-verifies consumers and fails on a consumer break", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    // The producer's own commands fail: a later stage re-verifies consumers only, so a
+                    // failure can come only from the consumer suite.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_ls", "vsl_ls_producer",
+                        producerWorktree, FailCommand(), FailCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_ls", "vsl_ls_consumer",
+                        "ExampleConsumer", "vsl_ls_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilesSinceResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" },
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateMissionWithPersona("ten_ls", "vsl_ls_producer", "TestEngineer");
+                    mission.BranchName = "feat/ls";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }, CancellationToken.None, "start-commit").ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "A later stage's production commit that breaks a consumer must fail the gate");
+                    AssertEqual("consumer_tests_failed: ExampleConsumer", result.CommandLabel,
+                        "The failure must name the consumer suite, not the producer's own commands");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A later stage that changed only test files does not re-verify consumers", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_lt", "vsl_lt_producer",
+                        producerWorktree, FailCommand(), FailCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_lt", "vsl_lt_consumer",
+                        "ExampleConsumer", "vsl_lt_producer", FailCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilesSinceResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core.Tests/SignerTests.cs" },
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateMissionWithPersona("ten_lt", "vsl_lt_producer", "TestEngineer");
+                    mission.BranchName = "feat/lt";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }, CancellationToken.None, "start-commit").ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "A test-only later stage must not run the failing consumer commands");
+                    AssertNotNull(result.SkippedReason, "The stage must report why it was not verified");
+                    AssertContains("no production file", result.SkippedReason!, "The skip must name the test-only change");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("VerifyConsumersAfterLaterStages=false leaves a later stage skipped", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_lo", "vsl_lo_producer",
+                        producerWorktree, FailCommand(), FailCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_lo", "vsl_lo_consumer",
+                        "ExampleConsumer", "vsl_lo_producer", FailCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilesSinceResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Signer.cs" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, VerifyConsumersAfterLaterStages = false },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateMissionWithPersona("ten_lo", "vsl_lo_producer", "TestEngineer");
+                    mission.BranchName = "feat/lo";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }, CancellationToken.None, "start-commit").ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "With the setting off a later stage stays skipped");
+                    AssertContains("TestEngineer", result.SkippedReason ?? "", "The skip keeps the persona reason");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RunConsumerTests=false leaves the build-only consumer step unchanged", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

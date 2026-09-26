@@ -2382,7 +2382,8 @@ namespace Armada.Core.Services
                     + " reached the DoD gate having changed nothing since dock start; gate skipped rather than passed");
             }
 
-            // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
+            // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work. A later
+            // stage that committed production code re-verifies the declared consumers of the branch.
             bool failedForDodGate = false;
             if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
@@ -2391,7 +2392,7 @@ namespace Armada.Core.Services
                 try
                 {
                     await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate", token).ConfigureAwait(false);
-                    DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token).ConfigureAwait(false);
+                    DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token, TryReadDockStartCommit(dock.Id)).ConfigureAwait(false);
                     // A skipped result carries Passed=true so completion accepts it. Report it as
                     // skipped before the passed branch: "validation passed" would claim a build
                     // and test run that never happened.
