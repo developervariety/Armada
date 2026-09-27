@@ -48,7 +48,10 @@ A verified landed slice must meet all of these rules:
 - At least one implementation-producing mission has a commit hash and reached
   `Complete`. A read-only objective must instead have an explicit read-only
   delivery classification.
-- Each independent delivered tip has a mission-linked `Landed` merge entry.
+- Each independent delivered tip has typed landing evidence: a
+  mission-linked `Landed` merge entry (merge-queue landing) or a `Landed`
+  attempt fact (direct landing, such as `LocalMerge` or a merged pull
+  request).
 - Each participating Check for each delivered tip's commit is `Passed`. A
   Check for another commit is not current. A missing current Check is not a
   pass.
@@ -199,9 +202,10 @@ This count shows frequency while runtime share shows cost.
 Start at the final required landing time for the slice. End at the objective's
 `CompletedUtc` after all required Check and chain evidence is valid.
 
-The preferred landing source is the `CompletedUtc` of a mission-linked
-`Landed` merge entry. If the entry is absent because of another landing mode
-or expiry, do not silently substitute a mission timestamp. A report can show
+The landing time is the latest `CompletedUtc` of a mission-linked `Landed`
+merge entry or `CreatedUtc` of a `Landed` attempt fact for the tip. If both are
+absent, for example after expiry, do not silently substitute a mission
+timestamp. A report can show
 `mission Complete to objective closeout` as a named proxy with separate
 coverage.
 

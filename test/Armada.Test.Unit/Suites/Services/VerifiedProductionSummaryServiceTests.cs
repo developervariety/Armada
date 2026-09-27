@@ -297,6 +297,25 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(group.FirstPassAcceptance.Rate.HasValue && Math.Abs(group.FirstPassAcceptance.Rate.Value - (2.0 / 3.0)) < 0.0001);
             }).ConfigureAwait(false);
 
+            await RunTest("DirectLandingIsProvedByLandedAttemptFact", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+                Mission direct = await CreateVerifiedSliceAsync(testDb, start, "direct", landedMergeEntry: false).ConfigureAwait(false);
+                await CreateVerifiedSliceAsync(testDb, start, "unproved", landedMergeEntry: false).ConfigureAwait(false);
+                await AddFactAsync(testDb, direct, MissionAttemptFactTypeEnum.AttemptStarted, null, start).ConfigureAwait(false);
+                await AddFactAsync(testDb, direct, MissionAttemptFactTypeEnum.Landed, "landed", start).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(7) }).ConfigureAwait(false);
+
+                ProductionSummaryGroup group = result.Groups.Single();
+                AssertEqual(1, group.VerifiedLandedSlices.Count, "A Landed attempt fact proves a landing that left no merge entry");
+                AssertEqual(1, group.VerifiedLandedSlices.Unknown);
+                AssertEqual(1, result.ExclusionsByReason["missing_landing_evidence"], "A slice with neither a merge entry nor a Landed fact stays unverified");
+            }).ConfigureAwait(false);
+
             await RunTest("RescueShareUsesTypedMarkerAcrossTheWholeChain", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -628,7 +647,7 @@ namespace Armada.Test.Unit.Suites.Services
             }).ConfigureAwait(false);
         }
 
-        private static async Task<Mission> CreateVerifiedSliceAsync(TestDatabase testDb, DateTime start, string label)
+        private static async Task<Mission> CreateVerifiedSliceAsync(TestDatabase testDb, DateTime start, string label, bool landedMergeEntry = true)
         {
             string commit = CommitFor(label);
             Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage
@@ -647,13 +666,16 @@ namespace Armada.Test.Unit.Suites.Services
                 StartedUtc = start,
                 CompletedUtc = start.AddMinutes(30)
             }).ConfigureAwait(false);
-            await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry
+            if (landedMergeEntry)
             {
-                MissionId = mission.Id,
-                BranchName = label,
-                Status = MergeStatusEnum.Landed,
-                CompletedUtc = start.AddMinutes(40)
-            }).ConfigureAwait(false);
+                await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry
+                {
+                    MissionId = mission.Id,
+                    BranchName = label,
+                    Status = MergeStatusEnum.Landed,
+                    CompletedUtc = start.AddMinutes(40)
+                }).ConfigureAwait(false);
+            }
             await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
             {
                 MissionId = mission.Id,

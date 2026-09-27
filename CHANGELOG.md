@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Production summary landing evidence and scan scope:** a delivered tip counts
+  as landed on a mission-linked `Landed` merge entry or a `Landed` attempt fact,
+  so direct landings (`LocalMerge`, merged pull requests) verify as well as
+  merge-queue landings. The readiness scan reads only `objective.snapshot`
+  events and reports the source as `objective_snapshots`, so other high-volume
+  events no longer exhaust the record limit and mark the summary incomplete.
 - **The merge queue keeps LocalMerge landings on the local target:** a vessel
   whose effective landing mode is `LocalMerge` merges into the local target and
   pushes nothing, so its local target is legitimately ahead of origin. Integration

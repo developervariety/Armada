@@ -137,7 +137,7 @@ namespace Armada.Core.Services
                 foreach (Objective objective in grouping)
                 {
                     SliceEvidence evidence = verificationSourcesComplete
-                        ? EvaluateSlice(objective, missionById, voyageById, mergesByMission, checksByMission, checksByVoyage)
+                        ? EvaluateSlice(objective, missionById, voyageById, mergesByMission, checksByMission, checksByVoyage, attemptFacts)
                         : SliceEvidence.Failed("incomplete_source_scan");
                     regressionTargets[objective.Id] = new RegressionSliceTarget(group, evidence);
                     AddRepeatedResearch(group.RepeatedResearch, observationsByObjective.GetValueOrDefault(objective.Id));
@@ -293,7 +293,8 @@ namespace Armada.Core.Services
             Dictionary<string, Voyage> voyageById,
             Dictionary<string, List<MergeEntry>> mergesByMission,
             Dictionary<string, List<CheckRun>> checksByMission,
-            Dictionary<string, List<CheckRun>> checksByVoyage)
+            Dictionary<string, List<CheckRun>> checksByVoyage,
+            AttemptFactIndex attemptFacts)
         {
             List<MissionSummary> linked = objective.MissionIds
                 .Select(id => missionById.GetValueOrDefault(id))
@@ -328,11 +329,15 @@ namespace Armada.Core.Services
             List<DateTime> landingTimes = new List<DateTime>();
             foreach (MissionSummary tip in deliveryTips)
             {
-                List<MergeEntry> tipLandings = (mergesByMission.GetValueOrDefault(tip.Id) ?? new List<MergeEntry>())
+                // A merge-queue landing leaves a Landed merge entry; a direct landing (LocalMerge,
+                // pull-request merge) leaves only a Landed attempt fact. Either is typed evidence.
+                List<DateTime> tipLandings = (mergesByMission.GetValueOrDefault(tip.Id) ?? new List<MergeEntry>())
                     .Where(item => item.Status == MergeStatusEnum.Landed && item.CompletedUtc.HasValue)
+                    .Select(item => item.CompletedUtc!.Value)
+                    .Concat(attemptFacts.LandedTimes(tip.Id))
                     .ToList();
                 if (tipLandings.Count == 0) return SliceEvidence.Failed("missing_landing_evidence");
-                landingTimes.Add(tipLandings.Max(item => item.CompletedUtc!.Value));
+                landingTimes.Add(tipLandings.Max());
 
                 List<CheckRun> tipChecks = new List<CheckRun>();
                 tipChecks.AddRange(checksByMission.GetValueOrDefault(tip.Id) ?? new List<CheckRun>());
@@ -970,6 +975,11 @@ namespace Armada.Core.Services
             internal bool HasAttempt(string missionId) =>
                 _ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts)
                 && facts.Any(item => item.FactType == MissionAttemptFactTypeEnum.AttemptStarted);
+
+            internal List<DateTime> LandedTimes(string missionId) =>
+                _ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts)
+                    ? facts.Where(item => item.FactType == MissionAttemptFactTypeEnum.Landed).Select(item => item.CreatedUtc).ToList()
+                    : new List<DateTime>();
 
             internal bool IsRescue(string missionId) =>
                 _ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts) && facts.Any(item => item.IsRescue);
