@@ -87,7 +87,7 @@ namespace Armada.Core.Services
             List<Voyage> voyages = await ReadVoyagesAsync(auth, result, token).ConfigureAwait(false);
             List<MergeEntry> merges = await ReadMergeEntriesAsync(auth, result, token).ConfigureAwait(false);
             List<CheckRun> checks = await ReadChecksAsync(auth, result, token).ConfigureAwait(false);
-            List<ArmadaEvent> events = await ReadEventsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
+            List<ArmadaEvent> events = await ReadObjectiveSnapshotsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
             List<Incident> incidents = await ReadIncidentsAsync(auth, result, token).ConfigureAwait(false);
             List<PreparationClaimObservation> claimObservations = await ReadClaimObservationsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
             Dictionary<string, List<PreparationClaimObservation>> observationsByObjective = claimObservations
@@ -815,10 +815,14 @@ namespace Armada.Core.Services
             return values;
         }
 
-        private async Task<List<ArmadaEvent>> ReadEventsAsync(AuthContext auth, DateTime fromUtc, DateTime toUtc, ProductionSummaryResult report, CancellationToken token)
+        private async Task<List<ArmadaEvent>> ReadObjectiveSnapshotsAsync(AuthContext auth, DateTime fromUtc, DateTime toUtc, ProductionSummaryResult report, CancellationToken token)
         {
+            // Readiness timing reads only objective snapshots. Scanning every event type
+            // lets unrelated high-volume events exhaust the record limit and mark the
+            // whole summary incomplete.
             return await ReadPagesAsync<ArmadaEvent>(async query =>
             {
+                query.EventType = "objective.snapshot";
                 query.CreatedAfter = fromUtc;
                 query.CreatedBefore = toUtc;
                 return auth.IsAdmin
@@ -826,7 +830,7 @@ namespace Armada.Core.Services
                     : auth.IsTenantAdmin
                         ? await _Database.Events.EnumerateAsync(auth.TenantId!, query, token).ConfigureAwait(false)
                         : await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, query, token).ConfigureAwait(false);
-            }, "events", report, token).ConfigureAwait(false);
+            }, "objective_snapshots", report, token).ConfigureAwait(false);
         }
 
         private static async Task<List<T>> ReadPagesAsync<T>(

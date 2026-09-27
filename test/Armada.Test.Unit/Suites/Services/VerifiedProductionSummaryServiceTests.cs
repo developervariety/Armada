@@ -580,6 +580,38 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0.0, after.LaneTime.ObservedLaneMinutes, "expired lane rows are not observed time");
             }).ConfigureAwait(false);
 
+            await RunTest("ReadinessScanReadsOnlyObjectiveSnapshots", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                await testDb.Driver.Events.CreateAsync(new ArmadaEvent
+                {
+                    EventType = "objective.snapshot",
+                    EntityType = "objective",
+                    EntityId = "obj_example",
+                    CreatedUtc = start.AddHours(1)
+                }).ConfigureAwait(false);
+                for (int i = 0; i < 3; i++)
+                {
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent
+                    {
+                        EventType = "mission.token_usage",
+                        EntityType = "mission",
+                        EntityId = "msn_example" + i,
+                        CreatedUtc = start.AddHours(2)
+                    }).ConfigureAwait(false);
+                }
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(1) }).ConfigureAwait(false);
+
+                ProductionSourceScan? snapshots = result.Scan.Sources.SingleOrDefault(item => item.Source == "objective_snapshots");
+                AssertTrue(snapshots != null, "The readiness scan must report its own source.");
+                AssertEqual(1L, snapshots!.TotalRecords, "Other event types must not count against the readiness scan limit.");
+                AssertFalse(result.Scan.Sources.Any(item => item.Source == "events"), "No scan may read every event type.");
+            }).ConfigureAwait(false);
+
             await RunTest("WindowOverNinetyDaysIsRejected", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
