@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
@@ -192,6 +194,67 @@ namespace Armada.Core.Services
             int shortest = Math.Min(a.Length, b.Length);
             if (shortest < 7) return false;
             return String.Compare(a, 0, b, 0, shortest, StringComparison.OrdinalIgnoreCase) == 0;
+        }
+
+        /// <summary>
+        /// The records that decide a gate: of the records that measure the same Check, only the most
+        /// recently created one that is not Canceled.
+        /// </summary>
+        /// <remarks>
+        /// A retry creates a new record for the same voyage, mission, type, label, workflow profile
+        /// and commit, and leaves the record it retried unchanged. A gate that read every record
+        /// would keep rejecting on a failure that its own retry has since passed, and would reject
+        /// while that retry is still running. The latest record for a Check is its current verdict,
+        /// so it alone decides: a running retry holds the gate and a passing retry clears it. A
+        /// Canceled retry does not decide, so the verdict it was meant to replace still stands.
+        /// Records that measure different commits or carry different labels are different Checks
+        /// and are all kept; <see cref="IsStale"/> rules on those. A record attached to no voyage
+        /// and no mission is kept on its own.
+        /// </remarks>
+        /// <param name="checks">The collected Check records. Null yields an empty list.</param>
+        /// <returns>One record per Check, in no particular order.</returns>
+        public static List<CheckRun> SelectLatestPerCheck(IEnumerable<CheckRun>? checks)
+        {
+            Dictionary<string, CheckRun> latest = new Dictionary<string, CheckRun>(StringComparer.Ordinal);
+            if (checks == null) return new List<CheckRun>();
+
+            foreach (CheckRun run in checks)
+            {
+                if (run == null) continue;
+                if (run.Status == CheckRunStatusEnum.Canceled) continue;
+
+                string key = CheckIdentity(run);
+                if (!latest.TryGetValue(key, out CheckRun? current) || IsNewer(run, current))
+                    latest[key] = run;
+            }
+
+            return latest.Values.ToList();
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static string CheckIdentity(CheckRun run)
+        {
+            const char separator = '\u001F';
+            // A record tied to no voyage and no mission has no retry lineage a gate could read, so
+            // it stands alone rather than merging with every other unattached record.
+            if (String.IsNullOrWhiteSpace(run.VoyageId) && String.IsNullOrWhiteSpace(run.MissionId))
+                return "record" + separator + (run.Id ?? String.Empty);
+            return (run.VoyageId ?? String.Empty) + separator
+                + (run.MissionId ?? String.Empty) + separator
+                + run.Type.ToString() + separator
+                + (run.Label ?? String.Empty).Trim().ToLowerInvariant() + separator
+                + (run.WorkflowProfileId ?? String.Empty) + separator
+                + (run.CommitHash ?? String.Empty).Trim().ToLowerInvariant();
+        }
+
+        private static bool IsNewer(CheckRun candidate, CheckRun current)
+        {
+            int byCreated = candidate.CreatedUtc.CompareTo(current.CreatedUtc);
+            if (byCreated != 0) return byCreated > 0;
+            return String.CompareOrdinal(candidate.Id, current.Id) > 0;
         }
 
         #endregion

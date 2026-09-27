@@ -89,7 +89,7 @@ namespace Armada.Core.Services
                 mission,
                 includeVoyageChecks: !hasDependentPipelineStage,
                 token: token).ConfigureAwait(false);
-            foreach (CheckRun check in checks)
+            foreach (CheckRun check in CheckRunGateRules.SelectLatestPerCheck(checks))
             {
                 if (!CheckRunGateRules.ParticipatesInRealSignalGate(check, mission.CommitHash)) continue;
                 if (CheckRunGateRules.IsStale(check, mission.CommitHash))

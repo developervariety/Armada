@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **The latest record of a Check decides every Check gate:** the Judge gate, the
+  voyage completion gate and the manual completion proof read, for each Check
+  (same voyage, mission, type, label, workflow profile and commit), only its most
+  recently created record that is not canceled. A retry that is still running
+  holds a Judge PASS instead of rejecting it, and a retry that passed clears the
+  failure it re-ran. A canceled retry decides nothing, so the failure it was meant
+  to replace still stands.
 - **Production summary landing evidence and scan scope:** a delivered tip counts
   as landed on a mission-linked `Landed` merge entry or a `Landed` attempt fact,
   so direct landings (`LocalMerge`, merged pull requests) verify as well as

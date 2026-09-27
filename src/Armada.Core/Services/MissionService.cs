@@ -8652,7 +8652,7 @@ namespace Armada.Core.Services
 
             List<CheckRun> collected = checks.Values.ToList();
             await StampArmedChecksAtReviewedCommitAsync(collected, judgeMission, token).ConfigureAwait(false);
-            _LastJudgeGateChecks = collected;
+            _LastJudgeGateChecks = CheckRunGateRules.SelectLatestPerCheck(collected);
             _LastJudgeReviewedCommit = judgeMission.CommitHash;
             return ClassifyJudgeCheckGate(collected, judgeMission.AgentOutput, judgeMission.CommitHash);
         }
@@ -8839,7 +8839,10 @@ namespace Armada.Core.Services
         /// <summary>
         /// Pure classification of the Judge check gate from the collected Checks and the Judge's
         /// review output. Canceled Checks are ignored, and so are Checks that were armed but never
-        /// executed: neither carries command output, so neither can decide the PASS. Of what
+        /// executed: neither carries command output, so neither can decide the PASS. Of the records
+        /// for one Check, only the latest decides (<see cref="CheckRunGateRules.SelectLatestPerCheck"/>),
+        /// so a retry that is running holds the PASS and a retry that passed clears the failure it
+        /// re-ran. Of what
         /// remains, a single Failed Check overrides the PASS; a Pending or Running Check holds it;
         /// so does a Passed or Failed Check that measured a commit other than <paramref name="reviewedCommit"/>,
         /// because a verdict for older work says nothing about the tip under review and the executor
@@ -8848,7 +8851,7 @@ namespace Armada.Core.Services
         /// </summary>
         internal static JudgeCheckGate ClassifyJudgeCheckGate(List<CheckRun> checks, string? agentOutput, string? reviewedCommit = null)
         {
-            List<CheckRun> active = (checks ?? new List<CheckRun>())
+            List<CheckRun> active = CheckRunGateRules.SelectLatestPerCheck(checks)
                 .Where(c => CheckRunGateRules.ParticipatesInRealSignalGate(c, reviewedCommit)).ToList();
             if (active.Count == 0)
             {

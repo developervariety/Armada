@@ -224,6 +224,32 @@ namespace Armada.Test.Unit
             return captain;
         }
 
+        /// <summary>A UnitTest record of one voyage Check at the reviewed commit, as a retry copies it:
+        /// the same voyage, type, label, workflow profile and commit, with its own id and creation time.</summary>
+        private static CheckRun RetryRecord(string id, CheckRunStatusEnum status, DateTime createdUtc)
+        {
+            return new CheckRun
+            {
+                Id = id,
+                VoyageId = "vyg_retry_lineage",
+                WorkflowProfileId = "wfp_retry_lineage",
+                Label = "UnitTest (armed at dispatch)",
+                Type = CheckRunTypeEnum.UnitTest,
+                Source = CheckRunSourceEnum.Armada,
+                Status = status,
+                Command = "dotnet test",
+                WorkingDirectory = "C:/temp",
+                BranchName = _WorkBranch,
+                CommitHash = _ReviewedCommit,
+                StartedUtc = createdUtc,
+                CreatedUtc = createdUtc,
+                LastUpdateUtc = createdUtc,
+                ExitCode = status == CheckRunStatusEnum.Passed ? 0 : 1,
+                Output = status == CheckRunStatusEnum.Passed ? "Passed!" : "Failed!",
+                Summary = "check"
+            };
+        }
+
         private async Task AddCheckAsync(TestDatabase testDb, string voyageId, CheckRunStatusEnum status)
         {
             CheckRun run = new CheckRun
@@ -443,6 +469,73 @@ namespace Armada.Test.Unit
                     MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { marker }, "review ok"),
                     "Only-marker Checks count as no Checks, which is reported instead of an unresolvable wait.");
                 return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            // A retry creates a new record for the same Check and leaves the retried record as it was.
+            // The latest record is the Check's verdict, so a running retry holds the PASS and a
+            // passing retry clears the failure it re-ran.
+            await RunTest("JudgeGate_RetryOfFailedCheck_LatestRecordDecides", () =>
+            {
+                DateTime first = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+                DateTime later = first.AddMinutes(2);
+
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasPending,
+                    MissionService.ClassifyJudgeCheckGate(
+                        new List<CheckRun> { RetryRecord("chk_a", CheckRunStatusEnum.Failed, first), RetryRecord("chk_b", CheckRunStatusEnum.Running, later) },
+                        "review ok", _ReviewedCommit),
+                    "A failed Check whose retry is still running holds the PASS instead of rejecting it.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.GreenChecks,
+                    MissionService.ClassifyJudgeCheckGate(
+                        new List<CheckRun> { RetryRecord("chk_a", CheckRunStatusEnum.Failed, first), RetryRecord("chk_b", CheckRunStatusEnum.Passed, later) },
+                        "review ok", _ReviewedCommit),
+                    "A retry that passed at the reviewed commit clears the failure it re-ran.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(
+                        new List<CheckRun> { RetryRecord("chk_a", CheckRunStatusEnum.Failed, first), RetryRecord("chk_b", CheckRunStatusEnum.Canceled, later) },
+                        "review ok", _ReviewedCommit),
+                    "A canceled retry decides nothing, so the failure it was meant to replace still rejects the PASS.");
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(
+                        new List<CheckRun> { RetryRecord("chk_a", CheckRunStatusEnum.Passed, first), RetryRecord("chk_b", CheckRunStatusEnum.Failed, later) },
+                        "review ok", _ReviewedCommit),
+                    "A retry that failed after an earlier pass is the current verdict and rejects the PASS.");
+
+                CheckRun otherCheck = RetryRecord("chk_c", CheckRunStatusEnum.Passed, later);
+                otherCheck.Label = "Build (armed at dispatch)";
+                otherCheck.Type = CheckRunTypeEnum.Build;
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(
+                        new List<CheckRun> { RetryRecord("chk_a", CheckRunStatusEnum.Failed, first), otherCheck },
+                        "review ok", _ReviewedCommit),
+                    "A green record for a different Check does not clear a failure.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("VoyageGate_PassedRetryOfFailedCheck_VoyageCompletes", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    DateTime first = DateTime.UtcNow.AddMinutes(-5);
+                    CheckRun failed = RetryRecord("chk_voyage_first", CheckRunStatusEnum.Failed, first);
+                    failed.VoyageId = voyage.Id;
+                    failed.CommitHash = null;
+                    await testDb.Driver.CheckRuns.CreateAsync(failed).ConfigureAwait(false);
+                    CheckRun retry = RetryRecord("chk_voyage_retry", CheckRunStatusEnum.Passed, first.AddMinutes(2));
+                    retry.VoyageId = voyage.Id;
+                    retry.CommitHash = null;
+                    await testDb.Driver.CheckRuns.CreateAsync(retry).ConfigureAwait(false);
+
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status,
+                        "a passing retry of the failed Check is its current verdict -> voyage Complete");
+                }
             }).ConfigureAwait(false);
 
             // Judge-level gate against the database: voyage-scoped Checks reach the classifier.

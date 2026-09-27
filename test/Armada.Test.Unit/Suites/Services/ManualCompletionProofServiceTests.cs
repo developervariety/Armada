@@ -230,6 +230,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("PassedRetryOfFailedCheck_DoesNotBlockAsFailedCheck", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = new Mission("manual retried check")
+                    {
+                        Mode = MissionModeEnum.Implementation,
+                        CommitHash = new String('b', 40)
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    DateTime first = DateTime.UtcNow.AddMinutes(-10);
+                    CheckRun failed = new CheckRun
+                    {
+                        MissionId = mission.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Label = "UnitTest",
+                        Status = CheckRunStatusEnum.Failed,
+                        Command = "dotnet test",
+                        StartedUtc = first,
+                        CompletedUtc = first,
+                        CreatedUtc = first,
+                        CommitHash = mission.CommitHash
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(failed).ConfigureAwait(false);
+                    CheckRun retry = new CheckRun
+                    {
+                        MissionId = mission.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Label = "UnitTest",
+                        Status = CheckRunStatusEnum.Passed,
+                        Command = "dotnet test",
+                        StartedUtc = first.AddMinutes(2),
+                        CompletedUtc = first.AddMinutes(2),
+                        CreatedUtc = first.AddMinutes(2),
+                        CommitHash = mission.CommitHash
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(retry).ConfigureAwait(false);
+
+                    ManualCompletionProofResult result = await new ManualCompletionProofService(
+                        testDb.Driver, new StubGitService { IsAncestorResult = true })
+                        .EvaluateAsync(mission, true).ConfigureAwait(false);
+                    AssertFalse(String.Equals("manual_completion_failed_check", result.Reason, StringComparison.Ordinal),
+                        "A retry that passed is the Check's current verdict; the failure it re-ran no longer blocks");
+                }
+            });
+
             await RunTest("ChecksAreReadAcrossAllPages", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -241,9 +288,14 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 
+                    // The failed record is a different Check from the passed ones (its own type and
+                    // label), so it stays the current verdict for its Check. The same type and label
+                    // would read as one failure followed by passing retries, which clears it.
                     CheckRun failed = new CheckRun
                     {
                         MissionId = mission.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Label = "UnitTest",
                         Status = CheckRunStatusEnum.Failed,
                         Command = "dotnet test",
                         StartedUtc = DateTime.UtcNow.AddHours(-2),
@@ -257,6 +309,8 @@ namespace Armada.Test.Unit.Suites.Services
                         CheckRun passed = new CheckRun
                         {
                             MissionId = mission.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Label = "Build",
                             Status = CheckRunStatusEnum.Passed,
                             Command = "dotnet test",
                             StartedUtc = DateTime.UtcNow,

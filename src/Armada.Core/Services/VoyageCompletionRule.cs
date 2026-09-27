@@ -330,7 +330,7 @@ namespace Armada.Core.Services
                 .ReadAllAsync(database, tenantId, queries, token).ConfigureAwait(false);
 
             string? workCommit = StaleCheckSupersessionService.SelectWorkUnderReview(missions)?.CommitHash;
-            List<CheckRun> active = checks.Values
+            List<CheckRun> active = CheckRunGateRules.SelectLatestPerCheck(checks.Values)
                 .Where(c => CheckRunGateRules.ParticipatesInRealSignalGate(c, workCommit)).ToList();
             if (active.Count == 0) return CheckGate.NoChecks;
             if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return CheckGate.HasFailed;
