@@ -18,6 +18,13 @@ namespace Armada.Core.Models
         /// <summary>Required allowance windows. An empty list means unknown usage.</summary>
         public List<ProviderUsageWindow> Windows { get; set; } = new List<ProviderUsageWindow>();
 
+        /// <summary>
+        /// The provider's own verdict on whether it still serves ordinary requests: true when it says usage is allowed
+        /// and no rate limit is reached, false when it says usage is blocked, null when it does not report one. A spent
+        /// window meter alone does not mean the provider refuses requests.
+        /// </summary>
+        public bool? ProviderAllowsUsage { get; set; } = null;
+
         #endregion
     }
 }

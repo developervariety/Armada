@@ -256,6 +256,43 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0.0, snapshot.Windows[1].RemainingPercent!.Value);
                 AssertTrue(snapshot.Windows[2].RemainingPercent == null);
             });
+            await RunTest("Codex spent meter with ordinary usage allowed is Reserve, not Exhausted", () =>
+            {
+                string reply = "{\"result\":{\"ordinaryUsageAllowed\":true,\"rateLimits\":{\"limitId\":\"codex\",\"primary\":{\"usedPercent\":100,\"windowDurationMins\":10080,\"resetsAt\":4102444800},\"secondary\":null,\"rateLimitReachedType\":null},"
+                    + "\"rateLimitsByLimitId\":{\"codex\":{\"limitId\":\"codex\",\"primary\":{\"usedPercent\":100,\"windowDurationMins\":10080,\"resetsAt\":4102444800},\"secondary\":null,\"rateLimitReachedType\":null}}}}";
+                ProviderUsageSnapshot snapshot = CodexUsageCollector.Parse(reply, DateTime.UtcNow);
+                AssertEqual(0.0, snapshot.Windows[0].RemainingPercent!.Value);
+                AssertTrue(snapshot.ProviderAllowsUsage == true);
+                UsageAccountSettings account = Account("codex", 90);
+                account.ManualSnapshot = snapshot;
+                ProviderUsageStatus status = new UsageRoutingService().GetStatus(account, null, DateTime.UtcNow);
+                AssertEqual("Reserve", status.State);
+                AssertEqual("provider_allows_ordinary_usage", status.Reason);
+            });
+            await RunTest("Codex reached rate limit or refused ordinary usage is Exhausted", () =>
+            {
+                string reached = "{\"result\":{\"ordinaryUsageAllowed\":true,\"rateLimitsByLimitId\":{\"codex\":{\"primary\":{\"usedPercent\":100,\"resetsAt\":4102444800},\"rateLimitReachedType\":\"primary\"}}}}";
+                ProviderUsageSnapshot limited = CodexUsageCollector.Parse(reached, DateTime.UtcNow);
+                AssertTrue(limited.ProviderAllowsUsage == false);
+                UsageAccountSettings account = Account("codex", 90);
+                account.ManualSnapshot = limited;
+                AssertEqual("Exhausted", new UsageRoutingService().GetStatus(account, null, DateTime.UtcNow).State);
+                string refused = "{\"result\":{\"ordinaryUsageAllowed\":false,\"rateLimitsByLimitId\":{\"codex\":{\"primary\":{\"usedPercent\":50,\"resetsAt\":4102444800}}}}}";
+                account.ManualSnapshot = CodexUsageCollector.Parse(refused, DateTime.UtcNow);
+                ProviderUsageStatus status = new UsageRoutingService().GetStatus(account, null, DateTime.UtcNow);
+                AssertEqual("Exhausted", status.State);
+                AssertEqual("provider_refuses_ordinary_usage", status.Reason);
+            });
+            await RunTest("Codex reply without a provider verdict keeps the measured state", () =>
+            {
+                ProviderUsageSnapshot snapshot = CodexUsageCollector.Parse("{\"result\":{\"rateLimitsByLimitId\":{\"codex\":{\"primary\":{\"usedPercent\":100,\"resetsAt\":4102444800}}}}}", DateTime.UtcNow);
+                AssertTrue(snapshot.ProviderAllowsUsage == null);
+                UsageAccountSettings account = Account("codex", 90);
+                account.ManualSnapshot = snapshot;
+                ProviderUsageStatus status = new UsageRoutingService().GetStatus(account, null, DateTime.UtcNow);
+                AssertEqual("Exhausted", status.State);
+                AssertEqual("measured_usage_windows", status.Reason);
+            });
             await RunTest("Snapshot file collected without resetting observed timestamp", async () =>
             {
                 string path = Path.GetTempFileName();

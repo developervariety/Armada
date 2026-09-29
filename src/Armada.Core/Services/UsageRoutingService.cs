@@ -548,6 +548,12 @@ namespace Armada.Core.Services
                     }
                 }
                 unknown |= !any;
+                // The provider's own verdict outranks its meter: a spent window whose provider still serves
+                // ordinary requests is Reserve (demoted, still usable), and a provider that refuses is Exhausted.
+                bool providerVerdict = snapshot != null && !stale && snapshot.ProviderAllowsUsage.HasValue;
+                string? verdictReason = null;
+                if (providerVerdict && snapshot!.ProviderAllowsUsage == true && severity == 4) { severity = 3; verdictReason = "provider_allows_ordinary_usage"; }
+                if (providerVerdict && snapshot!.ProviderAllowsUsage == false && severity < 4) { severity = 4; verdictReason = "provider_refuses_ordinary_usage"; }
                 result.State = severity == 4 ? "Exhausted" : severity == 3 ? "Reserve" : severity == 2 ? "Low" : unknown ? "Unknown" : "Normal";
                 if (model == null && String.Equals(account.Collector, "Cursor", StringComparison.OrdinalIgnoreCase)
                     && severity == 4 && snapshot != null
@@ -567,7 +573,7 @@ namespace Armada.Core.Services
                 // An unknown window is also binding; a known low window must not hide an unknown-data block.
                 if (unknown && account.UnknownUsagePolicy == "Block" && severity < 4) result.State = "Unknown";
                 if (unknown && account.UnknownUsagePolicy == "Conserve" && severity < 2) result.State = "Unknown";
-                result.Reason = unknown ? "required_usage_window_unknown_or_stale" : "measured_usage_windows";
+                result.Reason = verdictReason ?? (unknown ? "required_usage_window_unknown_or_stale" : "measured_usage_windows");
                 return result;
             }
         }

@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A provider's own verdict outranks its usage meter:** the Codex collector reads the
+  provider's `ordinaryUsageAllowed` and `rateLimitReachedType`. A spent window whose provider still
+  serves ordinary requests makes the account Reserve (demoted, still routable) instead of Exhausted,
+  and a provider that refuses ordinary usage makes it Exhausted. With no verdict reported, the
+  measured windows decide as before.
 - **The latest record of a Check decides every Check gate:** the Judge gate, the
   voyage completion gate and the manual completion proof read, for each Check
   (same voyage, mission, type, label, workflow profile and commit), only its most

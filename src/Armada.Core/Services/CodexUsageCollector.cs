@@ -82,12 +82,17 @@ namespace Armada.Core.Services
             Dictionary<string, Bucket> buckets = reply.Result.RateLimitsByLimitId ?? new Dictionary<string, Bucket>();
             if (buckets.Count == 0 && reply.Result.RateLimits != null) buckets[reply.Result.RateLimits.LimitId ?? "account"] = reply.Result.RateLimits;
             ProviderUsageSnapshot snapshot = new ProviderUsageSnapshot { ObservedUtc = observedUtc, Source = "codex_app_server" };
+            bool limitReached = reply.Result.RateLimits?.RateLimitReachedType != null;
             foreach (KeyValuePair<string, Bucket> pair in buckets)
             {
                 if (pair.Value == null) throw new InvalidDataException("invalid_usage_bucket");
                 AddWindow(snapshot, pair.Key + "/primary", pair.Value.Primary);
                 AddWindow(snapshot, pair.Key + "/secondary", pair.Value.Secondary);
+                if (pair.Value.RateLimitReachedType != null) limitReached = true;
             }
+            // The meter can read 100% while the provider still serves ordinary requests; only its own verdict says it refuses.
+            if (reply.Result.OrdinaryUsageAllowed.HasValue)
+                snapshot.ProviderAllowsUsage = reply.Result.OrdinaryUsageAllowed.Value && !limitReached;
             UsageRoutingService.ValidateSnapshot(snapshot);
             return snapshot;
         }
@@ -145,6 +150,7 @@ namespace Armada.Core.Services
         private sealed class ProviderError { public int Code { get; set; } }
         private sealed class Result
         {
+            public bool? OrdinaryUsageAllowed { get; set; }
             public Bucket? RateLimits { get; set; }
             public Dictionary<string, Bucket>? RateLimitsByLimitId { get; set; }
         }
@@ -153,6 +159,7 @@ namespace Armada.Core.Services
             public string? LimitId { get; set; }
             public Window? Primary { get; set; }
             public Window? Secondary { get; set; }
+            public object? RateLimitReachedType { get; set; }
         }
         private sealed class Window
         {
