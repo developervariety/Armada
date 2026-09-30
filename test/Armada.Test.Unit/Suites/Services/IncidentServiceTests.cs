@@ -199,6 +199,40 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(IncidentRootCauseRule.RequiredCode, code, "a person cannot close on the system-supplied cause");
             }).ConfigureAwait(false);
 
+            await RunTest("An automatic write that lands after an operator close leaves the incident closed and its notes intact", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                Incident created = await OpenAutomaticIncidentAsync(incidents).ConfigureAwait(false);
+                Incident staleRead = (await incidents.ReadAsync(McpTestCaller.Operator, created.Id).ConfigureAwait(false))!;
+
+                Incident closed = await incidents.UpdateAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Closed,
+                    RootCause = "Operator-determined cause",
+                    RecoveryNotes = "Operator recovery notes"
+                }).ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Closed, closed.Status);
+
+                Incident afterSweep = await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    RecoveryNotes = (staleRead.RecoveryNotes ?? String.Empty) + " sweep note from a stale read"
+                }).ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Closed, afterSweep.Status, "a stale automatic write does not reopen");
+                Incident stored = (await incidents.ReadAsync(McpTestCaller.Operator, created.Id).ConfigureAwait(false))!;
+                AssertEqual(IncidentStatusEnum.Closed, stored.Status);
+                AssertEqual("Operator-determined cause", stored.RootCause);
+                AssertEqual("Operator recovery notes", stored.RecoveryNotes, "the operator's notes survive");
+
+                Incident reopened = await incidents.UpdateAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Open
+                }).ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Open, reopened.Status, "an operator can still reopen");
+            }).ConfigureAwait(false);
+
             await RunTest("A snapshot stored before opened reasons existed treats its root cause as the opened reason", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

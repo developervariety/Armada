@@ -270,6 +270,11 @@ namespace Armada.Core.Services
             IncidentStatusEnum previousStatus = incident.Status;
             string? previousRootCause = incident.RootCause;
 
+            // Every automatic writer acts on an incident it read as active. When the incident is terminal
+            // by the time the write lands (an operator closed it in between), the stale write must neither
+            // reopen it nor replace the operator's cause and notes; the caller sees the unchanged incident.
+            if (automatic && IsTerminal(previousStatus)) return incident;
+
             incident.Title = Normalize(request.Title) ?? incident.Title;
             incident.Summary = request.Summary != null ? Normalize(request.Summary) : incident.Summary;
             incident.Status = request.Status ?? incident.Status;

@@ -476,6 +476,12 @@ namespace Armada.Server
                 ClosedUtc = status == IncidentStatusEnum.Closed || status == IncidentStatusEnum.RolledBack ? now : null
             }, token).ConfigureAwait(false);
 
+            if (updated.Status != status)
+            {
+                _Logging.Info(_Header + "incident " + updated.Id + " is " + updated.Status + " since the sweep read it; move to " + status + " skipped");
+                return false;
+            }
+
             await EmitEventAsync(eventType, "Incident " + updated.Id + " moved to " + status + ".", updated, note, token).ConfigureAwait(false);
             return true;
         }

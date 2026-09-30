@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **An automatic incident write no longer undoes an operator close:** every automatic writer
+  (the incident lifecycle sweep, autonomous recovery) acts on an incident it read as active. When the
+  incident is Closed or RolledBack by the time the write lands, the write leaves it unchanged, so a
+  stale sweep can neither reopen it nor replace the operator's cause and notes. The lifecycle sweep
+  logs the skipped move instead of emitting a move event. An operator can still reopen by hand.
 - **A provider's own verdict outranks its usage meter:** the Codex collector reads the
   provider's `ordinaryUsageAllowed` and `rateLimitReachedType`. A spent window whose provider still
   serves ordinary requests makes the account Reserve (demoted, still routable) instead of Exhausted,
