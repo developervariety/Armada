@@ -297,11 +297,16 @@ namespace Armada.Core.Services
                     }
                 }
             }
-            catch (Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException || ex is JsonException || ex is ArgumentException || ex is System.ComponentModel.Win32Exception || ex is System.Net.Http.HttpRequestException || ex is OperationCanceledException)
+            // A provider that answers with an error (a revoked login, for example) surfaces as InvalidDataException, which is
+            // not an IOException; it must be recorded like any other collection failure, because an escaping exception
+            // faults the shared in-flight read and aborts every caller awaiting it (captain exit handling, dispatch).
+            catch (Exception ex) when (ex is FormatException || ex is IOException || ex is InvalidDataException || ex is UnauthorizedAccessException || ex is JsonException || ex is ArgumentException || ex is System.ComponentModel.Win32Exception || ex is System.Net.Http.HttpRequestException || ex is OperationCanceledException)
             {
                 lock (_StateLock)
                 {
-                    _Errors[account.Id] = ex is UsageCollectionException failure ? failure.Code : "usage_snapshot_unavailable_or_invalid";
+                    _Errors[account.Id] = ex is UsageCollectionException failure ? failure.Code
+                        : ex is InvalidDataException && ex.Message.StartsWith("usage_", StringComparison.Ordinal) ? ex.Message
+                        : "usage_snapshot_unavailable_or_invalid";
                     if (ex is UsageCollectionException limited && limited.RetryAfterUtc.HasValue) _RetryAfter[account.Id] = limited.RetryAfterUtc.Value;
                 }
             }

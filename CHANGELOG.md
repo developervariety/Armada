@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A usage provider's error reply no longer aborts captain exit handling or dispatch:** a Codex
+  account whose login the provider rejects answers the usage read with an error, surfaced as
+  InvalidDataException, which the collector did not catch. The fault escaped the shared in-flight read
+  into every awaiting caller, so a captain's exit handling stopped before its stage handoff and a
+  pending-mission dispatch sweep failed. The error is now recorded on the account like any other
+  collection failure (`usage_collector_provider_error`).
 - **An automatic incident write no longer undoes an operator close:** every automatic writer
   (the incident lifecycle sweep, autonomous recovery) acts on an incident it read as active. When the
   incident is Closed or RolledBack by the time the write lands, the write leaves it unchanged, so a

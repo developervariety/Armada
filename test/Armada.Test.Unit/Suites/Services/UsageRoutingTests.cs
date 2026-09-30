@@ -364,6 +364,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Normal", service.GetStatus(account, "cursor-grok-4.7-high", now).State);
                 AssertEqual("Exhausted", service.GetStatus(account, "gpt-5.6-luna", now).State);
             });
+            await RunTest("A provider error reply is recorded on the account and never escapes the refresh", async () =>
+            {
+                DateTime now = DateTime.UtcNow;
+                UsageAccountSettings account = new UsageAccountSettings { Id = "codex", Collector = "Codex", CaptainIds = new List<string> { "codex" } };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                UsageRoutingService service = new UsageRoutingService
+                {
+                    ProviderCollector = (_, _) => Task.FromException<ProviderUsageSnapshot>(new InvalidDataException("usage_collector_provider_error"))
+                };
+                await service.RefreshAsync(policy);
+                ProviderUsageStatus status = service.GetStatus(account, null, now);
+                AssertEqual("usage_collector_provider_error", status.CollectionError, "the provider error is named on the account");
+                AssertEqual("Unknown", status.State);
+                await service.RefreshAsync(policy);
+            });
             await RunTest("Cursor API captains lead only while their measured pool has usage", async () =>
             {
                 DateTime now = DateTime.UtcNow;
