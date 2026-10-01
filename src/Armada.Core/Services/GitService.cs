@@ -736,6 +736,27 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<ChangedPathsRead> ReadChangedPathsBetweenCommitsAsync(string repoPath, string fromCommit, string toCommit, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrWhiteSpace(fromCommit)) throw new ArgumentNullException(nameof(fromCommit));
+            if (String.IsNullOrWhiteSpace(toCommit)) throw new ArgumentNullException(nameof(toCommit));
+
+            try
+            {
+                HashSet<string> changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string output = await RunGitAsync(repoPath, token, "diff", "--name-only", "--no-renames", "-z", fromCommit.Trim(), toCommit.Trim()).ConfigureAwait(false);
+                AddChangedPaths(output, changedFiles);
+                return ChangedPathsRead.FromPaths(changedFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList());
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                return ChangedPathsRead.Unavailable(
+                    "could not read changed paths between " + fromCommit.Trim() + " and " + toCommit.Trim() + " in " + repoPath + ": " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<string>> ReadChangedPathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));

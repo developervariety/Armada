@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Planner guard and fan-out base for recovery tips:** the planner
+  committed-code guard measures what an Architect or Product Manager changed
+  from its provisioned start commit to its final commit, so code inherited from
+  a recovery tip is no longer reported as `planner_committed_code`. When a
+  non-target start commit cannot be resolved, the guard fails closed and says
+  so. Workers fanned out from an Architect that started off the target branch
+  are cut from the Architect's start commit and verified to contain it.
 - **A usage provider's error reply no longer aborts captain exit handling or dispatch:** a Codex
   account whose login the provider rejects answers the usage read with an error, surfaced as
   InvalidDataException, which the collector did not catch. The fault escaped the shared in-flight read

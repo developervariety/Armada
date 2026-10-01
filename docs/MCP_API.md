@@ -400,7 +400,8 @@ threshold the preview is exactly the deterministic result.
 An omitted value inherits the linked objective's `StartFromRef`; an explicit
 mission value takes precedence. This also applies to mission-alias dispatch.
 The root mission pins the resolved commit; dependent stages continue their
-predecessor's branch. The response preserves the voyage fields and adds
+predecessor's branch, except that workers fanned out from an Architect plan
+start from the Architect's start commit when it was not the target branch. The response preserves the voyage fields and adds
 `MissionStartRefs`, with `MissionId` and `StartFromRef` for each mission.
 `mission.start_ref_resolved` records each root's verified commit. A missing
 reference fails with `start_from_ref_missing`; it never falls back to main.

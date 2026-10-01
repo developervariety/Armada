@@ -524,6 +524,26 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// List repository-relative paths that differ between two commits (fromCommit..toCommit), for a
+        /// caller that must attribute a change to one stage: what a stage committed is the difference
+        /// between the commit it was provisioned at and its final commit, not its difference from the
+        /// target branch. Reads from a repository path, so it works after the stage's dock is gone.
+        /// </summary>
+        /// <remarks>
+        /// The default reports the read as unavailable, never as an empty change: a git seam that does
+        /// not really consult a repository must not be able to answer "this stage changed nothing".
+        /// </remarks>
+        /// <param name="repoPath">Repository or worktree path that holds both commits.</param>
+        /// <param name="fromCommit">Commit the change starts from.</param>
+        /// <param name="toCommit">Commit the change ends at.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The changed paths, or an unavailable read naming why it failed.</returns>
+        Task<ChangedPathsRead> ReadChangedPathsBetweenCommitsAsync(string repoPath, string fromCommit, string toCommit, CancellationToken token = default)
+        {
+            return Task.FromResult(ChangedPathsRead.Unavailable("this git seam does not read changed paths between commits"));
+        }
+
+        /// <summary>
         /// Read every path the worktree's HEAD changes against the merge point with the base branch,
         /// for a landing gate that must see the whole change. A rename reports both its old and new
         /// name and names are read NUL-separated, so no quoting reaches a path rule. A failure throws:

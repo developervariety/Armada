@@ -221,6 +221,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ReadChangedPathsBetweenCommitsAsync lists only the paths changed between two commits and reports a bad commit as unavailable", async () =>
+            {
+                GitService git = CreateService();
+                string root = Path.Combine(Path.GetTempPath(), "armada-between-commits-" + Guid.NewGuid().ToString("N"));
+                string work = Path.Combine(root, "work");
+                Directory.CreateDirectory(work);
+                try
+                {
+                    await RunGitAsync(work, "init", "-b", "main");
+                    await RunGitAsync(work, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(work, "config", "user.email", "armada-tests@example.com");
+                    File.WriteAllText(Path.Combine(work, "base.txt"), "base");
+                    await RunGitAsync(work, "add", "base.txt");
+                    await RunGitAsync(work, "commit", "-m", "Base");
+                    Directory.CreateDirectory(Path.Combine(work, "tests"));
+                    File.WriteAllText(Path.Combine(work, "tests", "Inherited.cs"), "inherited");
+                    await RunGitAsync(work, "add", ".");
+                    await RunGitAsync(work, "commit", "-m", "Recovery tip");
+                    string tip = (await git.GetRevisionCommitShaAsync(work, "HEAD"))!;
+                    File.WriteAllText(Path.Combine(work, "plan.md"), "plan");
+                    await RunGitAsync(work, "add", "plan.md");
+                    await RunGitAsync(work, "commit", "-m", "Plan");
+                    string head = (await git.GetRevisionCommitShaAsync(work, "HEAD"))!;
+
+                    ChangedPathsRead stage = await git.ReadChangedPathsBetweenCommitsAsync(work, tip, head);
+                    AssertTrue(stage.Available, "a read between two existing commits is available");
+                    AssertEqual(1, stage.Paths.Count, "only the stage's own change is listed, not the inherited one");
+                    AssertEqual("plan.md", stage.Paths[0]);
+
+                    ChangedPathsRead same = await git.ReadChangedPathsBetweenCommitsAsync(work, head, head);
+                    AssertTrue(same.Available && same.Paths.Count == 0, "the same commit twice is a verified empty change");
+
+                    ChangedPathsRead missing = await git.ReadChangedPathsBetweenCommitsAsync(work, "0000000000000000000000000000000000000000", head);
+                    AssertFalse(missing.Available, "a commit that does not exist is unavailable, never an empty change");
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+
             await RunTest("GetCommitTimeUtcAsync reads a bare repository tip as UTC and returns null when it cannot resolve one", async () =>
             {
                 GitService git = CreateService();

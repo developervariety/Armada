@@ -959,13 +959,14 @@ namespace Armada.Core.Services
             mission.LastUpdateUtc = DateTime.UtcNow;
             string? resolvedStartCommit = null;
 
-            // A first-stage mission with a start ref is cut from that ref, not from the default
-            // branch. The ref is resolved in the vessel repository here, before provisioning, so the
-            // worktree attaches to a branch that already sits at the requested commit. An
-            // unresolvable ref fails the mission by name; it never falls back to the default branch,
-            // because a captain working on the wrong base reads as a captain defect two stages later.
+            // A mission with a start ref and no inherited branch -- a first-stage mission, or a
+            // worker fanned out from a planner that started off the target branch -- is cut from that
+            // ref, not from the default branch. The ref is resolved in the vessel repository here,
+            // before provisioning, so the worktree attaches to a branch that already sits at the
+            // requested commit. An unresolvable ref fails the mission by name; it never falls back to
+            // the default branch, because a captain working on the wrong base reads as a captain
+            // defect two stages later.
             if (!preserveInheritedBranch
-                && String.IsNullOrEmpty(mission.DependsOnMissionId)
                 && !String.IsNullOrWhiteSpace(mission.StartFromRef))
             {
                 resolvedStartCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);
@@ -6060,6 +6061,13 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // Fan-out workers are cut fresh, without the planner's branch. A planner that did not
+            // start from the target branch (a recovery tip, a pinned commit, a predecessor's work)
+            // passes its start commit on, so the workers build on what the planner planned against.
+            string? fanOutStartRef = IsPlannerPersona(completedMission.Persona)
+                ? await ResolvePlannerFanOutStartRefAsync(completedMission, token).ConfigureAwait(false)
+                : null;
+
             // Special handling for Architect stage: parse output into new missions
             if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
@@ -6085,6 +6093,7 @@ namespace Armada.Core.Services
                     }
                     nextMission.Description = architectFirstDesc;
                     nextMission.BranchName = null;
+                    nextMission.StartFromRef = fanOutStartRef;
                     nextMission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
                     await RetitleDependentChainAsync(voyageMissions, nextMission, first.Title, first.Description, token).ConfigureAwait(false);
@@ -6109,6 +6118,7 @@ namespace Armada.Core.Services
                         additionalWorker.Persona = "Worker";
                         additionalWorker.DependsOnMissionId = completedMission.Id;
                         additionalWorker.BranchName = null;
+                        additionalWorker.StartFromRef = fanOutStartRef;
                         // A read-only voyage must stay read-only end to end: missions spawned from an
                         // Architect's plan inherit the Architect mission's mode, so an audit or research
                         // voyage never silently turns its plan blocks into implementing missions.
@@ -11097,13 +11107,15 @@ namespace Armada.Core.Services
         /// </summary>
         public const string PlannerCommittedCodeReason = "planner_committed_code";
 
-        // Classify the planner's captured diff by the same rule the rescue evaluator applies to a
-        // rescue's diff (DiffPathExtractor over the DiffSnapshot, ChangeSubstanceClassifier over
-        // the paths). A documentation-only diff is a plan; a substantive one fails the planner
-        // here, before any fan-out worker is created against a base that lacks it.
+        // Classify what the planner itself changed by the same rule the rescue evaluator applies to a
+        // rescue's diff (ChangeSubstanceClassifier over the paths). A documentation-only change is a
+        // plan; a substantive one fails the planner here, before any fan-out worker is created
+        // against a base that lacks it. Only the planner's own change counts: a planner started from
+        // a recovery tip inherits that tip's code, and that code is not planner-authored.
         private async Task<bool> FailPlannerThatCommittedCodeAsync(Mission planner, CancellationToken token)
         {
-            IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(planner.DiffSnapshot);
+            PlannerStageChange change = await ReadPlannerStageChangeAsync(planner, token).ConfigureAwait(false);
+            IReadOnlyList<string> changedPaths = change.Paths;
             if (ChangeSubstanceClassifier.Classify(changedPaths) != ChangeSubstanceEnum.Substantive)
                 return false;
 
@@ -11119,7 +11131,10 @@ namespace Armada.Core.Services
                 + "because they are cut without this commit by design. The commit"
                 + (String.IsNullOrWhiteSpace(planner.CommitHash) ? String.Empty : " " + planner.CommitHash)
                 + " on branch " + (planner.BranchName ?? "(none)")
-                + " is preserved for an operator to keep under a recover/ ref and re-dispatch Worker-first.";
+                + " is preserved for an operator to keep under a recover/ ref and re-dispatch Worker-first."
+                + (change.Evidence == PlannerStageStartUnresolved
+                    ? " The planner's start commit could not be resolved, so these paths are measured against the target branch and may include changes it inherited."
+                    : String.Empty);
 
             _Logging.Warn(_Header + "mission " + planner.Id + " " + reason);
 
@@ -11140,7 +11155,7 @@ namespace Armada.Core.Services
                 evt.MissionId = planner.Id;
                 evt.VesselId = planner.VesselId;
                 evt.VoyageId = planner.VoyageId;
-                evt.Payload = JsonSerializer.Serialize(new { persona = planner.Persona, changedFiles = changedPaths, commit = planner.CommitHash, branch = planner.BranchName });
+                evt.Payload = JsonSerializer.Serialize(new { persona = planner.Persona, changedFiles = changedPaths, commit = planner.CommitHash, branch = planner.BranchName, stageStartCommit = change.StartCommit, evidence = change.Evidence });
                 await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -11149,6 +11164,104 @@ namespace Armada.Core.Services
             }
 
             return true;
+        }
+
+        // Evidence codes for how a planner's own change was measured.
+        private const string PlannerStageUnchanged = "stage_head_equals_start";
+        private const string PlannerStageCommitDiff = "stage_start_to_head";
+        private const string PlannerStageTargetDiff = "target_branch_diff";
+        private const string PlannerStageStartUnresolved = "stage_start_unresolved";
+
+        /// <summary>What a planner stage itself changed, and how that was measured.</summary>
+        private sealed class PlannerStageChange
+        {
+            internal IReadOnlyList<string> Paths { get; set; } = Array.Empty<string>();
+            internal string Evidence { get; set; } = PlannerStageStartUnresolved;
+            internal string? StartCommit { get; set; } = null;
+        }
+
+        // Measure the planner's change from the commit its dock was provisioned at to its final
+        // commit. A planner cut from the target branch has no inherited change, so its captured diff
+        // against the target is already its own. A planner cut from any other start whose start
+        // commit cannot be resolved keeps the target diff and fails closed: inherited code is then
+        // indistinguishable from planner code, and the reason says so.
+        private async Task<PlannerStageChange> ReadPlannerStageChangeAsync(Mission planner, CancellationToken token)
+        {
+            IReadOnlyList<string> targetDiffPaths = DiffPathExtractor.ExtractChangedPaths(planner.DiffSnapshot);
+            string? startCommit = await ResolvePlannerStageStartCommitAsync(planner, token).ConfigureAwait(false);
+            string? headCommit = String.IsNullOrWhiteSpace(planner.CommitHash) ? null : planner.CommitHash.Trim();
+
+            if (startCommit != null && headCommit != null)
+            {
+                if (String.Equals(startCommit, headCommit, StringComparison.OrdinalIgnoreCase))
+                    return new PlannerStageChange { Evidence = PlannerStageUnchanged, StartCommit = startCommit };
+
+                string? repoPath = null;
+                if (!String.IsNullOrWhiteSpace(planner.VesselId))
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(planner.VesselId!, token).ConfigureAwait(false);
+                    repoPath = vessel?.LocalPath;
+                }
+                if (_Git != null && !String.IsNullOrWhiteSpace(repoPath))
+                {
+                    ChangedPathsRead read = await _Git.ReadChangedPathsBetweenCommitsAsync(repoPath!, startCommit, headCommit, token).ConfigureAwait(false);
+                    if (read.Available)
+                        return new PlannerStageChange { Paths = read.Paths, Evidence = PlannerStageCommitDiff, StartCommit = startCommit };
+                    _Logging.Warn(_Header + "planner " + planner.Id + " stage change unreadable: " + read.FormatReason());
+                }
+            }
+
+            bool cutFromTarget = String.IsNullOrWhiteSpace(planner.StartFromRef) && String.IsNullOrWhiteSpace(planner.DependsOnMissionId);
+            return new PlannerStageChange
+            {
+                Paths = targetDiffPaths,
+                Evidence = cutFromTarget ? PlannerStageTargetDiff : PlannerStageStartUnresolved,
+                StartCommit = startCommit
+            };
+        }
+
+        // The start ref a planner's fan-out workers are cut from: none for a planner cut from the
+        // target branch (workers take the current target), otherwise the planner's provisioned
+        // start commit, or its own start ref when the commit cannot be resolved.
+        private async Task<string?> ResolvePlannerFanOutStartRefAsync(Mission planner, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(planner.StartFromRef) && String.IsNullOrWhiteSpace(planner.DependsOnMissionId))
+                return null;
+            string? startCommit = await ResolvePlannerStageStartCommitAsync(planner, token).ConfigureAwait(false);
+            if (startCommit != null) return startCommit;
+            return String.IsNullOrWhiteSpace(planner.StartFromRef) ? null : planner.StartFromRef.Trim();
+        }
+
+        // The commit a planner's dock was provisioned at: the dock's recorded Git anchors first, then
+        // the dock start-commit file, then a start ref that already names a full commit.
+        private async Task<string?> ResolvePlannerStageStartCommitAsync(Mission planner, CancellationToken token)
+        {
+            if (!String.IsNullOrWhiteSpace(planner.DockId))
+            {
+                try
+                {
+                    Dock? dock = await _Database.Docks.ReadAsync(planner.DockId!, token).ConfigureAwait(false);
+                    DockGitAnchorSnapshot? snapshot = dock?.GitAnchorsSnapshot;
+                    if (snapshot != null
+                        && String.Equals(snapshot.MissionId, planner.Id, StringComparison.Ordinal)
+                        && DockGitAnchorPersistence.IsCommit(snapshot.ProvisionedCommit))
+                        return snapshot.ProvisionedCommit;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not read dock anchors for planner " + planner.Id + ": " + ex.Message);
+                }
+
+                string? recorded = TryReadDockStartCommit(planner.DockId!);
+                if (DockGitAnchorPersistence.IsCommit(recorded)) return recorded;
+            }
+
+            string? startRef = planner.StartFromRef?.Trim();
+            return DockGitAnchorPersistence.IsCommit(startRef) ? startRef : null;
         }
 
         private static bool IsPipelineHandoffPrepared(Mission mission, Mission dependency)

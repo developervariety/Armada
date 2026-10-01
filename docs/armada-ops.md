@@ -51,7 +51,13 @@ Set `StartFromRef` on the objective, or supply `missions[].startFromRef` at
 dispatch to override it. Check `MissionStartRefs` in the dispatch result and
 `mission.start_ref_resolved` in the event log against the accepted commit.
 Alias dispatch follows the same rule. Downstream stages use the predecessor
-branch and do not have a separate start reference.
+branch and do not have a separate start reference. The exception is a worker
+fanned out from an Architect plan: it is cut fresh, from the commit the
+Architect started at when that was not the target branch, so a plan made on a
+recovery tip builds on that tip. The planner guard counts only what the
+planner changed after that start commit; code inherited from the tip is not
+planner-authored. When a non-target start commit cannot be resolved, the guard
+fails the planner and says the attribution is unproven.
 
 A dock collision reports the holding worktree and detected process IDs in
 the mission failure reason. A live owner is protected from reclamation. A

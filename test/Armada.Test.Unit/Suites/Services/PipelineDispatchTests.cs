@@ -739,6 +739,74 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A planner started from a recovery tip inherits that tip's code. Only what the planner
+            // itself changed after its start commit is planner-authored.
+            await RunTest("Architect started from a recovery tip is not blamed for inherited code and its worker starts from that tip", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: RecoveryTipCommit, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                        diff: InheritedCodeDiff).ConfigureAwait(false);
+
+                    AssertTrue(String.IsNullOrEmpty(outcome.Architect.FailureReason) || !outcome.Architect.FailureReason.Contains(MissionService.PlannerCommittedCodeReason),
+                        "A planner whose head equals its start commit committed nothing: " + (outcome.Architect.FailureReason ?? "(none)"));
+                    AssertEqual(0, outcome.PlannerEvents.Count, "No planner_committed_code event for inherited code");
+                    AssertEqual(RecoveryTipCommit, outcome.Worker.StartFromRef, "The fan-out worker is cut from the recovery tip, not the target branch");
+                }
+            });
+
+            await RunTest("Architect that commits code after a recovery-tip start still fails and names only its own paths", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    BetweenCommitsGitStub git = new BetweenCommitsGitStub();
+                    git.ChangedPathsBetweenCommits = ChangedPathsRead.FromPaths(new List<string> { "src/Planner/Added.cs" });
+                    const string plannerHead = "2222222222222222222222222222222222222222";
+
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, git,
+                        startFromRef: RecoveryTipCommit, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: plannerHead,
+                        diff: InheritedCodeDiff + "diff --git a/src/Planner/Added.cs b/src/Planner/Added.cs\n--- a/src/Planner/Added.cs\n+++ b/src/Planner/Added.cs\n@@ -0,0 +1 @@\n+class Added { }\n").ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Failed, outcome.Architect.Status, "New behaviour committed by the planner still fails it");
+                    AssertContains(MissionService.PlannerCommittedCodeReason, outcome.Architect.FailureReason ?? String.Empty);
+                    AssertContains("src/Planner/Added.cs", outcome.Architect.FailureReason ?? String.Empty, "The failure names the planner's own path");
+                    AssertFalse((outcome.Architect.FailureReason ?? String.Empty).Contains("tests/Inherited/RecoveryTests.cs"), "An inherited path is not attributed to the planner");
+                    AssertEqual(RecoveryTipCommit + ".." + plannerHead, git.BetweenCommitsCalls.Single(), "The change is measured from the start commit to the planner's head");
+                    AssertEqual(1, outcome.PlannerEvents.Count);
+                    AssertContains("stage_start_to_head", outcome.PlannerEvents[0].Payload ?? String.Empty, "The event records how the change was measured");
+                }
+            });
+
+            await RunTest("Architect whose start follows a predecessor uses the recorded dock start commit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    const string predecessorTip = "3333333333333333333333333333333333333333";
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: predecessorTip, dependsOnPredecessor: true, headCommit: predecessorTip,
+                        diff: InheritedCodeDiff).ConfigureAwait(false);
+
+                    AssertTrue(String.IsNullOrEmpty(outcome.Architect.FailureReason) || !outcome.Architect.FailureReason.Contains(MissionService.PlannerCommittedCodeReason),
+                        "The predecessor's code is inherited, not planner-authored: " + (outcome.Architect.FailureReason ?? "(none)"));
+                    AssertEqual(predecessorTip, outcome.Worker.StartFromRef, "The fan-out worker builds on the predecessor's commit");
+                }
+            });
+
+            await RunTest("Architect whose non-target start cannot be resolved fails closed and says why", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: "recover/accepted-tip", recordedStartCommit: null, dependsOnPredecessor: false, headCommit: "4444444444444444444444444444444444444444",
+                        diff: InheritedCodeDiff).ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Failed, outcome.Architect.Status, "Without start evidence inherited code cannot be told apart, so the guard keeps protecting");
+                    AssertContains("start commit could not be resolved", outcome.Architect.FailureReason ?? String.Empty, "The reason says the attribution is unproven");
+                    AssertContains("stage_start_unresolved", outcome.PlannerEvents.Single().Payload ?? String.Empty);
+                }
+            });
+
             await RunTest("Judge parser accepts structured ARMADA verdict signal", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1223,6 +1291,143 @@ namespace Armada.Test.Unit.Suites.Services
         /// Git service stub that creates worktree directories on disk so that
         /// CLAUDE.md generation succeeds during TryAssignAsync integration tests.
         /// </summary>
+        private const string RecoveryTipCommit = "1111111111111111111111111111111111111111";
+
+        // Measured against the target branch, a recovery tip's own test changes show up in a planner's diff.
+        private const string InheritedCodeDiff =
+            "diff --git a/tests/Inherited/RecoveryTests.cs b/tests/Inherited/RecoveryTests.cs\n--- a/tests/Inherited/RecoveryTests.cs\n+++ b/tests/Inherited/RecoveryTests.cs\n@@ -1 +1,2 @@\n+class RecoveryTests { }\n";
+
+        /// <summary>The planner, its first fan-out worker and the planner_committed_code events after one Architect handoff.</summary>
+        private sealed class PlannerHandoffOutcome
+        {
+            public Mission Architect { get; set; } = null!;
+            public Mission Worker { get; set; } = null!;
+            public List<ArmadaEvent> PlannerEvents { get; set; } = new List<ArmadaEvent>();
+        }
+
+        private async Task<PlannerHandoffOutcome> RunArchitectHandoffAsync(
+            TestDatabase testDb,
+            DirCreatingGitStub git,
+            string? startFromRef,
+            string? recordedStartCommit,
+            bool dependsOnPredecessor,
+            string headCommit,
+            string diff)
+        {
+            LoggingModule logging = CreateLogging();
+            ArmadaSettings settings = CreateSettings();
+            IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+            ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+            MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+            captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
+
+            Vessel vessel = new Vessel("planner-start-vessel", "https://github.com/test/repo.git");
+            vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+            vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+            vessel.DefaultBranch = "main";
+            vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+            Captain architectCaptain = new Captain("planner-start-architect");
+            architectCaptain.State = CaptainStateEnum.Working;
+            architectCaptain = await testDb.Driver.Captains.CreateAsync(architectCaptain).ConfigureAwait(false);
+
+            Voyage voyage = new Voyage("planner-start-voyage");
+            voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+            string? predecessorId = null;
+            if (dependsOnPredecessor)
+            {
+                Mission predecessor = new Mission("[Worker] Earlier work", "Produced code the plan builds on");
+                predecessor.VesselId = vessel.Id;
+                predecessor.VoyageId = voyage.Id;
+                predecessor.Persona = "Worker";
+                predecessor.Status = MissionStatusEnum.Complete;
+                predecessor = await testDb.Driver.Missions.CreateAsync(predecessor).ConfigureAwait(false);
+                predecessorId = predecessor.Id;
+            }
+
+            Mission architect = new Mission("[Architect] Plan", "Break this down");
+            architect.VesselId = vessel.Id;
+            architect.VoyageId = voyage.Id;
+            architect.CaptainId = architectCaptain.Id;
+            architect.Persona = "Architect";
+            architect.Status = MissionStatusEnum.InProgress;
+            architect.BranchName = "armada/planner-start/architect";
+            architect.StartFromRef = startFromRef;
+            architect.DependsOnMissionId = predecessorId;
+            architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+            Dock architectDock = new Dock(vessel.Id);
+            architectDock.CaptainId = architectCaptain.Id;
+            architectDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, architect.Id);
+            architectDock.BranchName = architect.BranchName;
+            architectDock.Active = true;
+            architectDock = await testDb.Driver.Docks.CreateAsync(architectDock).ConfigureAwait(false);
+            architect.DockId = architectDock.Id;
+            architect.StartFromRef = startFromRef;
+            architect.DependsOnMissionId = predecessorId;
+            await testDb.Driver.Missions.UpdateAsync(architect).ConfigureAwait(false);
+
+            if (recordedStartCommit != null)
+            {
+                string startDirectory = Path.Combine(settings.LogDirectory, "docks");
+                Directory.CreateDirectory(startDirectory);
+                File.WriteAllText(Path.Combine(startDirectory, architectDock.Id + ".start"), recordedStartCommit + "\n");
+            }
+
+            Mission worker = new Mission("[Worker] Placeholder", "Initial worker");
+            worker.VesselId = vessel.Id;
+            worker.VoyageId = voyage.Id;
+            worker.Persona = "Worker";
+            worker.Status = MissionStatusEnum.Pending;
+            worker.DependsOnMissionId = architect.Id;
+            worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+            // Production capture sets the diff against the target branch and the head commit on the mission it is handed.
+            missionService.OnCaptureDiff = async (Mission m, Dock d) =>
+            {
+                m.DiffSnapshot = diff;
+                m.CommitHash = headCommit;
+                await testDb.Driver.Missions.UpdateAsync(m).ConfigureAwait(false);
+            };
+            missionService.OnGetMissionOutput = _ =>
+                "[ARMADA:MISSION]\n" +
+                "title: Implement the reader\n" +
+                "goal: Read the catalogue\n" +
+                "inputs: the catalogue file\n" +
+                "deliverables: Reader.cs\n" +
+                "dependencies: none\n" +
+                "risks: none\n" +
+                "done_when: tests pass\n" +
+                "[/ARMADA:MISSION]";
+
+            await missionService.HandleCompletionAsync(architectCaptain, architect.Id).ConfigureAwait(false);
+
+            return new PlannerHandoffOutcome
+            {
+                Architect = (await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!,
+                Worker = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!,
+                PlannerEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.planner_committed_code").ConfigureAwait(false)
+            };
+        }
+
+        /// <summary>A git seam that answers the commit-to-commit changed-paths read.</summary>
+        private sealed class BetweenCommitsGitStub : DirCreatingGitStub, IGitService
+        {
+            /// <summary>The read every call returns.</summary>
+            public ChangedPathsRead ChangedPathsBetweenCommits { get; set; } = ChangedPathsRead.Unavailable("not configured");
+
+            /// <summary>Each call as "from..to".</summary>
+            public List<string> BetweenCommitsCalls { get; } = new List<string>();
+
+            /// <inheritdoc />
+            public Task<ChangedPathsRead> ReadChangedPathsBetweenCommitsAsync(string repoPath, string fromCommit, string toCommit, CancellationToken token = default)
+            {
+                BetweenCommitsCalls.Add(fromCommit + ".." + toCommit);
+                return Task.FromResult(ChangedPathsBetweenCommits);
+            }
+        }
+
         private class DirCreatingGitStub : IGitService
         {
             /// <summary>Call tracking for clone operations.</summary>

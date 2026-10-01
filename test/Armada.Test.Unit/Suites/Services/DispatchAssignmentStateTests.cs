@@ -799,6 +799,66 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_FanOutWorkerBelowARecoveryTipPlanner_CutsBranchAtTheTipAndVerifiesTheCheckout", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    const string recoveryTip = "5555555555555555555555555555555555555555";
+                    git.RevisionCommitShaResult = recoveryTip;
+                    git.IsAncestorResult = true;
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    Vessel vessel = new Vessel("recovery-fanout-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("recovery-fanout-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Mission planner = new Mission("Architect plan from a recovery tip", "Emits the plan.");
+                    planner.VesselId = vessel.Id;
+                    planner.Persona = "Architect";
+                    planner.Status = MissionStatusEnum.WorkProduced;
+                    planner.StartFromRef = recoveryTip;
+                    planner.CommitHash = recoveryTip;
+                    planner = await testDb.Driver.Missions.CreateAsync(planner).ConfigureAwait(false);
+                    planner.Status = MissionStatusEnum.WorkProduced;
+                    planner.CommitHash = recoveryTip;
+                    await testDb.Driver.Missions.UpdateAsync(planner).ConfigureAwait(false);
+
+                    // The planner handoff passes the planner's start commit to each fan-out worker.
+                    Mission worker = new Mission("Block worker", "Implements one block of the plan." + Environment.NewLine + "<!-- ARMADA:ARCHITECT-HANDOFF -->");
+                    worker.VesselId = vessel.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.Pending;
+                    worker.DependsOnMissionId = planner.Id;
+                    worker.StartFromRef = recoveryTip;
+                    worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+                    worker.DependsOnMissionId = planner.Id;
+                    worker.StartFromRef = recoveryTip;
+                    await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(worker, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "The fan-out worker assigns; state=" + readBack!.AssignmentState + " status=" + readBack.Status + " reason: " + (readBack.FailureReason ?? "(none)"));
+                    AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "The worker branch is cut from the planner's start commit, not the target branch");
+                    AssertEqual(vessel.LocalPath + ":" + readBack.BranchName + ":" + recoveryTip, git.ForceUpdateBranchRefCalls[0]);
+                    AssertTrue(git.IsAncestorCalls.Any(call => call.EndsWith(":" + recoveryTip + ":HEAD", StringComparison.Ordinal)),
+                        "The worker's checkout is proven to contain the recovery commit before launch");
+                }
+            });
+
             // Assignment passes run concurrently and select from the same Idle list. Two missions
             // in one pass must not both provision a dock for the one idle captain: the second must
             // wait for an idle captain without spending the provisioning cost. Measured live: 12
