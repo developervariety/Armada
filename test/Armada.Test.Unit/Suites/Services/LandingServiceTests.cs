@@ -101,6 +101,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A failed landing's dock is reclaimed. The retry must land from the mission branch, not
+            // from the deleted dock path, or it is refused as landing_evidence_unavailable.
+            await RunTest("RetryLandingAsync_DockReclaimed_LandsFromATemporaryWorktreeAtTheBranchTipAndRemovesIt", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    const string branch = "armada/retry-reclaimed/branch";
+                    const string tip = "6666666666666666666666666666666666666666";
+
+                    Vessel vessel = new Vessel("retry-reclaimed-vessel", "https://github.com/test/retry-reclaimed.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_retry_reclaimed_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    git.ExistingBranches.Add(branch);
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + branch] = tip;
+
+                    string reclaimedPath = Path.Combine(Path.GetTempPath(), "armada_retry_reclaimed_dock_" + Guid.NewGuid().ToString("N"));
+                    Dock dock = new Dock(vessel.Id);
+                    dock.WorktreePath = reclaimedPath;
+                    dock.BranchName = branch;
+                    dock.Active = false;
+                    dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission mission = new Mission("retry reclaimed mission", "retry");
+                    mission.VesselId = vessel.Id;
+                    mission.BranchName = branch;
+                    mission.DockId = dock.Id;
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    string? landedFrom = null;
+                    string? landedDockId = null;
+                    service.OnPerformLanding = async (Mission m, Dock d) =>
+                    {
+                        landedFrom = d.WorktreePath;
+                        landedDockId = d.Id;
+                        m.Status = MissionStatusEnum.Complete;
+                        await testDb.Driver.Missions.UpdateAsync(m).ConfigureAwait(false);
+                    };
+
+                    bool retried = await service.RetryLandingAsync(mission.Id).ConfigureAwait(false);
+
+                    AssertTrue(retried, "The retry lands");
+                    AssertNotNull(landedFrom, "The landing handler ran");
+                    AssertTrue(!String.Equals(landedFrom, reclaimedPath, StringComparison.Ordinal), "The retry does not read the reclaimed dock path");
+                    AssertContains("armada-landing-retry", landedFrom!, "The retry reads a temporary worktree");
+                    AssertTrue(git.WorktreeCalls.Contains(landedFrom!), "The temporary worktree is created before the landing");
+                    AssertTrue(git.ExistingBranches.Contains(tip), "The temporary worktree is placed at the branch tip commit");
+                    AssertContains(landedFrom!, String.Join(" | ", git.RemoveWorktreeCalls), "The temporary worktree is removed after the landing");
+                    AssertEqual(dock.Id, landedDockId, "The landing still names the mission's dock");
+                }
+            });
+
             await RunTest("MergeInDedicatedWorktreeAsync_CleanMerge_PushesFromTempWorktreeAndCleansUp", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -52,6 +52,12 @@ namespace Armada.Core.Models
         public int KeptUnmerged { get; set; } = 0;
 
         /// <summary>
+        /// Candidates kept because the bare default branch contains them but origin's does not: the
+        /// landing has not reached origin. Each is also counted under its unmerged or unlanded reason.
+        /// </summary>
+        public int KeptUnpushed { get; set; } = 0;
+
+        /// <summary>
         /// Branches and preserved refs kept because a non-terminal mission names the branch.
         /// </summary>
         public int KeptActive { get; set; } = 0;

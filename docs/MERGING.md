@@ -85,7 +85,7 @@ Because each entry is landed immediately, the next entry in the same group alway
 | **Test failure** | Entry marked `Failed` with exit code and truncated output. Worktree cleaned up. Next entry continues. A test failure after the merge is surfaced to the operator (`test_failure_before_merge`); it is never routed to a rebase or redispatch captain, because the recorded test context carries no git exit code. When the definition-of-done failure classifier reads the test output as host trouble (a restore error, a missing SDK or command, a dead container runtime, a crashed test host), the entry is classified `InfraTestFailure` and surfaced to the operator (`infra_test_failure`) instead of routed to a recovery captain, because a captain on the same host would fail the same way. |
 | **Landing evidence unavailable** | Entry marked `Failed` with `landing_evidence_unavailable: vessel_unreadable`, `vessel_not_found`, `changed_files_unreadable`, or `diff_unreadable` and the underlying error. Nothing is pushed. |
 | **Test timeout** | The test command and its whole process tree are stopped after `MergeQueueTestTimeoutSeconds`; the entry is marked `Failed` with `merge_queue_test_timeout`. Both output streams drain concurrently, so a command that fills one stream while holding the other open cannot hold the host test lock. The command owns its process group, so the stop also reaches a background child it left behind. Each stream keeps 1 MiB, its beginning and its end, with a marker naming what was dropped. |
-| **Push failure** | Entry marked `Failed` with error message. Typically means the remote rejected the push (force-push protection, etc.). |
+| **Push failure** | Entry marked `Failed` with error message, and the linked mission becomes `LandingFailed`. A landing that did not reach origin also records a `merge_queue.origin_push_failed` event and opens one High incident per vessel and target branch. Both name the branch, the git error, and the bare target, origin target, and integration heads. The usual cause is a bare target and origin that have diverged; see "Reconcile a bare target that diverged from origin" below. |
 | **Failure after the push advanced the target** | The queue rolls the target back to its pre-land head with `git push --force-with-lease=refs/heads/<target>:<inspected-head>`. If another writer moved the target after the rollback inspected it, the push is refused and that writer's commit stays. The `merge_queue.failed_target_advanced` event records `rolled_back`, `partial_rollback: ...`, or `rollback_failed: ...`. |
 | **Vessel not found** | All entries in the group are marked `Failed` with a message indicating the vessel could not be resolved. |
 | **Unexpected exception** | Entry marked `Failed` with error message. Best-effort worktree cleanup. Processing continues to the next entry. Group-level exceptions are caught by `ProcessGroupSafeAsync` and logged as warnings. |
@@ -113,6 +113,22 @@ These are observed behaviors that the entry status alone does not make obvious.
   that base lineage and lose commits that sat at the previous target tip.
   After a batch of landings, diff the pre-batch target tip against the
   post-batch history and cherry-pick back any dropped commit.
+- **Reconcile a bare target that diverged from origin.** The merge queue cuts
+  its integration branch from the bare target, so when origin holds commits
+  the bare lacks (for example after an operator landed something directly),
+  every push is rejected as non-fast-forward. Compare the two in the vessel
+  bare repo: `git fetch origin`, then `git rev-list --left-right --count
+  refs/heads/<target>...refs/remotes/origin/<target>`. When origin only is
+  ahead, fast-forward the bare (`git update-ref refs/heads/<target>
+  refs/remotes/origin/<target>`). When the bare only is ahead, push the landed
+  commits to origin with a fast-forward. When both are ahead, merge origin into
+  the bare target in a scratch worktree and push the merge. Never reset the
+  bare target to origin while it holds landed commits: those commits are then
+  reachable only from mission and preserved refs. Retry the failed landing
+  afterwards.
+- **A landing retry does not need the mission's dock.** A failed landing's
+  dock is reclaimed. `retry_landing` reads the change from a temporary
+  detached worktree at the mission branch tip and removes it afterwards.
 - **`retry_check_run` / `run_check` build the bare repo's target ref, not
   the working checkout.** After a direct push to `origin`, sync the bare
   repo (`git fetch origin` then `git update-ref refs/heads/<target>
@@ -199,6 +215,8 @@ nothing is pushed and the incident reason says which step failed.
 ## Branch Cleanup Policy
 
 After a mission's work has landed, Armada can automatically clean up the mission branch. The policy is resolved from the vessel level (falling back to global settings):
+
+A branch counts as landed only when its tip is contained in the bare repository's target branch and, when the bare tracks `origin/<target>`, in that too. A merge only the bare holds, such as a rejected push or a `LocalMerge` landing not yet pushed, keeps its branches; the sweep summary reports them as `unpushed`.
 
 | Policy | Behavior |
 |---|---|

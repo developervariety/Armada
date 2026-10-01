@@ -83,6 +83,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Landings that do not reach origin are loud and keep their work:** a merge
+  queue landing that does not reach origin records a
+  `merge_queue.origin_push_failed` event and opens one High incident per vessel
+  and target, naming the branch, the git error, and the bare, origin and
+  integration heads. The branch sweep counts a branch as landed only when origin
+  also contains it (`KeptUnpushed`). A landing retry whose dock was reclaimed
+  lands from a temporary worktree at the mission branch tip instead of being
+  refused as `landing_evidence_unavailable`.
 - **Planner guard and fan-out base for recovery tips:** the planner
   committed-code guard measures what an Architect or Product Manager changed
   from its provisioned start commit to its final commit, so code inherited from

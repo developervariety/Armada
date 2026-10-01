@@ -1242,6 +1242,83 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("LandEntryAsync_OriginPushRejected_OpensOneIncidentNamingVesselBranchAndHeadsAndKeepsTheBranch", async () =>
+            {
+                // A landing that cannot reach origin must be loud: an event and an open incident that
+                // name the vessel, the branch, the git error and the bare and origin heads. Cleanup must
+                // not treat the work as landed while origin lacks it.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_push_incident_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
+                    await InstallRejectBranchPushHookAsync(repos.RemoteDir, "main").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("push-incident-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        string preRemoteHead = await ResolveGitRefAsync(repos.RemoteDir, "refs/heads/main").ConfigureAwait(false);
+                        string preBareHead = await ResolveGitRefAsync(repos.BareDir, "refs/heads/main").ConfigureAwait(false);
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                        for (int attempt = 0; attempt < 2; attempt++)
+                        {
+                            MergeEntry entry = new MergeEntry();
+                            entry.VesselId = vessel.Id;
+                            entry.BranchName = repos.CaptainBranch;
+                            entry.TargetBranch = "main";
+                            entry.Status = MergeStatusEnum.Queued;
+                            entry.CreatedUtc = DateTime.UtcNow;
+                            entry.LastUpdateUtc = DateTime.UtcNow;
+                            entry = await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+                            await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+                            MergeEntry? failed = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                            AssertEqual(MergeStatusEnum.Failed, failed!.Status, "The rejected land-push fails the entry");
+                        }
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.origin_push_failed").ConfigureAwait(false);
+                        AssertEqual(2, events.Count, "Each failed landing records an origin push failure event");
+                        string payload = events[0].Payload ?? String.Empty;
+                        AssertContains(repos.CaptainBranch, payload, "The event names the branch");
+                        AssertContains(preRemoteHead, payload, "The event names origin's head");
+                        AssertContains(preBareHead, payload, "The event names the bare target head");
+                        AssertContains("\"error\"", payload, "The event carries the git error");
+
+                        IncidentService incidents = new IncidentService(testDb.Driver);
+                        EnumerationResult<Incident> open = await incidents.EnumerateAsync(
+                            AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                            new IncidentQuery { VesselId = vessel.Id, ExcludeTerminal = true, PageSize = 10 }).ConfigureAwait(false);
+                        AssertEqual(1L, open.TotalRecords, "Repeated failures on one vessel and target share one open incident");
+                        Incident incident = open.Objects[0];
+                        AssertContains(vessel.Name, incident.Title, "The incident names the vessel");
+                        AssertContains(repos.CaptainBranch, incident.Summary ?? String.Empty, "The incident names the branch");
+                        AssertContains(preBareHead, incident.Summary ?? String.Empty, "The incident names the bare head");
+                        AssertContains(preRemoteHead, incident.Summary ?? String.Empty, "The incident names origin's head");
+                        AssertContains("Never reset the bare target", incident.RecoveryNotes ?? String.Empty, "The incident says how to reconcile safely");
+
+                        BranchCleanupSweepResult sweep = await new BranchCleanupSweepService(logging, testDb.Driver, settings, git)
+                            .SweepAsync(CancellationToken.None).ConfigureAwait(false);
+                        string branches = await RunGitAsync(repos.BareDir, "for-each-ref", "--format=%(refname)", "refs/heads/").ConfigureAwait(false);
+                        AssertContains("refs/heads/" + repos.CaptainBranch, branches, "The unlanded branch survives the cleanup sweep");
+                        AssertEqual(0, sweep.SweptLocal, "Nothing that origin lacks is swept");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("LandEntryAsync_NonePolicy_PreservesCaptainBranch", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_cleanup_" + Guid.NewGuid().ToString("N"));

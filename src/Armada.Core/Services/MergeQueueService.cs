@@ -42,6 +42,7 @@ namespace Armada.Core.Services
         private LeakHunkAdapter? _LeakHunkAdapter;
         private JudgeFollowUpService _JudgeFollowUps;
         private LandingEvidenceCollector _LandingEvidence;
+        private IncidentService _Incidents;
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
@@ -83,6 +84,7 @@ namespace Armada.Core.Services
             _CodeIndexService = codeIndexService;
             _JudgeFollowUps = new JudgeFollowUpService(_Database, _Logging);
             _LandingEvidence = new LandingEvidenceCollector(_Database, _Git);
+            _Incidents = new IncidentService(database);
         }
 
         /// <summary>
@@ -2080,6 +2082,131 @@ namespace Armada.Core.Services
                 // Reconcile linked mission to LandingFailed
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
                     "Merge queue landing failed: " + ex.Message, token, entry.TenantId).ConfigureAwait(false);
+
+                await RaiseOriginPushFailedAsync(entry, repoPath, integrationBranch, preLandRemoteTargetHead, integrationHead, ex.Message, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Make a landing that did not reach origin loud: one event and one open incident per vessel
+        /// and target, naming the branch, the git error, and the bare, origin and integration heads.
+        /// A rejected push otherwise ends as a failed entry and a log line, and a bare target that
+        /// holds commits origin lacks is found only by comparing the two by hand.
+        /// </summary>
+        private async Task RaiseOriginPushFailedAsync(
+            MergeEntry entry,
+            string repoPath,
+            string integrationBranch,
+            string preLandOriginHead,
+            string integrationHead,
+            string error,
+            CancellationToken token)
+        {
+            string bareTargetHead = await TryResolveCommitAsync(repoPath, "refs/heads/" + entry.TargetBranch, token).ConfigureAwait(false) ?? "unknown";
+            string originTargetHead = await TryResolveCommitAsync(repoPath, "refs/remotes/origin/" + entry.TargetBranch, token).ConfigureAwait(false)
+                ?? (String.IsNullOrWhiteSpace(preLandOriginHead) ? "unknown" : preLandOriginHead);
+            string integration = String.IsNullOrWhiteSpace(integrationHead) ? "unknown" : integrationHead;
+            string vesselLabel = entry.VesselId ?? "unknown vessel";
+            Vessel? vessel = null;
+            if (!String.IsNullOrWhiteSpace(entry.VesselId))
+            {
+                try
+                {
+                    vessel = await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+                    if (vessel != null) vesselLabel = vessel.Name + " (" + vessel.Id + ")";
+                }
+                catch (Exception ex) when (!token.IsCancellationRequested)
+                {
+                    _Logging.Warn(_Header + "could not read vessel " + entry.VesselId + " for push-failure incident: " + ex.Message);
+                }
+            }
+
+            string summary = "Merge queue entry " + entry.Id + " for branch " + entry.BranchName + " did not reach origin/" + entry.TargetBranch
+                + " on vessel " + vesselLabel + ". Bare " + entry.TargetBranch + " is " + bareTargetHead
+                + ", origin/" + entry.TargetBranch + " is " + originTargetHead + ", integration head is " + integration
+                + ". Git error: " + error;
+
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent();
+                evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
+                evt.EventType = "merge_queue.origin_push_failed";
+                evt.EntityType = "merge_entry";
+                evt.EntityId = entry.Id;
+                evt.MissionId = entry.MissionId;
+                evt.VesselId = entry.VesselId;
+                evt.Message = summary;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = entry.Id,
+                    missionId = entry.MissionId,
+                    branch = entry.BranchName,
+                    integrationBranch,
+                    targetBranch = entry.TargetBranch,
+                    bareTargetHead,
+                    originTargetHead,
+                    integrationHead = integration,
+                    error
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not record origin push failure event for " + entry.Id + ": " + ex.Message);
+            }
+
+            AuthContext auth = AuthContext.Authenticated(
+                entry.TenantId ?? Constants.DefaultTenantId,
+                entry.UserId ?? Constants.DefaultUserId,
+                isAdmin: false,
+                isTenantAdmin: true,
+                authMethod: "System",
+                principalDisplay: "MergeQueue");
+            string title = "Merge queue push to origin failed: " + (vessel?.Name ?? vesselLabel) + " " + entry.TargetBranch;
+            try
+            {
+                IncidentQuery query = new IncidentQuery
+                {
+                    VesselId = entry.VesselId,
+                    Search = title,
+                    ExcludeTerminal = true,
+                    PageSize = 1
+                };
+                EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth, query, token).ConfigureAwait(false);
+                if (existing.TotalRecords > 0) return;
+
+                await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = title,
+                    Summary = summary,
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    VesselId = entry.VesselId,
+                    MissionId = entry.MissionId,
+                    Impact = "The mission's work is not on origin. Later landings on this target fail the same way until bare and origin agree.",
+                    RecoveryNotes = "Compare the bare " + entry.TargetBranch + " with origin/" + entry.TargetBranch
+                        + ". If origin holds commits the bare lacks, fetch and merge them into the bare target; if the bare holds landed commits origin lacks, push them with a fast-forward. Never reset the bare target to origin while it holds landed commits. Then retry the landing."
+                }, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not open origin push failure incident for " + entry.Id + ": " + ex.Message);
+            }
+        }
+
+        private async Task<string?> TryResolveCommitAsync(string repoPath, string refName, CancellationToken token)
+        {
+            try
+            {
+                GitProcessResult result = await RunGitCapturingAsync(repoPath, token, "rev-parse", "--verify", "--quiet", refName).ConfigureAwait(false);
+                string commit = result.StandardOutput.Trim();
+                return String.IsNullOrWhiteSpace(commit) ? null : commit;
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not resolve " + refName + " in " + repoPath + ": " + ex.Message);
+                return null;
             }
         }
 

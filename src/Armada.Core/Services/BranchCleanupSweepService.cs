@@ -33,7 +33,9 @@ namespace Armada.Core.Services
     /// <item>Origin is enumerated on its own. A landing can delete the bare copy of a branch while the
     /// origin copy survives, so deciding remote deletions from the bare's branch list misses them.</item>
     /// <item>"Landed" is decided by commit: the ref's tip must be an ancestor of the default branch in the
-    /// vessel bare. A tip the bare does not hold reads as unlanded and is kept.</item>
+    /// vessel bare and, when the bare tracks origin's default branch, of that too. A tip the bare does
+    /// not hold reads as unlanded and is kept; a tip only the bare holds has not reached origin and is
+    /// kept as unpushed.</item>
     /// <item>A branch named by a non-terminal mission is kept even when it reads as landed: a freshly
     /// provisioned mission branch sits at the default-branch tip before its captain commits.</item>
     /// <item>Deletions of refs the sweep read are compare-and-swap on the tip it measured, so a ref that
@@ -222,6 +224,14 @@ namespace Armada.Core.Services
                 throw new InvalidOperationException("default branch " + defaultBranch + " is not present in " + repoPath);
             }
 
+            // A branch is landed only when origin holds it too. Bare ancestry alone reads a merge that
+            // was never pushed -- a rejected push, a LocalMerge landing not yet synced -- as landed, and
+            // deleting the branch then leaves that work reachable only from a bare ref a later sync can
+            // reset. A bare repository with no origin tracking ref is judged by bare ancestry alone.
+            string originRef = "refs/remotes/" + _RemoteName + "/" + defaultBranch;
+            bool tracksOrigin = await _Inventory.IsAncestorAsync(repoPath, originRef, originRef, token).ConfigureAwait(false);
+            SweepLandedRefs landedRefs = new SweepLandedRefs(defaultRef, tracksOrigin ? originRef : null);
+
             List<Mission> missions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
             HashSet<string> activeBranches = BuildActiveMissionBranches(missions);
             HashSet<string> liveMissionIds = BuildLiveMissionIds(missions);
@@ -243,7 +253,7 @@ namespace Armada.Core.Services
                 if (!IsSweepCandidate(branch, defaultBranch)) continue;
 
                 result.LocalCandidates++;
-                if (!await IsRemovableBranchAsync(vessel, repoPath, branch, tip.CommitSha, defaultRef, activeBranches, result, token).ConfigureAwait(false))
+                if (!await IsRemovableBranchAsync(vessel, repoPath, branch, tip.CommitSha, landedRefs, activeBranches, result, token).ConfigureAwait(false))
                 {
                     continue;
                 }
@@ -271,7 +281,7 @@ namespace Armada.Core.Services
             {
                 token.ThrowIfCancellationRequested();
                 result.PreservedCandidates++;
-                if (!await IsPrunablePreservedRefAsync(vessel, repoPath, tip, tip.CommitUtc, defaultRef, preservedCutoffUtc, activeBranches, result, token).ConfigureAwait(false))
+                if (!await IsPrunablePreservedRefAsync(vessel, repoPath, tip, tip.CommitUtc, landedRefs, preservedCutoffUtc, activeBranches, result, token).ConfigureAwait(false))
                 {
                     continue;
                 }
@@ -293,8 +303,8 @@ namespace Armada.Core.Services
                 }
             }
 
-            await SweepLocalAnchorsAsync(vessel, repoPath, _DockAnchorPrefix, liveDockIds, recoverTips, defaultRef, preservedCutoffUtc, result.DockAnchors, result, token).ConfigureAwait(false);
-            await SweepLocalAnchorsAsync(vessel, repoPath, _MissionAnchorPrefix, liveMissionIds, recoverTips, defaultRef, preservedCutoffUtc, result.MissionAnchors, result, token).ConfigureAwait(false);
+            await SweepLocalAnchorsAsync(vessel, repoPath, _DockAnchorPrefix, liveDockIds, recoverTips, landedRefs, preservedCutoffUtc, result.DockAnchors, result, token).ConfigureAwait(false);
+            await SweepLocalAnchorsAsync(vessel, repoPath, _MissionAnchorPrefix, liveMissionIds, recoverTips, landedRefs, preservedCutoffUtc, result.MissionAnchors, result, token).ConfigureAwait(false);
 
             if (remoteTips == null)
             {
@@ -310,7 +320,7 @@ namespace Armada.Core.Services
                     if (!IsSweepCandidate(branch, defaultBranch)) continue;
 
                     result.RemoteCandidates++;
-                    if (!await IsRemovableBranchAsync(vessel, repoPath, branch, tip.CommitSha, defaultRef, activeBranches, result, token).ConfigureAwait(false))
+                    if (!await IsRemovableBranchAsync(vessel, repoPath, branch, tip.CommitSha, landedRefs, activeBranches, result, token).ConfigureAwait(false))
                     {
                         continue;
                     }
@@ -321,7 +331,7 @@ namespace Armada.Core.Services
                 {
                     result.PreservedCandidates++;
                     DateTime? commitUtc = await _Inventory.TryGetCommitTimeUtcAsync(repoPath, tip.CommitSha, token).ConfigureAwait(false);
-                    if (!await IsPrunablePreservedRefAsync(vessel, repoPath, tip, commitUtc, defaultRef, preservedCutoffUtc, activeBranches, result, token).ConfigureAwait(false))
+                    if (!await IsPrunablePreservedRefAsync(vessel, repoPath, tip, commitUtc, landedRefs, preservedCutoffUtc, activeBranches, result, token).ConfigureAwait(false))
                     {
                         continue;
                     }
@@ -330,11 +340,11 @@ namespace Armada.Core.Services
                 }
                 else if (tip.RefName.StartsWith(_DockAnchorPrefix, StringComparison.Ordinal))
                 {
-                    await SweepRemoteAnchorAsync(vessel, repoPath, tip, _DockAnchorPrefix, liveDockIds, recoverTips, defaultRef, preservedCutoffUtc, result.DockAnchors, result, token).ConfigureAwait(false);
+                    await SweepRemoteAnchorAsync(vessel, repoPath, tip, _DockAnchorPrefix, liveDockIds, recoverTips, landedRefs, preservedCutoffUtc, result.DockAnchors, result, token).ConfigureAwait(false);
                 }
                 else if (tip.RefName.StartsWith(_MissionAnchorPrefix, StringComparison.Ordinal))
                 {
-                    await SweepRemoteAnchorAsync(vessel, repoPath, tip, _MissionAnchorPrefix, liveMissionIds, recoverTips, defaultRef, preservedCutoffUtc, result.MissionAnchors, result, token).ConfigureAwait(false);
+                    await SweepRemoteAnchorAsync(vessel, repoPath, tip, _MissionAnchorPrefix, liveMissionIds, recoverTips, landedRefs, preservedCutoffUtc, result.MissionAnchors, result, token).ConfigureAwait(false);
                 }
             }
         }
@@ -401,7 +411,7 @@ namespace Armada.Core.Services
             string prefix,
             HashSet<string> liveIds,
             HashSet<string> recoverTips,
-            string defaultRef,
+            SweepLandedRefs landedRefs,
             DateTime? cutoffUtc,
             BranchCleanupAnchorFamilyCounts counts,
             BranchCleanupSweepResult result,
@@ -411,7 +421,7 @@ namespace Armada.Core.Services
             foreach (GitRefTip tip in anchors)
             {
                 token.ThrowIfCancellationRequested();
-                if (!await IsPrunableAnchorAsync(vessel, repoPath, tip, prefix, tip.CommitUtc, liveIds, recoverTips, defaultRef, cutoffUtc, counts, result, token).ConfigureAwait(false))
+                if (!await IsPrunableAnchorAsync(vessel, repoPath, tip, prefix, tip.CommitUtc, liveIds, recoverTips, landedRefs, cutoffUtc, counts, result, token).ConfigureAwait(false))
                 {
                     continue;
                 }
@@ -441,7 +451,7 @@ namespace Armada.Core.Services
             string prefix,
             HashSet<string> liveIds,
             HashSet<string> recoverTips,
-            string defaultRef,
+            SweepLandedRefs landedRefs,
             DateTime? cutoffUtc,
             BranchCleanupAnchorFamilyCounts counts,
             BranchCleanupSweepResult result,
@@ -449,7 +459,7 @@ namespace Armada.Core.Services
         {
             // A remote listing carries no commit time; the bare holds every landed commit.
             DateTime? commitUtc = await _Inventory.TryGetCommitTimeUtcAsync(repoPath, tip.CommitSha, token).ConfigureAwait(false);
-            if (!await IsPrunableAnchorAsync(vessel, repoPath, tip, prefix, commitUtc, liveIds, recoverTips, defaultRef, cutoffUtc, counts, result, token).ConfigureAwait(false))
+            if (!await IsPrunableAnchorAsync(vessel, repoPath, tip, prefix, commitUtc, liveIds, recoverTips, landedRefs, cutoffUtc, counts, result, token).ConfigureAwait(false))
             {
                 return;
             }
@@ -469,7 +479,7 @@ namespace Armada.Core.Services
             DateTime? commitUtc,
             HashSet<string> liveIds,
             HashSet<string> recoverTips,
-            string defaultRef,
+            SweepLandedRefs landedRefs,
             DateTime? cutoffUtc,
             BranchCleanupAnchorFamilyCounts counts,
             BranchCleanupSweepResult result,
@@ -490,7 +500,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            bool? landed = await TryIsLandedAsync(vessel, repoPath, tip.RefName, tip.CommitSha, defaultRef, result, token).ConfigureAwait(false);
+            bool? landed = await TryIsLandedAsync(vessel, repoPath, tip.RefName, tip.CommitSha, landedRefs, result, token).ConfigureAwait(false);
             if (landed == null) return false;
             if (!landed.Value)
             {
@@ -518,7 +528,7 @@ namespace Armada.Core.Services
             string repoPath,
             string branch,
             string commitSha,
-            string defaultRef,
+            SweepLandedRefs landedRefs,
             HashSet<string> activeBranches,
             BranchCleanupSweepResult result,
             CancellationToken token)
@@ -529,7 +539,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            bool? landed = await TryIsLandedAsync(vessel, repoPath, branch, commitSha, defaultRef, result, token).ConfigureAwait(false);
+            bool? landed = await TryIsLandedAsync(vessel, repoPath, branch, commitSha, landedRefs, result, token).ConfigureAwait(false);
             if (landed == null) return false;
             if (!landed.Value)
             {
@@ -546,7 +556,7 @@ namespace Armada.Core.Services
             string repoPath,
             GitRefTip tip,
             DateTime? commitUtc,
-            string defaultRef,
+            SweepLandedRefs landedRefs,
             DateTime? cutoffUtc,
             HashSet<string> activeBranches,
             BranchCleanupSweepResult result,
@@ -559,7 +569,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            bool? landed = await TryIsLandedAsync(vessel, repoPath, tip.RefName, tip.CommitSha, defaultRef, result, token).ConfigureAwait(false);
+            bool? landed = await TryIsLandedAsync(vessel, repoPath, tip.RefName, tip.CommitSha, landedRefs, result, token).ConfigureAwait(false);
             if (landed == null) return false;
             if (!landed.Value)
             {
@@ -583,13 +593,17 @@ namespace Armada.Core.Services
             string repoPath,
             string refName,
             string commitSha,
-            string defaultRef,
+            SweepLandedRefs landedRefs,
             BranchCleanupSweepResult result,
             CancellationToken token)
         {
             try
             {
-                return await _Inventory.IsAncestorAsync(repoPath, commitSha, defaultRef, token).ConfigureAwait(false);
+                if (!await _Inventory.IsAncestorAsync(repoPath, commitSha, landedRefs.Bare, token).ConfigureAwait(false)) return false;
+                if (landedRefs.Origin == null) return true;
+                if (await _Inventory.IsAncestorAsync(repoPath, commitSha, landedRefs.Origin, token).ConfigureAwait(false)) return true;
+                result.KeptUnpushed++;
+                return false;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -601,6 +615,22 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "ancestry check failed for " + refName + " on vessel " + vessel.Id + ": " + ex.Message);
                 return null;
             }
+        }
+
+        /// <summary>The refs a candidate must be contained in to count as landed.</summary>
+        private sealed class SweepLandedRefs
+        {
+            internal SweepLandedRefs(string bare, string? origin)
+            {
+                Bare = bare;
+                Origin = origin;
+            }
+
+            /// <summary>The bare repository's default branch.</summary>
+            internal string Bare { get; }
+
+            /// <summary>Origin's default branch as tracked in the bare repository; null when it is not tracked.</summary>
+            internal string? Origin { get; }
         }
 
         private async Task DeleteRemoteRefAsync(Vessel vessel, GitRefTip tip, string displayName, Action onDeleted, BranchCleanupSweepResult result, CancellationToken token)
@@ -721,6 +751,7 @@ namespace Armada.Core.Services
                 + ", origin candidates " + result.RemoteCandidates
                 + ", landed " + result.Merged
                 + ", kept unlanded " + result.KeptUnmerged
+                + " (unpushed " + result.KeptUnpushed + ")"
                 + ", kept for active missions " + result.KeptActive
                 + ", removed local " + result.SweptLocal
                 + ", removed origin " + result.SweptRemote

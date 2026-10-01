@@ -45,6 +45,19 @@ namespace Armada.Core.Services
 
         #region Constructors-and-Factories
 
+        private async Task RemoveRetryWorktreeAsync(string repoPath, string worktreePath, CancellationToken token)
+        {
+            try
+            {
+                await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not remove landing retry worktree " + worktreePath + ": " + ex.Message);
+            }
+        }
+
         /// <summary>
         /// Instantiate.
         /// </summary>
@@ -356,19 +369,43 @@ namespace Armada.Core.Services
                         : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
                 }
 
-                // If no dock, create a minimal one for the landing handler
-                if (dock == null)
+                // Landing reads the change from the dock. A failed landing's dock is reclaimed, so a
+                // retry usually finds no worktree; reading it then refused the retry as
+                // landing_evidence_unavailable and replaced the original failure reason. Read the change
+                // from a temporary detached worktree at the mission branch tip instead.
+                string? evidenceWorktree = null;
+                if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
                 {
-                    dock = new Dock(vessel.Id);
-                    dock.BranchName = missionBranch;
-                    dock.WorktreePath = vessel.WorkingDirectory ?? vessel.LocalPath;
-                    dock.Active = false; // Not a real provisioned dock
+                    string? branchTip = await _Git.GetRevisionCommitShaAsync(repoPath, "refs/heads/" + missionBranch, token).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(branchTip))
+                        throw new InvalidOperationException("the tip of branch " + missionBranch + " could not be resolved in " + repoPath);
+                    evidenceWorktree = Path.Combine(Path.GetTempPath(), "armada-landing-retry", mission.Id + "-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(Path.GetDirectoryName(evidenceWorktree)!);
+                    await _Git.CreateDetachedWorktreeAtCommitAsync(repoPath, evidenceWorktree, branchTip!, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "dock for mission " + missionId + " is gone; retrying landing from a temporary worktree at "
+                        + missionBranch + " " + branchTip);
+
+                    Dock retryDock = new Dock(vessel.Id);
+                    if (dock != null) retryDock.Id = dock.Id;
+                    retryDock.TenantId = dock?.TenantId ?? vessel.TenantId;
+                    retryDock.CaptainId = dock?.CaptainId;
+                    retryDock.BranchName = missionBranch;
+                    retryDock.WorktreePath = evidenceWorktree;
+                    retryDock.Active = false; // Not a real provisioned dock
+                    dock = retryDock;
                 }
 
                 // Invoke the landing handler if available
                 if (OnPerformLanding != null)
                 {
-                    await OnPerformLanding.Invoke(mission, dock).ConfigureAwait(false);
+                    try
+                    {
+                        await OnPerformLanding.Invoke(mission, dock).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        if (evidenceWorktree != null) await RemoveRetryWorktreeAsync(repoPath, evidenceWorktree, token).ConfigureAwait(false);
+                    }
                     _Logging.Info(_Header + "landing retry completed for mission " + missionId);
 
                     // Re-read mission to get updated status from landing handler
@@ -384,6 +421,7 @@ namespace Armada.Core.Services
                 }
                 else
                 {
+                    if (evidenceWorktree != null) await RemoveRetryWorktreeAsync(repoPath, evidenceWorktree, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "no landing handler configured -- cannot retry landing for mission " + missionId);
                     mission.Status = MissionStatusEnum.LandingFailed;
                     mission.LastUpdateUtc = DateTime.UtcNow;

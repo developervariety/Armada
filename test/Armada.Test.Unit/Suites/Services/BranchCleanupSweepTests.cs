@@ -294,6 +294,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Keeps branches landed in the bare but not on origin, and sweeps them once origin holds them", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    SweepRepo repo = await CreateSweepRepoAsync(rootDir, extraNamespaces: true).ConfigureAwait(false);
+                    // The bare tracks origin's main at the commit before either merge: the merges
+                    // landed in the bare and never reached origin.
+                    string beforeMerges = await RunGitAsync(repo.Repo, "rev-parse", "main~3").ConfigureAwait(false);
+                    await RunGitAsync(repo.Repo, "update-ref", "refs/remotes/origin/main", beforeMerges).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        Vessel vessel = new Vessel("sweep-unpushed-vessel", "https://github.com/test/sweep.git");
+                        vessel.LocalPath = repo.Repo;
+                        vessel.WorkingDirectory = repo.Working;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(logging, testDb.Driver, new ArmadaSettings(), new GitService(logging));
+
+                        BranchCleanupSweepResult unpushed = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(0, unpushed.SweptLocal, "A merge only the bare holds is not landed");
+                        AssertEqual(2, unpushed.KeptUnpushed, "The captain and armada-landing branches are kept as unpushed");
+                        string before = await RunGitAsync(repo.Repo, "for-each-ref", "--format=%(refname)", "refs/heads/").ConfigureAwait(false);
+                        AssertContains("refs/heads/armada/claude-1/msn_merged001", before);
+                        AssertContains("refs/heads/armada-landing/armada/claude-1/msn_landed001", before);
+
+                        string main = await RunGitAsync(repo.Repo, "rev-parse", "main").ConfigureAwait(false);
+                        await RunGitAsync(repo.Repo, "update-ref", "refs/remotes/origin/main", main).ConfigureAwait(false);
+
+                        BranchCleanupSweepResult pushed = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(2, pushed.SweptLocal, "Once origin holds the merges both branches are swept");
+                        AssertEqual(0, pushed.KeptUnpushed);
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("IsManagedBranch covers both Armada namespaces and nothing else", async () =>
             {
                 AssertTrue(BranchCleanupSweepService.IsManagedBranch("armada/claude-1/msn_x"), "captain branches are managed");
