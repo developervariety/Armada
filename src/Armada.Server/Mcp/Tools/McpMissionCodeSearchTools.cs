@@ -43,6 +43,11 @@ namespace Armada.Server.Mcp.Tools
 
         // Process-local per-mission call budget keyed by mission id. Reset on an admiral restart,
         // which ends every running captain.
+        private static readonly ConcurrentDictionary<string, DateTime> _LastUnavailableEventByVessel =
+            new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
+
+        private static readonly TimeSpan _UnavailableEventInterval = TimeSpan.FromHours(1);
+
         private static readonly ConcurrentDictionary<string, int> _CallsByMission =
             new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
 
@@ -97,6 +102,7 @@ namespace Armada.Server.Mcp.Tools
         public static void ResetBudgetForTests()
         {
             _CallsByMission.Clear();
+            _LastUnavailableEventByVessel.Clear();
         }
 
         #endregion
@@ -157,11 +163,25 @@ namespace Armada.Server.Mcp.Tools
                 CodeIndexStatus status = await codeIndex.GetStatusAsync(mission.VesselId!).ConfigureAwait(false);
                 if (!IsSearchable(status.Freshness))
                 {
+                    // A vessel is indexed for the first time only by an explicit update, so a missing index
+                    // stays missing until an operator acts. Say what to do, and record it so the operator
+                    // learns of it from the event log instead of from captains working blind.
+                    string remedy = String.Equals(status.Freshness, "Missing", StringComparison.OrdinalIgnoreCase)
+                        ? "This vessel has never been indexed. An operator indexes it with armada_index_update for vessel " + mission.VesselId + "."
+                        : "An operator refreshes it with armada_index_update for vessel " + mission.VesselId
+                            + (String.IsNullOrWhiteSpace(status.LastError) ? "." : "; the last update failed: " + status.LastError);
+                    await RecordSearchUnavailableAsync(database, mission, status, remedy, logging).ConfigureAwait(false);
                     return new
                     {
                         Available = false,
                         UnavailableReason = "index_" + status.Freshness.ToLowerInvariant(),
-                        Message = "The code index for your vessel is " + status.Freshness + ". No search ran, so nothing here says the code is absent. Search the checkout by hand.",
+                        Message = "The code index for your vessel is " + status.Freshness + ". No search ran, so nothing here says the code is absent, and no duplicate check was made. Search the checkout by hand.",
+                        Readiness = new
+                        {
+                            VesselId = mission.VesselId,
+                            status.Freshness,
+                            Remedy = remedy
+                        },
                         CallsUsed = used,
                         MaxCallsPerMission = indexSettings.CaptainSearchMaxCallsPerMission
                     };
@@ -217,6 +237,33 @@ namespace Armada.Server.Mcp.Tools
                 // The tool must never throw into the captain's runtime.
                 logging?.Warn("[McpMissionCodeSearchTools] search failed: " + ex.Message);
                 return Unavailable("exception", "The code search failed. Search the checkout by hand.");
+            }
+        }
+
+        // Records that a captain met an unsearchable index, at most once an hour per vessel.
+        private static async Task RecordSearchUnavailableAsync(DatabaseDriver database, Mission mission, CodeIndexStatus status, string remedy, LoggingModule? logging)
+        {
+            DateTime now = DateTime.UtcNow;
+            string vesselId = mission.VesselId!;
+            if (_LastUnavailableEventByVessel.TryGetValue(vesselId, out DateTime last) && now - last < _UnavailableEventInterval) return;
+            _LastUnavailableEventByVessel[vesselId] = now;
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("code_index.search_unavailable",
+                    "A captain on mission " + mission.Id + " searched vessel " + vesselId + " whose code index is " + status.Freshness + ". " + remedy);
+                evt.TenantId = mission.TenantId;
+                evt.UserId = mission.UserId;
+                evt.EntityType = "vessel";
+                evt.EntityId = vesselId;
+                evt.VesselId = vesselId;
+                evt.MissionId = mission.Id;
+                evt.VoyageId = mission.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new { vesselId, freshness = status.Freshness, remedy });
+                await database.Events.CreateAsync(evt).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logging?.Warn("[McpMissionCodeSearchTools] could not record code_index.search_unavailable for " + vesselId + ": " + ex.Message);
             }
         }
 

@@ -1213,6 +1213,17 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(0, embeddingClient.CallCount, "mission code search on a never-indexed vessel must send nothing to the embedding provider");
                         AssertContains("\"Available\":false", json);
                         AssertContains("\"UnavailableReason\":\"index_missing\"", json);
+                        AssertContains("armada_index_update for vessel " + vessel.Id, json, "The answer names the operator remedy");
+                        AssertContains("no duplicate check was made", json, "The answer never reads as a verified absence");
+
+                        using (McpCallerContext.Begin(AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer")))
+                        {
+                            await handlers[McpMissionCodeSearchTools.ToolName](
+                                JsonSerializer.SerializeToElement(new { missionId = mission.Id, query = "Needle again" })).ConfigureAwait(false);
+                        }
+                        List<ArmadaEvent> unavailable = await testDb.Driver.Events.EnumerateByTypeAsync("code_index.search_unavailable").ConfigureAwait(false);
+                        AssertEqual(1, unavailable.Count, "An unindexed vessel is recorded once, not once per call");
+                        AssertEqual(vessel.Id, unavailable[0].VesselId);
                     }
                 }
                 finally

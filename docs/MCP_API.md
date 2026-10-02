@@ -819,8 +819,11 @@ per-candidate `delivers` choice (`same_capability`, `partial_overlap`,
 `related_only`, `unrelated`) and the `already_done`, `integrate_not_duplicate`,
 and `reimplements` readings. A branch or ref candidate carries a bounded excerpt
 (at most 30 lines) read from that ref, because the file is not in the captain's
-checkout. The captain verifies each `path:line` itself. The tool edits nothing
-and never blocks. It is caller-scoped like the other captain tools, and it is
+checkout. The captain verifies each `path:line` itself. The answer also
+carries `searchComplete` and `unsearchedSurfaces`: a surface whose search failed
+is named there and in the decision state, and when no repository search ran the
+answer says so in `note`, so "nothing found" is never read as a verified
+absence. The tool edits nothing and never blocks. It is caller-scoped like the other captain tools, and it is
 dormant (returns unavailable) until the `prior_art` decision is enabled.
 
 ### armada_mission_code_search
@@ -838,7 +841,10 @@ when asked.
 The index covers the vessel's default branch, not the dock branch. When the
 index is `Missing` or `Error` no search runs and the answer is unavailable with
 `index_missing` or `index_error`, so an empty result never stands in for "the
-code is absent". A `Stale` or lexical-only index still searches and says so in
+code is absent". The answer's `Readiness` names the remedy: a vessel is indexed
+for the first time only by `armada_index_update`, which an operator runs. The
+first such answer for a vessel in an hour records `code_index.search_unavailable`
+with the vessel and the remedy, so an unindexed vessel is visible to operators. A `Stale` or lexical-only index still searches and says so in
 `Warnings`. The tool writes no record, is budgeted per mission by
 `codeIndex.captainSearchMaxCallsPerMission` (reason `budget` when spent), and is
 caller-scoped like the other captain tools. The operator tools

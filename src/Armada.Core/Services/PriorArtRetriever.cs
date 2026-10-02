@@ -85,6 +85,7 @@ namespace Armada.Core.Services
             // candidate that carries both terms. A candidate keeps the first surface it was seen on.
             Dictionary<string, CandidateBuilder> builders = new Dictionary<string, CandidateBuilder>(StringComparer.Ordinal);
             List<string> order = new List<string>();
+            List<string> unsearched = new List<string>();
 
             foreach (PriorArtWhereEnum where in _SurfaceOrder)
             {
@@ -100,8 +101,10 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    // One dead surface never fails the whole retrieval; the others still return.
+                    // One dead surface never fails the whole retrieval; the others still return. The
+                    // failure travels with the result, so no answer reads an unsearched surface as empty.
                     _Logging?.Warn(_Header + "surface " + where + " search failed, skipped: " + ex.Message);
+                    unsearched.Add(where + ": " + ex.Message);
                     continue;
                 }
 
@@ -137,7 +140,9 @@ namespace Armada.Core.Services
             {
                 Candidates = candidates,
                 Terms = terms,
-                Truncated = truncated
+                Truncated = truncated,
+                SearchRan = true,
+                UnsearchedSurfaces = unsearched
             };
         }
 

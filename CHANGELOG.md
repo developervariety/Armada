@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Code search and prior art say when they could not look:** a mission code
+  search on an unindexed or failed index returns a `Readiness` remedy naming
+  `armada_index_update` and records `code_index.search_unavailable` once an
+  hour per vessel. `armada_check_prior_art` returns each candidate's path and
+  ref with its readings, plus `searchComplete` and the surfaces whose search
+  failed, which the decision state also carries.
 - **Docks and landings that cleanup or a failure left behind:** the orphan-dock
   reaper keeps the dock of a mission awaiting review; stall recovery keeps the
   dock of a mission whose work is produced, its pull request open, or under

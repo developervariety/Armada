@@ -595,6 +595,44 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("environmental", onResponse);
                 }
             });
+
+            // The prior-art answer must carry the paths it was read from and say when a surface was not
+            // searched; otherwise "nothing found" reads as a verified absence.
+            await RunTest("Prior-art answers carry candidate paths and name the surfaces that were not searched", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.TypedDecisions.CaptainTool.Enabled = true;
+                    settings.TypedDecisions.Decisions["prior_art"].Mode = TypedDecisionModeEnum.Gate;
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    FakePriorArtSource source = new FakePriorArtSource()
+                        .With(PriorArtWhereEnum.Landed, FakePriorArtSource.Hit(PriorArtWhereEnum.Landed, "src/Study.cs:42", "StressFill", "public double StressFill()"))
+                        .Throwing(PriorArtWhereEnum.UnlandedBranch);
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                    McpTypedDecisionTools.Register(
+                        (name, _, _, handler) => { handlers[name] = handler; },
+                        testDb.Driver,
+                        client,
+                        new TypedDecisionRecorder(testDb.Driver, new LoggingModule()),
+                        settings,
+                        new LoggingModule(),
+                        null,
+                        new PriorArtRetriever(source));
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("prior-art-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission
+                    {
+                        TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, VesselId = vessel.Id, Title = "prior art", Status = MissionStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+
+                    string json = await CallRawAsync(handlers, "armada_check_prior_art", new { plan = "Add StressFill to the study", missionId = mission.Id }).ConfigureAwait(false);
+
+                    AssertContains("src/Study.cs:42", json, "The answer cites the candidate's path");
+                    AssertContains("\"searchComplete\":false", json, "A failed surface makes the search incomplete");
+                    AssertContains("UnlandedBranch", json, "The answer names the surface that was not searched");
+                    AssertContains("unsearched_surfaces", client.LastState ?? String.Empty, "The model sees that a surface was not searched");
+                }
+            });
         }
 
         private static object CompactionArgs(string? missionId)

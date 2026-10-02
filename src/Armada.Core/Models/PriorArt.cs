@@ -140,6 +140,18 @@ namespace Armada.Core.Models
         /// <summary>True when the retrieval found at least one candidate.</summary>
         public bool HasCandidates => Candidates.Count > 0;
 
+        /// <summary>
+        /// True when the repository surfaces were searched. False when no search ran (no terms, no
+        /// vessel, no retriever): an empty candidate list then proves nothing.
+        /// </summary>
+        public bool SearchRan { get; init; }
+
+        /// <summary>
+        /// Surfaces whose search failed, each with its reason. A surface that was not searched cannot
+        /// support an answer that the work does not already exist there.
+        /// </summary>
+        public IReadOnlyList<string> UnsearchedSurfaces { get; init; } = new List<string>();
+
         /// <summary>An empty retrieval, for the no-term and no-hit cases.</summary>
         /// <param name="terms">The terms that were mined, for the recorded event; optional.</param>
         /// <returns>An empty retrieval.</returns>

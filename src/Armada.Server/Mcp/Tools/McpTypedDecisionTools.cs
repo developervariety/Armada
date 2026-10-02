@@ -283,7 +283,8 @@ namespace Armada.Server.Mcp.Tools
                     participantKey,
                     buildStateAndQuestions: null,
                     buildStateAndQuestionsAsync: (root, mission, token) =>
-                        BuildPriorArtAsync(root, mission, priorArtRetriever, database, logging, token)).ConfigureAwait(false));
+                        BuildPriorArtAsync(root, mission, priorArtRetriever, database, logging, token),
+                    formatResult: FormatPriorArt).ConfigureAwait(false));
 
             register(
                 ChangeQualityToolName,
@@ -1159,7 +1160,57 @@ namespace Armada.Server.Mcp.Tools
             };
         }
 
+        // The prior-art answer carries the evidence it was read from: each candidate's surface, path and
+        // ref, and whether the search covered every surface. Without them a reply could not be checked, and
+        // "nothing found" from a search that did not run read as a verified absence.
+        private static object FormatPriorArt(TypedDecisionResult result, ParsedDecision parsed)
+        {
+            Dictionary<string, object?> answers = BuildAnswerMap(result);
+            Dictionary<string, object?>? state = parsed.State as Dictionary<string, object?>;
+            List<object> candidates = new List<object>();
+            if (state != null && state.TryGetValue("candidates", out object? raw) && raw is List<object> list)
+            {
+                foreach (object item in list)
+                {
+                    if (item is Dictionary<string, object?> candidate)
+                    {
+                        candidates.Add(new
+                        {
+                            Where = candidate.GetValueOrDefault("where"),
+                            Location = candidate.GetValueOrDefault("location"),
+                            Ref = candidate.GetValueOrDefault("ref")
+                        });
+                    }
+                }
+            }
+            string? note = state?.GetValueOrDefault("search_note") as string;
+            List<string> unsearched = state != null && state.TryGetValue("unsearched_surfaces", out object? missing) && missing is List<string> names
+                ? names
+                : new List<string>();
+            bool complete = note == null && unsearched.Count == 0;
+            return new
+            {
+                Available = true,
+                Answers = answers,
+                Candidates = candidates,
+                SearchComplete = complete,
+                UnsearchedSurfaces = unsearched,
+                Note = complete
+                    ? null
+                    : (note ?? "Some surfaces could not be searched, so an answer that the work does not exist is not verified there. Search them by hand.")
+            };
+        }
+
         private static object BuildAnswer(TypedDecisionResult result)
+        {
+            return new
+            {
+                Available = true,
+                Answers = BuildAnswerMap(result)
+            };
+        }
+
+        private static Dictionary<string, object?> BuildAnswerMap(TypedDecisionResult result)
         {
             Dictionary<string, object?> answers = new Dictionary<string, object?>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, TypedAnswer> entry in result.Answers)
@@ -1177,11 +1228,7 @@ namespace Armada.Server.Mcp.Tools
                 };
             }
 
-            return new
-            {
-                Available = true,
-                Answers = answers
-            };
+            return answers;
         }
 
         #endregion

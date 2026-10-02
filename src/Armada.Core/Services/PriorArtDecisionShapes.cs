@@ -75,11 +75,18 @@ namespace Armada.Core.Services
                 });
             }
 
-            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            Dictionary<string, object?> state = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["deliverable"] = deliverable ?? String.Empty,
                 ["candidates"] = candidates
             };
+            // An empty candidate list proves nothing when the search did not run or a surface failed;
+            // the state says so, so the answer is not read as a verified absence.
+            if (retrieval == null || !retrieval.SearchRan)
+                state["search_note"] = "No repository search ran, so the absence of candidates proves nothing.";
+            else if (retrieval.UnsearchedSurfaces.Count > 0)
+                state["unsearched_surfaces"] = new List<string>(retrieval.UnsearchedSurfaces);
+            return state;
         }
 
         /// <summary>
