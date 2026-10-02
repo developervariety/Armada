@@ -3230,6 +3230,8 @@ namespace Armada.Test.Unit.Suites.Services
                 TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut).ConfigureAwait(false);
             await RunTest("BuildRescueDescription carries every blocking finding of a long review whose findings sit mid-report",
                 BuildRescueDescription_LongReviewWithMidReportFindings_CarriesEveryBlockingFinding).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription keeps the newest prior stage's report essentials that the description digest would cut",
+                BuildRescueDescription_LongDescription_KeepsTheNewestReportEssentials).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief keeps every finding's opening inside its bound when the findings are long",
                 BuildBlockingFindingsForBrief_ManyLongFindings_KeepsEveryOpeningInsideTheBound).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief drops an over-budget narration preamble so the findings survive",
@@ -3877,6 +3879,29 @@ namespace Armada.Test.Unit.Suites.Services
             AssertFalse(block.Contains("Non-blocking observations"), "A non-blocking note is not listed as blocking");
             AssertFalse(block.Contains("I'll start by reading"), "Tool narration is not a finding");
             AssertTrue(block.Length <= AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars + 200, "The findings block stays inside its bound. Actual: " + block.Length);
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_LongDescription_KeepsTheNewestReportEssentials()
+        {
+            string essentials = StageReportEssentials.Heading + " (TestEngineer msn_test_tester)\n"
+                + "Complete output: mission-output:msn_test_tester (9000 chars, UTF-8 SHA-256 abc). Read it with armada_mission_output before acting on anything this summary leaves out.\n\n"
+                + "Tests added:\n- StressedFill_KeepsClerkSlippage\n";
+            string description = "title: stress the study\n" + new string('b', 7000)
+                + "\n\n---\n<!-- ARMADA:HANDOFF:msn_test_tester -->\n## Prior Stage Output\n" + new string('o', 3000) + "\n" + essentials;
+            Mission failed = new Mission
+            {
+                Id = "msn_test_rescue_essentials",
+                Title = "test mission",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = description,
+            };
+            Incident incident = new Incident { Id = "inc_test_rescue_essentials", Title = "t", Summary = "s", Status = IncidentStatusEnum.Open, Severity = IncidentSeverityEnum.Medium };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+            AssertContains("StressedFill_KeepsClerkSlippage", brief, "The added-tests list survives the description digest");
+            AssertContains("Complete output: mission-output:msn_test_tester", brief, "The complete-output reference survives");
             await Task.CompletedTask;
         }
 

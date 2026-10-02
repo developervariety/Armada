@@ -2887,73 +2887,26 @@ namespace Armada.Server
 
             string sanitized = SanitizeOriginalDescriptionForRescue(originalDescription);
             sb.AppendLine(sanitized);
+
+            // The digest keeps the head of the description, and handoff blocks sit at its end, so the
+            // newest prior stage's report essentials (its verdict, blocking findings, follow-ups, added
+            // tests and complete-output reference) are carried separately.
+            string essentials = StageReportEssentials.ExtractLast(originalDescription);
+            if (essentials.Length > 0 && !sanitized.Contains(essentials.Trim(), StringComparison.Ordinal))
+            {
+                sb.AppendLine();
+                sb.AppendLine(TruncateForBrief(essentials.Trim(), StageReportEssentials.DefaultMaxChars));
+            }
             return sb.ToString();
         }
 
-        // The phrases a reviewer uses to mark an item that blocks acceptance.
-        private static readonly string[] _BlockingFindingMarkers =
-        {
-            "NOT DELIVERED",
-            "NOT MET",
-            "NOT RESOLVED",
-            "**Blocking",
-            "Blocking:",
-            "BLOCKING:"
-        };
-
         /// <summary>
-        /// Every item of a review that is marked as blocking, one per line, each with its
-        /// continuation lines. Tool narration before the first section header is skipped. When the
-        /// items exceed the bound, each keeps its opening and the marker names how much was cut, so
-        /// no blocking item is dropped. Empty when the review marks nothing as blocking.
+        /// Every item of a review that is marked as blocking, each whole within the bound
+        /// (<see cref="StageReportEssentials.BlockingFindings"/>). Empty when nothing is marked blocking.
         /// </summary>
         internal static string BuildBlockingFindingsForBrief(string review, int maxChars)
         {
-            if (String.IsNullOrWhiteSpace(review)) return String.Empty;
-            int firstSection = IndexOfFirstSectionHeader(review);
-            string body = firstSection > 0 ? review.Substring(firstSection) : review;
-            string[] lines = body.Replace("\r\n", "\n").Split('\n');
-
-            List<string> findings = new List<string>();
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string line = lines[i].Trim();
-                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal)) continue;
-                // "Non-blocking" contains a blocking marker; strip it before matching.
-                string probe = Regex.Replace(line, "non-blocking", String.Empty, RegexOptions.IgnoreCase);
-                if (!_BlockingFindingMarkers.Any(marker => probe.Contains(marker, StringComparison.Ordinal))) continue;
-
-                StringBuilder item = new StringBuilder(line);
-                while (i + 1 < lines.Length && IsFindingContinuation(lines[i + 1]))
-                {
-                    i++;
-                    item.Append(' ').Append(lines[i].Trim());
-                }
-                findings.Add(item.ToString());
-            }
-            if (findings.Count == 0) return String.Empty;
-
-            int total = findings.Sum(item => item.Length + 3);
-            if (total <= maxChars)
-                return String.Join(Environment.NewLine, findings.Select(item => "- " + item));
-
-            int perItem = Math.Max(160, maxChars / findings.Count - 60);
-            return String.Join(Environment.NewLine, findings.Select(item => item.Length <= perItem
-                ? "- " + item
-                : "- " + item.Substring(0, perItem).TrimEnd() + " ... (" + (item.Length - perItem) + " more chars of this finding in the review)"));
-        }
-
-        // A wrapped line of the same finding: indented, not blank, not a new list item or header.
-        private static bool IsFindingContinuation(string line)
-        {
-            if (String.IsNullOrWhiteSpace(line)) return false;
-            if (!Char.IsWhiteSpace(line[0])) return false;
-            string trimmed = line.TrimStart();
-            if (trimmed.StartsWith("#", StringComparison.Ordinal)) return false;
-            if (trimmed.StartsWith("- ", StringComparison.Ordinal) || trimmed.StartsWith("* ", StringComparison.Ordinal)) return false;
-            int digits = 0;
-            while (digits < trimmed.Length && Char.IsDigit(trimmed[digits])) digits++;
-            return !(digits > 0 && digits < trimmed.Length && trimmed[digits] == '.');
+            return StageReportEssentials.BlockingFindings(review, maxChars).Replace("\n", Environment.NewLine);
         }
 
         // Reduce a prior mission's description to a bounded, low-filter-risk digest.

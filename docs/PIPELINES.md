@@ -71,6 +71,23 @@ mission. Stored output is redacted for secrets, and a quoted span that is not
 a JSON string is treated as prose: it keeps its text and plan markers, and only
 key-shaped values inside it are removed.
 
+Each handoff block ends with a report-essentials section for the stage that
+just finished: the complete-output reference (`mission-output:<id>`) with its
+length and UTF-8 SHA-256, the verdict, every blocking finding, and the
+follow-up, residual and added-tests sections, within a 4,000-character bound.
+It sits after the bounded output preview and the diff, because the description
+cap keeps the end of a brief; compacting an older block keeps it, and a rescue
+brief carries the newest one.
+
+A mission that depends on a stage in another voyage waits on that stage. When
+that stage was cancelled or failed and an autonomous rescue of its voyage
+completed, the dependant waits on the rescue's completed stage of the same
+persona instead; the change is recorded as `mission.dependency_rewired`, and the
+original stage stays in the record. An objective whose failed voyage was
+recovered reconciles to `Completed` once the rescue voyage completes: a rescue
+of a failed stage also recovers the failed stages above it in the same chain,
+because it started from that stage's commit and re-ran them.
+
 A rescue for a reviewer rejection is a Worker started from the reviewed
 commit. Its brief lists every item the review marks as blocking (`NOT
 DELIVERED`, `NOT MET`, `NOT RESOLVED`, or a `Blocking` finding), each whole,

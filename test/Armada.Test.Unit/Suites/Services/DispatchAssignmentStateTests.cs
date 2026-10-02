@@ -799,6 +799,60 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A voyage that waits on another voyage's Recorder waits forever when that voyage failed and
+            // its Recorder was cancelled. A completed rescue of that voyage replaces the Recorder.
+            await RunTest("TryAssign_DependencyCancelledInARescuedVoyage_WaitsOnTheRescueStageAndRecordsTheRewire", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.IsAncestorResult = true;
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    Vessel vessel = new Vessel("rescued-dependency-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel.AllowConcurrentMissions = true;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("rescued-dependency-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage("original") { Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("Judge", "review") { VesselId = vessel.Id, VoyageId = original.Id, Persona = "Judge", Status = MissionStatusEnum.Failed }).ConfigureAwait(false);
+                    Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("Recorder", "record") { VesselId = vessel.Id, VoyageId = original.Id, Persona = "Recorder", Status = MissionStatusEnum.Cancelled, DependsOnMissionId = judge.Id }).ConfigureAwait(false);
+
+                    Voyage rescue = await testDb.Driver.Voyages.CreateAsync(new Voyage("rescue") { Status = VoyageStatusEnum.Complete }).ConfigureAwait(false);
+                    Mission rescueWorker = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue 1: Judge", RescueMissionMarker.Marker + "\nRecover") { VesselId = vessel.Id, VoyageId = rescue.Id, Persona = "Worker", Status = MissionStatusEnum.Complete, ParentMissionId = judge.Id }).ConfigureAwait(false);
+                    Mission rescueRecorder = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue Recorder", "record") { VesselId = vessel.Id, VoyageId = rescue.Id, Persona = "Recorder", Status = MissionStatusEnum.Complete, DependsOnMissionId = rescueWorker.Id, CompletedUtc = DateTime.UtcNow, BranchName = "armada/rescue/recorder", CommitHash = "7777777777777777777777777777777777777777" }).ConfigureAwait(false);
+
+                    Voyage next = await testDb.Driver.Voyages.CreateAsync(new Voyage("next root")).ConfigureAwait(false);
+                    Mission waiting = await testDb.Driver.Missions.CreateAsync(new Mission("Next architect", "Plan the next slice") { VesselId = vessel.Id, VoyageId = next.Id, Persona = "Worker", Status = MissionStatusEnum.Pending, DependsOnMissionId = recorder.Id }).ConfigureAwait(false);
+                    waiting.DependsOnMissionId = recorder.Id;
+                    await testDb.Driver.Missions.UpdateAsync(waiting).ConfigureAwait(false);
+
+                    await missionService.TryAssignAsync(waiting, vessel).ConfigureAwait(false);
+
+                    Mission? after = await testDb.Driver.Missions.ReadAsync(waiting.Id).ConfigureAwait(false);
+                    AssertEqual(rescueRecorder.Id, after!.DependsOnMissionId, "The dependant now waits on the rescue's completed Recorder");
+                    AssertTrue(after.AssignmentState != MissionAssignmentStateEnum.WaitingForDependency, "The dependant is no longer held by the cancelled Recorder; state=" + after.AssignmentState);
+                    List<ArmadaEvent> rewires = await testDb.Driver.Events.EnumerateByTypeAsync("mission.dependency_rewired").ConfigureAwait(false);
+                    AssertEqual(1, rewires.Count, "The rewire is recorded");
+                    AssertContains(recorder.Id, rewires[0].Payload ?? String.Empty, "The event keeps the original dependency");
+                    AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(recorder.Id).ConfigureAwait(false))!.Status, "The original stage stays in the record");
+
+                    Voyage lone = await testDb.Driver.Voyages.CreateAsync(new Voyage("lone failed") { Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
+                    Mission loneRecorder = await testDb.Driver.Missions.CreateAsync(new Mission("Lone recorder", "record") { VesselId = vessel.Id, VoyageId = lone.Id, Persona = "Recorder", Status = MissionStatusEnum.Cancelled }).ConfigureAwait(false);
+                    Mission stuck = await testDb.Driver.Missions.CreateAsync(new Mission("Waits on an unrescued voyage", "Plan") { VesselId = vessel.Id, VoyageId = next.Id, Persona = "Worker", Status = MissionStatusEnum.Pending, DependsOnMissionId = loneRecorder.Id }).ConfigureAwait(false);
+                    await missionService.TryAssignAsync(stuck, vessel).ConfigureAwait(false);
+                    Mission? stuckAfter = await testDb.Driver.Missions.ReadAsync(stuck.Id).ConfigureAwait(false);
+                    AssertEqual(loneRecorder.Id, stuckAfter!.DependsOnMissionId, "Without a completed rescue the dependency is not changed");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, stuckAfter.AssignmentState);
+                }
+            });
+
             await RunTest("TryAssign_FanOutWorkerBelowARecoveryTipPlanner_CutsBranchAtTheTipAndVerifiesTheCheckout", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

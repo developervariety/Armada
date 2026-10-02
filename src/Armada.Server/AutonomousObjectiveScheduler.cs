@@ -1112,6 +1112,23 @@ namespace Armada.Server
                         recoveredAnchors.Add(parentId);
                         break;
                     }
+                    // A rescue of a later failed stage starts from that stage's commit, which carries
+                    // the work of the stages above it, and its chain re-runs them. The failure anchors
+                    // at or above that stage are recovered with it -- stages a terminal voyage marked
+                    // Failed after the rescue was dispatched included.
+                    if (originalsById.TryGetValue(parentId, out Mission? rescuedOriginal)
+                        && (rescuedOriginal.Status == MissionStatusEnum.Failed || rescuedOriginal.Status == MissionStatusEnum.LandingFailed))
+                    {
+                        HashSet<string> walked = new HashSet<string>(StringComparer.Ordinal);
+                        Mission? stage = rescuedOriginal;
+                        while (stage != null && walked.Add(stage.Id))
+                        {
+                            if (failureAnchors.Contains(stage.Id)) recoveredAnchors.Add(stage.Id);
+                            stage = !String.IsNullOrWhiteSpace(stage.DependsOnMissionId)
+                                && originalsById.TryGetValue(stage.DependsOnMissionId, out Mission? above) ? above : null;
+                        }
+                        break;
+                    }
                     if (!allMissionsById.TryGetValue(parentId, out Mission? parent)
                         || !RescueMissionMarker.IsAutoRescue(parent)) break;
                     parentId = parent.ParentMissionId;

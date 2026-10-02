@@ -220,6 +220,68 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // The verdict, blocking findings, follow-ups and added-tests list sit in the middle of a long
+            // report, past both ends of the preview, and a large diff follows it. The next stage must
+            // still receive them whole, with the complete-output reference, and keep them when the block
+            // is compacted at the next hop.
+            await RunTest("TryAssign_ReportWhoseEssentialsSitMidReport_HandoffCarriesThemPastPreviewAndDescriptionCaps", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission judge = await CreateUpstreamAsync(testDb.Driver, vessel, "Judge", "armada/essentials-report").ConfigureAwait(false);
+                    string blocking = "2. **Blocking. The stressed price drops the captured slippage tick.** `Study.cs:504` prices from the bar open without the clerk.";
+                    string followUp = "- Read the Missed, Expired and Stale counters in the report (`Report.cs:88`).";
+                    judge.AgentOutput =
+                        "## Completeness\n" + new string('c', 5000) + "\n" +
+                        "## Correctness\n1. Verified the age rule.\n" + blocking + "\n" +
+                        "## Suggested Follow-ups\n" + followUp + "\n" +
+                        "## Verdict\nNEEDS_REVISION: one blocking defect.\n[ARMADA:VERDICT] NEEDS_REVISION\n" +
+                        "## Tests\n" + new string('t', 5000) + "\n## Failure Modes\n" + new string('f', 5000);
+                    judge.DiffSnapshot = "diff --git a/src/Study.cs b/src/Study.cs\n--- a/src/Study.cs\n+++ b/src/Study.cs\n@@ -1 +1,2 @@\n+" + new string('d', 50000) + "\n";
+                    judge = await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    Mission recorder = await CreateDependentAsync(testDb.Driver, vessel, "Recorder", judge.Id, "Record the voyage.").ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(recorder, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(recorder.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+
+                    AssertContains("bounded head/tail preview; middle omitted", description, "Precondition: the preview drops the middle of the report");
+                    AssertContains(StageReportEssentials.Heading, description, "The essentials section survives the description cap");
+                    AssertContains(blocking, description, "The blocking finding survives whole");
+                    AssertContains(followUp, description, "The follow-up survives");
+                    AssertContains("[ARMADA:VERDICT] NEEDS_REVISION", description, "The verdict survives");
+                    AssertContains("Complete output: mission-output:" + judge.Id, description, "The complete-output reference survives");
+                    AssertContains("UTF-8 SHA-256", description, "The digest survives");
+
+                    string compacted = MissionService.CompactOlderHandoffBlocks(description);
+                    AssertContains("## Prior Stage (compacted)", compacted, "Precondition: the block was compacted");
+                    AssertContains(blocking, compacted, "Compaction keeps the blocking finding");
+                    AssertContains("Complete output: mission-output:" + judge.Id, compacted, "Compaction keeps the complete-output reference");
+                    AssertFalse(compacted.Contains(new string('d', 1000), StringComparison.Ordinal), "Compaction still drops the diff");
+                }
+            });
+
+            await RunTest("TryAssign_TestEngineerReport_HandoffCarriesTheAddedTestsList", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission tester = await CreateUpstreamAsync(testDb.Driver, vessel, "TestEngineer", "armada/added-tests").ConfigureAwait(false);
+                    tester.AgentOutput = new string('n', 6000) + "\n## Tests added\n- StressedFill_KeepsClerkSlippage\n- FillBarPastAge_IsStale\n" + new string('z', 6000);
+                    tester = await testDb.Driver.Missions.UpdateAsync(tester).ConfigureAwait(false);
+                    Mission linter = await CreateDependentAsync(testDb.Driver, vessel, "Linter", tester.Id, "Lint the change.").ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(linter, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(linter.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+                    AssertContains("StressedFill_KeepsClerkSlippage", description, "The added-tests list survives the preview");
+                    AssertContains("FillBarPastAge_IsStale", description);
+                }
+            });
+
             await RunTest("TryAssign_LongReportPreview_DoesNotSplitUnicodeScalars", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

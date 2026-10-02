@@ -83,6 +83,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Handoffs keep a stage's report essentials; rescues release their
+  dependants and close their objective:** each handoff block ends with the
+  stage's complete-output reference and digest, verdict, blocking findings,
+  follow-ups and added tests, which survive the preview, the description cap,
+  compaction and the rescue brief. A cross-voyage dependency on a cancelled or
+  failed stage moves to the completed stage of a rescue of its voyage
+  (`mission.dependency_rewired`). A rescue of a failed stage recovers the failed
+  stages above it in the same chain, so the objective reconciles to Completed.
 - **Objectives can forbid native memory writes:** a captain's launch
   credential names its mission, and `create_memory` and `update_memory` refuse
   with `native_memory_forbidden` when that mission's objective carries the tag

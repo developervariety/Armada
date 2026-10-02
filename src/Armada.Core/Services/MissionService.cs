@@ -609,6 +609,20 @@ namespace Armada.Core.Services
                     return false;
                 }
 
+                // A dependency in another voyage that was cancelled or failed may have been replaced by
+                // an autonomous rescue of its voyage. Wait on the rescue's completed stage instead, or the
+                // dependant waits forever on a mission that will never complete.
+                if (!IsDependencySatisfyingStatus(dependency.Status)
+                    && !String.Equals(dependency.VoyageId, mission.VoyageId, StringComparison.Ordinal))
+                {
+                    Mission? replacement = await RescueDependencyResolver.FindReplacementAsync(_Database, dependency, token).ConfigureAwait(false);
+                    if (replacement != null)
+                    {
+                        await RewireDependencyAsync(mission, dependency, replacement, token).ConfigureAwait(false);
+                        dependency = replacement;
+                    }
+                }
+
                 dependencyIsCrossVessel = !String.IsNullOrEmpty(dependency.VesselId)
                     && !String.IsNullOrEmpty(mission.VesselId)
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
@@ -5021,6 +5035,41 @@ namespace Armada.Core.Services
             return String.Join("\n\n", sections);
         }
 
+        private async Task RewireDependencyAsync(Mission mission, Mission original, Mission replacement, CancellationToken token)
+        {
+            _Logging.Info(_Header + "mission " + mission.Id + " dependency " + original.Id + " (" + original.Status + ") was replaced by rescue stage "
+                + replacement.Id + "; waiting on the replacement");
+            mission.DependsOnMissionId = replacement.Id;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("mission.dependency_rewired",
+                    "Mission " + mission.Id + " now depends on rescue stage " + replacement.Id + " in place of " + original.Status + " mission " + original.Id + ".");
+                evt.TenantId = mission.TenantId;
+                evt.UserId = mission.UserId;
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    originalDependencyId = original.Id,
+                    originalStatus = original.Status.ToString(),
+                    originalVoyageId = original.VoyageId,
+                    replacementId = replacement.Id,
+                    replacementVoyageId = replacement.VoyageId,
+                    persona = replacement.Persona
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not record dependency rewire event for mission " + mission.Id + ": " + ex.Message);
+            }
+        }
+
         /// <summary>
         /// Returns true when a mission status satisfies a downstream dependency. PullRequestOpen
         /// counts because the captain branch is finalized and pushed at PR-open time.
@@ -7192,6 +7241,14 @@ namespace Armada.Core.Services
                 handoffContext += "\n*No diff available from prior stage. The work is on the branch above.*\n";
             }
 
+            // The report's essentials go last: every later size cap keeps the end of the brief, and the
+            // preview above can drop the middle of a long report, where verdicts and findings sit.
+            handoffContext += "\n" + StageReportEssentials.Build(
+                completedMission.Persona,
+                completedMission.Id,
+                String.IsNullOrEmpty(completedMission.AgentOutput) ? null : RuntimeLogFormatter.RedactSecrets(completedMission.AgentOutput),
+                outputArtifact);
+
             // Idempotency: strip any prior handoff block for this same upstream mission, and do not
             // re-prepend a persona preamble that is already present. Without this, a handoff that runs
             // twice for the same pair (batch path plus the lazy self-heal path, or a rescue re-prepare)
@@ -7634,12 +7691,16 @@ namespace Armada.Core.Services
                 }
             }
 
+            // The stage's report essentials (verdict, blocking findings, follow-ups, added tests and the
+            // complete-output reference) survive compaction; only the pasted output and diff are dropped.
+            string essentials = StageReportEssentials.ExtractLast(block);
             string compacted = "\n\n---\n" +
                 BuildHandoffMarker(missionId) + "\n" +
                 _CompactedHandoffHeading + "\n" +
                 "Stage: " + persona + ". Mission: " + missionId + ". Branch: " + branch + ".\n" +
                 "Its full output and diff are not repeated here. They are on that branch, " +
-                "and the mission record holds the complete log. Read them only if this stage needs them.\n";
+                "and the mission record holds the complete log. Read them only if this stage needs them.\n" +
+                (essentials.Length > 0 ? "\n" + essentials : String.Empty);
 
             // A stage that produced very little leaves a block smaller than this reference. Replacing it
             // would add bytes to save bytes, and would also throw away real content to do it. Keep
