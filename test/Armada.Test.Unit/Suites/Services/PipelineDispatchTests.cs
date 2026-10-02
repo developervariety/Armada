@@ -814,11 +814,13 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
+                    // The quote opened on the first line closes on the title line, so the span between
+                    // them holds the opening marker, as in the observed output.
                     string plan =
-                        "The ledger keeps Journal(\"kind\" for each entry, and the review is called\n" +
-                        "\"daily-paper-review\" in the settings.\n\n" +
+                        "The ledger keeps Journal(\"kind, and the review is called\n" +
+                        "daily-paper-review in the settings.\n\n" +
                         "[ARMADA:MISSION]\n" +
-                        "title: Write the data dictionary\n" +
+                        "title: Write the data dictionary\" for the ledger\n" +
                         "goal: Describe every stored field in one document\n" +
                         "Steps:\n" +
                         "1. List the journal kinds, such as \"settlement\" and\n" +
