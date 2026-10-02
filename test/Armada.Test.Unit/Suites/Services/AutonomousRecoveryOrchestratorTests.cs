@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -3227,6 +3228,10 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildRescueDescription_UnderCapJudgeReport_IsEmbeddedWhole).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief keeps the head-first cut for text without Judge sections",
                 TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription carries every blocking finding of a long review whose findings sit mid-report",
+                BuildRescueDescription_LongReviewWithMidReportFindings_CarriesEveryBlockingFinding).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief keeps every finding's opening inside its bound when the findings are long",
+                BuildBlockingFindingsForBrief_ManyLongFindings_KeepsEveryOpeningInsideTheBound).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief drops an over-budget narration preamble so the findings survive",
                 TruncateReviewerFeedbackForBrief_NarrationPreambleOverBudget_KeepsTheFindingsNotTheChatter).ConfigureAwait(false);
         }
@@ -3812,6 +3817,82 @@ namespace Armada.Test.Unit.Suites.Services
             int feedbackLength = feedbackEnd - feedbackStart;
             AssertTrue(feedbackLength <= AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars + 400,
                 "The embedded feedback must stay near the cap. Actual length: " + feedbackLength);
+            await Task.CompletedTask;
+        }
+
+        // A Judge lists its findings in Completeness and Correctness, between long evidence
+        // sections. The rescue brief must name every blocking one, not only those that survive a
+        // head-and-tail excerpt.
+        public async Task BuildRescueDescription_LongReviewWithMidReportFindings_CarriesEveryBlockingFinding()
+        {
+            string notDelivered = "- Today's counts: `Status.cs:18-19` declares the fields, but no hunk in `Registry.cs` assigns either; `RiskBook.Today` already counts them (`RiskBook.cs:54-58`). NOT DELIVERED.";
+            string blockingOne = "1. **Blocking. Today's trades are never populated although a counter already exists.** One fill today makes `RiskBook.Today(now).Trades` equal 1 while the route reports null (`Registry.cs:137-149`).";
+            string blockingTwo = "2. **Blocking. Exit, structure and entry rows ignore the paper window that gates their entries.** `ExitStudy.cs:52`, `StructureStudy.cs:76` and `EntryStudy.cs:87` return before opening a session when the window has passed.";
+            string nonBlocking = "Non-blocking observations: the macro row shows study while live entry holds.";
+            StringBuilder review = new StringBuilder();
+            review.AppendLine("I'll start by reading the briefing memory and mission description files, then review the branch diff.");
+            review.AppendLine("The build passed. Now I'll read the full test file.");
+            review.AppendLine("## Completeness");
+            for (int i = 0; i < 12; i++) review.AppendLine("- Delivered item " + i + ": `src/Area/File" + i + ".cs:1-40` holds the record and its rows. DELIVERED.");
+            review.AppendLine(notDelivered);
+            for (int i = 12; i < 20; i++) review.AppendLine("- Delivered item " + i + ": `src/Area/File" + i + ".cs:1-40` holds the record and its rows. DELIVERED.");
+            review.AppendLine("## Correctness");
+            for (int i = 0; i < 14; i++) review.AppendLine("- Verified rule " + i + " against its owner at `src/Owner" + i + ".cs:10`; the behaviour matches the documented contract.");
+            review.AppendLine("Defects found:");
+            review.AppendLine(blockingOne);
+            review.AppendLine(blockingTwo);
+            review.AppendLine(nonBlocking);
+            review.AppendLine("## Tests");
+            for (int i = 0; i < 14; i++) review.AppendLine("- Test " + i + " covers the changed behaviour for case " + i + " and passed in the foreground run.");
+            review.AppendLine("## Failure Modes");
+            for (int i = 0; i < 10; i++) review.AppendLine("- Failure mode " + i + " is handled by an explicit guard and an error message naming the input.");
+            review.AppendLine("## Suggested Follow-ups");
+            review.AppendLine("- Populate the counts from the risk book and add a window test per study row.");
+            review.AppendLine("## Verdict");
+            review.AppendLine("NEEDS_REVISION: two blocking defects.");
+            review.AppendLine("[ARMADA:VERDICT] NEEDS_REVISION");
+            string text = review.ToString();
+            AssertTrue(text.Length > 7000, "Precondition: the review is as long as the observed one. Actual: " + text.Length);
+
+            Mission failed = new Mission
+            {
+                Id = "msn_test_mid_findings",
+                Title = "test mission",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = "title: build the registry",
+                ReviewComment = text,
+            };
+            Incident incident = new Incident { Id = "inc_test_mid_findings", Title = "t", Summary = "s", Status = IncidentStatusEnum.Open, Severity = IncidentSeverityEnum.Medium };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+            int blockStart = brief.IndexOf("Blocking findings to fix", StringComparison.Ordinal);
+            int feedbackStart = brief.IndexOf("Reviewer feedback to address:", StringComparison.Ordinal);
+            AssertTrue(blockStart > 0 && feedbackStart > blockStart, "The blocking findings come before the excerpt");
+            string block = brief.Substring(blockStart, feedbackStart - blockStart);
+            AssertContains(notDelivered.Substring(2), block, "The NOT DELIVERED item is carried whole");
+            AssertContains(blockingOne, block, "The first blocking defect is carried whole");
+            AssertContains(blockingTwo, block, "The second blocking defect is carried whole");
+            AssertFalse(block.Contains("Non-blocking observations"), "A non-blocking note is not listed as blocking");
+            AssertFalse(block.Contains("I'll start by reading"), "Tool narration is not a finding");
+            AssertTrue(block.Length <= AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars + 200, "The findings block stays inside its bound. Actual: " + block.Length);
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_ManyLongFindings_KeepsEveryOpeningInsideTheBound()
+        {
+            StringBuilder review = new StringBuilder();
+            review.AppendLine("## Correctness");
+            for (int i = 0; i < 12; i++)
+                review.AppendLine((i + 1) + ". **Blocking. Finding number " + i + " opens here.** " + new string('x', 900));
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review.ToString(), 4000);
+
+            for (int i = 0; i < 12; i++)
+                AssertContains("Finding number " + i + " opens here.", block, "Every finding keeps its opening");
+            AssertTrue(block.Length <= 4000 + 12 * 60, "The block stays near its bound. Actual: " + block.Length);
+            AssertContains("more chars of this finding in the review", block, "A cut finding says it was cut");
+            AssertEqual(String.Empty, AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief("## Verdict\nPASS", 4000), "A review with no blocking item yields nothing");
             await Task.CompletedTask;
         }
 

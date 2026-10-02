@@ -58,6 +58,14 @@ kind: it does not hand off, its later stages are cancelled, and no rescue runs.
 Its question goes to the owner on an incident and a board note. See
 [PERSONAS.md](PERSONAS.md#a-stage-that-ends-armadaresult-blocked-waits-for-the-owner).
 
+A rescue for a reviewer rejection is a Worker started from the reviewed
+commit. Its brief lists every item the review marks as blocking (`NOT
+DELIVERED`, `NOT MET`, `NOT RESOLVED`, or a `Blocking` finding), each whole,
+within a 4,000-character bound; when the items exceed it, each keeps its
+opening and says how much was cut. A bounded excerpt of the review follows,
+with tool narration before the first section dropped and the Suggested
+Follow-ups and Verdict kept whole.
+
 Stage `preferredModel` values are logical tiers: `low`, `mid`, or `high`.
 Provider routing resolves the concrete model. Do not put concrete provider
 model names in pipeline documentation or persona prompts.

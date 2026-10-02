@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Rescue briefs carry every blocking finding:** a rescue for a reviewer
+  rejection lists every item the review marks `NOT DELIVERED`, `NOT MET`,
+  `NOT RESOLVED` or `Blocking`, each whole, within a 4,000-character bound,
+  before the bounded review excerpt. Findings in the middle of a long review
+  are no longer cut away.
 - **Landings that do not reach origin are loud and keep their work:** a merge
   queue landing that does not reach origin records a
   `merge_queue.origin_push_failed` event and opens one High incident per vessel
