@@ -88,6 +88,7 @@ Because each entry is landed immediately, the next entry in the same group alway
 | **Push failure** | Entry marked `Failed` with error message, and the linked mission becomes `LandingFailed`. A landing that did not reach origin also records a `merge_queue.origin_push_failed` event and opens one High incident per vessel and target branch. Both name the branch, the git error, and the bare target, origin target, and integration heads. The usual cause is a bare target and origin that have diverged; see "Reconcile a bare target that diverged from origin" below. |
 | **Failure after the push advanced the target** | The queue rolls the target back to its pre-land head with `git push --force-with-lease=refs/heads/<target>:<inspected-head>`. If another writer moved the target after the rollback inspected it, the push is refused and that writer's commit stays. The `merge_queue.failed_target_advanced` event records `rolled_back`, `partial_rollback: ...`, or `rollback_failed: ...`. |
 | **Vessel not found** | All entries in the group are marked `Failed` with a message indicating the vessel could not be resolved. |
+| **Integration setup failure** | An error while preparing the integration worktree (fetch, worktree creation) marks the entry `Failed` with `integration_setup_failed: <error>`, the mission becomes `LandingFailed`, and recovery runs. |
 | **Unexpected exception** | Entry marked `Failed` with error message. Best-effort worktree cleanup. Processing continues to the next entry. Group-level exceptions are caught by `ProcessGroupSafeAsync` and logged as warnings. |
 
 ### Known Operator Notes
@@ -126,6 +127,12 @@ These are observed behaviors that the entry status alone does not make obvious.
   bare target to origin while it holds landed commits: those commits are then
   reachable only from mission and preserved refs. Retry the failed landing
   afterwards.
+- **A direct landing pushes before it moves the bare target.** Outside
+  `LocalMerge`, the merged commit is pushed to origin first and the bare target
+  advances only after the push succeeds, so a refused push leaves the bare
+  unchanged. When target-branch drift exhausts the landing retries, the
+  landing records `landing.origin_push_failed` and opens one High incident per
+  vessel and target with the bare and origin heads.
 - **A landing retry does not need the mission's dock.** A failed landing's
   dock is reclaimed. `retry_landing` reads the change from a temporary
   detached worktree at the mission branch tip and removes it afterwards.

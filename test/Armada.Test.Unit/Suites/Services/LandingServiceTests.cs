@@ -369,6 +369,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Advancing the bare target before the push left a merge only the bare held whenever origin
+            // refused the push; exhausting the retries said so only in a log line.
+            await RunTest("MergeInDedicatedWorktreeAsync_RejectedPush_NeverAdvancesTheBareTargetAndRaisesOneIncidentWhenExhausted", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxLandingRetries = 1;
+                    StubGitService git = new StubGitService();
+                    git.DriftPushFailuresRemaining = 5;
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Mission mission = CreateMission("msn_push_first");
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(vessel, mission, "main", "armada/captain/msn_push_first", "Merge armada mission").ConfigureAwait(false);
+
+                    AssertFalse(result, "The landing fails while origin refuses the push");
+                    AssertEqual(0, git.CompareAndSwapCalls.Count, "The bare target never moves for a push origin refused");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("landing.origin_push_failed").ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "Exhausting the retries records the failure");
+                    EnumerationResult<Incident> incidents = await new IncidentService(testDb.Driver).EnumerateAsync(
+                        AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest"),
+                        new IncidentQuery { VesselId = vessel.Id, ExcludeTerminal = true, PageSize = 10 }).ConfigureAwait(false);
+                    AssertEqual(1L, incidents.TotalRecords, "One incident names the failed push");
+                    AssertContains("Never reset the bare target", incidents.Objects[0].RecoveryNotes ?? String.Empty);
+                }
+            });
+
             await RunTest("MergeInDedicatedWorktreeAsync_LocalMergeVessel_DoesNotPushAndSurvivesRemoteDivergence", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

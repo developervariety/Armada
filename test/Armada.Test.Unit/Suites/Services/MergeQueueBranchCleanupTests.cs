@@ -1319,6 +1319,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // An error while setting up the integration worktree once escaped to the group handler, which
+            // only logged it, and the entry stayed in Rebasing with its mission waiting.
+            await RunTest("ProcessEntry_IntegrationSetupFails_FailsTheEntryByName", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_setup_fail_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "feature.txt").ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        FaultInjectingGitService git = new FaultInjectingGitService(new GitService(logging), throwOnGetCurrentBranch: false, throwOnIsClean: false);
+                        git.ThrowOnCreateWorktree = true;
+                        Vessel vessel = new Vessel("setup-fail-vessel", repos.RemoteDir) { LocalPath = repos.BareDir, WorkingDirectory = repos.WorkingDir, DefaultBranch = "main", BranchCleanupPolicy = BranchCleanupPolicyEnum.None };
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                        MergeEntry entry = await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry
+                        {
+                            VesselId = vessel.Id, BranchName = repos.CaptainBranch, TargetBranch = "main", Status = MergeStatusEnum.Queued,
+                            CreatedUtc = DateTime.UtcNow, LastUpdateUtc = DateTime.UtcNow
+                        }).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, CreateSettings(), git, new MergeFailureClassifier());
+                        try { await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { }
+
+                        MergeEntry? after = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Failed, after!.Status, "The entry fails instead of staying in Rebasing");
+                        AssertContains("integration_setup_failed", after.TestOutput ?? String.Empty, "The failure names the step");
+                        AssertContains("injected worktree failure", after.TestOutput ?? String.Empty, "The failure carries the git error");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("LandEntryAsync_NonePolicy_PreservesCaptainBranch", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_cleanup_" + Guid.NewGuid().ToString("N"));
@@ -3075,7 +3113,13 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => _Inner.CloneBareAsync(repoUrl, localPath, token);
 
-            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default) => _Inner.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token: token);
+            public bool ThrowOnCreateWorktree { get; set; }
+
+            public Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+            {
+                if (ThrowOnCreateWorktree) throw new InvalidOperationException("injected worktree failure");
+                return _Inner.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token: token);
+            }
 
             public Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default) => _Inner.RemoveWorktreeAsync(worktreePath, token);
 

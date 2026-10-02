@@ -173,6 +173,35 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A mission awaiting review keeps its dock and releases its captain; approval lands from that
+            // dock. The orphan reaper must not take it, while a dock no mission needs is still reclaimed.
+            await RunTest("The orphan-dock reaper keeps the dock of a mission awaiting review and reclaims a real orphan", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), new StubGitService());
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("reaper-vessel", "https://github.com/test/reaper.git")).ConfigureAwait(false);
+                    Captain idle = await testDb.Driver.Captains.CreateAsync(new Captain("reaper-idle-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Dock reviewDock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        CaptainId = idle.Id, Active = true, WorktreePath = Path.Combine(Path.GetTempPath(), "armada_reaper_review_" + Guid.NewGuid().ToString("N")),
+                        BranchName = "armada/reaper/review", CreatedUtc = DateTime.UtcNow.AddMinutes(-30)
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("Awaiting review") { VesselId = vessel.Id, DockId = reviewDock.Id, Status = MissionStatusEnum.Review }).ConfigureAwait(false);
+                    Dock orphanDock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        CaptainId = idle.Id, Active = true, WorktreePath = Path.Combine(Path.GetTempPath(), "armada_reaper_orphan_" + Guid.NewGuid().ToString("N")),
+                        BranchName = "armada/reaper/orphan", CreatedUtc = DateTime.UtcNow.AddMinutes(-30)
+                    }).ConfigureAwait(false);
+
+                    await service.ReclaimOrphanedDocksAsync().ConfigureAwait(false);
+
+                    AssertTrue((await testDb.Driver.Docks.ReadAsync(reviewDock.Id).ConfigureAwait(false))!.Active, "The dock of a mission awaiting review is kept");
+                    AssertFalse((await testDb.Driver.Docks.ReadAsync(orphanDock.Id).ConfigureAwait(false))!.Active, "A dock no mission needs is reclaimed");
+                }
+            });
+
             await RunTest("A captain Stalled with no mission returns to Idle after the stall threshold, and one with a mission stays", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

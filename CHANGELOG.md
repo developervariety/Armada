@@ -83,6 +83,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Docks and landings that cleanup or a failure left behind:** the orphan-dock
+  reaper keeps the dock of a mission awaiting review; stall recovery keeps the
+  dock of a mission whose work is produced, its pull request open, or under
+  review; the disk sweep skips its orphan-dock scan when the protected docks
+  cannot be read. A direct landing pushes to origin before it advances the bare
+  target, and an exhausted drift retry records `landing.origin_push_failed`
+  and opens an incident. A merge-queue error while preparing the integration
+  worktree fails the entry as `integration_setup_failed` instead of leaving it
+  in Rebasing.
 - **Handoffs keep a stage's report essentials; rescues release their
   dependants and close their objective:** each handoff block ends with the
   stage's complete-output reference and digest, verdict, blocking findings,

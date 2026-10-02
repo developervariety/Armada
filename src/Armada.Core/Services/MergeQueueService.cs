@@ -862,7 +862,19 @@ namespace Armada.Core.Services
             if (entry.Status == MergeStatusEnum.Queued || entry.Status == MergeStatusEnum.Rebasing)
             {
                 await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
-                await PrepareIntegrationWorktreeAsync(entry, repoPath, token).ConfigureAwait(false);
+                try
+                {
+                    await PrepareIntegrationWorktreeAsync(entry, repoPath, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!token.IsCancellationRequested)
+                {
+                    // An error here once escaped to the group handler, which only logged it, and left the
+                    // entry in Rebasing with its mission waiting. Fail the entry by name so the mission and
+                    // recovery see it.
+                    _Logging.Warn(_Header + "integration setup failed for " + entry.Id + ": " + ex.Message);
+                    await TransitionEntryToFailureAsync(entry, "integration_setup_failed: " + ex.Message, token).ConfigureAwait(false);
+                    return false;
+                }
                 await PersistStatusAsync(entry, MergeStatusEnum.Merging, token).ConfigureAwait(false);
                 return true;
             }

@@ -282,7 +282,13 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "could not enumerate protected docks for orphan-dock scan: " + ex.Message);
+                // Fail closed: with the protected set unreadable, any dock might belong to a live mission.
+                // Scanning on would remove docks a landing, review or retry still reads.
+                _Logging.Warn(_Header + "could not enumerate protected docks; the orphan-dock scan is skipped this pass: " + ex.Message);
+                report.ErrorCount++;
+                report.Errors.Add("docks: protected docks could not be read, so no dock was considered this pass: " + ex.Message);
+                report.Categories.Add(category);
+                return;
             }
 
             DateTime cutoff = DateTime.UtcNow.AddMinutes(-Math.Max(1, section.OrphanDockGraceMinutes));

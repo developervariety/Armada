@@ -86,6 +86,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A mission whose work was produced before its captain stalled still lands from its dock.
+            await RunTest("Recovery of a mission whose work is produced releases the captain and keeps its dock and status", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService { IsRepositoryResult = true };
+                    StubDockService docks = new StubDockService();
+                    CaptainService captainService = new CaptainService(CreateLogging(), testDb.Driver, CreateSettings(), git, docks);
+                    captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => throw new InvalidOperationException("synthetic relaunch failure");
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("produced-recover-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("produced-recover-captain")
+                    {
+                        State = CaptainStateEnum.Working, CurrentMissionId = "msn_prod_one", CurrentDockId = "dck_prod_one"
+                    }).ConfigureAwait(false);
+                    Mission mission = new Mission("Produced Mission") { Id = "msn_prod_one", VesselId = vessel.Id, CaptainId = captain.Id, DockId = "dck_prod_one", Status = MissionStatusEnum.WorkProduced };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    Dock dock = new Dock(vessel.Id) { Id = "dck_prod_one", CaptainId = captain.Id, WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_produced_" + Guid.NewGuid().ToString("N")), Active = true };
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    await captainService.TryRecoverAsync(captain).ConfigureAwait(false);
+
+                    AssertEqual(0, docks.ReclaimCalls, "The dock its landing reads is kept");
+                    AssertEqual(MissionStatusEnum.WorkProduced, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status, "The produced work is not failed");
+                    Captain? released = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, released!.State, "The captain is still released");
+                    AssertNull(released.CurrentDockId, "The captain no longer holds the dock");
+                }
+            });
+
             await RunTest("Missing recovery dock marks mission failed instead of leaving it active", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

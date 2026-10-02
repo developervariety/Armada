@@ -2241,8 +2241,21 @@ namespace Armada.Core.Services
                                 }
                             }
 
-                            // Reclaim the dock worktree so it doesn't leak
-                            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                            // Reclaim the dock worktree so it doesn't leak -- unless the mission still lands
+                            // or is approved from it (its work was produced before the stall).
+                            if (DockRetentionRule.MissionStillUsesDock(mission))
+                            {
+                                _Logging.Info(_Header + "keeping dock of mission " + mission!.Id + " (" + mission.Status + ") after stall recovery exhaustion; its landing or review still reads it");
+                                if (!String.IsNullOrEmpty(captain.CurrentDockId))
+                                {
+                                    captain.CurrentDockId = null;
+                                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                                }
+                            }
+                            else
+                            {
+                                await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                            }
 
                             // Release the captain to Idle instead of Stalled so it can pick up new work.
                             // The mission is already marked Failed -- no need to also block the captain.
@@ -2501,7 +2514,7 @@ namespace Armada.Core.Services
         /// Reclaim docks that have been active for too long without an associated working captain.
         /// This catches docks leaked by failed launches or agent crashes.
         /// </summary>
-        private async Task ReclaimOrphanedDocksAsync(CancellationToken token)
+        internal async Task ReclaimOrphanedDocksAsync(CancellationToken token = default)
         {
             try
             {
@@ -2543,6 +2556,15 @@ namespace Armada.Core.Services
                         if (producedMissions.Any(m => m.HeldForOperatorReview && m.DockId == dock.Id))
                         {
                             _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a held Judge PASS");
+                            continue;
+                        }
+
+                        // A mission awaiting operator review keeps its dock on purpose and releases its
+                        // captain; approving it lands from that dock, so the dock is not an orphan.
+                        List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                        if (reviewMissions.Any(m => m.DockId == dock.Id))
+                        {
+                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a mission awaiting review");
                             continue;
                         }
 

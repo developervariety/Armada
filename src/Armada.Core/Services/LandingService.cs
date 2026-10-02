@@ -149,12 +149,6 @@ namespace Armada.Core.Services
                     if (String.IsNullOrWhiteSpace(mergedHead))
                         throw new InvalidOperationException("Unable to resolve the merged commit in integration worktree " + worktreePath);
 
-                    if (!String.Equals(mergedHead, targetTip, StringComparison.OrdinalIgnoreCase))
-                    {
-                        await _Git.CompareAndSwapBranchRefAsync(vessel.LocalPath, targetBranch, mergedHead!, targetTip!, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "advanced " + targetBranch + " from " + targetTip + " to " + mergedHead);
-                    }
-
                     // LocalMerge lands into the local repository only -- pushing to a remote is
                     // the operator's decision, never automatic. Pushing here made every landing
                     // fail once the local default branch diverged from the remote: git rejects
@@ -163,6 +157,10 @@ namespace Armada.Core.Services
                     // re-pushes the same divergence until maxLandingRetries is exhausted. The
                     // mission is then marked LandingFailed and its branch is left stray even
                     // though the local merge itself succeeded.
+                    //
+                    // Any other mode pushes BEFORE the bare target moves. Advancing the bare first
+                    // left a merge only the bare held whenever origin rejected the push, and the
+                    // branch sweep and the next sync then treated that work as landed.
                     if (vessel.LandingMode != LandingModeEnum.LocalMerge)
                     {
                         await _Git.PushHeadToBranchAsync(worktreePath, "origin", targetBranch, token).ConfigureAwait(false);
@@ -171,6 +169,12 @@ namespace Armada.Core.Services
                     else
                     {
                         _Logging.Info(_Header + "landing mode is LocalMerge -- skipping push to origin for mission " + mission.Id);
+                    }
+
+                    if (!String.Equals(mergedHead, targetTip, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _Git.CompareAndSwapBranchRefAsync(vessel.LocalPath, targetBranch, mergedHead!, targetTip!, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "advanced " + targetBranch + " from " + targetTip + " to " + mergedHead);
                     }
 
                     succeeded = true;
@@ -252,6 +256,7 @@ namespace Armada.Core.Services
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Error(_Header + "target branch drift retry exhausted for mission " + mission.Id + " after " + mission.LandingRetryCount + " retries");
+                    await RaiseLandingPushExhaustedAsync(vessel, mission, targetBranch, failure.Message, token).ConfigureAwait(false);
                     return false;
                 }
 
@@ -778,6 +783,77 @@ namespace Armada.Core.Services
 
             _Logging.Warn(_Header + rootCause + " " + reasonSentence);
             return reasonSentence;
+        }
+
+        /// <summary>
+        /// Make a direct landing that could not reach origin loud: one event and one open incident per
+        /// vessel and target naming the branch, the git error, and the bare and origin heads.
+        /// </summary>
+        private async Task RaiseLandingPushExhaustedAsync(Vessel vessel, Mission mission, string targetBranch, string error, CancellationToken token)
+        {
+            string bareHead = "unknown";
+            string originHead = "unknown";
+            try
+            {
+                bareHead = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath!, "refs/heads/" + targetBranch, token).ConfigureAwait(false) ?? "unknown";
+                originHead = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath!, "refs/remotes/origin/" + targetBranch, token).ConfigureAwait(false) ?? "unknown";
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not read heads for the landing push failure of " + mission.Id + ": " + ex.Message);
+            }
+
+            string summary = "Mission " + mission.Id + " branch " + (mission.BranchName ?? "unknown") + " did not reach origin/" + targetBranch
+                + " on vessel " + vessel.Name + " (" + vessel.Id + ") after " + mission.LandingRetryCount + " retries. Bare " + targetBranch + " is "
+                + bareHead + ", origin/" + targetBranch + " is " + originHead + ". Git error: " + error;
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("landing.origin_push_failed", summary);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = vessel.Id;
+                evt.VoyageId = mission.VoyageId;
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.Payload = JsonSerializer.Serialize(new { missionId = mission.Id, branch = mission.BranchName, targetBranch, bareTargetHead = bareHead, originTargetHead = originHead, retries = mission.LandingRetryCount, error });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not record the landing push failure event for " + mission.Id + ": " + ex.Message);
+            }
+
+            AuthContext auth = AuthContext.Authenticated(
+                mission.TenantId ?? Constants.DefaultTenantId,
+                mission.UserId ?? Constants.DefaultUserId,
+                isAdmin: false,
+                isTenantAdmin: true,
+                authMethod: "System",
+                principalDisplay: "Landing");
+            string title = "Landing push to origin failed: " + vessel.Name + " " + targetBranch;
+            try
+            {
+                EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth,
+                    new IncidentQuery { VesselId = vessel.Id, Search = title, ExcludeTerminal = true, PageSize = 1 }, token).ConfigureAwait(false);
+                if (existing.TotalRecords > 0) return;
+                await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = title,
+                    Summary = summary,
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    VesselId = vessel.Id,
+                    MissionId = mission.Id,
+                    VoyageId = mission.VoyageId,
+                    Impact = "The mission's work is not on origin, and later landings on this target fail the same way until bare and origin agree.",
+                    RecoveryNotes = "Compare the bare " + targetBranch + " with origin/" + targetBranch
+                        + ". Fast-forward whichever is behind, or merge both in a scratch worktree and push the merge. Never reset the bare target to origin while it holds landed commits. Then retry the landing."
+                }, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not open the landing push failure incident for " + mission.Id + ": " + ex.Message);
+            }
         }
 
         /// <summary>

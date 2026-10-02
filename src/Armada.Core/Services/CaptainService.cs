@@ -186,13 +186,17 @@ namespace Armada.Core.Services
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
-                    try
+                    // A mission whose work is produced still lands from its dock; keep it.
+                    if (!DockRetentionRule.MissionStillUsesDock(mission))
                     {
-                        await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _Logging.Warn(_Header + "error reclaiming dock " + dock.Id + " while skipping recovery for captain " + captain.Id + ": " + ex.Message);
+                        try
+                        {
+                            await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "error reclaiming dock " + dock.Id + " while skipping recovery for captain " + captain.Id + ": " + ex.Message);
+                        }
                     }
 
                     await ReleaseAsync(captain, token: token).ConfigureAwait(false);
@@ -454,7 +458,9 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             }
 
-            if (!String.IsNullOrEmpty(captain.CurrentDockId))
+            // A mission whose work was produced before recovery failed still lands or is approved from
+            // its dock; release the captain but keep the dock.
+            if (!String.IsNullOrEmpty(captain.CurrentDockId) && !DockRetentionRule.MissionStillUsesDock(mission))
             {
                 try
                 {

@@ -246,6 +246,40 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // With the protected docks unreadable, any dock might belong to a live mission; the sweep must
+            // not judge docks against a partial protected set.
+            await RunTest("The orphan-dock scan is skipped and reported when the protected docks cannot be read", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+                try
+                {
+                    await CreateVesselWithSiblingAsync(testDb, layout).ConfigureAwait(false);
+                    Directory.CreateDirectory(layout.OrphanDockPath);
+                    File.WriteAllText(Path.Combine(layout.OrphanDockPath, ".git"), "gitdir: /tmp/nowhere\n");
+                    File.SetLastWriteTimeUtc(layout.OrphanDockPath, DateTime.UtcNow.AddDays(-2));
+                    using (Microsoft.Data.Sqlite.SqliteConnection conn = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                    {
+                        await conn.OpenAsync().ConfigureAwait(false);
+                        using (Microsoft.Data.Sqlite.SqliteCommand cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = "ALTER TABLE missions RENAME TO missions_unreadable;";
+                            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                        }
+                    }
+
+                    DiskLifecycleReport report = await new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging()).ScanAsync().ConfigureAwait(false);
+
+                    AssertFalse(report.Actions.Any(a => a.Category == "docks" && a.Path == layout.OrphanDockPath && a.Disposition == "dry-run-reclaim"),
+                        "No dock is judged against a partial protected set");
+                    AssertTrue(report.Errors.Any(e => e.Contains("protected docks could not be read", StringComparison.Ordinal)), "The skipped scan is reported");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Reconcile in dry-run mode deletes nothing; enabled mode deletes only eligible items", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

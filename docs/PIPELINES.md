@@ -79,6 +79,12 @@ It sits after the bounded output preview and the diff, because the description
 cap keeps the end of a brief; compacting an older block keeps it, and a rescue
 brief carries the newest one.
 
+A mission's dock outlives its captain while the mission still lands or is
+approved from it: a mission in `WorkProduced`, `PullRequestOpen` or `Review`
+keeps its dock through stall recovery and the orphan-dock reaper, and the disk
+sweep skips its orphan-dock scan for a pass in which the protected docks
+cannot be read.
+
 A mission that depends on a stage in another voyage waits on that stage. When
 that stage was cancelled or failed and an autonomous rescue of its voyage
 completed, the dependant waits on the rescue's completed stage of the same
