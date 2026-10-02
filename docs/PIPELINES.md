@@ -58,6 +58,19 @@ kind: it does not hand off, its later stages are cancelled, and no rescue runs.
 Its question goes to the owner on an incident and a board note. See
 [PERSONAS.md](PERSONAS.md#a-stage-that-ends-armadaresult-blocked-waits-for-the-owner).
 
+An Architect stage hands off one Worker chain per mission block in its
+output. A block opens with `[ARMADA:MISSION]` at the start of a line and ends
+at `[ARMADA:MISSION-END]` (or the older `[/ARMADA:MISSION]`), at the next
+block, or at the end of the output; a marker inside a sentence is prose. The
+handoff and the `armada_parse_architect_output` tool read blocks by this one
+grammar. A plan written as a numbered list with no marker at all is read one
+mission per numbered line, and the handoff records
+`mission.architect_plan_fallback` when it does; an output that carries any
+marker is never read that way, so the numbered steps inside a block stay one
+mission. Stored output is redacted for secrets, and a quoted span that is not
+a JSON string is treated as prose: it keeps its text and plan markers, and only
+key-shaped values inside it are removed.
+
 A rescue for a reviewer rejection is a Worker started from the reviewed
 commit. Its brief lists every item the review marks as blocking (`NOT
 DELIVERED`, `NOT MET`, `NOT RESOLVED`, or a `Blocking` finding), each whole,

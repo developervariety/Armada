@@ -51,6 +51,20 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(RuntimeLogFormatter.RedactSecrets(nested).Contains(suffix));
             });
 
+            await RunTest("Quoted markdown prose across lines keeps its text and markers while real secrets are still removed", () =>
+            {
+                string prose = "The ledger keeps Journal(\"kind\" for each entry, then\n[ARMADA:MISSION]\ntitle: Dictionary\nA review named \"daily-paper-review\" and \"settlement\n spans\" lines.\n[ARMADA:MISSION-END]";
+                string safe = RuntimeLogFormatter.RedactSecrets(prose);
+                AssertEqual(prose, safe, "Prose with no secret is unchanged");
+
+                string withKey = "Use \"api_key=" + new string('k', 24) + "\n across\" lines";
+                AssertFalse(RuntimeLogFormatter.RedactSecrets(withKey).Contains(new string('k', 24)), "A key shape inside prose is still removed");
+                string property = "{\"password\":\"" + "hunter" + "2secret\"}";
+                AssertFalse(RuntimeLogFormatter.RedactSecrets(property).Contains("2secret"), "A sensitive JSON property is still removed");
+                string badEscapeKey = "{\"pass\\word\":\"" + "still" + "secret\"}";
+                AssertFalse(RuntimeLogFormatter.RedactSecrets(badEscapeKey).Contains("stillsecret"), "A one-line malformed key that names a secret keeps its value redacted");
+            });
+
             await RunTest("Tool names use the same redaction as display text", () =>
             {
                 string secret = "example-" + "secret-value";

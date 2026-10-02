@@ -111,8 +111,14 @@ namespace Armada.Core.Services
             try { key = JsonSerializer.Deserialize<string>(match.Groups["key"].Value) ?? String.Empty; }
             catch (JsonException)
             {
-                // A malformed escaped key cannot establish that its value is safe to display.
-                return match.Groups["key"].Value + match.Groups["separator"].Value + "\"[REDACTED]\"";
+                // A key that spans lines is prose -- in markdown, quotes pair across words and lines.
+                // Deleting it removed plan markers and text with no secret in it; the key shapes still
+                // remove every credential it holds. A one-line key with a bad escape that still names a
+                // secret keeps its value redacted.
+                string rawKey = match.Groups["key"].Value;
+                if (!rawKey.Contains('\n') && IsSecretPropertyName(rawKey.Replace("\\", String.Empty).Trim('"')))
+                    return rawKey + match.Groups["separator"].Value + "\"[REDACTED]\"";
+                return RedactKeyShapes(match.Value);
             }
             string prefix = match.Groups["key"].Value + match.Groups["separator"].Value;
             if (_SensitiveProperty.IsMatch(key)) return prefix + "\"[REDACTED]\"";
@@ -129,7 +135,8 @@ namespace Armada.Core.Services
             }
             catch (JsonException)
             {
-                return "\"[REDACTED: malformed string]\"";
+                // Not a JSON string: prose between two quotes. Keep the text; remove key shapes.
+                return RedactKeyShapes(match.Value);
             }
         }
 

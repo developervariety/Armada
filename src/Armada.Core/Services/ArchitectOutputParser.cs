@@ -59,38 +59,29 @@ namespace Armada.Core.Services
                 return result;
             }
 
-            int firstMission = agentOutput.IndexOf("[ARMADA:MISSION]", StringComparison.Ordinal);
-            if (firstMission < 0)
+            ArchitectMissionBlockSplit split = ArchitectMissionBlocks.Split(agentOutput);
+            if (split.Blocks.Count == 0)
             {
                 result.Verdict = ArchitectParseVerdict.StructuralFailure;
-                result.Errors.Add(new ArchitectParseError("no_mission_blocks", "", "", "No [ARMADA:MISSION] markers found"));
+                result.Errors.Add(new ArchitectParseError("no_mission_blocks", "", "", "No [ARMADA:MISSION] markers found at the start of a line"));
                 return result;
             }
 
-            string planMarkdown = agentOutput.Substring(0, firstMission).TrimEnd();
-            string missionsRegion = agentOutput.Substring(firstMission);
+            string planMarkdown = split.Preamble.TrimEnd();
 
             ArchitectPlan plan = new ArchitectPlan { FullMarkdown = planMarkdown };
             ExtractPlanSections(planMarkdown, plan);
             result.Plan = plan;
 
             List<ArchitectMissionEntry> missions = new List<ArchitectMissionEntry>();
-            int cursor = 0;
-            while (true)
+            for (int i = 0; i < split.Blocks.Count; i++)
             {
-                int blockStart = missionsRegion.IndexOf("[ARMADA:MISSION]", cursor, StringComparison.Ordinal);
-                if (blockStart < 0) break;
-                int blockEnd = missionsRegion.IndexOf("[ARMADA:MISSION-END]", blockStart, StringComparison.Ordinal);
-                if (blockEnd < 0)
+                if (i == split.FirstUnterminatedIndex)
                 {
                     result.Errors.Add(new ArchitectParseError("unterminated_block", "", "", "[ARMADA:MISSION] without matching [ARMADA:MISSION-END]"));
                     break;
                 }
-                int bodyStart = blockStart + "[ARMADA:MISSION]".Length;
-                string blockBody = missionsRegion.Substring(bodyStart, blockEnd - bodyStart);
-                ArchitectMissionEntry entry = ParseBlockBody(blockBody);
-                missions.Add(entry);
-                cursor = blockEnd + "[ARMADA:MISSION-END]".Length;
+                missions.Add(ParseBlockBody(split.Blocks[i]));
             }
 
             HashSet<string> declaredIds = new HashSet<string>(StringComparer.Ordinal);

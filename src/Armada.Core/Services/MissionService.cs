@@ -6071,7 +6071,9 @@ namespace Armada.Core.Services
             // Special handling for Architect stage: parse output into new missions
             if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
-                List<ParsedArchitectMission> parsed = ParseArchitectOutput(completedMission);
+                List<ParsedArchitectMission> parsed = ParseArchitectOutput(completedMission, out string? fallbackReason);
+                if (fallbackReason != null)
+                    await RecordArchitectPlanFallbackAsync(completedMission, parsed.Count, fallbackReason, token).ConfigureAwait(false);
                 if (parsed.Count > 0)
                 {
                     await ProjectArchitectMissionsToLogAsync(completedMission, parsed, token).ConfigureAwait(false);
@@ -6137,11 +6139,10 @@ namespace Armada.Core.Services
                     return true; // Architect special handling complete, skip normal handoff
                 }
 
-                bool hadArchitectMarkers = !String.IsNullOrEmpty(completedMission.AgentOutput) &&
-                    completedMission.AgentOutput.Contains("[ARMADA:MISSION]", StringComparison.Ordinal);
+                bool hadArchitectMarkers = ArchitectMissionBlocks.ContainsAnyMarker(completedMission.AgentOutput);
 
                 string failureReason = hadArchitectMarkers
-                    ? "Architect produced no valid [ARMADA:MISSION] definitions in output"
+                    ? "Architect produced no valid [ARMADA:MISSION] definitions in output: it carries a mission marker but no block that opens with [ARMADA:MISSION] at the start of a line and holds a title"
                     : "Architect produced no [ARMADA:MISSION] markers in output";
 
                 _Logging.Warn(_Header + "architect mission " + completedMission.Id +
@@ -9108,11 +9109,17 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Parse structured mission definitions from an architect's output.
-        /// Looks for [ARMADA:MISSION] markers in the mission diff snapshot or description.
+        /// Parse structured mission definitions from an architect's output, its diff snapshot, then its
+        /// description, by the shared mission block grammar (<see cref="ArchitectMissionBlocks"/>). The
+        /// numbered-line fallback reads a plan written as a list; it runs only when no source carries any
+        /// mission marker, because an output that names a block -- even one whose opening line was lost --
+        /// is a structured plan, and reading its numbered steps as missions splits one plan into many.
         /// </summary>
-        private List<ParsedArchitectMission> ParseArchitectOutput(Mission architectMission)
+        /// <param name="architectMission">Architect mission.</param>
+        /// <param name="fallbackReason">Why the numbered-line fallback ran; null when it did not.</param>
+        private List<ParsedArchitectMission> ParseArchitectOutput(Mission architectMission, out string? fallbackReason)
         {
+            fallbackReason = null;
             List<ParsedArchitectMission> results = new List<ParsedArchitectMission>();
             HashSet<string> seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -9126,16 +9133,51 @@ namespace Armada.Core.Services
             foreach (string? candidateSource in candidateSources)
             {
                 if (String.IsNullOrWhiteSpace(candidateSource)) continue;
+                ParseArchitectMissionMarkers(candidateSource, results, seenTitles);
+                if (results.Count > 0) return results;
+            }
 
-                string source = candidateSource.Replace("\r\n", "\n");
-                ParseArchitectMissionMarkers(source, results, seenTitles);
-                if (results.Count > 0) break;
+            // Only what the captain produced decides that the plan was structured; the operator's brief
+            // may name the marker in prose.
+            if (ArchitectMissionBlocks.ContainsAnyMarker(architectMission.AgentOutput)
+                || ArchitectMissionBlocks.ContainsAnyMarker(architectMission.DiffSnapshot))
+                return results;
 
-                ParseArchitectSummaryLines(source, results, seenTitles);
-                if (results.Count > 0) break;
+            foreach (string? candidateSource in candidateSources)
+            {
+                if (String.IsNullOrWhiteSpace(candidateSource)) continue;
+                ParseArchitectSummaryLines(candidateSource.Replace("\r\n", "\n"), results, seenTitles);
+                if (results.Count > 0)
+                {
+                    fallbackReason = "no_mission_markers: the output carries no [ARMADA:MISSION] block, so its numbered lines were read as missions";
+                    return results;
+                }
             }
 
             return results;
+        }
+
+        private async Task RecordArchitectPlanFallbackAsync(Mission architect, int missionCount, string reason, CancellationToken token)
+        {
+            _Logging.Warn(_Header + "architect " + architect.Id + " plan read by the numbered-line fallback (" + missionCount + " missions): " + reason);
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("mission.architect_plan_fallback",
+                    "Architect " + architect.Id + " plan read by the numbered-line fallback: " + missionCount + " missions. " + reason);
+                evt.TenantId = architect.TenantId;
+                evt.UserId = architect.UserId;
+                evt.EntityType = "mission";
+                evt.EntityId = architect.Id;
+                evt.MissionId = architect.Id;
+                evt.VesselId = architect.VesselId;
+                evt.VoyageId = architect.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new { missionCount, reason });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                _Logging.Warn(_Header + "could not record architect plan fallback event for " + architect.Id + ": " + ex.Message);
+            }
         }
 
         private void ParseArchitectMissionMarkers(
@@ -9145,17 +9187,9 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(source)) return;
 
-            string[] segments = System.Text.RegularExpressions.Regex.Split(source, @"(?m)^\[ARMADA:MISSION\][ \t]*");
-
-            for (int i = 1; i < segments.Length; i++)
+            foreach (string block in ArchitectMissionBlocks.Split(source).Blocks)
             {
-                string segment = segments[i].Trim();
-                if (String.IsNullOrEmpty(segment)) continue;
-
-                int closingTagIndex = segment.IndexOf("[/ARMADA:MISSION]", StringComparison.Ordinal);
-                if (closingTagIndex >= 0)
-                    segment = segment.Substring(0, closingTagIndex).Trim();
-
+                string segment = block.Trim();
                 if (String.IsNullOrEmpty(segment)) continue;
 
                 SplitArchitectMarkerSegment(segment, out string title, out string description);

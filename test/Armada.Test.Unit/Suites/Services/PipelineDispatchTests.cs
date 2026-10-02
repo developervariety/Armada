@@ -807,6 +807,89 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // An Architect writes markdown, where double quotes pair across words and lines. Stored output
+            // is redacted, and the redactor once replaced every such span with a placeholder, taking the
+            // opening mission marker with it; the numbered steps inside the one block then became missions.
+            await RunTest("One Architect block with numbered steps and quotes across lines yields exactly one worker chain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string plan =
+                        "The ledger keeps Journal(\"kind\" for each entry, and the review is called\n" +
+                        "\"daily-paper-review\" in the settings.\n\n" +
+                        "[ARMADA:MISSION]\n" +
+                        "title: Write the data dictionary\n" +
+                        "goal: Describe every stored field in one document\n" +
+                        "Steps:\n" +
+                        "1. List the journal kinds, such as \"settlement\" and\n" +
+                        "2. Describe the \"fill\" record.\n" +
+                        "3. Describe the risk book fields.\n" +
+                        "4. Link each field to its writer.\n" +
+                        "done_when: the document names every field\n" +
+                        "[ARMADA:MISSION-END]\n";
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                        diff: "", output: plan).ConfigureAwait(false);
+
+                    AssertContains("[ARMADA:MISSION]", outcome.Architect.AgentOutput ?? String.Empty, "The stored output keeps the opening marker");
+                    AssertFalse((outcome.Architect.AgentOutput ?? String.Empty).Contains("[REDACTED: malformed string]"), "Prose is not replaced");
+                    List<Mission> workers = outcome.VoyageMissions.Where(m => m.Persona == "Worker").ToList();
+                    AssertEqual(1, workers.Count, "One block is one worker chain, whatever its numbered steps");
+                    AssertContains("Write the data dictionary", workers[0].Title, "The worker carries the block's title");
+                    AssertEqual(0, outcome.FallbackEvents.Count, "A structured plan is never read by the numbered-line fallback");
+                }
+            });
+
+            await RunTest("The handoff and the Architect parse tool read the same blocks, and both refuse an output with no opening marker", async () =>
+            {
+                ArchitectOutputParser parser = new ArchitectOutputParser();
+                string strictTwo =
+                    "[ARMADA:MISSION]\nid: M1\ntitle: First block\npreferredModel: mid\ndescription: Do the first part\n[ARMADA:MISSION-END]\n" +
+                    "[ARMADA:MISSION]\nid: M2\ntitle: Second block\npreferredModel: mid\ndescription: Do the second part\n[ARMADA:MISSION-END]\n";
+                string legacyOne = "[ARMADA:MISSION]\nid: M1\ntitle: Legacy block\npreferredModel: mid\ndescription: Old closing marker\n[/ARMADA:MISSION]\n";
+                string endOnly = "The plan lost its opening line.\n1. First step\n2. Second step\n[ARMADA:MISSION-END]\n";
+
+                foreach (string output in new[] { strictTwo, legacyOne })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArchitectParseResult parsed = parser.Parse(output);
+                        PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                            startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                            diff: "", output: output).ConfigureAwait(false);
+                        AssertEqual(ArchitectParseVerdict.Valid, parsed.Verdict, "The parse tool accepts the plan");
+                        AssertEqual(parsed.Missions.Count, outcome.VoyageMissions.Count(m => m.Persona == "Worker"), "Both read the same number of blocks");
+                    }
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArchitectParseResult refused = parser.Parse(endOnly);
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                        diff: "", output: endOnly).ConfigureAwait(false);
+                    AssertEqual(ArchitectParseVerdict.StructuralFailure, refused.Verdict, "The parse tool refuses a plan with no opening marker");
+                    AssertEqual(MissionStatusEnum.Failed, outcome.Architect.Status, "The handoff refuses it too");
+                    AssertEqual(1, outcome.VoyageMissions.Count(m => m.Persona == "Worker"), "No worker is created from its numbered steps");
+                    AssertEqual(0, outcome.FallbackEvents.Count, "An output that carries a marker is not read by the fallback");
+                }
+            });
+
+            await RunTest("A plan written as a numbered list is read by the fallback and the fallback is reported", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string list = "Plan:\n1. Add the reader - read the catalogue file\n2. Add the writer - write the summary file\n";
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                        diff: "", output: list).ConfigureAwait(false);
+                    int workers = outcome.VoyageMissions.Count(m => m.Persona == "Worker");
+                    AssertTrue(workers >= 1, "The list plan still produces workers");
+                    AssertEqual(1, outcome.FallbackEvents.Count, "The fallback names itself");
+                    AssertContains("no_mission_markers", outcome.FallbackEvents[0].Message ?? String.Empty);
+                }
+            });
+
             await RunTest("Judge parser accepts structured ARMADA verdict signal", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1303,6 +1386,8 @@ namespace Armada.Test.Unit.Suites.Services
             public Mission Architect { get; set; } = null!;
             public Mission Worker { get; set; } = null!;
             public List<ArmadaEvent> PlannerEvents { get; set; } = new List<ArmadaEvent>();
+            public List<Mission> VoyageMissions { get; set; } = new List<Mission>();
+            public List<ArmadaEvent> FallbackEvents { get; set; } = new List<ArmadaEvent>();
         }
 
         private async Task<PlannerHandoffOutcome> RunArchitectHandoffAsync(
@@ -1312,7 +1397,8 @@ namespace Armada.Test.Unit.Suites.Services
             string? recordedStartCommit,
             bool dependsOnPredecessor,
             string headCommit,
-            string diff)
+            string diff,
+            string? output = null)
         {
             LoggingModule logging = CreateLogging();
             ArmadaSettings settings = CreateSettings();
@@ -1390,7 +1476,7 @@ namespace Armada.Test.Unit.Suites.Services
                 m.CommitHash = headCommit;
                 await testDb.Driver.Missions.UpdateAsync(m).ConfigureAwait(false);
             };
-            missionService.OnGetMissionOutput = _ =>
+            missionService.OnGetMissionOutput = _ => output ??
                 "[ARMADA:MISSION]\n" +
                 "title: Implement the reader\n" +
                 "goal: Read the catalogue\n" +
@@ -1407,7 +1493,9 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Architect = (await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!,
                 Worker = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!,
-                PlannerEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.planner_committed_code").ConfigureAwait(false)
+                PlannerEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.planner_committed_code").ConfigureAwait(false),
+                VoyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(architect.VoyageId!).ConfigureAwait(false),
+                FallbackEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.architect_plan_fallback").ConfigureAwait(false)
             };
         }
 

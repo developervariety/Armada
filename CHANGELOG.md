@@ -83,6 +83,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Architect plans keep their blocks:** stored output redaction treats a
+  quoted span that is not a JSON string as prose, so markdown whose quotes pair
+  across lines keeps its text and its `[ARMADA:MISSION]` lines; key-shaped
+  values and sensitive JSON properties are still removed. The pipeline handoff
+  and `armada_parse_architect_output` read mission blocks through one grammar
+  that accepts `[ARMADA:MISSION-END]` and `[/ARMADA:MISSION]`. The
+  numbered-line fallback runs only for output with no mission marker and
+  records `mission.architect_plan_fallback`.
 - **Rescue briefs carry every blocking finding:** a rescue for a reviewer
   rejection lists every item the review marks `NOT DELIVERED`, `NOT MET`,
   `NOT RESOLVED` or `Blocking`, each whole, within a 4,000-character bound,
