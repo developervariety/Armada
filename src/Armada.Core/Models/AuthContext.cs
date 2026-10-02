@@ -48,6 +48,13 @@ namespace Armada.Core.Models
         /// </summary>
         public string? PrincipalDisplay { get; set; } = null;
 
+        /// <summary>
+        /// The mission a captain credential was issued to, when the caller is a captain's launch-configured
+        /// connection; null for operators and every other credential. Policies that depend on the calling
+        /// mission read it here instead of trusting a mission id passed as a tool argument.
+        /// </summary>
+        public string? MissionId { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

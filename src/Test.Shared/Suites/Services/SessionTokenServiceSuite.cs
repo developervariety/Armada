@@ -91,6 +91,17 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("Session", ctx.AuthMethod);
             }));
 
+            cases.Add(Case("mission_token_names_its_mission_and_user_token_names_none", "CreateMissionToken MissionToken ValidatesWithMission", TestTags.Positive, () =>
+            {
+                SessionTokenService svc = new SessionTokenService();
+                AuthContext? mission = svc.ValidateToken(svc.CreateMissionToken("ten_abc", "usr_xyz", "msn_example").Token!);
+                AssertNotNull(mission);
+                AssertEqual("usr_xyz", mission!.UserId, "A mission token authenticates as its user");
+                AssertEqual("msn_example", mission.MissionId, "A mission token names its mission");
+                AuthContext? user = svc.ValidateToken(svc.CreateToken("ten_abc", "usr_xyz").Token!);
+                AssertNull(user!.MissionId, "A user token names no mission");
+            }));
+
             cases.Add(Case("validate_token_null_token_returns_null", "ValidateToken NullToken ReturnsNull", TestTags.Negative, () =>
             {
                 SessionTokenService svc = new SessionTokenService();

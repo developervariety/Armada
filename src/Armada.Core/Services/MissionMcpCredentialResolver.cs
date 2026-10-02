@@ -73,7 +73,9 @@ namespace Armada.Core.Services
                 return McpCredentialReference.MissionUnresolvedOwner;
             }
 
-            AuthenticateResult issued = sessionTokens.CreateToken(ownerTenantId, ownerUserId);
+            // The token names the mission too, so a policy that depends on the calling mission (native
+            // memory writes an objective forbids) reads it from the credential, not from a tool argument.
+            AuthenticateResult issued = sessionTokens.CreateMissionToken(ownerTenantId, ownerUserId, mission.Id);
             if (String.IsNullOrWhiteSpace(issued.Token))
             {
                 warn?.Invoke("no session token was issued for mission " + mission.Id + ", so it carries no Armada MCP credential");

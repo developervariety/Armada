@@ -173,6 +173,7 @@ namespace Armada.Core.Services
         {
             RequireCaller(auth);
             if (memory == null) throw new ArgumentNullException(nameof(memory));
+            await RequireNativeMemoryAllowedAsync(auth, token).ConfigureAwait(false);
 
             Normalize(memory);
             memory.TenantId = TenantOf(auth);
@@ -218,6 +219,7 @@ namespace Armada.Core.Services
         {
             RequireCaller(auth);
             if (memory == null) throw new ArgumentNullException(nameof(memory));
+            await RequireNativeMemoryAllowedAsync(auth, token).ConfigureAwait(false);
 
             Normalize(memory);
             if (String.IsNullOrEmpty(memory.Key))
@@ -282,6 +284,7 @@ namespace Armada.Core.Services
             RequireCaller(auth);
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
             if (update == null) throw new ArgumentNullException(nameof(update));
+            await RequireNativeMemoryAllowedAsync(auth, token).ConfigureAwait(false);
 
             Memory? existing = await _Database.Memories.ReadAsync(id.Trim(), token).ConfigureAwait(false);
             if (existing == null || !CanView(auth, existing)) throw new KeyNotFoundException("Memory not found: " + id);
@@ -367,6 +370,18 @@ namespace Armada.Core.Services
             List<Memory> tenantRecords = await _Database.Memories.EnumerateAsync(TenantOf(auth), token).ConfigureAwait(false);
             if (auth.IsTenantAdmin) return tenantRecords;
             return tenantRecords.Where(memory => CanView(auth, memory)).ToList();
+        }
+
+        // A captain connection carries its mission; refuse the write when that mission's objective
+        // forbids native memory. Operators and other credentials carry no mission and are not limited.
+        private async Task RequireNativeMemoryAllowedAsync(AuthContext auth, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(auth.MissionId)) return;
+            Objective? forbidding = await NativeMemoryPolicy.FindForbiddingObjectiveAsync(_Database, auth.MissionId, token).ConfigureAwait(false);
+            if (forbidding == null) return;
+            throw new NativeMemoryForbiddenException(forbidding.Id,
+                "Native memory writes are refused for mission " + auth.MissionId + ": objective " + forbidding.Id
+                + " forbids native memory (AI-Memory is the durable memory for this work). Write no memory record; put the finding in your report instead.");
         }
 
         private static void RequireCaller(AuthContext auth)

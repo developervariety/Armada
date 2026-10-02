@@ -47,6 +47,18 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public AuthenticateResult CreateToken(string tenantId, string userId)
         {
+            return CreateTokenCore(tenantId, userId, null);
+        }
+
+        /// <inheritdoc />
+        public AuthenticateResult CreateMissionToken(string tenantId, string userId, string missionId)
+        {
+            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+            return CreateTokenCore(tenantId, userId, missionId);
+        }
+
+        private AuthenticateResult CreateTokenCore(string tenantId, string userId, string? missionId)
+        {
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
 
@@ -56,6 +68,7 @@ namespace Armada.Core.Services
             {
                 TenantId = tenantId,
                 UserId = userId,
+                MissionId = missionId,
                 ExpiresUtc = expiresUtc
             };
 
@@ -92,7 +105,8 @@ namespace Armada.Core.Services
                     IsTenantAdmin = false,
                     AuthMethod = "Session",
                     CredentialId = null,
-                    PrincipalDisplay = payload.UserId
+                    PrincipalDisplay = payload.UserId,
+                    MissionId = String.IsNullOrEmpty(payload.MissionId) ? null : payload.MissionId
                 };
             }
             catch
@@ -165,6 +179,7 @@ namespace Armada.Core.Services
         {
             public string? TenantId { get; set; }
             public string? UserId { get; set; }
+            public string? MissionId { get; set; }
             public DateTime ExpiresUtc { get; set; }
         }
 

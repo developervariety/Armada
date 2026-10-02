@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Objectives can forbid native memory writes:** a captain's launch
+  credential names its mission, and `create_memory` and `update_memory` refuse
+  with `native_memory_forbidden` when that mission's objective carries the tag
+  `no-native-memory` or a rollout constraint or non-goal saying the work writes
+  no memory. The rule covers rescue stages descended from the objective, so a
+  Recorder under such an objective reports only. Other objectives and operator
+  credentials are unchanged.
 - **Architect plans keep their blocks:** stored output redaction treats a
   quoted span that is not a JSON string as prose, so markdown whose quotes pair
   across lines keeps its text and its `[ARMADA:MISSION]` lines; key-shaped

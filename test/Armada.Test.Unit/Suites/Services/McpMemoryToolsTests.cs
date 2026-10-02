@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -41,6 +42,68 @@ namespace Armada.Test.Unit.Suites.Services
                     Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterMemoryTools(testDb);
                     foreach (string name in new[] { "search_memory", "get_memory", "create_memory", "update_memory", "delete_memory" })
                         AssertTrue(handlers.ContainsKey(name), "Tool should be registered: " + name);
+                }
+            });
+
+            // A brief sentence forbidding memory writes did not stop a persona whose job is writing memory.
+            // The write itself is refused for a mission whose objective forbids native memory.
+            await RunTest("A mission whose objective forbids native memory is refused by name, and other missions are not", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterMemoryTools(testDb);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("forbidding voyage")).ConfigureAwait(false);
+                    Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("Record", "Review the voyage") { VoyageId = voyage.Id, Persona = "Recorder" }).ConfigureAwait(false);
+                    Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("rescue voyage")).ConfigureAwait(false);
+                    Mission rescue = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue 1: Record", "Recover") { VoyageId = rescueVoyage.Id, Persona = "Worker", ParentMissionId = recorder.Id }).ConfigureAwait(false);
+                    Mission rescueRecorder = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue 1 Recorder", "Review the rescue") { VoyageId = rescueVoyage.Id, Persona = "Recorder", DependsOnMissionId = rescue.Id }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "Tagged objective", Tags = new List<string> { "no-native-memory" }, VoyageIds = new List<string> { voyage.Id } }).ConfigureAwait(false);
+
+                    Voyage phrased = await testDb.Driver.Voyages.CreateAsync(new Voyage("phrased voyage")).ConfigureAwait(false);
+                    Mission phrasedWorker = await testDb.Driver.Missions.CreateAsync(new Mission("Work", "Do it") { VoyageId = phrased.Id, Persona = "Worker" }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "Phrased objective", RolloutConstraints = new List<string> { "Recorder reports only and writes no memory." }, VoyageIds = new List<string> { phrased.Id } }).ConfigureAwait(false);
+
+                    Voyage open = await testDb.Driver.Voyages.CreateAsync(new Voyage("open voyage")).ConfigureAwait(false);
+                    Mission openRecorder = await testDb.Driver.Missions.CreateAsync(new Mission("Record", "Review") { VoyageId = open.Id, Persona = "Recorder" }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "Open objective", VoyageIds = new List<string> { open.Id } }).ConfigureAwait(false);
+
+                    string existing = await CallAsync(handlers, "create_memory", new { key = "ops/existing", content = "Written by an operator." }).ConfigureAwait(false);
+                    string existingId = ValueOf(existing, "id");
+
+                    string refused = await CallAsMissionAsync(handlers, "create_memory", new { key = "voyage/finding", content = "A finding." }, recorder.Id).ConfigureAwait(false);
+                    AssertContains("native_memory_forbidden", refused, "The Recorder's write is refused by name");
+                    AssertContains("put the finding in your report", refused, "The refusal tells the captain where the finding goes");
+
+                    string refusedUpdate = await CallAsMissionAsync(handlers, "update_memory", new { memoryId = existingId, content = "Changed." }, rescueRecorder.Id).ConfigureAwait(false);
+                    AssertContains("native_memory_forbidden", refusedUpdate, "A rescue stage descended from the objective is refused too");
+
+                    string refusedPhrase = await CallAsMissionAsync(handlers, "create_memory", new { key = "phrased/finding", content = "A finding." }, phrasedWorker.Id).ConfigureAwait(false);
+                    AssertContains("native_memory_forbidden", refusedPhrase, "A rollout constraint that says the work writes no memory forbids it");
+
+                    string allowed = await CallAsMissionAsync(handlers, "create_memory", new { key = "open/finding", content = "A finding." }, openRecorder.Id).ConfigureAwait(false);
+                    AssertContains("mem_", allowed, "An objective without the rule keeps today's behaviour");
+
+                    List<Memory> records = await testDb.Driver.Memories.EnumerateAsync(Armada.Core.Constants.DefaultTenantId).ConfigureAwait(false);
+                    AssertEqual(2, records.Count, "Only the operator's and the unrestricted mission's records exist");
+                    AssertEqual("Written by an operator.", records.Single(m => m.Id == existingId).Content, "The refused update changed nothing");
+                }
+            });
+
+            await RunTest("A mission's launch credential names the mission it was issued to", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Armada.Core.Services.SessionTokenService tokens = new Armada.Core.Services.SessionTokenService();
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Record", "Review")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Armada.Core.Services.McpCredentialReference credential = await Armada.Core.Services.MissionMcpCredentialResolver
+                        .ResolveAsync(mission, testDb.Driver, tokens).ConfigureAwait(false);
+                    AssertTrue(credential.HasToken, "The mission owner resolves to a credential");
+                    AuthContext? caller = tokens.ValidateToken(credential.Token);
+                    AssertEqual(mission.Id, caller!.MissionId, "The credential carries the mission, so mission policies read it from the caller");
                 }
             });
 
@@ -181,6 +244,19 @@ namespace Armada.Test.Unit.Suites.Services
             // A handler reads the authenticated caller the transport sets; these calls act as a
             // default-tenant administrator, set explicitly.
             AuthContext caller = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "Test");
+            using (Armada.Server.Mcp.McpCallerContext.Begin(caller))
+            {
+                object result = await handlers[tool](element).ConfigureAwait(false);
+                return JsonSerializer.Serialize(result, _JsonOptions);
+            }
+        }
+
+        private static async Task<string> CallAsMissionAsync(Dictionary<string, Func<JsonElement?, Task<object>>> handlers, string tool, object args, string missionId)
+        {
+            JsonElement element = JsonSerializer.SerializeToElement(args, _JsonOptions);
+            // A captain connection: the mission owner's credential, naming the mission it was issued to.
+            AuthContext caller = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "Session");
+            caller.MissionId = missionId;
             using (Armada.Server.Mcp.McpCallerContext.Begin(caller))
             {
                 object result = await handlers[tool](element).ConfigureAwait(false);

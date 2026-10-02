@@ -239,6 +239,10 @@ namespace Armada.Server.Mcp.Tools
             {
                 return Failure("conflict", conflict.Message, conflict.Kind);
             }
+            catch (NativeMemoryForbiddenException forbidden)
+            {
+                return Failure(NativeMemoryForbiddenException.Code, forbidden.Message);
+            }
             catch (KeyNotFoundException notFound)
             {
                 return Failure("not_found", notFound.Message);

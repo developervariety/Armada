@@ -698,8 +698,18 @@ Delete a record that went stale or wrong. Args: `memoryId` (required).
 ### Refusals
 
 A refused call returns `Error` with a `Code`: `invalid`, `not_found`,
-`forbidden`, or `conflict`. A conflict means the record changed since it was read,
-or the key belongs to another record. Read the record again and retry.
+`forbidden`, `conflict`, or `native_memory_forbidden`. A conflict means the record
+changed since it was read, or the key belongs to another record. Read the record
+again and retry.
+
+`native_memory_forbidden` refuses `create_memory` and `update_memory` for a
+captain whose mission belongs to an objective that forbids native memory: the
+objective carries the tag `no-native-memory`, or a rollout constraint or non-goal
+saying the work writes no memory or no native memory. The rule covers every stage
+of the objective's voyages and every rescue stage descended from them. A captain's
+launch credential names its mission, so the rule reads the mission from the
+caller, not from a tool argument. Operator credentials name no mission and are
+not limited. Deliver the finding in the report instead.
 
 A rule from the Shared Memory section of a brief wins over a native record on
 conflict. The memory tools never write to that repository.

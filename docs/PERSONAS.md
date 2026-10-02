@@ -34,7 +34,7 @@ deleted) together with their `*Tested` pipelines; no voyage used them:
 | `DiagnosticProtocolReviewer` | Review binary protocols and hardware-risk paths. |
 | `TenantSecurityReviewer` | Review authentication, authorization, isolation, and secrets. |
 | `PortingReferenceAnalyst` | Compare approved references and parity evidence. |
-| `Recorder` | Review the finished work of a voyage and record what is worth remembering into native captain memory. Writes memory only; never changes the repository or shared memory. |
+| `Recorder` | Review the finished work of a voyage and record what is worth remembering into native captain memory. Writes memory only; never changes the repository or shared memory. When the objective forbids native memory (tag `no-native-memory`, or a rollout constraint saying the work writes no memory), the memory tools refuse with `native_memory_forbidden` and the Recorder reports only. |
 | `PriorArtAnalyst` | Read-only Research analyst that settles whether an objective’s deliverable already exists before a Worker builds it; commits nothing. Conditional stage, not in a default pipeline (see below). |
 
 The seed service reconciles built-in definitions. Built-in personas cannot be
