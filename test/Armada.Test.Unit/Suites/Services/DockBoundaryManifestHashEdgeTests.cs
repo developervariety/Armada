@@ -46,6 +46,13 @@ namespace Armada.Test.Unit.Suites.Services
 
         private const string _BaseChunkRule = "CORE_RULE_5_base64_chunk";
 
+        // Synthetic NuGet contentHash value: base64 of a 64-byte SHA-512-sized buffer, so 86
+        // characters plus "==". Split into segments so no source literal is a >=40-char run.
+        private static readonly string _SyntheticNuGetContentHash =
+            "Kq9zR2mXv7Lp4Tn8Wb1Yc6Hd3Gf0Js5" +
+            "Ae2Qu9Vk7Mo4Xr1Zt8Bw6Ny3Pc0Ig5Dh" +
+            "2Lf9Sj7Eu4Ka1Ov8Rm6Tq3W==";
+
         /// <summary>Suite name.</summary>
         public override string Name => "Dock Boundary Manifest Hash Allowlist (Edge Cases)";
 
@@ -90,6 +97,12 @@ namespace Armada.Test.Unit.Suites.Services
         {
             return "QUJDRGVmZ2hJSktMbW5vUHFyU3R1Vld4WXowMTIz" +
                    "NDU2Nzg5K2Yv";
+        }
+
+        // One package entry's content-hash line as NuGet writes it in packages.lock.json.
+        private static string NuGetContentHashLine(string value)
+        {
+            return "\"contentHash\": \"" + value + "\",";
         }
 
         #endregion
@@ -339,6 +352,53 @@ namespace Armada.Test.Unit.Suites.Services
                     "*-lock.json suffix should qualify as a known manifest file");
                 AssertTrue(ConventionChecker.IsManifestHashAllowed(_BaseChunkRule, bareDigestLine, "build/out.lockfile"),
                     ".lockfile extension should qualify as a known manifest file");
+                return Task.CompletedTask;
+            });
+
+            // -----------------------------------------------------------------------
+            // NuGet packages.lock.json: each package carries a base64 SHA-512 "contentHash".
+            // -----------------------------------------------------------------------
+
+            await RunTest("A NuGet contentHash in packages.lock.json passes the scanner and the audit", () =>
+            {
+                AssertEqual(88, _SyntheticNuGetContentHash.Length, "the fixture is a SHA-512-sized base64 value");
+                string line = NuGetContentHashLine(_SyntheticNuGetContentHash);
+                string diff = FileBlock("src/App/packages.lock.json", line);
+                DockBoundaryScanResult result = scanner.Scan(diff, null, null, null, null, null, DefaultSettings());
+                AssertTrue(result.Passed, "A NuGet content hash in a NuGet lock file is a digest, not a secret");
+                AssertEqual(0, result.Findings.Count);
+                AssertTrue(new ConventionChecker().Check(diff).Passed, "The convention audit must agree with the scanner");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("The same contentHash value outside a NuGet lock file is still flagged", () =>
+            {
+                // Proves the fixture is secret-shaped to the entropy gate, so the lock-file pass above is
+                // the exemption at work and not a value the rule never fires on.
+                string line = NuGetContentHashLine(_SyntheticNuGetContentHash);
+                string diff = FileBlock("src/App/appsettings.json", line);
+                DockBoundaryScanResult result = scanner.Scan(diff, null, null, null, null, null, DefaultSettings());
+                AssertFalse(result.Passed, "A contentHash field outside a NuGet lock file is not exempt");
+                AssertEqual(_BaseChunkRule, result.Findings[0].FindingLabel);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A contentHash that is not SHA-512 sized, or a secret beside one, still fires in packages.lock.json", () =>
+            {
+                string shortValue = _SyntheticNuGetContentHash.Substring(0, 60);
+                string[] lines =
+                {
+                    NuGetContentHashLine(shortValue),
+                    NuGetContentHashLine(_SyntheticNuGetContentHash) + " \"token\": \"" + GenuineBase64Chunk() + "\""
+                };
+                foreach (string line in lines)
+                {
+                    string diff = FileBlock("packages.lock.json", line);
+                    DockBoundaryScanResult result = scanner.Scan(diff, null, null, null, null, null, DefaultSettings());
+                    AssertFalse(result.Passed, "Only a SHA-512-sized contentHash value is exempt: " + line);
+                    AssertFalse(ConventionChecker.IsManifestHashAllowed(_BaseChunkRule, line, "packages.lock.json"),
+                        "The exemption must not cover this line: " + line);
+                }
                 return Task.CompletedTask;
             });
 

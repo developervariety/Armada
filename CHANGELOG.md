@@ -619,7 +619,10 @@ upstream integrations and excludes changes already present at that baseline.
 - **Secret checks at landing:** the manifest-digest exemption covers only the
   digest, so a secret-shaped run beside a digest on a manifest line fails the
   landing scanner; the auto-land convention audit applies the same exemption and
-  stores a CORE_RULE_5 violation with the secret replaced by `<redacted>`.
+  stores a CORE_RULE_5 violation with the secret replaced by `<redacted>`. The
+  exemption recognises SHA-256 hex and SRI digests, and the base64 SHA-512
+  `contentHash` values NuGet writes in `packages.lock.json`, so adding a NuGet
+  package no longer fails the landing.
 - **Typed-decision status:** the operator status view reads the one no-key
   effective-mode rule the settings use.
 

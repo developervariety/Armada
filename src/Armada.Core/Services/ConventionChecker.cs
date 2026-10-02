@@ -27,6 +27,11 @@ namespace Armada.Core.Services
         private static readonly Regex _Sha256SriDigestPattern =
             new Regex(@"sha256-[A-Za-z0-9+/]{43,44}={0,2}", RegexOptions.Compiled);
 
+        // NuGet lock-file content hash: a "contentHash" field holding a base64 SHA-512 digest
+        // (64 bytes, so 86 base64 characters plus "=="). Group 1 is the digest value.
+        private static readonly Regex _NuGetContentHashPattern =
+            new Regex(@"""contentHash""\s*:\s*""([A-Za-z0-9+/]{86}==)""", RegexOptions.Compiled);
+
         // ERE pattern string for the base64-chunk rule. Shared verbatim by the dock-boundary
         // hook config (DockService) so the hook and the server-side gate cannot drift. The
         // pattern is deliberately broad; <see cref="LooksLikeBase64Secret"/> decides whether
@@ -215,12 +220,13 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Returns true when the fired CORE_RULE_5 rule should be exempted because the
-        /// matched token is a SHA-256 content digest appearing in a manifest or lockfile
+        /// matched token is a content digest appearing in a manifest or lockfile
         /// context. Only the <c>CORE_RULE_5_base64_chunk</c> rule is eligible for this
         /// exemption; all other rules are unaffected.
         /// The allowlist requires TWO conditions to exempt a match:
-        /// (1) the addition line contains a SHA-256 digest token (64 lowercase hex chars,
-        ///     or a <c>sha256-</c> SRI base64 prefix form), AND
+        /// (1) the addition line contains a content digest token (64 lowercase hex chars,
+        ///     a <c>sha256-</c> SRI base64 prefix form, or a NuGet <c>"contentHash"</c>
+        ///     base64 SHA-512 value), AND
         /// (2) the line contains a hash-field keyword (<c>sha256</c>, <c>integrity</c>,
         ///     <c>hash</c>, <c>digest</c>, <c>checksum</c>) or the file is a known
         ///     manifest/lockfile type.
@@ -238,10 +244,11 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(addedLine))
                 return false;
 
-            // Token must look like a SHA-256 content digest: 64 lowercase hex chars or SRI form.
+            // Token must look like a content digest: 64 lowercase hex chars, SRI form, or a NuGet content hash.
             bool hasHexDigest = _Sha256HexDigestPattern.IsMatch(addedLine);
             bool hasSriDigest = _Sha256SriDigestPattern.IsMatch(addedLine);
-            if (!hasHexDigest && !hasSriDigest)
+            bool hasNuGetDigest = _NuGetContentHashPattern.IsMatch(addedLine);
+            if (!hasHexDigest && !hasSriDigest && !hasNuGetDigest)
                 return false;
 
             // Context must indicate this is a hash field or a manifest/lockfile.
@@ -261,7 +268,12 @@ namespace Armada.Core.Services
         private static bool IsDigestToken(string chunk, string line)
         {
             if (chunk.Length == 64 && _Sha256HexDigestPattern.IsMatch(chunk)) return true;
-            return line.Contains("sha256-" + chunk, StringComparison.Ordinal);
+            if (line.Contains("sha256-" + chunk, StringComparison.Ordinal)) return true;
+            foreach (Match match in _NuGetContentHashPattern.Matches(line))
+            {
+                if (String.Equals(match.Groups[1].Value, chunk, StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -300,6 +312,8 @@ namespace Armada.Core.Services
                 "go.sum",
                 "pnpm-lock.yaml",
                 "pnpm-lock.yml",
+                // NuGet lock files carry a base64 SHA-512 "contentHash" per package.
+                "packages.lock.json",
                 // Extractor bundle manifests carry per-file/bundle SHA-256 digests (Sha256, BundleSha256,
                 // SourceTreeSha256). Still gated to a genuine 64-hex value below, so no real secret is exempted.
                 "manifest.json"
