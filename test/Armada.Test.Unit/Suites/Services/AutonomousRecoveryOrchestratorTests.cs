@@ -3843,7 +3843,7 @@ namespace Armada.Test.Unit.Suites.Services
             review.AppendLine(blockingTwo);
             review.AppendLine(nonBlocking);
             review.AppendLine("## Tests");
-            for (int i = 0; i < 14; i++) review.AppendLine("- Test " + i + " covers the changed behaviour for case " + i + " and passed in the foreground run.");
+            for (int i = 0; i < 24; i++) review.AppendLine("- Test " + i + " covers the changed behaviour for case " + i + " and passed in the foreground run.");
             review.AppendLine("## Failure Modes");
             for (int i = 0; i < 10; i++) review.AppendLine("- Failure mode " + i + " is handled by an explicit guard and an error message naming the input.");
             review.AppendLine("## Suggested Follow-ups");
