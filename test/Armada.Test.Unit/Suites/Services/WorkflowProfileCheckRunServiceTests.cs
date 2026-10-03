@@ -434,6 +434,75 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // A captain's run_check must not time out while the check waits for the host slot: the call
+            // returns the unfinished record, names where it waits, and the check still finishes.
+            await RunTest("RunWithinAsync returns a check still waiting for the host slot and finishes it in the background", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_check_within", "usr_check_within").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-within-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                IDisposable? hostSlot = null;
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_check_within", "usr_check_within", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_check_within",
+                        UserId = "usr_check_within",
+                        Name = "Bounded Wait Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "dotnet --version"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    hostSlot = await HostWideCommandLock.AcquireAsync("holder_probe", "another vessel's gate", CancellationToken.None).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated("ten_check_within", "usr_check_within", false, false, "UnitTest");
+                    CheckRun returned = await checkRuns.RunWithinAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.Build
+                    }, TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Pending, returned.Status, "the call returns while the check waits for the slot");
+                    CheckRunSlotWait? wait = CheckRunSummaryView.From(returned, 40, HostWideCommandLock.Snapshot()).SlotWait;
+                    AssertNotNull(wait, "an unfinished check reports its slot wait");
+                    AssertEqual("WaitingForSlot", wait!.State);
+                    AssertEqual(1, wait.Position, "the check is first in line");
+                    AssertEqual("another vessel's gate", wait.HolderDescription, "the wait names what holds the slot");
+                    AssertContains("not a code defect", wait.Guidance);
+
+                    hostSlot.Dispose();
+                    hostSlot = null;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(60);
+                    CheckRun? finished = null;
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        finished = await testDb.Driver.CheckRuns.ReadAsync(returned.Id).ConfigureAwait(false);
+                        if (finished != null && finished.Status != CheckRunStatusEnum.Pending && finished.Status != CheckRunStatusEnum.Running) break;
+                        await Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    AssertEqual(CheckRunStatusEnum.Passed, finished!.Status, "the check finishes its own record after the call returned");
+                    AssertNull(CheckRunSlotWait.Describe(finished, HostWideCommandLock.Snapshot()), "a finished check reports no wait");
+                }
+                finally
+                {
+                    hostSlot?.Dispose();
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RunPendingAsync fails unresolved placeholder command instead of passing", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

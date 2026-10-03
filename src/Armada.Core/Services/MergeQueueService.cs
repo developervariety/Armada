@@ -1375,7 +1375,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(testCommand)) return;
 
             TestResult testResult;
-            using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+            using (await HostWideCommandLock.AcquireAsync(entry.Id, "merge-queue test for " + entryTag, token).ConfigureAwait(false))
             {
                 testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
             }

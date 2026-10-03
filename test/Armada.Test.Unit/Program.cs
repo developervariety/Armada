@@ -444,6 +444,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpProductionToolsTests());
             runner.AddSuite(new McpResultPreviewTests());
             runner.AddSuite(new DefinitionOfDoneGateTests());
+            runner.AddSuite(new HostWideCommandLockTests());
             runner.AddSuite(new DefinitionOfDoneReportTests());
             runner.AddSuite(new MissionRecoveryReportTests());
             runner.AddSuite(new CaptainQuarantineScopedServiceTests());

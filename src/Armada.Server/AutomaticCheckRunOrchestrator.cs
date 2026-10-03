@@ -161,7 +161,7 @@ namespace Armada.Server
             int capacity = MaxConcurrentChecks - _InFlight.Count;
             if (capacity <= 0)
             {
-                _Logging.Debug(_Header + "no check started: " + _InFlight.Count + " check(s) already in flight");
+                _Logging.Debug(_Header + "no check started: " + DescribeInFlight(HostWideCommandLock.Snapshot()));
                 return started;
             }
 
@@ -169,7 +169,7 @@ namespace Armada.Server
             if (eligible.Count == 0) return started;
 
             _Logging.Info(_Header + "starting " + eligible.Count + " eligible pending check(s); "
-                + _InFlight.Count + " already in flight");
+                + DescribeInFlight(HostWideCommandLock.Snapshot()));
             foreach (CheckRun pending in eligible)
             {
                 Task? execution = StartExecution(auth, pending, token);
@@ -177,6 +177,32 @@ namespace Armada.Server
             }
 
             return started;
+        }
+
+        /// <summary>
+        /// Say how many started checks run and how many wait for the host-wide slot, and what holds it.
+        /// A check waiting for the slot has no process yet, so counting it as running reads like a stall.
+        /// </summary>
+        /// <param name="slot">A snapshot of the host-wide slot.</param>
+        /// <returns>A one-line description.</returns>
+        internal string DescribeInFlight(HostSlotSnapshot slot)
+        {
+            int waiting = 0;
+            foreach (string id in _InFlight.Keys)
+            {
+                if (slot.FindWaiter(id) != null) waiting++;
+            }
+
+            int running = _InFlight.Count - waiting;
+            string text = running + " check(s) running, " + waiting + " waiting for the host build slot";
+            if (!String.IsNullOrEmpty(slot.HolderDescription))
+            {
+                TimeSpan held = slot.HolderSinceUtc.HasValue ? DateTime.UtcNow - slot.HolderSinceUtc.Value : TimeSpan.Zero;
+                text += "; slot held by " + slot.HolderDescription + " for " + Math.Max(0, (int)held.TotalSeconds) + " s";
+            }
+
+            if (slot.Waiters.Count > waiting) text += "; " + (slot.Waiters.Count - waiting) + " other request(s) queued for the slot";
+            return text;
         }
 
         /// <summary>

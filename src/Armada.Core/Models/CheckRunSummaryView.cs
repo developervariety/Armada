@@ -118,6 +118,11 @@ namespace Armada.Core.Models
         /// </summary>
         public string? OutputRetrieval { get; set; } = null;
 
+        /// <summary>
+        /// Where an unfinished check stands for the host-wide build and test slot, or null when it has finished.
+        /// </summary>
+        public CheckRunSlotWait? SlotWait { get; set; } = null;
+
         #endregion
 
         #region Public-Methods
@@ -132,6 +137,18 @@ namespace Armada.Core.Models
         /// </param>
         /// <returns>The bounded view.</returns>
         public static CheckRunSummaryView From(CheckRun run, int tailLines = 40)
+        {
+            return From(run, tailLines, null);
+        }
+
+        /// <summary>
+        /// Project a check run into its bounded view, including where an unfinished check stands for the host-wide slot.
+        /// </summary>
+        /// <param name="run">The check run to project.</param>
+        /// <param name="tailLines">How many trailing output lines to keep; at least one.</param>
+        /// <param name="slot">A snapshot of the host-wide slot, or null to describe the wait from the record alone.</param>
+        /// <returns>The bounded view.</returns>
+        public static CheckRunSummaryView From(CheckRun run, int tailLines, HostSlotSnapshot? slot)
         {
             if (run == null) throw new ArgumentNullException(nameof(run));
             if (tailLines < 1) tailLines = 1;
@@ -170,7 +187,8 @@ namespace Armada.Core.Models
                 OutputTail = tail.Length == 0 ? null : tail,
                 OutputRetrieval = tail.Length < output.Length
                     ? "Full log omitted (" + output.Length + " chars). Call get_check_run with includeOutput=true for the complete output."
-                    : null
+                    : null,
+                SlotWait = CheckRunSlotWait.Describe(run, slot)
             };
         }
 

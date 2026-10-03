@@ -125,6 +125,18 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// How a check run names itself in the host-wide slot queue.
+        /// </summary>
+        /// <param name="run">The check run.</param>
+        /// <returns>A short description naming the check, its type and its vessel.</returns>
+        internal static string DescribeSlotOwner(CheckRun run)
+        {
+            if (run == null) throw new ArgumentNullException(nameof(run));
+            return "check " + run.Id + " (" + run.Type + (String.IsNullOrWhiteSpace(run.Label) ? String.Empty : ", " + run.Label)
+                + ") for vessel " + run.VesselId;
+        }
+
+        /// <summary>
         /// Refusal message for a command override from a caller that is not a global administrator.
         /// </summary>
         public const string CommandOverrideRefusal =
@@ -143,7 +155,44 @@ namespace Armada.Core.Services
             return RunCoreAsync(auth, request, false, token);
         }
 
-        private async Task<CheckRun> RunCoreAsync(AuthContext auth, CheckRunRequest request, bool allowDeploymentExecution, CancellationToken token)
+        /// <summary>
+        /// Start a check run and wait for it for at most <paramref name="wait"/>. A check that has not
+        /// finished by then keeps running in the background and finishes its own record; the caller gets
+        /// the record as it stands, so a long wait for the host-wide slot never surfaces as a timeout.
+        /// </summary>
+        /// <param name="auth">Caller authorization context.</param>
+        /// <param name="request">Check run request.</param>
+        /// <param name="wait">Longest time to wait for the result.</param>
+        /// <param name="token">Cancellation token for the wait. The started check is not cancelled by it.</param>
+        /// <returns>The finished check, or the unfinished record when the wait ends first.</returns>
+        public async Task<CheckRun> RunWithinAsync(AuthContext auth, CheckRunRequest request, TimeSpan wait, CancellationToken token = default)
+        {
+            TaskCompletionSource<CheckRun> recorded = new TaskCompletionSource<CheckRun>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task<CheckRun> execution = RunCoreAsync(auth, request, false, CancellationToken.None, created => recorded.TrySetResult(created));
+            Task first = await Task.WhenAny(execution, Task.Delay(wait, token)).ConfigureAwait(false);
+            if (ReferenceEquals(first, execution)) return await execution.ConfigureAwait(false);
+
+            // Past the wait, return as soon as the record exists; only a run that ends before it records
+            // anything (a refused request) is awaited to its end.
+            first = await Task.WhenAny(execution, recorded.Task).ConfigureAwait(false);
+            if (!recorded.Task.IsCompleted) return await execution.ConfigureAwait(false);
+
+            string runId = recorded.Task.Result.Id;
+            _ = execution.ContinueWith(
+                finished => _Logging.Warn(_Header + "background check " + runId + " failed: " + finished.Exception?.GetBaseException().Message),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+            CheckRun? current = await _Database.CheckRuns.ReadAsync(runId).ConfigureAwait(false);
+            return current ?? recorded.Task.Result;
+        }
+
+        private async Task<CheckRun> RunCoreAsync(
+            AuthContext auth,
+            CheckRunRequest request,
+            bool allowDeploymentExecution,
+            CancellationToken token,
+            Action<CheckRun>? onRecorded = null)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -229,6 +278,7 @@ namespace Armada.Core.Services
             {
                 run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
                 OnCheckRunChanged?.Invoke(run);
+                onRecorded?.Invoke(run);
 
                 IsolatedCheckout? isolatedCheckout = null;
 
@@ -266,7 +316,7 @@ namespace Armada.Core.Services
                     run.SlotRequestedUtc = DateTime.UtcNow;
                     run.LastUpdateUtc = run.SlotRequestedUtc.Value;
                     run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-                    using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+                    using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
                     {
                         run.Status = CheckRunStatusEnum.Running;
                         run.StartedUtc = DateTime.UtcNow;
@@ -849,7 +899,7 @@ namespace Armada.Core.Services
                 run.SlotRequestedUtc = DateTime.UtcNow;
                 run.LastUpdateUtc = run.SlotRequestedUtc.Value;
                 run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+                using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
                 {
                     run.Status = CheckRunStatusEnum.Running;
                     run.StartedUtc = DateTime.UtcNow;

@@ -216,21 +216,19 @@ namespace Armada.Core.Services
             // WorkProduced would deadlock every vessel holding a stranded WorkProduced mission.
             // The contended resource is the host, not the vessel, so the lock belongs here.
             //
-            // A queued gate must keep its dock alive for the whole wait: the host-wide lock can sit
-            // this gate behind another gate's full build+test run, and dock reclamation would delete
-            // the worktree in between.
-            // The lease is held across the queue wait and the command run, and released afterwards;
-            // the disk-lifecycle sweep and DockService.ReclaimAsync both honor it.
+            // Each command takes the host-wide slot for itself (RunCommandAsync), so a check that
+            // asked for the slot while this gate builds runs before the gate's tests and consumer
+            // suites instead of waiting for the whole sequence. Check runs and merge-queue test runs
+            // share the slot, so a gate command never overlaps a check or a merge-queue test.
             //
-            // Check runs and merge-queue test runs share the same slot, so a gate never overlaps a
-            // check or a merge-queue test either. See HostWideCommandLock.
+            // A gate must keep its dock alive for the whole sequence, including each wait for the
+            // slot: dock reclamation would delete the worktree in between. The lease is held across
+            // the sequence and released afterwards; the disk-lifecycle sweep and
+            // DockService.ReclaimAsync both honor it.
             DockLeaseRegistry.Acquire(dock.Id);
             try
             {
-                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
-                {
-                    return await RunGateCommandsAsync(mission, profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
-                }
+                return await RunGateCommandsAsync(mission, profile, buildCommand, testCommand, worktreePath, token).ConfigureAwait(false);
             }
             finally
             {
@@ -388,10 +386,7 @@ namespace Armada.Core.Services
             DockLeaseRegistry.Acquire(dock.Id);
             try
             {
-                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
-                {
-                    return await VerifyDeclaredConsumersAsync(mission, worktreePath!, token).ConfigureAwait(false);
-                }
+                return await VerifyDeclaredConsumersAsync(mission, worktreePath!, token).ConfigureAwait(false);
             }
             finally
             {
@@ -1323,20 +1318,25 @@ namespace Armada.Core.Services
                 OwnProcessGroup = true
             };
 
+            // Two full build or test commands at once on one host fail in ways that look like broken
+            // code, so every command waits for the host-wide slot. See HostWideCommandLock.
             BoundedProcessResult result;
-            try
+            using (await HostWideCommandLock.AcquireAsync(null, "definition-of-done " + label, token).ConfigureAwait(false))
             {
-                result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                string message = label + " command could not be started or completed: " + ex.Message;
-                _Logging.Warn(_Header + label + " command infrastructure failure");
-                return DefinitionOfDoneResult.Fail(
-                    label,
-                    -1,
-                    BuildDiagnosticText(message),
-                    DefinitionOfDoneFailureClassEnum.Infra);
+                try
+                {
+                    result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    string message = label + " command could not be started or completed: " + ex.Message;
+                    _Logging.Warn(_Header + label + " command infrastructure failure");
+                    return DefinitionOfDoneResult.Fail(
+                        label,
+                        -1,
+                        BuildDiagnosticText(message),
+                        DefinitionOfDoneFailureClassEnum.Infra);
+                }
             }
 
             if (result.KillError != null)

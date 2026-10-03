@@ -246,9 +246,22 @@ silently. The REST check endpoints are unchanged and still return the full
 record.
 
 An expensive Check does not run concurrently with a definition-of-done gate or
-a merge-queue test run; Armada serializes them host-wide. A Check submitted
-during a gate queues rather than racing, so it can take considerably longer to
-return than the command itself takes.
+a merge-queue test run; Armada serializes them through one host-wide slot. The
+slot is granted in request order, and a gate holds it for one command at a time
+(its build, its unit tests, each consumer build and test), so a Check that asks
+while a gate builds runs before the gate's next command instead of after the
+whole gate.
+
+`run_check` waits at most two minutes. A Check still waiting for the slot, or
+still running, comes back unfinished and keeps running; read it again with
+`get_check_run`. Every unfinished Check view carries `SlotWait`: its state
+(`Queued`, `WaitingForSlot` or `Running`), its place in line, what holds the
+slot and since when, and guidance that the wait is an environment condition,
+not a code defect or an owner question. A Judge PASS given while a Check is
+unresolved is held until the Check passes at the reviewed commit, so a stage
+never needs to fail or block because a Check has not finished. The automatic
+Check runner logs how many started Checks run and how many wait for the slot,
+and what holds it.
 
 The heartbeat runs eligible non-deployment Checks automatically, up to three per
 sweep: a voyage-armed Check once a stage commits work to a branch, a

@@ -83,6 +83,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Checks no longer starve behind other vessels' gates:** the host-wide build
+  and test slot is granted in request order and names its holder, and a
+  definition-of-done gate takes it per command instead of for its whole
+  sequence of builds, tests and consumer suites. `run_check` returns an
+  unfinished Check after two minutes instead of timing out the caller; the
+  Check keeps running. Check views carry `SlotWait` (state, place in line,
+  holder, guidance), and the automatic Check runner logs running and waiting
+  Checks separately.
 - **Bounded image retention on rebuild:** `rebuild-local-image.sh` keeps the
   newest three retention sets after a successful build and removes older sets
   by tag (`ARMADA_RETAINED_KEEP` sets the count). Each rebuild retained two

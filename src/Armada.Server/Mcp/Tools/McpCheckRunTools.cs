@@ -21,6 +21,11 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         private const int _DefaultOutputTailLines = 40;
 
+        /// <summary>
+        /// Longest time run_check waits before it returns an unfinished check, below common client tool timeouts.
+        /// </summary>
+        private static readonly TimeSpan _RunCheckWait = TimeSpan.FromMinutes(2);
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -72,12 +77,12 @@ namespace Armada.Server.Mcp.Tools
                     // routinely runs to megabytes, which overruns the tool output limit and gives
                     // the caller a truncation error in place of the verdict it wanted.
                     if (request.IncludeOutput) return (object)run;
-                    return (object)CheckRunSummaryView.From(run, request.OutputTailLines ?? _DefaultOutputTailLines);
+                    return (object)CheckRunSummaryView.From(run, request.OutputTailLines ?? _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
                 });
 
             register(
                 "run_check",
-                "Start a structured check run for a vessel using the resolved workflow profile or an explicit command override. Returns status, exit code, parsed test totals, and the tail of the output; fetch the complete log with get_check_run includeOutput=true.",
+                "Start a structured check run for a vessel using the resolved workflow profile or an explicit command override. Returns status, exit code, parsed test totals, and the tail of the output; fetch the complete log with get_check_run includeOutput=true. A check still waiting for the host-wide build slot after two minutes is returned unfinished with its SlotWait; it keeps running, so read it again with get_check_run.",
                 new
                 {
                     type = "object",
@@ -105,8 +110,11 @@ namespace Armada.Server.Mcp.Tools
                     {
                         CheckRunRequest request = DeserializeArgs<CheckRunRequest>(args, "run_check");
                         AuthContext auth = McpCallerContext.Require();
-                        CheckRun executed = await checkRunService.RunAsync(auth, request).ConfigureAwait(false);
-                        return (object)CheckRunSummaryView.From(executed, _DefaultOutputTailLines);
+                        // A check can wait a long time for the host-wide build slot. Waiting past a client's
+                        // tool timeout reads to a captain as a failed check, so the call returns the unfinished
+                        // record after a bounded wait; the check keeps running and finishes its own record.
+                        CheckRun executed = await checkRunService.RunWithinAsync(auth, request, _RunCheckWait).ConfigureAwait(false);
+                        return (object)CheckRunSummaryView.From(executed, _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
                     }
                     catch (JsonException ex)
                     {
@@ -141,7 +149,7 @@ namespace Armada.Server.Mcp.Tools
                         CheckRunIdArgs request = DeserializeArgs<CheckRunIdArgs>(args, "retry_check_run");
                         AuthContext auth = McpCallerContext.Require();
                         CheckRun retried = await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
-                        return (object)CheckRunSummaryView.From(retried, _DefaultOutputTailLines);
+                        return (object)CheckRunSummaryView.From(retried, _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
                     }
                     catch (Exception ex) when (IsExpectedToolFailure(ex))
                     {

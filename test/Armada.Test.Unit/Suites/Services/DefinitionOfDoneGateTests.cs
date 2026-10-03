@@ -128,6 +128,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // A gate takes the host slot per command. A check that asks for the slot while the gate builds
+            // runs before the gate's unit tests, instead of waiting behind the gate's whole sequence.
+            await RunTest("A check that asks for the host slot during a gate build runs before the gate's tests", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    string slowBuild = OperatingSystem.IsWindows() ? "timeout /t 2 /nobreak > nul" : "sleep 1";
+                    await EnsureVesselWithProfileAsync(testDb, "ten_gate_fair", "vsl_gate_fair",
+                        worktreePath, slowBuild, EchoToFileCommand("tests-ran.txt", "ran")).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    Task<DefinitionOfDoneResult> gateRun = gate.EvaluateAsync(
+                        CreateWorkerMission("ten_gate_fair", "vsl_gate_fair"),
+                        new Dock { WorktreePath = worktreePath });
+
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(30);
+                    while ((HostWideCommandLock.Snapshot().HolderDescription ?? String.Empty).IndexOf("build", StringComparison.Ordinal) < 0)
+                    {
+                        AssertTrue(DateTime.UtcNow < deadline, "the gate build never took the host slot");
+                        await Task.Delay(10).ConfigureAwait(false);
+                    }
+
+                    bool testsRanFirst;
+                    using (await HostWideCommandLock.AcquireAsync("chk_fair_probe", "check probe", CancellationToken.None).ConfigureAwait(false))
+                    {
+                        testsRanFirst = File.Exists(Path.Combine(worktreePath, "tests-ran.txt"));
+                    }
+
+                    DefinitionOfDoneResult result = await gateRun.ConfigureAwait(false);
+                    AssertTrue(result.Passed, "the gate passes");
+                    AssertFalse(testsRanFirst, "the waiting check must get the slot before the gate's unit tests run");
+                    AssertTrue(File.Exists(Path.Combine(worktreePath, "tests-ran.txt")), "the gate's unit tests still run");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate passes when both build and unit-test commands succeed", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
