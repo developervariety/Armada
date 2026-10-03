@@ -372,6 +372,11 @@ context paths are passed as separate arguments. Set `ARMADA_DOCKER_BIN` only
 when supplying a Docker-compatible test double; do not use it to bypass the
 retention checks.
 
+Each rebuild retains two images, so after a successful build the helper removes
+retention sets older than the newest three. Set `ARMADA_RETAINED_KEEP` to keep a
+different number. An image still run by a container or named by another tag
+stays on disk.
+
 The build always passes the context's commit as `GIT_SHA`. Set
 `ARMADA_CLI_REFRESH` to a number, such as the output of `date +%s`, to also pass
 it as the Dockerfile's `CLI_REFRESH` argument: the agent CLI layer is then rebuilt

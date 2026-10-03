@@ -83,6 +83,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Bounded image retention on rebuild:** `rebuild-local-image.sh` keeps the
+  newest three retention sets after a successful build and removes older sets
+  by tag (`ARMADA_RETAINED_KEEP` sets the count). Each rebuild retained two
+  full images with no bound before.
 - **One re-run after a model gateway timeout:** a captain whose model request
   failed with an HTTP 502 or 504 that says the gateway gave up waiting (for
   example a cold self-hosted model load) re-runs its mission once and records

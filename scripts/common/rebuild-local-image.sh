@@ -12,6 +12,10 @@ ARMADA_DOCKER_BIN to inject a Docker-compatible test double. Set
 ARMADA_CLI_REFRESH to a number (for example `date +%s`) to pass it as the
 Dockerfile's CLI_REFRESH build argument, which re-installs the agent CLIs at
 their latest versions.
+
+After a successful build the helper removes retention sets older than the
+newest ARMADA_RETAINED_KEEP (default 3). A set is removed by tag, so an image a
+container still runs, or that another tag names, stays on disk.
 USAGE
 }
 
@@ -37,6 +41,12 @@ CLI_REFRESH_VALUE="${ARMADA_CLI_REFRESH:-}"
 case "$CLI_REFRESH_VALUE" in
     *[!0-9]*) die "ARMADA_CLI_REFRESH must contain digits only (for example the output of date +%s)" ;;
 esac
+
+RETAINED_KEEP="${ARMADA_RETAINED_KEEP:-3}"
+case "$RETAINED_KEEP" in
+    ''|*[!0-9]*) die "ARMADA_RETAINED_KEEP must be a whole number of at least 1" ;;
+esac
+[ "$RETAINED_KEEP" -ge 1 ] || die "ARMADA_RETAINED_KEEP must be a whole number of at least 1"
 
 CONTAINER="$1"
 MUTABLE_TAG="$2"
@@ -151,3 +161,41 @@ if [ -n "$CLI_REFRESH_VALUE" ]; then
     BUILD_ARGS+=(--build-arg "CLI_REFRESH=${CLI_REFRESH_VALUE}")
 fi
 "${DOCKER[@]}" build "${BUILD_ARGS[@]}" --file "$DOCKERFILE" --tag "$MUTABLE_TAG" "$CONTEXT"
+
+# Each rebuild retains two full images, so without a bound the retained sets fill
+# the disk. Keep the newest sets; a failure here leaves the build in place and
+# says what it could not remove.
+prune_retention_sets() {
+    local listed
+    if ! listed="$("${DOCKER[@]}" image ls --format '{{.Tag}}' "$MUTABLE_REPOSITORY" 2>/dev/null)"; then
+        echo "WARN: retention prune skipped: image list failed" >&2
+        return 0
+    fi
+    local keys
+    keys="$(printf '%s\n' "$listed" \
+        | sed -n -E 's/^armada-retained-(running|tag)-([0-9]{8}T[0-9]{6}Z-[0-9a-f]{16})$/\2/p' \
+        | sort -r -u)"
+    local index=0
+    local removed=0
+    local failed=0
+    local key
+    local kind
+    for key in $keys; do
+        index=$((index + 1))
+        [ "$index" -gt "$RETAINED_KEEP" ] || continue
+        for kind in running tag; do
+            if printf '%s\n' "$listed" | grep -Fx "armada-retained-${kind}-${key}" >/dev/null; then
+                if "${DOCKER[@]}" image rm "${MUTABLE_REPOSITORY}:armada-retained-${kind}-${key}" >/dev/null 2>&1; then
+                    removed=$((removed + 1))
+                else
+                    failed=$((failed + 1))
+                fi
+            fi
+        done
+    done
+    echo "retention_prune kept_sets=${RETAINED_KEEP} removed_tags=${removed} failed_tags=${failed}"
+    [ "$failed" -eq 0 ] || echo "WARN: ${failed} retention tags could not be removed" >&2
+    return 0
+}
+
+prune_retention_sets

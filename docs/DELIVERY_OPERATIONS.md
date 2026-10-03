@@ -167,6 +167,12 @@ fails. It never pushes an image. If the build fails, the two retention tags
 remain available for rollback. Use the exact retained tag recorded by the
 helper; do not rebuild or overwrite it.
 
+After a successful build the helper keeps the newest three retention sets
+(`ARMADA_RETAINED_KEEP` changes the count) and removes the older sets by tag.
+Docker keeps an image that a container still runs or that another tag names,
+such as a manual rollback tag. A tag it cannot remove is reported as a warning
+and does not fail the build.
+
 ## 7. Incidents
 
 Use `armada_create_incident` when a delivery failure has operational impact.

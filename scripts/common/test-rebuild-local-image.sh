@@ -71,6 +71,17 @@ if [ "${1:-}" = "image" ] && [ "${2:-}" = "inspect" ]; then
     exit 1
 fi
 
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "ls" ] && [ "${4:-}" = "{{.Tag}}" ]; then
+    [ "${ARMADA_FAKE_PRUNE_LIST_FAIL:-0}" = 1 ] && exit 1
+    printf '%s' "${ARMADA_FAKE_RETAINED_TAGS:-}"
+    exit 0
+fi
+
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "rm" ]; then
+    [ "${ARMADA_FAKE_RM_FAIL:-0}" = 1 ] && exit 1
+    exit 0
+fi
+
 if [ "${1:-}" = "image" ] && [ "${2:-}" = "ls" ]; then
     [ "${ARMADA_FAKE_DAEMON_FAIL:-0}" = 1 ] && exit 1
     [ "${ARMADA_FAKE_COLLISION:-0}" = 1 ] && printf '%s\n' "$last_arg"
@@ -112,6 +123,9 @@ run_helper() {
         ARMADA_FAKE_VERIFY_FAIL="${ARMADA_FAKE_VERIFY_FAIL:-0}" \
         ARMADA_FAKE_TAG_FAIL="${ARMADA_FAKE_TAG_FAIL:-0}" \
         ARMADA_FAKE_BUILD_FAIL="${ARMADA_FAKE_BUILD_FAIL:-0}" \
+        ARMADA_FAKE_RETAINED_TAGS="${ARMADA_FAKE_RETAINED_TAGS:-}" \
+        ARMADA_FAKE_PRUNE_LIST_FAIL="${ARMADA_FAKE_PRUNE_LIST_FAIL:-0}" \
+        ARMADA_FAKE_RM_FAIL="${ARMADA_FAKE_RM_FAIL:-0}" \
         "$HELPER" "$@"
 }
 
@@ -148,6 +162,63 @@ ARMADA_CLI_REFRESH=1727000000 run_helper "$LOG_REFRESH" armada-server "$MUTABLE_
     || fail "rebuild with a CLI refresh value returned failure"
 assert_contains $'--build-arg\tCLI_REFRESH=1727000000\t' "$LOG_REFRESH"
 
+set_tags() {
+    local key
+    RETAINED_TAGS="latest
+rollback-before-example
+"
+    for key in "$@"; do
+        RETAINED_TAGS="${RETAINED_TAGS}armada-retained-running-${key}
+armada-retained-tag-${key}
+"
+    done
+}
+
+K1="20260101T000000Z-0000000000000001"
+K2="20260102T000000Z-0000000000000002"
+K3="20260103T000000Z-0000000000000003"
+K4="20260104T000000Z-0000000000000004"
+K5="20260105T000000Z-0000000000000005"
+set_tags "$K3" "$K1" "$K5" "$K2" "$K4"
+
+LOG_PRUNE="${TMP}/prune.log"
+OUTPUT_PRUNE="$(ARMADA_FAKE_RETAINED_TAGS="$RETAINED_TAGS" run_helper "$LOG_PRUNE" \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT")" \
+    || fail "rebuild with old retention sets returned failure"
+assert_contains "retention_prune kept_sets=3 removed_tags=4 failed_tags=0" <(printf '%s\n' "$OUTPUT_PRUNE")
+for key in "$K1" "$K2"; do
+    assert_contains $'image\trm\tarmada:armada-retained-running-'"${key}" "$LOG_PRUNE"
+    assert_contains $'image\trm\tarmada:armada-retained-tag-'"${key}" "$LOG_PRUNE"
+done
+grep $'^image\trm\t' "$LOG_PRUNE" > "${TMP}/prune-rm.log" || true
+for key in "$K3" "$K4" "$K5"; do
+    assert_not_contains "$key" "${TMP}/prune-rm.log"
+done
+assert_not_contains 'armada:latest' "${TMP}/prune-rm.log"
+assert_not_contains 'rollback-before-example' "${TMP}/prune-rm.log"
+BUILD_LINE="$(grep -n $'^build\t' "$LOG_PRUNE" | head -n 1 | cut -d: -f1)"
+FIRST_RM_LINE="$(grep -n $'^image\trm\t' "$LOG_PRUNE" | head -n 1 | cut -d: -f1)"
+[ "$BUILD_LINE" -lt "$FIRST_RM_LINE" ] || fail "retention sets were pruned before the build"
+
+LOG_KEEP_ONE="${TMP}/keep-one.log"
+OUTPUT_KEEP_ONE="$(ARMADA_RETAINED_KEEP=1 ARMADA_FAKE_RETAINED_TAGS="$RETAINED_TAGS" run_helper "$LOG_KEEP_ONE" \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT")" \
+    || fail "rebuild keeping one retention set returned failure"
+assert_contains "retention_prune kept_sets=1 removed_tags=8 failed_tags=0" <(printf '%s\n' "$OUTPUT_KEEP_ONE")
+assert_not_contains "rm"$'\t'"armada:armada-retained-running-${K5}" "$LOG_KEEP_ONE"
+
+LOG_RM_FAIL="${TMP}/rm-fail.log"
+OUTPUT_RM_FAIL="$(ARMADA_FAKE_RM_FAIL=1 ARMADA_FAKE_RETAINED_TAGS="$RETAINED_TAGS" run_helper "$LOG_RM_FAIL" \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT" 2>"${TMP}/rm-fail.err")" \
+    || fail "a retention tag that cannot be removed failed the rebuild"
+assert_contains "removed_tags=0 failed_tags=4" <(printf '%s\n' "$OUTPUT_RM_FAIL")
+assert_contains "WARN: 4 retention tags could not be removed" "${TMP}/rm-fail.err"
+
+ARMADA_FAKE_PRUNE_LIST_FAIL=1 run_helper "${TMP}/list-fail.log" \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT" >/dev/null 2>"${TMP}/list-fail.err" \
+    || fail "a failed retention listing failed the rebuild"
+assert_contains "WARN: retention prune skipped: image list failed" "${TMP}/list-fail.err"
+
 run_failure_case() {
     local name="$1"
     shift
@@ -159,6 +230,12 @@ run_failure_case() {
 }
 
 ARMADA_CLI_REFRESH='1; rm -rf x' run_failure_case unsafe-cli-refresh \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
+
+ARMADA_RETAINED_KEEP=0 run_failure_case zero-retained-keep \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
+
+ARMADA_RETAINED_KEEP='2; rm -rf x' run_failure_case unsafe-retained-keep \
     armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
 
 ARMADA_FAKE_CONTAINER_MISSING=1 run_failure_case missing-container \
