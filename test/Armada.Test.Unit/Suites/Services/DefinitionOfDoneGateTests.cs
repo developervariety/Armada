@@ -173,6 +173,81 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // A test that loses a race under the loaded suite passes when its class runs alone; a real
+            // defect fails again. The vessel's own red is re-run once in isolation and that result stands.
+            await RunTest("A vessel test that fails in the suite and passes alone does not fail the gate", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    // Fails on its first run, passes once it has run before. The trailing dotnet test is never
+                    // executed; it only lets the gate form the class-filtered re-run command.
+                    string raceOnce = "bash -c 'if [ -e race.marker ]; then echo ok; exit 0; fi; touch race.marker; "
+                        + "echo \"  Failed Example.Tests.ConsoleRaceTests.Prints_Its_Line [1 ms]\"; "
+                        + "echo \"Failed!  - Failed: 1, Passed: 0, Total: 1\"; exit 1; dotnet test Example.sln --filter \"Category!=Integration\"'";
+                    await EnsureVesselWithProfileAsync(testDb, "ten_rerun_once", "vsl_rerun_once",
+                        worktreePath, SuccessCommand(), raceOnce).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_rerun_once", "vsl_rerun_once"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+                    AssertTrue(result.Passed, "a failing class that passes alone does not fail the gate");
+
+                    File.Delete(Path.Combine(worktreePath, "race.marker"));
+                    DefinitionOfDoneGate off = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, RerunFailingClassesOnce = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult red = await off.EvaluateAsync(
+                        CreateWorkerMission("ten_rerun_once", "vsl_rerun_once"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+                    AssertFalse(red.Passed, "with the setting off the suite red stands");
+                    AssertEqual(DefinitionOfDoneFailureClassEnum.TestFail, red.FailureClass);
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A vessel test that fails again alone fails the gate and says so", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    string alwaysRed = "bash -c 'echo \"  Failed Example.Tests.ParserTests.Reads_The_Header [1 ms]\"; "
+                        + "echo \"Failed!  - Failed: 1, Passed: 0, Total: 1\"; exit 1; dotnet test Example.sln --filter \"Category!=Integration\"'";
+                    await EnsureVesselWithProfileAsync(testDb, "ten_rerun_red", "vsl_rerun_red",
+                        worktreePath, SuccessCommand(), alwaysRed).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_rerun_red", "vsl_rerun_red"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "a real defect fails again alone");
+                    AssertEqual(DefinitionOfDoneFailureClassEnum.TestFail, result.FailureClass);
+                    AssertContains("alone also failed", result.OutputTail ?? String.Empty, "the failure says the isolated re-run also failed");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate passes when both build and unit-test commands succeed", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -143,6 +143,19 @@ namespace Armada.Core.Settings
         public bool RerunFailingConsumerClassesOnce { get; set; } = true;
 
         /// <summary>
+        /// Whether the vessel's own failing unit-test suite is re-run once in isolation, limited to its
+        /// failing test classes, when the flake decision did not already re-run it. The isolated result
+        /// stands. Defaults to true.
+        /// </summary>
+        /// <remarks>
+        /// A test that loses a race under the loaded full suite, such as two tests sharing a process-wide
+        /// console, fails the gate for nothing, while a real defect fails again when its class runs alone.
+        /// A race in product code that only shows under the full suite is still caught by the independent
+        /// UnitTest Check, which runs the whole suite at the same commit. At most three failing classes are re-run.
+        /// </remarks>
+        public bool RerunFailingClassesOnce { get; set; } = true;
+
+        /// <summary>
         /// Producer-relative path prefixes that trigger the consumer's unit-test suite when a
         /// producer change touches a non-test file under any of them. Used for a consumer edge
         /// whose sibling declaration carries no <c>ConsumerTestTriggerPaths</c> of its own. A
@@ -177,6 +190,7 @@ namespace Armada.Core.Settings
             RunConsumerTests = source.RunConsumerTests;
             VerifyConsumersAfterLaterStages = source.VerifyConsumersAfterLaterStages;
             RerunFailingConsumerClassesOnce = source.RerunFailingConsumerClassesOnce;
+            RerunFailingClassesOnce = source.RerunFailingClassesOnce;
             ConsumerTestTriggerPaths = new List<string>(source.ConsumerTestTriggerPaths ?? new List<string>());
         }
 

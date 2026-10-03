@@ -694,7 +694,14 @@ Two platform-side decisions ship `Gate`:
   re-run's real result is the truth (a pass clears the red, a failure leaves it
   red). The model never marks a red check green — only a genuine passing isolated
   re-run does — and a re-run runs only for a `dotnet test` command that can be
-  isolated; otherwise the red stands unchanged.
+  isolated; otherwise the red stands unchanged. When the decision does not re-run
+  it, the gate re-runs the failing classes once in isolation anyway, at most
+  three classes, for the vessel's own suite (`RerunFailingClassesOnce`) and for
+  a consumer suite (`RerunFailingConsumerClassesOnce`); both default on. A test
+  that lost a race under the loaded suite passes alone and a real defect fails
+  again, and the failure text says which. A race only the full suite shows is
+  still caught by the independent UnitTest Check, which runs the whole suite at
+  the same commit. When no re-run is possible, the failure text states why.
 - **`change_substance`** sits over the extension-based
   `ChangeSubstanceClassifier`, which stays the rule. The model reads the rescue's
   added hunks and answers a `substance` Choice `{behaviour, test_only, docs_only,

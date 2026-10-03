@@ -46,7 +46,7 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
-        private const int MaxConsumerRerunClasses = 3;
+        private const int MaxIsolatedRerunClasses = 3;
 
         private readonly string _Header = "[DefinitionOfDoneGate] ";
         private readonly DefinitionOfDoneSettings _Settings;
@@ -262,6 +262,7 @@ namespace Armada.Core.Services
                 RunConsumerTests = _Settings.RunConsumerTests,
                 VerifyConsumersAfterLaterStages = _Settings.VerifyConsumersAfterLaterStages,
                 RerunFailingConsumerClassesOnce = _Settings.RerunFailingConsumerClassesOnce,
+                RerunFailingClassesOnce = _Settings.RerunFailingClassesOnce,
                 DefaultConsumerTestTriggerPaths = new List<string>(_Settings.ConsumerTestTriggerPaths ?? new List<string>())
             };
 
@@ -436,6 +437,13 @@ namespace Armada.Core.Services
                     // truth. A red that stays red here is returned unchanged. The model never marks it
                     // green — only a genuine passing isolated re-run can.
                     DefinitionOfDoneResult afterFlake = await MaybeRerunFlakyTestAsync(mission, effectiveTest, worktreePath, testResult, token).ConfigureAwait(false);
+
+                    // A test that loses a race under the loaded suite passes when its class runs alone, and
+                    // a real defect fails again; the isolated re-run is the truth. The independent UnitTest
+                    // Check still runs the whole suite at this commit, so a race only the full suite shows
+                    // is not hidden. Bounded to a few failing classes.
+                    if (!afterFlake.Passed && ReferenceEquals(afterFlake, testResult) && _Settings.RerunFailingClassesOnce)
+                        afterFlake = await RerunFailingClassesOnceAsync("vessel", effectiveTest, worktreePath, testResult, testLabel, token).ConfigureAwait(false);
                     if (!afterFlake.Passed) return afterFlake;
 
                     // The isolated re-run passed: the failure was a flake. Fall through to the consumer
@@ -924,7 +932,7 @@ namespace Armada.Core.Services
                 // consumer test that loses a race under the loaded suite passes alone. The isolated
                 // re-run is the truth either way. Bounded to a few failing classes.
                 if (!result.Passed && ReferenceEquals(result, suiteResult) && _Settings.RerunFailingConsumerClassesOnce)
-                    result = await RerunFailingConsumerClassesAsync(consumer, effective, consumerWorktree, result, logLabel, token).ConfigureAwait(false);
+                    result = await RerunFailingClassesOnceAsync("consumer " + consumer.Name, effective, consumerWorktree, result, logLabel, token).ConfigureAwait(false);
             }
 
             if (!result.Passed)
@@ -937,34 +945,50 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Re-run a consumer suite's failing classes once in isolation and return that result. Returns the
-        /// original failing result when the failure is not a test failure, the failing names are missing,
-        /// overflowed or span more classes than the bound, or no isolated command can be formed.
+        /// Re-run a suite's failing classes once in isolation and return that result. Returns the original
+        /// failing result, with the reason written at the top of its output, when the failure is not a test
+        /// failure, the failing names are missing, overflowed or span more classes than the bound, or no
+        /// isolated command can be formed.
         /// </summary>
-        private async Task<DefinitionOfDoneResult> RerunFailingConsumerClassesAsync(
-            Vessel consumer,
+        /// <param name="subject">Whose suite failed, for the log: "vessel" or "consumer &lt;name&gt;".</param>
+        private async Task<DefinitionOfDoneResult> RerunFailingClassesOnceAsync(
+            string subject,
             string testCommand,
-            string consumerWorktree,
+            string worktreePath,
             DefinitionOfDoneResult testResult,
             string logLabel,
             CancellationToken token)
         {
             if (testResult.FailureClass != DefinitionOfDoneFailureClassEnum.TestFail) return testResult;
             if (testResult.FailedTestNames == null || testResult.FailedTestNames.Count == 0 || testResult.FailedTestNamesOverflow)
-                return testResult;
+                return NoteNoRerun(testResult, subject, "the failing test names could not be read in full");
 
             IReadOnlyList<string> classNames = FlakeRerunCommand.DeriveClassNames(testResult.FailedTestNames);
-            if (classNames.Count == 0 || classNames.Count > MaxConsumerRerunClasses) return testResult;
+            if (classNames.Count == 0)
+                return NoteNoRerun(testResult, subject, "no test class could be derived from the failing test names");
+            if (classNames.Count > MaxIsolatedRerunClasses)
+                return NoteNoRerun(testResult, subject, classNames.Count + " failing classes exceed the bound of " + MaxIsolatedRerunClasses);
             if (!FlakeRerunCommand.TryBuild(testCommand, classNames, out string filteredCommand))
+                return NoteNoRerun(testResult, subject, "no isolated command could be formed from the test command");
+
+            _Logging.Info(_Header + "re-running " + classNames.Count + " failing class(es) of " + subject + " in isolation");
+            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", filteredCommand, worktreePath, token).ConfigureAwait(false);
+            _Logging.Info(_Header + subject + " isolated re-run passed=" + rerun.Passed);
+            if (!rerun.Passed)
             {
-                _Logging.Info(_Header + "consumer " + consumer.Name + " red could not be isolated for a re-run; the red stands");
-                return testResult;
+                rerun.OutputTail = "Isolated re-run of " + classNames.Count + " failing class(es) alone also failed, so this is not a load race."
+                    + (String.IsNullOrEmpty(rerun.OutputTail) ? String.Empty : "\n" + rerun.OutputTail);
             }
 
-            _Logging.Info(_Header + "re-running " + classNames.Count + " failing class(es) of consumer " + consumer.Name + " in isolation");
-            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", filteredCommand, consumerWorktree, token).ConfigureAwait(false);
-            _Logging.Info(_Header + "consumer " + consumer.Name + " isolated re-run passed=" + rerun.Passed);
             return rerun;
+        }
+
+        private DefinitionOfDoneResult NoteNoRerun(DefinitionOfDoneResult testResult, string subject, string reason)
+        {
+            _Logging.Info(_Header + subject + " red not re-run in isolation: " + reason + "; the red stands");
+            testResult.OutputTail = "Not re-run in isolation: " + reason + "."
+                + (String.IsNullOrEmpty(testResult.OutputTail) ? String.Empty : "\n" + testResult.OutputTail);
+            return testResult;
         }
 
         /// <summary>

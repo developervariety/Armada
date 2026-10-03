@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A vessel test that only fails under the loaded suite no longer fails its
+  gate:** when the `flake_score` decision does not re-run a red unit-test suite,
+  the definition-of-done gate re-runs the failing classes once in isolation (at
+  most three), as it already did for consumer suites, and that result stands
+  (`RerunFailingClassesOnce`, default on). A red that is not re-run states why in
+  the failure text, and one that fails again alone says so.
 - **Checks no longer starve behind other vessels' gates:** the host-wide build
   and test slot is granted in request order and names its holder, and a
   definition-of-done gate takes it per command instead of for its whole

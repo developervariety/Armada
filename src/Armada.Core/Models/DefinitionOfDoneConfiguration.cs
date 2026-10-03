@@ -113,6 +113,11 @@ namespace Armada.Core.Models
         public bool RerunFailingConsumerClassesOnce { get; set; } = false;
 
         /// <summary>
+        /// Whether the vessel's own failing unit-test suite is re-run once in isolation, limited to its failing classes.
+        /// </summary>
+        public bool RerunFailingClassesOnce { get; set; } = false;
+
+        /// <summary>
         /// Global consumer-test trigger prefixes. A producer sibling declaration with its own prefixes overrides these per edge.
         /// </summary>
         public List<string> DefaultConsumerTestTriggerPaths { get; set; } = new List<string>();
