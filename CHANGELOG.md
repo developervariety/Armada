@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **One re-run after a model gateway timeout:** a captain whose model request
+  failed with an HTTP 502 or 504 that says the gateway gave up waiting (for
+  example a cold self-hosted model load) re-runs its mission once and records
+  `mission.model_gateway_retry`. A second such failure fails the mission as
+  before.
 - **Quieter git log, working prior-art samples:** `merge-base --is-ancestor`
   answering "no" (exit 1, no error text) is logged at Debug, not as a failed git
   command; a missing ref still warns. The prior-art sample pass prints only the

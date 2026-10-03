@@ -3362,6 +3362,23 @@ namespace Armada.Core.Services
                 }
             }
 
+            // A self-hosted model behind a gateway can need longer to load cold than the gateway waits,
+            // and the gateway then answers 502/504 before the captain did any work. The load goes on
+            // after the gateway gives up, so one re-run usually finds the model warm. One per mission:
+            // a gateway that keeps failing is a real outage and fails the mission as before.
+            if (mission != null
+                && IsModelGatewayTimeoutFailureReason(failureReason)
+                && await CountModelGatewayRetriesAsync(mission.Id, token).ConfigureAwait(false) < 1)
+            {
+                await EmitEventAsync(ModelGatewayRetryEvent, "Mission " + mission.Id + " re-run once after its model gateway timed out before the model answered: " + failureReason,
+                    entityType: "mission", entityId: mission.Id,
+                    captainId: captain.Id, missionId: mission.Id,
+                    vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+                await RequeueTransientMissionFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+                await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+                return;
+            }
+
             // Transient captain-unavailable / completion-verification failures are recoverable:
             // requeue the mission for reassignment instead of marking it Failed and halting the
             // voyage. Only genuine unrecoverable failures fall through to HaltVoyageAsync below.
@@ -3943,6 +3960,51 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "mission " + missionId + " re-routed but has no vessel id; relying on health-check retry sweep");
                 _RetryDispatchNeeded = true;
+            }
+        }
+
+        /// <summary>Event recorded when a mission is re-run after its model gateway timed out.</summary>
+        internal const string ModelGatewayRetryEvent = "mission.model_gateway_retry";
+
+        /// <summary>
+        /// Whether a failure is a model gateway giving up before the model answered: an HTTP 502 or 504
+        /// from the request to the model whose text says the operation was canceled or timed out, or is
+        /// a proxy or gateway timeout.
+        /// </summary>
+        /// <param name="failureReason">Mission failure reason.</param>
+        /// <returns>True for a gateway timeout.</returns>
+        internal static bool IsModelGatewayTimeoutFailureReason(string? failureReason)
+        {
+            if (String.IsNullOrWhiteSpace(failureReason)) return false;
+            bool gatewayStatus = failureReason.Contains("status 502", StringComparison.OrdinalIgnoreCase)
+                || failureReason.Contains("status 504", StringComparison.OrdinalIgnoreCase)
+                || failureReason.Contains("HTTP 502", StringComparison.OrdinalIgnoreCase)
+                || failureReason.Contains("HTTP 504", StringComparison.OrdinalIgnoreCase);
+            if (!gatewayStatus) return false;
+            return failureReason.Contains("operation was canceled", StringComparison.OrdinalIgnoreCase)
+                || failureReason.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+                || failureReason.Contains("gateway timeout", StringComparison.OrdinalIgnoreCase)
+                || failureReason.Contains("Proxy error", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private async Task<int> CountModelGatewayRetriesAsync(string missionId, CancellationToken token)
+        {
+            try
+            {
+                EnumerationResult<ArmadaEvent> page = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = missionId,
+                    EventType = ModelGatewayRetryEvent,
+                    PageNumber = 1,
+                    PageSize = 10
+                }, token).ConfigureAwait(false);
+                return (int)page.TotalRecords;
+            }
+            catch (Exception ex) when (!token.IsCancellationRequested)
+            {
+                // Without the count the budget cannot be proven, so no re-run is spent.
+                _Logging.Warn(_Header + "could not count model gateway retries for mission " + missionId + ": " + ex.Message);
+                return Int32.MaxValue;
             }
         }
 

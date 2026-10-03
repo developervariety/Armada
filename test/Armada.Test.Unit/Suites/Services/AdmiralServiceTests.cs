@@ -1591,6 +1591,76 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("IsModelGatewayTimeoutFailureReason matches only a gateway status that gave up waiting", () =>
+            {
+                AssertTrue(AdmiralService.IsModelGatewayTimeoutFailureReason(
+                    "[ARMADA:ACTIVITY] mux error LLM request to http://model.example/v1 failed with status 502: HTTP 502: {\"error\":\"Proxy error: The operation was canceled.\"}"),
+                    "A 502 whose proxy canceled the request is a gateway timeout.");
+                AssertTrue(AdmiralService.IsModelGatewayTimeoutFailureReason("request failed with status 504: Gateway Timeout"),
+                    "A 504 gateway timeout is a gateway timeout.");
+                AssertFalse(AdmiralService.IsModelGatewayTimeoutFailureReason("request failed with status 502: Bad Gateway"),
+                    "A 502 that does not say it timed out is not retried.");
+                AssertFalse(AdmiralService.IsModelGatewayTimeoutFailureReason("tool call timed out after 30s"),
+                    "A timeout without a gateway status is not retried.");
+                AssertFalse(AdmiralService.IsModelGatewayTimeoutFailureReason(null), "No reason is not a gateway timeout.");
+                return Task.CompletedTask;
+            });
+
+            // A self-hosted model can take longer to load cold than its gateway waits. The first such failure
+            // re-runs the mission; a second is a real outage and fails it.
+            await RunTest("HandleProcessExitAsync re-runs a mission once after a model gateway timeout", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                    Captain captain = new Captain("gateway-timeout") { State = CaptainStateEnum.Idle };
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Mission mission = await CreateExitMissionAsync(db, captain, 9600).ConfigureAwait(false);
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, mission.Id + ".log"),
+                        "[ARMADA:ACTIVITY] mux starting\n"
+                        + "[ARMADA:ACTIVITY] mux error LLM request to http://model.example/v1 failed with status 502: HTTP 502: {\"error\":\"Proxy error: The operation was canceled.\"}\n").ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(9600, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? requeued = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, requeued!.Status, "The first gateway timeout must re-run the mission.");
+                    EnumerationResult<ArmadaEvent> retries = await db.Events.EnumerateAsync(new EnumerationQuery
+                    {
+                        MissionId = mission.Id,
+                        EventType = AdmiralService.ModelGatewayRetryEvent
+                    }).ConfigureAwait(false);
+                    AssertEqual(1L, retries.TotalRecords, "The re-run must be recorded once.");
+
+                    Captain? again = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    requeued.Status = MissionStatusEnum.InProgress;
+                    requeued.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    requeued.CaptainId = again!.Id;
+                    requeued.ProcessId = 9601;
+                    await db.Missions.UpdateAsync(requeued).ConfigureAwait(false);
+                    again.CurrentMissionId = mission.Id;
+                    again.ProcessId = 9601;
+                    again.State = CaptainStateEnum.Working;
+                    await db.Captains.UpdateAsync(again).ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(9601, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? failed = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, failed!.Status, "A second gateway timeout must fail the mission.");
+                    retries = await db.Events.EnumerateAsync(new EnumerationQuery
+                    {
+                        MissionId = mission.Id,
+                        EventType = AdmiralService.ModelGatewayRetryEvent
+                    }).ConfigureAwait(false);
+                    AssertEqual(1L, retries.TotalRecords, "The second timeout must not spend another re-run.");
+                }
+            });
+
             // A crash whose output names a pool capacity, a billing module, a line number or a process id is
             // still a crash: only a provider phrase or a status form reads as a provider limit.
             await RunTest("HandleProcessExitAsync QuarantinesACrashLoopWhoseOutputMerelyMentionsCapacityOrBilling", async () =>
