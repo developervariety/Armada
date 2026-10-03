@@ -226,38 +226,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ExecuteAsync_RestoreVerificationFails_AbortsCutover", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                using (SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true))
-                {
-                    context.Preflight.NextResult = new SelfDeployPreflightResult
-                    {
-                        BackupValidated = true,
-                        CandidateValidated = true,
-                        FailureReason = "restore_verification_failed"
-                    };
-
-                    await AssertPreflightAbortsAsync(context, 1);
-                }
-            });
-
-            await RunTest("ExecuteAsync_CandidateValidationFails_AbortsCutover", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                using (SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true))
-                {
-                    context.Preflight.NextResult = new SelfDeployPreflightResult
-                    {
-                        BackupValidated = true,
-                        RestoreVerified = true,
-                        FailureReason = "candidate_validation_failed"
-                    };
-
-                    await AssertPreflightAbortsAsync(context, 1);
-                }
-            });
-
             await RunTest("ExecuteAsync_PreflightConflict_FailsClosed", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

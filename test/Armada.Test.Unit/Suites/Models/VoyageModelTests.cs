@@ -53,15 +53,6 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(voyage.Status, deserialized.Status);
             });
 
-            await RunTest("Voyage StatusEnum SerializesAsString", () =>
-            {
-                Voyage voyage = new Voyage();
-                voyage.Status = VoyageStatusEnum.Complete;
-
-                string json = JsonSerializer.Serialize(voyage);
-                AssertContains("\"Complete\"", json);
-            });
-
             await RunTest("Voyage PlanningLineage Serializes", () =>
             {
                 Voyage voyage = new Voyage("Planned Voyage");

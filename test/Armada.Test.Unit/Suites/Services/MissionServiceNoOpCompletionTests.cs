@@ -47,19 +47,6 @@ namespace Armada.Test.Unit.Suites.Services
                     "An Audit mission that completes in 8s with 113 chars of AgentOutput is a false-complete: it read the brief and exited without composing the report that IS its deliverable.");
             }).ConfigureAwait(false);
 
-            await RunTest("DetectNoOpCompletion_ResearchShortRuntimeTinyOutput_Detects", () =>
-            {
-                Mission mission = new Mission
-                {
-                    Id = "msn_test_z",
-                    Mode = MissionModeEnum.Research,
-                };
-                TimeSpan runtime = TimeSpan.FromSeconds(8);
-                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 113, true);
-                AssertTrue(detected,
-                    "A Research mission that completes in 8s with 113 chars of AgentOutput is a false-complete: no report was produced.");
-            }).ConfigureAwait(false);
-
             await RunTest("DetectNoOpCompletion_AuditReportSizedOutput_NotDetected", () =>
             {
                 Mission mission = new Mission

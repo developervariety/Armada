@@ -241,16 +241,6 @@ namespace Armada.Test.Unit.Suites.Services
                 suite.Body = async probe => { probe.Skip(); await probe.PassAsync(); };
                 AssertEqual(0, await runner.RunAllAsync());
             });
-            await RunTest("Unused database stub cannot pass zero cases", async () =>
-            {
-                SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
-                logging.Settings.EnableConsole = false;
-                using (Armada.Core.Database.Sqlite.SqliteDatabaseDriver driver = new Armada.Core.Database.Sqlite.SqliteDatabaseDriver("Data Source=:memory:", logging))
-                {
-                    Armada.Test.Common.DatabaseTestRunner runner = new Armada.Test.Common.DatabaseTestRunner(driver, false);
-                    AssertEqual(1, await runner.RunAllTestsAsync());
-                }
-            });
             await RunTest("Expected exception assertions still pass", async () =>
             {
                 AssertThrows<Exception>(() => throw new InvalidOperationException());

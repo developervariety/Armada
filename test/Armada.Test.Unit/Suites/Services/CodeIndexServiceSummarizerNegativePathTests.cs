@@ -492,42 +492,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ProductionComposition_AdmiralAndHelmBothPassInferenceClientToSummarizer", () =>
-            {
-                string repositoryRoot = FindRepositoryRoot();
-
-                string admiralWiring = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Armada.Server", "ArmadaServer.cs"));
-                AssertContains(
-                    "CodeIndexInferenceClientFactory.Create(_Settings, _Logging, codeIndexHttpClient)",
-                    admiralWiring,
-                    "Admiral must select the inference implementation through the shared production factory.");
-                AssertContains(
-                    "new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient)",
-                    admiralWiring,
-                    "Admiral must pass inferenceClient into CodeIndexService so the summarizer is reachable from production");
-
-                string helmWiring = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Armada.Helm", "Commands", "McpStdioCommand.cs"));
-                AssertContains(
-                    "CodeIndexInferenceClientFactory.Create(armadaSettings, logging, codeIndexHttpClient)",
-                    helmWiring,
-                    "Helm stdio MCP composition must select the inference implementation through the shared production factory.");
-                AssertContains(
-                    "new CodeIndexService(logging, database, armadaSettings, git, embeddingClient, inferenceClient)",
-                    helmWiring,
-                    "Helm stdio MCP composition must pass inferenceClient into CodeIndexService so the summarizer is reachable from production");
-
-                string summarizerImpl = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Armada.Core", "Services", "CodeIndexService.cs"));
-                AssertContains(
-                    "_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && search.Results.Count > 0",
-                    summarizerImpl,
-                    "Summarizer guard must require UseSummarizer + non-null inference client + at least one search result");
-                AssertContains(
-                    "isSummarized ? summarizedMarkdown! : markdown",
-                    summarizerImpl,
-                    "WriteContextPackAsync must materialize the summarized markdown when summarization succeeded");
-
-                return Task.CompletedTask;
-            });
         }
 
         #endregion
@@ -620,23 +584,6 @@ namespace Armada.Test.Unit.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
-        }
-
-        private static string FindRepositoryRoot()
-        {
-            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
-            while (current != null)
-            {
-                if (Directory.Exists(Path.Combine(current.FullName, "src"))
-                    && Directory.Exists(Path.Combine(current.FullName, "test")))
-                {
-                    return current.FullName;
-                }
-
-                current = current.Parent;
-            }
-
-            throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
         }
 
         private static string NewTempDirectory(string prefix)

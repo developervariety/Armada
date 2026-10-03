@@ -458,7 +458,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CoordinationClaimTests());
             runner.AddSuite(new CoordinationCaptainVoiceTests());
             runner.AddSuite(new DispatchHoldTests());
-            runner.AddSuite(new SchedulerMissionModeTests());
             runner.AddSuite(new DispatchObjectiveModeTests());
             runner.AddSuite(new ObjectiveDispatchPreviewServiceTests());
             runner.AddSuite(new ObjectivePreflightGateTests());

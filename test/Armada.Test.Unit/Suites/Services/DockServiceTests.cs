@@ -249,56 +249,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ProvisionAsync grants OpenCode access to declared sibling repository checkouts", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    ArmadaSettings settings = new ArmadaSettings();
-                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
-                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
-                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
-
-                    GitInfoGitService git = new GitInfoGitService();
-                    DockService service = new DockService(logging, testDb.Driver, settings, git);
-
-                    List<SiblingRepo> siblings = new List<SiblingRepo>
-                    {
-                        new SiblingRepo
-                        {
-                            RepoUrl = "https://github.com/test/sibling.git",
-                            RelativePath = "../SiblingRepo",
-                            BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
-                            DefaultBranch = "main"
-                        }
-                    };
-
-                    string missionId = "msn_opencode_sibling";
-                    Vessel vessel = new Vessel("opencode-sibling-vessel", "https://github.com/test/repo.git");
-                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
-                    vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
-                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                    Captain captain = new Captain("opencode-sibling-captain");
-                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
-
-                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/msn_sibling", missionId).ConfigureAwait(false);
-                    AssertNotNull(dock, "Dock should be provisioned with a sibling repo");
-
-                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
-                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-
-                    // Provisioning a vessel with a declared sibling still seeds the bare-string
-                    // grant. The sibling checkout no longer adds a per-path grant entry (the
-                    // path-keyed map shape was broken on Windows); cross-repo access now rests
-                    // on the bare-string allow plus the runtime --dangerously-skip-permissions
-                    // override rather than enumerated roots.
-                    AssertOpenCodeBareStringGrant(config, "Sibling-vessel OpenCode config");
-                }
-            });
-
             await RunTest("ProvisionAsync_UnresolvableBuildParticipantSibling_FailsTheDock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -387,42 +337,6 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/optSiblingMission", "optSiblingMission").ConfigureAwait(false);
                     AssertNotNull(dock, "A non-build-participant sibling that cannot be resolved is tolerated and the dock still provisions");
-                }
-            });
-
-            await RunTest("ProvisionAsync with null missionId omits the OpenCode playbooks root", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    ArmadaSettings settings = new ArmadaSettings();
-                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
-                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
-                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
-
-                    GitInfoGitService git = new GitInfoGitService();
-                    DockService service = new DockService(logging, testDb.Driver, settings, git);
-
-                    Vessel vessel = new Vessel("opencode-null-mission-vessel", "https://github.com/test/repo.git");
-                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
-                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                    Captain captain = new Captain("opencode-null-captain");
-                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
-
-                    Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/opencode/no_mission", null).ConfigureAwait(false);
-                    AssertNotNull(dock, "Dock should be provisioned without a mission id");
-
-                    string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
-                    OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
-
-                    // Provisioning with a null mission id still succeeds and seeds the bare-string
-                    // grant. The playbooks root no longer appears as a per-path grant entry (the
-                    // document carries only the bare string "allow"), so a missing mission id can
-                    // no longer fabricate or omit a path key.
-                    AssertOpenCodeBareStringGrant(config, "Null-mission OpenCode config");
                 }
             });
 

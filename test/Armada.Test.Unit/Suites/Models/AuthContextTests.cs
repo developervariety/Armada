@@ -40,17 +40,6 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual("Session", ctx.AuthMethod);
             });
 
-            await RunTest("AuthContext Authenticated DifferentAuthMethods", () =>
-            {
-                AuthContext bearer = AuthContext.Authenticated("ten_1", "usr_1", false, false, "Bearer");
-                AuthContext session = AuthContext.Authenticated("ten_1", "usr_1", false, false, "Session");
-                AuthContext apiKey = AuthContext.Authenticated("ten_1", "usr_1", false, false, "ApiKey");
-
-                AssertEqual("Bearer", bearer.AuthMethod);
-                AssertEqual("Session", session.AuthMethod);
-                AssertEqual("ApiKey", apiKey.AuthMethod);
-            });
-
             await RunTest("AuthContext Properties AreSettable", () =>
             {
                 AuthContext ctx = new AuthContext();

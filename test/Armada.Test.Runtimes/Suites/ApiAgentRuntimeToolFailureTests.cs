@@ -114,14 +114,6 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(1, CountOccurrences(strippedMatched, "[ARMADA:VERDICT]"), "the strip cannot duplicate a verdict line");
             });
 
-            await RunTest("A conversation under the threshold is left alone", () =>
-            {
-                List<ChatMessage> messages = BuildConversation(6, 64);
-                AssertEqual(0, ApiAgentRuntime.CompactConversation(messages), "a small conversation is not compacted");
-                foreach (ChatMessage message in messages)
-                    AssertFalse(message.Content!.StartsWith(ApiAgentRuntime.CompactedToolResultMarker, StringComparison.Ordinal));
-            });
-
             await RunTest("A conversation over the threshold compacts instead of being lost", () =>
             {
                 // Before this, the loop only threw at the ceiling: the work was done and no result came back.

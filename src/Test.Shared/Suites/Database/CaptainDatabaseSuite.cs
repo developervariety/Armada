@@ -13,9 +13,9 @@ namespace Test.Shared.Suites.Database
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
-    /// Descriptors for the captain database methods: create, read, read-by-name, update
-    /// (including model clearing), delete, state and heartbeat updates, state-filtered
-    /// enumeration, and existence checks. Each case runs against its own fresh SQLite store.
+    /// Descriptors for the captain database methods not covered by the captain suite: create
+    /// with a model, update (including model clearing), and state and heartbeat updates. Each
+    /// case runs against its own fresh SQLite store.
     /// </summary>
     public sealed class CaptainDatabaseSuite : IArmadaTestSuite
     {
@@ -51,35 +51,6 @@ namespace Test.Shared.Suites.Database
                     AssertEqual(AgentRuntimeEnum.ClaudeCode, result.Runtime);
                     AssertEqual("gpt-5.4", result.Model);
                     AssertEqual("gpt-5.4", read!.Model);
-                }
-            }));
-
-            cases.Add(CaseAsync("read_async_returns_created_captain", "ReadAsync returns created captain", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Captain captain = new Captain("read-test");
-                    await db.Captains.CreateAsync(captain);
-
-                    Captain? result = await db.Captains.ReadAsync(captain.Id);
-                    AssertNotNull(result);
-                    AssertEqual(captain.Id, result!.Id);
-                    AssertEqual(CaptainStateEnum.Idle, result.State);
-                }
-            }));
-
-            cases.Add(CaseAsync("read_by_name_async_returns_correct_captain", "ReadByNameAsync returns correct captain", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Captain captain = new Captain("name-lookup");
-                    await db.Captains.CreateAsync(captain);
-
-                    Captain? result = await db.Captains.ReadByNameAsync("name-lookup");
-                    AssertNotNull(result);
-                    AssertEqual(captain.Id, result!.Id);
                 }
             }));
 
@@ -124,41 +95,6 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
-            cases.Add(CaseAsync("delete_async_removes_captain", "DeleteAsync removes captain", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Captain captain = new Captain("to-delete");
-                    await db.Captains.CreateAsync(captain);
-
-                    await db.Captains.DeleteAsync(captain.Id);
-                    AssertNull(await db.Captains.ReadAsync(captain.Id));
-                }
-            }));
-
-            cases.Add(CaseAsync("enumerate_by_state_async_filters_correctly", "EnumerateByStateAsync filters correctly", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Captain c1 = new Captain("idle-1");
-                    Captain c2 = new Captain("working-1");
-                    c2.State = CaptainStateEnum.Working;
-                    Captain c3 = new Captain("idle-2");
-
-                    await db.Captains.CreateAsync(c1);
-                    await db.Captains.CreateAsync(c2);
-                    await db.Captains.CreateAsync(c3);
-
-                    List<Captain> idle = await db.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle);
-                    AssertEqual(2, idle.Count);
-
-                    List<Captain> working = await db.Captains.EnumerateByStateAsync(CaptainStateEnum.Working);
-                    AssertEqual(1, working.Count);
-                }
-            }));
-
             cases.Add(CaseAsync("update_state_async_changes_state", "UpdateStateAsync changes state", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -187,30 +123,6 @@ namespace Test.Shared.Suites.Database
 
                     Captain? result = await db.Captains.ReadAsync(captain.Id);
                     AssertNotNull(result!.LastHeartbeatUtc);
-                }
-            }));
-
-            cases.Add(CaseAsync("exists_async_works_correctly", "ExistsAsync works correctly", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Captain captain = new Captain("exists-test");
-                    await db.Captains.CreateAsync(captain);
-
-                    AssertTrue(await db.Captains.ExistsAsync(captain.Id));
-                    AssertFalse(await db.Captains.ExistsAsync("cpt_nonexistent"));
-                }
-            }));
-
-            // Audit addition: read of a missing id must return null (not-found path).
-            cases.Add(CaseAsync("read_async_missing_returns_null", "ReadAsync missing returns null", TestTags.Negative, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Captain? result = await db.Captains.ReadAsync("cpt_does_not_exist");
-                    AssertNull(result);
                 }
             }));
 

@@ -282,7 +282,6 @@
     "Runtime Output Formatting": 0.0,
     "Scheduler Capacity": 1.2,
     "Scheduler Hydration": 0.1,
-    "Scheduler Mission Mode Derivation": 0.0,
     "Schema Migration": 0.2,
     "Schema Migration V38 Round Trip": 0.0,
     "Schema Migration V42 Pipeline Stage Parallel": 0.1,

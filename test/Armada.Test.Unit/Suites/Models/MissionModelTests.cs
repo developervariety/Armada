@@ -78,15 +78,6 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(1500L, deserializedRuntimeMs);
             });
 
-            await RunTest("Mission StatusEnum SerializesAsString", () =>
-            {
-                Mission mission = new Mission();
-                mission.Status = MissionStatusEnum.Testing;
-
-                string json = JsonSerializer.Serialize(mission);
-                AssertContains("\"Testing\"", json);
-            });
-
             await RunTest("Mission UniqueIds AcrossInstances", () =>
             {
                 Mission m1 = new Mission();

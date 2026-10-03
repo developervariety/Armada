@@ -12,10 +12,9 @@ namespace Test.Shared.Suites.Database
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
-    /// Descriptors for the vessel database methods: create, read, read-by-name, fleet-filtered
-    /// enumeration, update, delete, and existence, plus persistence of the project context, style
-    /// guide, and GitHub token override fields (including null and cleared values). Includes a
-    /// negative case for reading a missing vessel. Each case runs against its own fresh SQLite store.
+    /// Descriptors for the vessel database methods not covered by the vessel suite: create and
+    /// update, plus persistence of the project context, style guide, and GitHub token override
+    /// fields (including null and cleared values). Each case runs against its own fresh SQLite store.
     /// </summary>
     public sealed class VesselDatabaseSuite : IArmadaTestSuite
     {
@@ -48,56 +47,6 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
-            cases.Add(CaseAsync("read_async_returns_created_vessel", "ReadAsync returns created vessel", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Vessel vessel = new Vessel("ReadTest", "https://github.com/test/repo");
-                    await db.Vessels.CreateAsync(vessel);
-
-                    Vessel? result = await db.Vessels.ReadAsync(vessel.Id);
-                    AssertNotNull(result);
-                    AssertEqual("ReadTest", result!.Name);
-                    AssertEqual("main", result.DefaultBranch);
-                }
-            }));
-
-            cases.Add(CaseAsync("read_by_name_async_returns_correct_vessel", "ReadByNameAsync returns correct vessel", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Vessel vessel = new Vessel("NameLookup", "https://github.com/test/repo");
-                    await db.Vessels.CreateAsync(vessel);
-
-                    Vessel? result = await db.Vessels.ReadByNameAsync("NameLookup");
-                    AssertNotNull(result);
-                    AssertEqual(vessel.Id, result!.Id);
-                }
-            }));
-
-            cases.Add(CaseAsync("enumerate_by_fleet_async_filters_correctly", "EnumerateByFleetAsync filters correctly", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Fleet fleet = new Fleet("TestFleet");
-                    await db.Fleets.CreateAsync(fleet);
-
-                    Vessel v1 = new Vessel("InFleet", "https://github.com/test/repo1");
-                    v1.FleetId = fleet.Id;
-                    Vessel v2 = new Vessel("NoFleet", "https://github.com/test/repo2");
-
-                    await db.Vessels.CreateAsync(v1);
-                    await db.Vessels.CreateAsync(v2);
-
-                    List<Vessel> fleetVessels = await db.Vessels.EnumerateByFleetAsync(fleet.Id);
-                    AssertEqual(1, fleetVessels.Count);
-                    AssertEqual("InFleet", fleetVessels[0].Name);
-                }
-            }));
-
             cases.Add(CaseAsync("update_async_modifies_vessel", "UpdateAsync modifies vessel", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -115,32 +64,6 @@ namespace Test.Shared.Suites.Database
                     AssertEqual("Updated", result!.Name);
                     AssertEqual("develop", result.DefaultBranch);
                     AssertFalse(result.Active);
-                }
-            }));
-
-            cases.Add(CaseAsync("delete_async_removes_vessel", "DeleteAsync removes vessel", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Vessel vessel = new Vessel("ToDelete", "https://github.com/test/repo");
-                    await db.Vessels.CreateAsync(vessel);
-
-                    await db.Vessels.DeleteAsync(vessel.Id);
-                    AssertNull(await db.Vessels.ReadAsync(vessel.Id));
-                }
-            }));
-
-            cases.Add(CaseAsync("exists_async_works_correctly", "ExistsAsync works correctly", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Vessel vessel = new Vessel("ExistsTest", "https://github.com/test/repo");
-                    await db.Vessels.CreateAsync(vessel);
-
-                    AssertTrue(await db.Vessels.ExistsAsync(vessel.Id));
-                    AssertFalse(await db.Vessels.ExistsAsync("vsl_nonexistent"));
                 }
             }));
 
@@ -275,17 +198,6 @@ namespace Test.Shared.Suites.Database
                     AssertNotNull(cleared);
                     AssertNull(cleared!.GitHubTokenOverride);
                     AssertFalse(cleared.HasGitHubTokenOverride);
-                }
-            }));
-
-            // Audit addition: read of a missing vessel id must return null (not-found path).
-            cases.Add(CaseAsync("read_async_missing_returns_null", "ReadAsync missing returns null", TestTags.Negative, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Vessel? result = await db.Vessels.ReadAsync("vsl_nonexistent");
-                    AssertNull(result);
                 }
             }));
 

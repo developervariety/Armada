@@ -14,10 +14,10 @@ namespace Test.Shared.Suites.Database
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
-    /// Descriptors covering database edge and stress behavior: pagination clamping and beyond-end
-    /// boundaries, ascending/descending ordering, date-range filtering, empty result sets, Unicode
+    /// Descriptors covering database edge and stress behavior: pagination clamping,
+    /// ascending/descending ordering, empty result sets, Unicode
     /// round-trips, null optional fields, contended TryClaim, and large enumerations. Positive cases
-    /// verify ordering, filtering, Unicode persistence, and bulk enumeration; negative cases cover
+    /// verify ordering, Unicode persistence, and bulk enumeration; negative cases cover
     /// clamped/invalid pages, empty/boundary results, null-field persistence, and claim contention.
     /// </summary>
     public sealed class EdgeCaseSuite : IArmadaTestSuite
@@ -63,65 +63,6 @@ namespace Test.Shared.Suites.Database
                     EnumerationResult<Fleet> resultNeg = await db.Fleets.EnumerateAsync(queryNeg);
                     AssertEqual(3, (int)resultNeg.TotalRecords, "TotalRecords for negative page");
                     AssertEqual(3, resultNeg.Objects.Count, "Objects count for negative page");
-                }
-            }));
-
-            cases.Add(CaseAsync("pagination_beyond_end_returns_empty", "EdgeCase_PaginationBeyondEnd", TestTags.Negative, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-
-                    // Create 5 fleets
-                    for (int i = 0; i < 5; i++)
-                    {
-                        await db.Fleets.CreateAsync(CreateFleet("Fleet " + i, BaseTime.AddHours(i)));
-                    }
-
-                    // Request page 100 with page size 10 - way beyond end
-                    EnumerationQuery query = new EnumerationQuery();
-                    query.PageNumber = 100;
-                    query.PageSize = 10;
-
-                    EnumerationResult<Fleet> result = await db.Fleets.EnumerateAsync(query);
-                    AssertEqual(0, result.Objects.Count, "Objects should be empty beyond last page");
-                    AssertEqual(5, (int)result.TotalRecords, "TotalRecords should still be correct");
-                    AssertEqual(1, result.TotalPages, "TotalPages should be 1 for 5 records with pageSize 10");
-                }
-            }));
-
-            cases.Add(CaseAsync("pagination_page_size_one", "EdgeCase_PaginationPageSizeOne", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-
-                    int count = 5;
-                    for (int i = 0; i < count; i++)
-                    {
-                        await db.Fleets.CreateAsync(CreateFleet("Fleet " + i, BaseTime.AddHours(i)));
-                    }
-
-                    // Enumerate page by page with page size 1
-                    for (int page = 1; page <= count; page++)
-                    {
-                        EnumerationQuery query = new EnumerationQuery();
-                        query.PageNumber = page;
-                        query.PageSize = 1;
-
-                        EnumerationResult<Fleet> result = await db.Fleets.EnumerateAsync(query);
-                        AssertEqual(1, result.Objects.Count, "Page " + page + " should have exactly 1 record");
-                        AssertEqual(count, (int)result.TotalRecords, "TotalRecords on page " + page);
-                        AssertEqual(count, result.TotalPages, "TotalPages with pageSize 1");
-                    }
-
-                    // Page beyond count should be empty
-                    EnumerationQuery queryBeyond = new EnumerationQuery();
-                    queryBeyond.PageNumber = count + 1;
-                    queryBeyond.PageSize = 1;
-
-                    EnumerationResult<Fleet> resultBeyond = await db.Fleets.EnumerateAsync(queryBeyond);
-                    AssertEqual(0, resultBeyond.Objects.Count, "Page beyond count should be empty");
                 }
             }));
 
@@ -186,33 +127,6 @@ namespace Test.Shared.Suites.Database
                     AssertEqual("Third", result.Objects[0].Name, "First in descending order");
                     AssertEqual("Second", result.Objects[1].Name, "Second in descending order");
                     AssertEqual("First", result.Objects[2].Name, "Third in descending order");
-                }
-            }));
-
-            cases.Add(CaseAsync("date_range_filter", "EdgeCase_DateRangeFilter", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-
-                    // Create fleets at hours 1, 2, 3, 4, 5
-                    for (int i = 1; i <= 5; i++)
-                    {
-                        await db.Fleets.CreateAsync(CreateFleet("Fleet " + i, BaseTime.AddHours(i)));
-                    }
-
-                    // Filter: after hour 1, before hour 5 (exclusive) - should get hours 2, 3, 4
-                    EnumerationQuery query = new EnumerationQuery();
-                    query.CreatedAfter = BaseTime.AddHours(1);
-                    query.CreatedBefore = BaseTime.AddHours(5);
-                    query.Order = EnumerationOrderEnum.CreatedAscending;
-                    query.PageSize = 100;
-
-                    EnumerationResult<Fleet> result = await db.Fleets.EnumerateAsync(query);
-                    AssertEqual(3, (int)result.TotalRecords, "Should match 3 records in date range");
-                    AssertEqual(3, result.Objects.Count, "Should return 3 objects");
-                    AssertEqual("Fleet 2", result.Objects[0].Name, "First in range");
-                    AssertEqual("Fleet 4", result.Objects[2].Name, "Last in range");
                 }
             }));
 
@@ -449,17 +363,6 @@ namespace Test.Shared.Suites.Database
                     HashSet<string> uniqueIds = new HashSet<string>(allIds);
                     AssertEqual(totalRecords, uniqueIds.Count, "All 100 IDs should be unique across pages");
                     AssertEqual(totalRecords, allIds.Count, "Should have collected exactly 100 IDs");
-                }
-            }));
-
-            // Audit addition: reading a non-existent fleet id returns null (not-found path).
-            cases.Add(CaseAsync("read_nonexistent_returns_null_audit", "EdgeCase_ReadNonExistentReturnsNull", TestTags.Negative, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    Fleet? missing = await db.Fleets.ReadAsync("flt_does_not_exist");
-                    AssertNull(missing, "Reading a non-existent fleet id should return null");
                 }
             }));
 

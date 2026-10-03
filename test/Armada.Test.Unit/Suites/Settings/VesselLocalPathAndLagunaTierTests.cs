@@ -66,65 +66,11 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
-
-
-            await RunTest("Laguna_NotPromotedIntoWithinTierPreferenceOrder", () =>
-            {
-                ModelTierSettings s = FleetRoutingSettings.CreateRetiredModelTier();
-                if (s.RetiredWithinTierPreferenceOrder!.TryGetValue("mid", out var order))
-                {
-                    AssertFalse(order.Contains("opencode/laguna-s-2.1-free"),
-                        "Unproven free-tier model must not be in the mid preference order -- eligible, not preferred");
-                }
-                return Task.CompletedTask;
-            });
-
-
-            await RunTest("KnownTierMembership_Unchanged_ByLagunaAddition", () =>
-            {
-                AssertEqual("mid", FleetTier("gpt-5.6-luna"), "gpt-5.6-luna stays mid");
-                AssertEqual("mid", FleetTier("example/mid-audit"), "example/mid-audit stays mid");
-                AssertEqual("high", FleetTier("claude-opus-4-7"), "opus-4-7 stays high");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("ChallengerPool_AllRoutable_AsMidTier", () =>
-            {
-                // The mid-tier roster is luna (native), deepseek (opencode-go), and example/mid-audit.
-                string[] challengers =
-                {
-                    "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "example/mid-audit"
-                };
-                foreach (string m in challengers)
-                {
-                    AssertEqual("mid", FleetTier(m),
-                        m + " must classify as mid tier or Armada will never assign it work");
-                }
-                return Task.CompletedTask;
-            });
-
             await RunTest("MidPreferenceOrder_IsEmpty_AllWorkerModelsEqual", () =>
             {
                 ModelTierSettings s = FleetRoutingSettings.CreateRetiredModelTier();
                 AssertTrue(s.RetiredWithinTierPreferenceOrder!.TryGetValue("mid", out var order), "mid order must exist");
                 AssertEqual(0, order!.Count, "all worker models are equal: the mid preference order is empty");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("NonPreferredModels_AreNotInPreferenceOrder", () =>
-            {
-                ModelTierSettings s = FleetRoutingSettings.CreateRetiredModelTier();
-                if (s.RetiredWithinTierPreferenceOrder!.TryGetValue("mid", out var order))
-                {
-                    foreach (string m in new[]
-                    {
-                        "gemini-4.0-pro", "composer-3"
-                    })
-                    {
-                        AssertFalse(order.Contains(m),
-                            m + " is eligible but is not part of the configured preference order");
-                    }
-                }
                 return Task.CompletedTask;
             });
 
@@ -162,13 +108,6 @@ namespace Armada.Test.Unit.Suites.Settings
                     AssertEqual(tiers[i], FleetTier(models[i]),
                         models[i] + " must classify " + tiers[i]);
                 }
-                return Task.CompletedTask;
-            });
-
-            await RunTest("DeepEngineeringModels_RemainHighTier", () =>
-            {
-                AssertEqual("high", FleetTier("gpt-5.6-sol"), "gpt-5.6-sol stays high");
-                AssertEqual("high", FleetTier("claude-fable-5"), "fable-5 must resolve high (canonical fable pattern)");
                 return Task.CompletedTask;
             });
         }

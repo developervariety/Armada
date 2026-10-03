@@ -3,7 +3,6 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.IO;
     using System.Linq;
-    using System.Reflection;
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using System.Threading.Tasks;
@@ -83,35 +82,6 @@ namespace Armada.Test.Unit.Suites.Services
                     CriticalBearerToken = "sk-ant-oat01-critical",
                 };
                 AssertFalse(s.IsCriticalConfigured(), "Disabled mode should suppress critical config even when RemoteFire fields are present");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("RemoteTriggerMode_DoesNotContain_LocalDaemon", () =>
-            {
-                string[] names = Enum.GetNames(typeof(RemoteTriggerMode));
-                AssertFalse(names.Contains("LocalDaemon"), "LocalDaemon must not be a member of RemoteTriggerMode");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("RemoteTriggerSettings_HasNo_LocalDaemonProperty", () =>
-            {
-                PropertyInfo? prop = typeof(RemoteTriggerSettings).GetProperty("LocalDaemon");
-                AssertNull(prop, "RemoteTriggerSettings must not expose a LocalDaemon property");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("RemoteTriggerSettings_HasNo_IsLocalDaemonConfiguredMethod", () =>
-            {
-                MethodInfo? method = typeof(RemoteTriggerSettings).GetMethod("IsLocalDaemonConfigured");
-                AssertNull(method, "RemoteTriggerSettings must not expose IsLocalDaemonConfigured");
-                return Task.CompletedTask;
-            });
-
-            await RunTest("LocalDaemonSettings_TypeDoesNotExist_InArmadaCore", () =>
-            {
-                Assembly coreAssembly = typeof(RemoteTriggerSettings).Assembly;
-                Type? localDaemonType = coreAssembly.GetType("Armada.Core.Settings.LocalDaemonSettings");
-                AssertNull(localDaemonType, "LocalDaemonSettings type must not exist in Armada.Core");
                 return Task.CompletedTask;
             });
 

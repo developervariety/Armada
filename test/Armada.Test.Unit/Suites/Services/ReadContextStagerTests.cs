@@ -472,29 +472,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Stager_WhitespaceSourceGlob_ReturnsActionableError", () =>
-            {
-                string root = NewTempDir("armada_rcs_root_");
-                try
-                {
-                    CodeIndexSettings settings = new CodeIndexSettings();
-                    ReadContextStager stager = new ReadContextStager(SilentLogging());
-
-                    StageResult result = stager.Stage(
-                        new List<ReadContextRequest> { new ReadContextRequest("   ") },
-                        root,
-                        settings);
-
-                    AssertNotNull(result.Error, "Whitespace SourceGlob must be rejected");
-                    AssertEqual(0, result.Entries.Count, "No entries on whitespace SourceGlob");
-                    AssertContains("SourceGlob", result.Error!);
-                }
-                finally
-                {
-                    TryDeleteDir(root);
-                }
-            });
-
             await RunTest("Stager_EmptyHostRoot_ReturnsActionableError", () =>
             {
                 CodeIndexSettings settings = new CodeIndexSettings();

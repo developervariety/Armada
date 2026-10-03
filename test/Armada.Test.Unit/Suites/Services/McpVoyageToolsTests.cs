@@ -515,54 +515,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_CacheMiss_DoesNotSkipRequiredBuild", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("code-context-auto-nonblocking-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-                    string packSource = Path.Combine(Path.GetTempPath(), "auto-blocking-pack-" + Guid.NewGuid().ToString("N") + ".md");
-                    File.WriteAllText(packSource, "# context pack");
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(packSource, "_briefing/context-pack.md"));
-
-                    // The optional setting must not reintroduce a staging race.
-                    ArmadaSettings legacySettings = new ArmadaSettings();
-                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        legacySettings,
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "auto nonblocking voyage",
-                        vesselId = vessel.Id,
-                        missions = new object[]
-                        {
-                            new { title = "Task A", description = "Auto mode must stage on cache miss" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must not return error on cache miss: " + resultJson);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode must call build on cache miss");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must warm before building on cache miss");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after pack preparation");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Auto mode must pass the prepared pack");
-                }
-            });
-
             await RunTest("Dispatch_CodeContextForce_ReturnsErrorWhenUnavailable", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

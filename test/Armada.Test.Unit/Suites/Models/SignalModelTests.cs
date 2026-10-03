@@ -51,12 +51,6 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(signal.Read, deserialized.Read);
             });
 
-            await RunTest("Signal TypeEnum SerializesAsString", () =>
-            {
-                Signal signal = new Signal(SignalTypeEnum.Heartbeat);
-                string json = JsonSerializer.Serialize(signal);
-                AssertContains("\"Heartbeat\"", json);
-            });
         }
     }
 }

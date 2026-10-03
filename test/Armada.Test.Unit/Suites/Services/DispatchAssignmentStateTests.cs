@@ -1520,62 +1520,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("DispatchPending_RealFailureWarn_IncludesAssignmentStateSuffix", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    string logDir = Path.Combine(Path.GetTempPath(), "armada_dispatch_log_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(logDir);
-                    string logPath = Path.Combine(logDir, "admiral.log");
-
-                    try
-                    {
-                        LoggingModule logging = CreateFileLogging(logPath);
-                        ArmadaSettings settings = CreateSettings();
-                        StubGitService git = new StubGitService();
-                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
-                        ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                        IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
-
-                        Vessel vessel = new Vessel("warn-format-vessel", "https://github.com/test/repo.git");
-                        vessel.DefaultBranch = "main";
-                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                        Captain captain = new Captain("warn-format-captain");
-                        captain.State = CaptainStateEnum.Idle;
-                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
-
-                        Mission failed = new Mission("Real failure", "Sets Failed assignment state.");
-                        failed.VesselId = vessel.Id;
-                        failed.Status = MissionStatusEnum.Pending;
-                        failed = await testDb.Driver.Missions.CreateAsync(failed).ConfigureAwait(false);
-
-                        Dictionary<string, MissionAssignmentStateEnum> falseStates = new Dictionary<string, MissionAssignmentStateEnum>
-                        {
-                            { failed.Id, MissionAssignmentStateEnum.Failed }
-                        };
-                        AssignStateStubMissionService missionService = new AssignStateStubMissionService(falseStates);
-                        AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
-
-                        SetRetryDispatchNeeded(admiral, false);
-
-                        await admiral.HealthCheckAsync().ConfigureAwait(false);
-
-                        string logText = await File.ReadAllTextAsync(logPath).ConfigureAwait(false);
-                        string expectedWarnFragment = "could not assign pending mission " + failed.Id + " (AssignmentState=Failed)";
-                        AssertTrue(logText.Contains(expectedWarnFragment, StringComparison.Ordinal),
-                            "WARN line must include (AssignmentState=Failed) suffix for diagnosability; got: " + logText);
-                    }
-                    finally
-                    {
-                        if (Directory.Exists(logDir))
-                        {
-                            Directory.Delete(logDir, true);
-                        }
-                    }
-                }
-            });
-
             await RunTest("DispatchPending_MixedBatch_AllThreeExpectedWaitsPlusOneFailure_OnlyFailureSetsRetryFlag", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

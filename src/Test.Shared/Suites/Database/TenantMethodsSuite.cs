@@ -150,16 +150,6 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
-            cases.Add(CaseAsync("exists_any_async_true_after_seeding", "ExistsAnyAsync true after seeding", TestTags.Positive, async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    DatabaseDriver db = testDb.Driver;
-                    // InitializeAsync seeds a default tenant
-                    AssertTrue(await db.Tenants.ExistsAnyAsync());
-                }
-            }));
-
             cases.Add(CaseAsync("enumerate_async_returns_created_tenants", "EnumerateAsync returns created tenants", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

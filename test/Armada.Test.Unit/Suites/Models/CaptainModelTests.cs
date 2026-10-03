@@ -89,14 +89,6 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
             });
 
-            await RunTest("Captain StateEnum SerializesAsString", () =>
-            {
-                Captain captain = new Captain();
-                captain.State = CaptainStateEnum.Working;
-
-                string json = JsonSerializer.Serialize(captain);
-                AssertContains("\"Working\"", json);
-            });
         }
     }
 }

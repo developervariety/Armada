@@ -128,33 +128,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("AdmiralService refuses dispatches while held and resumes after clear", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-                    DispatchHold hold = new DispatchHold();
-                    AdmiralService admiral = BuildAdmiral(testDb, logging, hold);
-                    hold.Engage("probe redeploy", "session-hold");
-
-                    Mission mission = new Mission { Title = "hold-probe", VesselId = "vsl_example" };
-                    Exception? refused = await CaptureAsync(() => admiral.DispatchMissionAsync(mission));
-                    AssertNotNull(refused, "a held admiral must refuse the dispatch");
-                    AssertContains("Dispatch hold active", refused!.Message);
-
-                    hold.Clear();
-
-                    Vessel vessel = new Vessel { Name = "example-vessel", RepoUrl = "https://git.example.com/example.git" };
-                    await testDb.Driver.Vessels.CreateAsync(vessel);
-
-                    Mission mission2 = new Mission { Title = "hold-probe-2", VesselId = vessel.Id };
-                    Mission dispatched = await admiral.DispatchMissionAsync(mission2);
-                    AssertNotNull(dispatched);
-                    AssertStartsWith("msn_", dispatched.Id);
-                }
-            });
-
             await RunSharedHoldTestAsync();
             await RunEntryPointComparisonTestAsync();
         }

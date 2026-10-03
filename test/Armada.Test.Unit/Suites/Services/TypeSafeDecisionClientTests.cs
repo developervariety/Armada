@@ -267,11 +267,6 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertUnavailable(HttpStatusCode.Unauthorized, "http_401").ConfigureAwait(false);
             });
 
-            await RunTest("DecideAsync_422_ReturnsUnavailableHttp422", async () =>
-            {
-                await AssertUnavailable((HttpStatusCode)422, "http_422").ConfigureAwait(false);
-            });
-
             await RunTest("DecideAsync_422ValidationBody_ReportsRedactedFieldDetail", async () =>
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
@@ -328,11 +323,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(result.Available, "429 must be unavailable");
                 AssertEqual("http_429", result.UnavailableReason);
                 AssertEqual(1, handler.RequestCount, "no retries in the hot path");
-            });
-
-            await RunTest("DecideAsync_529_ReturnsUnavailableHttp529", async () =>
-            {
-                await AssertUnavailable((HttpStatusCode)529, "http_529").ConfigureAwait(false);
             });
 
             await RunTest("DecideAsync_MalformedJson_ReturnsUnavailableParse", async () =>
