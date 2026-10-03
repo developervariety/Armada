@@ -635,18 +635,6 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private static object CompactionArgs(string? missionId)
-        {
-            object[] candidates =
-            {
-                new { tool = "bash", askedFor = "count the helper copies", outputHead = "11 matches across 7 files", outputBytes = 2048, turnsAgo = 30 },
-                new { tool = "bash", askedFor = "list the test directory", outputHead = "test_one.py test_two.py", outputBytes = 4096, turnsAgo = 40 }
-            };
-            return missionId == null
-                ? new { goal = "publish the count you measured", candidates }
-                : new { missionId, goal = "publish the count you measured", candidates };
-        }
-
         private static object SampleGeneralArgs()
         {
             return new

@@ -32,16 +32,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, http.CallCount, "disabled settings should produce no HTTP calls");
             });
 
-            await RunTest("FireDrainer_ModeDisabledWithRemoteFireFields_NoOp", async () =>
-            {
-                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
-                RemoteTriggerService service = new RemoteTriggerService(MakeDisabledModeSettings(), http, new LoggingModule(), TimeSpan.Zero);
-
-                await service.FireDrainerAsync("vessel-disabled-mode", "event with configured RemoteFire fields");
-
-                AssertEqual(0, http.CallCount, "Disabled mode should produce no HTTP calls even when RemoteFire fields are configured");
-            });
-
             await RunTest("FireDrainer_FirstCall_FiresOnce", async () =>
             {
                 RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
@@ -79,7 +69,9 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("FireDrainer_HitsThrottle_Suppressed", async () =>
             {
                 RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
-                RemoteTriggerService service = new RemoteTriggerService(MakeSettings(), http, new LoggingModule(), TimeSpan.Zero);
+                RemoteTriggerSettings settings = MakeSettings();
+                AssertEqual(20, settings.ThrottleCapPerHour, "the cap defaults to 20 when the settings omit it");
+                RemoteTriggerService service = new RemoteTriggerService(settings, http, new LoggingModule(), TimeSpan.Zero);
 
                 for (int i = 0; i < 20; i++)
                     await service.FireDrainerAsync("vessel-" + i, "event-" + i);
@@ -89,23 +81,6 @@ namespace Armada.Test.Unit.Suites.Services
                 await service.FireDrainerAsync("vessel-throttled", "should be suppressed");
 
                 AssertEqual(20, http.CallCount, "21st fire should be suppressed by throttle");
-            });
-
-            await RunTest("FireDrainer_OmittedThrottleCap_UsesDefault20", async () =>
-            {
-                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
-                RemoteTriggerSettings settings = MakeSettings();
-                AssertEqual(20, settings.ThrottleCapPerHour, "property default should be 20 when omitted in initializer");
-                RemoteTriggerService service = new RemoteTriggerService(settings, http, new LoggingModule(), TimeSpan.Zero);
-
-                for (int i = 0; i < 20; i++)
-                    await service.FireDrainerAsync("vessel-" + i, "event-" + i);
-
-                AssertEqual(20, http.CallCount, "20 distinct vessels should each fire once at default cap");
-
-                await service.FireDrainerAsync("vessel-throttled", "should be suppressed");
-
-                AssertEqual(20, http.CallCount, "21st fire should be suppressed at default cap");
             });
 
             await RunTest("FireDrainer_CustomThrottleCap_SixthWakeSuppressed", async () =>

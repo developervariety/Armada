@@ -149,30 +149,6 @@ namespace Armada.Test.Automated.Suites
                 Assert(updated >= before && updated <= after, "LastUpdateUtc " + updated + " should be between " + before + " and " + after);
             }).ConfigureAwait(false);
 
-            await RunTest("Enqueue_StatusIsQueued", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("StatusQueued").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-                string missionId = prereqs.MissionId;
-
-                MergeEntry entry = await EnqueueAsync(missionId, vesselId, "feat/status-check").ConfigureAwait(false);
-
-                AssertEqual("Queued", entry.Status.ToString());
-            }).ConfigureAwait(false);
-
-            await RunTest("Enqueue_IdHasMrgPrefix", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("IdPrefix").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-                string missionId = prereqs.MissionId;
-
-                MergeEntry entry = await EnqueueAsync(missionId, vesselId, "feat/id-prefix").ConfigureAwait(false);
-
-                string id = entry.Id;
-                AssertStartsWith("mrg_", id);
-                Assert(id.Length > 4, "Id should have content after prefix");
-            }).ConfigureAwait(false);
-
             #endregion
 
             #region CRUD-GetById
@@ -533,15 +509,6 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(result.TotalPages >= 3, "TotalPages should be >= 3");
             }).ConfigureAwait(false);
 
-            await RunTest("Enumerate_Empty_ReturnsZeroRecords", async () =>
-            {
-                HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/merge-queue/enumerate", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-
-                // Note: may not be empty due to previous tests in this shared server
-                AssertTrue(result.TotalRecords >= 0);
-            }).ConfigureAwait(false);
-
             await RunTest("Enumerate_AfterEnqueue_ContainsEntry", async () =>
             {
                 MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("EnumAfter").ConfigureAwait(false);
@@ -649,24 +616,6 @@ namespace Armada.Test.Automated.Suites
                     string id = entry.Id;
                     Assert(ids.Add(id), "Each merge entry should have a unique ID");
                 }
-            }).ConfigureAwait(false);
-
-            #endregion
-
-            #region EnumerationResult-Shape
-
-            await RunTest("List_SuccessField_IsTrue", async () =>
-            {
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=10000").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-                AssertTrue(result.Success);
-            }).ConfigureAwait(false);
-
-            await RunTest("List_TotalMs_IsPresent", async () =>
-            {
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=10000").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-                AssertTrue(result.TotalMs >= 0);
             }).ConfigureAwait(false);
 
             #endregion

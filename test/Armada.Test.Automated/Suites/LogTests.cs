@@ -758,16 +758,16 @@ namespace Armada.Test.Automated.Suites
 
             #region Auth-Tests-For-Log-Endpoints
 
-            await RunTest("MissionLog_WithoutAuth_ReturnsResponse", async () =>
+            await RunTest("MissionLog_WithoutAuth_Returns401", async () =>
             {
                 HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/missions/msn_any/log").ConfigureAwait(false);
-                AssertNotNull(response);
+                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
             }).ConfigureAwait(false);
 
-            await RunTest("CaptainLog_WithoutAuth_ReturnsResponse", async () =>
+            await RunTest("CaptainLog_WithoutAuth_Returns401", async () =>
             {
                 HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/captains/cpt_any/log").ConfigureAwait(false);
-                AssertNotNull(response);
+                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
             }).ConfigureAwait(false);
 
             #endregion

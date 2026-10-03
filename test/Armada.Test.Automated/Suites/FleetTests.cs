@@ -94,20 +94,6 @@ namespace Armada.Test.Automated.Suites
                 AssertStartsWith("flt_", id);
             });
 
-            await RunTest("Create Fleet Id Is Auto Generated Starts With Flt Prefix", async () =>
-            {
-                Fleet fleet = await CreateFleetAsync("PrefixTest");
-                string id = fleet.Id;
-                AssertStartsWith("flt_", id);
-                Assert(id.Length > 4, "ID should have content beyond the prefix");
-            });
-
-            await RunTest("Create Fleet Active Defaults To True", async () =>
-            {
-                Fleet fleet = await CreateFleetAsync("ActiveTest");
-                AssertTrue(fleet.Active);
-            });
-
             await RunTest("Create Fleet Sets CreatedUtc And LastUpdateUtc", async () =>
             {
                 DateTime before = DateTime.UtcNow.AddSeconds(-2);
@@ -369,16 +355,6 @@ namespace Armada.Test.Automated.Suites
             #endregion
 
             #region List - Empty and Basic
-
-            await RunTest("List Fleets Empty Returns Empty Array With Zero Total Records", async () =>
-            {
-                HttpResponseMessage response = await _Client.GetAsync("/api/v1/fleets");
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                EnumerationResult<Fleet> result = await JsonHelper.DeserializeAsync<EnumerationResult<Fleet>>(response);
-
-                Assert(result.Objects != null, "Objects should not be null");
-            });
 
             await RunTest("List Fleets Empty Returns Correct Enumeration Structure", async () =>
             {

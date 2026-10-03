@@ -3,7 +3,6 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Reflection;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -585,12 +584,10 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arch-vessel-cap", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    Dictionary<string, int> vesselCapOverrides = new Dictionary<string, int>
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("arch-vessel-cap", "https://github.com/test/repo.git")
                     {
-                        { vessel.Id, 3 }
-                    };
-                    InjectVesselArchitectCapOverrides(testDb.Driver, vesselCapOverrides);
+                        ArchitectMaxMissionsPerVoyage = 3
+                    }).ConfigureAwait(false);
 
                     Mission mission = await SeedWorkProducedArchitectMissionAsync(testDb, vessel, 4).ConfigureAwait(false);
 
@@ -704,15 +701,6 @@ namespace Armada.Test.Unit.Suites.Services
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
-        private static void InjectVesselArchitectCapOverrides(DatabaseDriver driver, Dictionary<string, int> capsByVesselId)
-        {
-            VesselArchitectCapInjectingMethods wrapped = new VesselArchitectCapInjectingMethods(driver.Vessels, capsByVesselId);
-            PropertyInfo? vesselsProperty = typeof(DatabaseDriver).GetProperty("Vessels", BindingFlags.Instance | BindingFlags.Public);
-            if (vesselsProperty == null)
-                throw new InvalidOperationException("DatabaseDriver.Vessels property not found");
-            vesselsProperty.SetValue(driver, wrapped);
-        }
-
         private static string BuildValidArchitectOutput(int missionCount)
         {
             string plan = "# Test Plan\n\n" +
@@ -739,110 +727,6 @@ namespace Armada.Test.Unit.Suites.Services
                 missions += "[ARMADA:MISSION-END]\n\n";
             }
             return plan + missions;
-        }
-
-        /// <summary>
-        /// Injects per-vessel Architect cap overrides on Read paths until M2 DB persistence lands.
-        /// </summary>
-        private sealed class VesselArchitectCapInjectingMethods : IVesselMethods
-        {
-            private readonly IVesselMethods _Inner;
-            private readonly Dictionary<string, int> _CapsByVesselId;
-
-            public VesselArchitectCapInjectingMethods(IVesselMethods inner, Dictionary<string, int> capsByVesselId)
-            {
-                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
-                _CapsByVesselId = capsByVesselId ?? throw new ArgumentNullException(nameof(capsByVesselId));
-            }
-
-            private void ApplyCap(Vessel? vessel)
-            {
-                if (vessel != null && _CapsByVesselId.TryGetValue(vessel.Id, out int cap))
-                    vessel.ArchitectMaxMissionsPerVoyage = cap;
-            }
-
-            public Task<Vessel> CreateAsync(Vessel vessel, CancellationToken token = default)
-                => _Inner.CreateAsync(vessel, token);
-
-            public async Task<Vessel?> ReadAsync(string id, CancellationToken token = default)
-            {
-                Vessel? vessel = await _Inner.ReadAsync(id, token).ConfigureAwait(false);
-                ApplyCap(vessel);
-                return vessel;
-            }
-
-            public async Task<Vessel?> ReadByNameAsync(string name, CancellationToken token = default)
-            {
-                Vessel? vessel = await _Inner.ReadByNameAsync(name, token).ConfigureAwait(false);
-                ApplyCap(vessel);
-                return vessel;
-            }
-
-            public Task<Vessel> UpdateAsync(Vessel vessel, CancellationToken token = default)
-                => _Inner.UpdateAsync(vessel, token);
-
-            public Task DeleteAsync(string id, CancellationToken token = default)
-                => _Inner.DeleteAsync(id, token);
-
-            public Task<List<Vessel>> EnumerateAsync(CancellationToken token = default)
-                => _Inner.EnumerateAsync(token);
-
-            public Task<EnumerationResult<Vessel>> EnumerateAsync(EnumerationQuery query, CancellationToken token = default)
-                => _Inner.EnumerateAsync(query, token);
-
-            public Task<List<Vessel>> EnumerateByFleetAsync(string fleetId, CancellationToken token = default)
-                => _Inner.EnumerateByFleetAsync(fleetId, token);
-
-            public Task<bool> ExistsAsync(string id, CancellationToken token = default)
-                => _Inner.ExistsAsync(id, token);
-
-            public async Task<Vessel?> ReadAsync(string tenantId, string id, CancellationToken token = default)
-            {
-                Vessel? vessel = await _Inner.ReadAsync(tenantId, id, token).ConfigureAwait(false);
-                ApplyCap(vessel);
-                return vessel;
-            }
-
-            public Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
-                => _Inner.DeleteAsync(tenantId, id, token);
-
-            public Task<List<Vessel>> EnumerateAsync(string tenantId, CancellationToken token = default)
-                => _Inner.EnumerateAsync(tenantId, token);
-
-            public Task<EnumerationResult<Vessel>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default)
-                => _Inner.EnumerateAsync(tenantId, query, token);
-
-            public async Task<Vessel?> ReadByNameAsync(string tenantId, string name, CancellationToken token = default)
-            {
-                Vessel? vessel = await _Inner.ReadByNameAsync(tenantId, name, token).ConfigureAwait(false);
-                ApplyCap(vessel);
-                return vessel;
-            }
-
-            public Task<List<Vessel>> EnumerateByFleetAsync(string tenantId, string fleetId, CancellationToken token = default)
-                => _Inner.EnumerateByFleetAsync(tenantId, fleetId, token);
-
-            public Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default)
-                => _Inner.ExistsAsync(tenantId, id, token);
-
-            public Task IncrementCalibrationCounterAsync(string vesselId, CancellationToken token = default)
-                => _Inner.IncrementCalibrationCounterAsync(vesselId, token);
-
-            public async Task<Vessel?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default)
-            {
-                Vessel? vessel = await _Inner.ReadAsync(tenantId, userId, id, token).ConfigureAwait(false);
-                ApplyCap(vessel);
-                return vessel;
-            }
-
-            public Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default)
-                => _Inner.DeleteAsync(tenantId, userId, id, token);
-
-            public Task<List<Vessel>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default)
-                => _Inner.EnumerateAsync(tenantId, userId, token);
-
-            public Task<EnumerationResult<Vessel>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default)
-                => _Inner.EnumerateAsync(tenantId, userId, query, token);
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService

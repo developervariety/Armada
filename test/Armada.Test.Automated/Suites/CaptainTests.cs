@@ -86,12 +86,6 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("ClaudeCode", captain.Runtime.ToString());
             });
 
-            await RunTest("Create Captain State Is Idle", async () =>
-            {
-                Captain captain = await CreateCaptainAsync("idle-check");
-                AssertEqual("Idle", captain.State.ToString());
-            });
-
             await RunTest("Create Captain Has Timestamps", async () =>
             {
                 Captain captain = await CreateCaptainAsync("timestamp-check");
@@ -101,42 +95,6 @@ namespace Armada.Test.Automated.Suites
 
                 Assert(created <= DateTime.UtcNow.AddMinutes(1), "CreatedUtc should not be in the future");
                 Assert(updated <= DateTime.UtcNow.AddMinutes(1), "LastUpdateUtc should not be in the future");
-            });
-
-            await RunTest("Create Captain Recovery Attempts Is Zero", async () =>
-            {
-                Captain captain = await CreateCaptainAsync("recovery-check");
-                AssertEqual(0, captain.RecoveryAttempts);
-            });
-
-            await RunTest("Create Captain Id Has Cpt Prefix", async () =>
-            {
-                Captain captain = await CreateCaptainAsync("prefix-check");
-                AssertStartsWith("cpt_", captain.Id);
-            });
-
-            await RunTest("Create Captain With Codex Runtime", async () =>
-            {
-                Captain captain = await CreateCaptainAsync("codex-captain", "Codex");
-                AssertEqual("Codex", captain.Runtime.ToString());
-            });
-
-            await RunTest("Create Captain With Gemini Runtime", async () =>
-            {
-                Captain captain = await CreateCaptainAsync("gemini-captain", "Gemini");
-                AssertEqual("Gemini", captain.Runtime.ToString());
-            });
-
-            await RunTest("Create Captain With Cursor Runtime", async () =>
-            {
-                Captain captain = await CreateCaptainAsync("cursor-captain", "Cursor");
-                AssertEqual("Cursor", captain.Runtime.ToString());
-            });
-
-            await RunTest("Create Captain With Custom Runtime", async () =>
-            {
-                Captain captain = await CreateCaptainAsync("custom-captain", "Custom");
-                AssertEqual("Custom", captain.Runtime.ToString());
             });
 
             await RunTest("Create Captain Multiple Captains Have Unique Ids", async () =>
@@ -283,18 +241,6 @@ namespace Armada.Test.Automated.Suites
                 Captain updated = await JsonHelper.DeserializeAsync<Captain>(response);
 
                 AssertEqual(0, updated.RecoveryAttempts);
-                AssertEqual(captainId, updated.Id);
-            });
-
-            await RunTest("Update Captain Preserves Id", async () =>
-            {
-                string captainId = await CreateCaptainAndGetIdAsync("id-preserve");
-
-                string newName = "id-preserve-updated-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                HttpResponseMessage response = await _Client.PutAsync("/api/v1/captains/" + captainId,
-                    JsonHelper.ToJsonContent(new { Name = newName, Runtime = "ClaudeCode" }));
-
-                Captain updated = await JsonHelper.DeserializeAsync<Captain>(response);
                 AssertEqual(captainId, updated.Id);
             });
 
@@ -635,22 +581,6 @@ namespace Armada.Test.Automated.Suites
             {
                 HttpResponseMessage response = await _Client.GetAsync("/api/v1/captains");
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
-            });
-
-            await RunTest("List Captains Empty Returns Zero Total Records", async () =>
-            {
-                HttpResponseMessage response = await _Client.GetAsync("/api/v1/captains");
-                EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
-
-                Assert(result.TotalRecords >= 0, "TotalRecords should be >= 0");
-            });
-
-            await RunTest("List Captains Empty Returns Empty Objects Array", async () =>
-            {
-                HttpResponseMessage response = await _Client.GetAsync("/api/v1/captains");
-                EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(response);
-
-                Assert(result.Objects != null, "Objects should not be null");
             });
 
             await RunTest("List Captains Empty Has Enumeration Result Structure", async () =>

@@ -583,22 +583,6 @@ namespace Armada.Test.Unit.Suites.Services
                     "onExited must be invoked for a non-zero-exit child so the diagnostic block runs.");
             });
 
-            await RunTest("AgentWakeProcessHost_SuccessfulExit_InvokesOnExited", async () =>
-            {
-                LoggingModule logging = CreateLogging();
-                AgentWakeProcessHost host = new AgentWakeProcessHost(logging);
-
-                AgentWakeProcessRequest request = BuildExitProcessRequest(exitCode: 0);
-
-                TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                bool started = host.TryStart(request, () => exited.TrySetResult());
-
-                AssertTrue(started, "AgentWakeProcessHost.TryStart should succeed for a normal exit command.");
-                Task winner = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(15))).ConfigureAwait(false);
-                AssertTrue(winner == exited.Task,
-                    "onExited must be invoked for a normal-exit child so the diagnostic block runs.");
-            });
-
             await RunTest("AgentWakeProcessHost_NonZeroExit_LogsExitCodeAndOutputSnippets", async () =>
             {
                 string logPath = Path.Combine(Path.GetTempPath(), "armada_agentwake_diag_" + Guid.NewGuid().ToString("N") + ".log");

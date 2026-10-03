@@ -616,14 +616,6 @@ namespace Armada.Test.Unit.Suites.Services
 
             // === Status Transition Validation ===
 
-            await RunTest("PullRequestOpen allows transition to Complete", () =>
-            {
-                // Verify the enum values exist and are distinct
-                Assert(MissionStatusEnum.PullRequestOpen != MissionStatusEnum.Complete, "PullRequestOpen is distinct from Complete");
-                Assert(MissionStatusEnum.PullRequestOpen != MissionStatusEnum.WorkProduced, "PullRequestOpen is distinct from WorkProduced");
-                return Task.CompletedTask;
-            });
-
             await RunTest("All LandingMode enum values exist", () =>
             {
                 string[] expected = new[] { "LocalMerge", "PullRequest", "MergeQueue", "None" };

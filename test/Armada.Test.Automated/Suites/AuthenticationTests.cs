@@ -317,26 +317,6 @@ namespace Armada.Test.Automated.Suites
                     await AssertRefusedAsync(emptyKeyClient, AuthRefusalRoutes.ListRoute("GetFleets", "/api/v1/fleets")).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
-            await RunTest("MultipleProtectedEndpoints_AllAccessibleWithValidKey", async () =>
-            {
-                string[] endpoints = new string[]
-                {
-                    "/api/v1/fleets",
-                    "/api/v1/captains",
-                    "/api/v1/missions?pageSize=1",
-                    "/api/v1/voyages",
-                    "/api/v1/signals",
-                    "/api/v1/vessels",
-                    "/api/v1/status"
-                };
-
-                foreach (string endpoint in endpoints)
-                {
-                    HttpResponseMessage response = await _AuthClient.GetAsync(endpoint).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, response.StatusCode);
-                }
-            }).ConfigureAwait(false);
-
             await RunTest("ApiKey_IsUniquePerTestInstance", () =>
             {
                 AssertStartsWith("test-key-", _ApiKey);

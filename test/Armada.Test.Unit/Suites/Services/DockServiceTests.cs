@@ -436,7 +436,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ProvisionAsync omits OpenCode grant for a sibling with a blank relative path", async () =>
+            await RunTest("ProvisionAsync provisions a dock beside a sibling with a blank relative path", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -451,9 +451,8 @@ namespace Armada.Test.Unit.Suites.Services
                     GitInfoGitService git = new GitInfoGitService();
                     DockService service = new DockService(logging, testDb.Driver, settings, git);
 
-                    // A sibling whose RelativePath is whitespace must be skipped by the grant
-                    // builder (same guard the sibling provisioner uses), so it never resolves
-                    // to the worktree itself and produces a spurious / duplicate grant.
+                    // A sibling whose RelativePath is whitespace is skipped, so it never resolves
+                    // to the worktree itself.
                     List<SiblingRepo> siblings = new List<SiblingRepo>
                     {
                         new SiblingRepo
@@ -480,14 +479,12 @@ namespace Armada.Test.Unit.Suites.Services
                     string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
 
-                    // A blank-relative-path sibling cannot perturb the seeded document: the grant
-                    // is the bare string "allow" regardless of roots, so there is no path key for
-                    // a blank sibling to collapse onto a blanket grant.
+                    // The OpenCode grant is the bare string "allow" whatever roots provisioning resolves.
                     AssertOpenCodeBareStringGrant(config, "Blank-sibling OpenCode config");
                 }
             });
 
-            await RunTest("ProvisionAsync collapses duplicate sibling relative paths to a single OpenCode grant", async () =>
+            await RunTest("ProvisionAsync provisions a dock beside two siblings that name the same checkout", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -502,8 +499,8 @@ namespace Armada.Test.Unit.Suites.Services
                     GitInfoGitService git = new GitInfoGitService();
                     DockService service = new DockService(logging, testDb.Driver, settings, git);
 
-                    // Two siblings spelling the same checkout differently ("../Shared" and
-                    // "../nested/../Shared") must resolve to one canonical root and grant once.
+                    // Two siblings spell the same checkout differently ("../Shared" and
+                    // "../nested/../Shared").
                     List<SiblingRepo> siblings = new List<SiblingRepo>
                     {
                         new SiblingRepo
@@ -537,9 +534,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string openCodePath = Path.Combine(dock!.WorktreePath!, "opencode.json");
                     OpenCodeTestConfig config = await ReadOpenCodeConfigAsync(openCodePath).ConfigureAwait(false);
 
-                    // Duplicate sibling relative paths cannot produce duplicate grants: the
-                    // document carries a single bare-string "allow" grant irrespective of how
-                    // many (or how few) roots provisioning resolves.
+                    // The OpenCode grant is the bare string "allow" whatever roots provisioning resolves.
                     AssertOpenCodeBareStringGrant(config, "Duplicate-sibling OpenCode config");
                 }
             });

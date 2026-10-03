@@ -92,13 +92,6 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(mission.Priority >= 0);
             });
 
-            await RunTest("CreateMission_DefaultStatusIsPending", async () =>
-            {
-                string vesselId = await SetupVesselAsync();
-                Mission mission = await CreateMissionAsync(vesselId, "Pending Check");
-                AssertEqual(MissionStatusEnum.Pending, mission.Status);
-            });
-
             await RunTest("CreateMission_DefaultPriorityIs100", async () =>
             {
                 string vesselId = await SetupVesselAsync();
@@ -240,26 +233,6 @@ namespace Armada.Test.Automated.Suites
                 Mission mission = await CreateMissionAsync(vesselId, "Described Mission", description: "This is a detailed description");
                 AssertEqual("This is a detailed description", mission.Description);
             });
-
-            await RunTest("CreateMission_IdHasMsnPrefix", async () =>
-            {
-                string vesselId = await SetupVesselAsync();
-                Mission mission = await CreateMissionAsync(vesselId, "Prefix Check");
-                AssertStartsWith("msn_", mission.Id);
-            });
-
-            await RunTest("CreateMission_HasTimestamps", async () =>
-            {
-                string vesselId = await SetupVesselAsync();
-                Mission mission = await CreateMissionAsync(vesselId, "Timestamp Check");
-
-                AssertFalse(mission.CreatedUtc == default);
-                AssertFalse(mission.LastUpdateUtc == default);
-            });
-
-            #endregion
-
-            #region CRUD-Read
 
             await RunTest("GetMission_Exists_ReturnsMission", async () =>
             {

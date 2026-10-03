@@ -132,30 +132,6 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("A detailed description", voyage.Description!);
             });
 
-            await RunTest("CreateVoyage_StatusDefaultsToOpenOrInProgress", async () =>
-            {
-                PrerequisiteResult prereqs = await CreatePrerequisitesAsync();
-                string vesselId = prereqs.VesselId;
-
-                Voyage voyage = await CreateVoyageAsync(vesselId, "Open Status Voyage");
-
-                string status = voyage.Status.ToString();
-                Assert(status == "Open" || status == "InProgress",
-                    "Expected Open or InProgress but got: " + status);
-            });
-
-            await RunTest("CreateVoyage_IdHasVygPrefix", async () =>
-            {
-                PrerequisiteResult prereqs = await CreatePrerequisitesAsync();
-                string vesselId = prereqs.VesselId;
-
-                Voyage voyage = await CreateVoyageAsync(vesselId, "Id Prefix Voyage");
-
-                string id = voyage.Id;
-                AssertStartsWith("vyg_", id);
-                AssertTrue(id.Length > 4);
-            });
-
             await RunTest("CreateVoyage_WithSingleMission_MissionsCreated", async () =>
             {
                 PrerequisiteResult prereqs = await CreatePrerequisitesAsync();

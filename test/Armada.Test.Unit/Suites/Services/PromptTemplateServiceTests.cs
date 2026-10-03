@@ -523,15 +523,5 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
         }
-
-        private static bool IsAscii(string value)
-        {
-            if (value == null) return true;
-            foreach (char c in value)
-            {
-                if (c > 127) return false;
-            }
-            return true;
-        }
     }
 }

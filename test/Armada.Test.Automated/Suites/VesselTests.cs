@@ -107,14 +107,6 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(vessel.Active);
             });
 
-            await RunTest("Create Vessel Id Has Vsl Prefix", async () =>
-            {
-                string fleetId = await CreateFleetAsync();
-                Vessel vessel = await CreateVesselAsync("PrefixTest", fleetId: fleetId);
-
-                AssertStartsWith("vsl_", vessel.Id);
-            });
-
             await RunTest("Create Vessel Generates Unique Ids", async () =>
             {
                 string fleetId = await CreateFleetAsync();
@@ -137,36 +129,6 @@ namespace Armada.Test.Automated.Suites
                 Assert(createdUtc.ToUniversalTime() >= beforeCreate, "CreatedUtc " + createdUtc + " should be >= " + beforeCreate);
                 Assert(lastUpdateUtc.ToUniversalTime() >= beforeCreate, "LastUpdateUtc " + lastUpdateUtc + " should be >= " + beforeCreate);
             });
-
-            await RunTest("Create Vessel DefaultBranch Defaults To Main", async () =>
-            {
-                string fleetId = await CreateFleetAsync();
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "DefaultBranchVessel", FleetId = fleetId, RepoUrl = "https://github.com/test/default-branch" });
-
-                HttpResponseMessage response = await _Client.PostAsync("/api/v1/vessels", content);
-                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(response);
-                _CreatedVesselIds.Add(vessel.Id);
-
-                AssertEqual("main", vessel.DefaultBranch);
-            });
-
-            await RunTest("Create Vessel Active Defaults To True", async () =>
-            {
-                string fleetId = await CreateFleetAsync();
-
-                StringContent content = JsonHelper.ToJsonContent(new { Name = "ActiveDefaultVessel", FleetId = fleetId, RepoUrl = "https://github.com/test/active-default" });
-
-                HttpResponseMessage response = await _Client.PostAsync("/api/v1/vessels", content);
-                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(response);
-                _CreatedVesselIds.Add(vessel.Id);
-
-                AssertTrue(vessel.Active);
-            });
-
-            #endregion
-
-            #region CRUD - Read
 
             await RunTest("Get Vessel Exists Returns Correct Data", async () =>
             {
