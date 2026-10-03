@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A Judge revision asked for before its Checks finished waits for them:** a
+  NEEDS_REVISION given while the independent Checks at the reviewed commit are
+  unresolved is held, and once they resolve (or the wait budget ends) the Judge
+  runs again with their result, once per mission and without spending recovery
+  budget. A NEEDS_REVISION after that re-run is recorded as before.
 - **A vessel test that only fails under the loaded suite no longer fails its
   gate:** when the `flake_score` decision does not re-run a red unit-test suite,
   the definition-of-done gate re-runs the failing classes once in isolation (at

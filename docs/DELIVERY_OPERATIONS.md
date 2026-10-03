@@ -259,7 +259,12 @@ still running, comes back unfinished and keeps running; read it again with
 slot and since when, and guidance that the wait is an environment condition,
 not a code defect or an owner question. A Judge PASS given while a Check is
 unresolved is held until the Check passes at the reviewed commit, so a stage
-never needs to fail or block because a Check has not finished. The automatic
+never needs to fail or block because a Check has not finished. A Judge
+NEEDS_REVISION given while a Check is unresolved is not recorded either: it
+waits in its own hold, and once the Checks resolve (or the wait budget ends)
+the Judge runs again and decides with their result. That re-run happens once
+per mission and spends no recovery budget; a NEEDS_REVISION after it is
+recorded as usual. The automatic
 Check runner logs how many started Checks run and how many wait for the slot,
 and what holds it.
 

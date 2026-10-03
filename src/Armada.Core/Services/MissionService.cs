@@ -1556,12 +1556,17 @@ namespace Armada.Core.Services
             int decided = 0;
             foreach (Mission candidate in produced)
             {
-                if (!JudgeCheckWaitHold.IsHeld(candidate)) continue;
+                bool passHold = JudgeCheckWaitHold.IsHeld(candidate);
+                bool revisionHold = !passHold && JudgeRevisionCheckWaitHold.IsHeld(candidate);
+                if (!passHold && !revisionHold) continue;
                 if (!IsPersona(candidate.Persona, PersonaCatalog.Judge)) continue;
 
                 try
                 {
-                    if (await DecideJudgeCheckWaitHoldAsync(candidate, token).ConfigureAwait(false)) decided++;
+                    bool done = passHold
+                        ? await DecideJudgeCheckWaitHoldAsync(candidate, token).ConfigureAwait(false)
+                        : await DecideJudgeRevisionCheckWaitHoldAsync(candidate, token).ConfigureAwait(false);
+                    if (done) decided++;
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -1631,6 +1636,95 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Hold a Judge NEEDS_REVISION whose independent Checks are unresolved, so the Judge runs again
+        /// with their result instead of spending a rescue on work that may be correct. Once per mission.
+        /// </summary>
+        /// <returns>True when the verdict is held; false when it is recorded as usual.</returns>
+        private async Task<bool> TryHoldRevisionForChecksAsync(Mission mission, CancellationToken token)
+        {
+            JudgeCheckGate gate = await EvaluateJudgeCheckGateAsync(mission, token).ConfigureAwait(false);
+            if (gate != JudgeCheckGate.HasPending) return false;
+
+            EnumerationResult<ArmadaEvent> earlier = await _Database.Events.EnumerateAsync(new EnumerationQuery
+            {
+                MissionId = mission.Id,
+                EventType = JudgeRevisionCheckWaitHold.HeldEventType,
+                PageNumber = 1,
+                PageSize = 1
+            }, token).ConfigureAwait(false);
+            if (earlier.TotalRecords > 0)
+            {
+                _Logging.Info(_Header + "judge mission " + mission.Id
+                    + " asked for a revision with Checks still unresolved again; its one re-run is spent, so the verdict stands");
+                return false;
+            }
+
+            string holding = DescribeUnresolvedChecks(_LastJudgeGateChecks, _LastJudgeReviewedCommit);
+            mission.HeldForOperatorReview = true;
+            mission.HeldForOperatorReviewReason = JudgeRevisionCheckWaitHold.BuildReason(_UtcNow(), mission.CommitHash, holding);
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await AppendMissionActivityAsync(mission.Id,
+                "Judge NEEDS_REVISION held until the independent Checks resolve at " + mission.CommitHash
+                + (String.IsNullOrEmpty(holding) ? String.Empty : "; waiting on: " + holding), token).ConfigureAwait(false);
+            ArmadaEvent held = new ArmadaEvent(JudgeRevisionCheckWaitHold.HeldEventType,
+                "Judge NEEDS_REVISION on mission " + mission.Id + " held until its Checks resolve; the Judge runs again then")
+            {
+                TenantId = mission.TenantId,
+                UserId = mission.UserId,
+                EntityType = "mission",
+                EntityId = mission.Id,
+                MissionId = mission.Id,
+                VesselId = mission.VesselId,
+                VoyageId = mission.VoyageId
+            };
+            await _Database.Events.CreateAsync(held, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "judge mission " + mission.Id + " NEEDS_REVISION held: independent Checks unresolved at "
+                + mission.CommitHash + (String.IsNullOrEmpty(holding) ? String.Empty : "; holding: " + holding));
+            return true;
+        }
+
+        /// <summary>
+        /// Decide a held NEEDS_REVISION: once its Checks resolve, its reviewed commit moves, or the wait
+        /// budget ends, the Judge runs again and decides with what the Checks say.
+        /// </summary>
+        private async Task<bool> DecideJudgeRevisionCheckWaitHoldAsync(Mission mission, CancellationToken token)
+        {
+            string holdReason = mission.HeldForOperatorReviewReason ?? String.Empty;
+            if (!JudgeRevisionCheckWaitHold.TryParse(holdReason, out DateTime sinceUtc, out string recordedCommit))
+            {
+                _Logging.Warn(_Header + "judge mission " + mission.Id + " revision check-wait hold reason is not readable; it stays held: " + holdReason);
+                return false;
+            }
+
+            string why;
+            if (!JudgeCheckWaitHold.IsSameReviewedCommit(recordedCommit, mission.CommitHash))
+            {
+                why = "reviewed commit changed from " + recordedCommit + " to " + (mission.CommitHash ?? "(none)");
+            }
+            else
+            {
+                JudgeCheckGate gate = await EvaluateJudgeCheckGateAsync(mission, token).ConfigureAwait(false);
+                if (gate == JudgeCheckGate.HasPending)
+                {
+                    if (_UtcNow() - sinceUtc < _JudgeCheckWaitBudget) return false;
+                    why = "Checks still unresolved after " + FormatWaitBudget(_JudgeCheckWaitBudget);
+                }
+                else
+                {
+                    why = "Checks resolved (" + gate + ") at " + mission.CommitHash;
+                }
+            }
+
+            await RecordCheckWaitDecisionAsync(mission, "revision_rerun", why + "; the Judge runs again", token).ConfigureAwait(false);
+            Dock? heldDock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+            await ResetMissionForReRunAsync(mission, MissionAttemptFactRules.JudgeRevisionCheckWaitReason, token, countRecoveryBudget: false).ConfigureAwait(false);
+            if (heldDock != null) await ReclaimMissionDockAsync(heldDock.Id, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "judge mission " + mission.Id + " re-run after a held NEEDS_REVISION: " + why);
+            return true;
+        }
+
         private async Task<bool> ReleaseCheckWaitPassAsync(Mission mission, string? operatorReview, CancellationToken token)
         {
             string checks = DescribeGreenChecks(_LastJudgeGateChecks);
@@ -1682,7 +1776,7 @@ namespace Armada.Core.Services
         {
             await AppendMissionActivityAsync(mission.Id, "check-wait hold " + outcome + ": " + detail, token).ConfigureAwait(false);
             ArmadaEvent evt = new ArmadaEvent(CheckWaitHoldDecidedEventType,
-                "Judge PASS check-wait hold " + outcome + " on mission " + mission.Id + ": " + detail)
+                "Judge check-wait hold " + outcome + " on mission " + mission.Id + ": " + detail)
             {
                 TenantId = mission.TenantId,
                 UserId = mission.UserId,
@@ -2727,6 +2821,7 @@ namespace Armada.Core.Services
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
                 bool judgeGateRejected = false;
+                bool heldRevisionForChecks = false;
                 if (verdict == JudgeVerdict.Pass)
                 {
                     // The deterministic required-heading regex plus the narrative-length floor is the
@@ -2865,6 +2960,13 @@ namespace Armada.Core.Services
                         CountRetrySkipCaptains(mission.RetrySkipCaptainIds) + " of " + _MaxMissingJudgeVerdictRetries + ", skipping " +
                         (captain != null ? captain.Id : mission.CaptainId) + ")");
                 }
+                else if (verdict == JudgeVerdict.NeedsRevision && !judgeGateRejected
+                    && await TryHoldRevisionForChecksAsync(mission, token).ConfigureAwait(false))
+                {
+                    // The Judge asked for a revision while its Checks were unresolved. Nothing is recorded
+                    // yet: the Judge runs again once the Checks resolve (ReleaseJudgeCheckWaitHoldsAsync).
+                    heldRevisionForChecks = true;
+                }
                 else if (verdict != JudgeVerdict.Pass && !judgeGateRejected)
                 {
                     mission.Status = MissionStatusEnum.Failed;
@@ -2901,7 +3003,7 @@ namespace Armada.Core.Services
                 // appear later, but the audit item must already exist and survive that race.
                 string? followUps = ExtractSuggestedFollowUps(mission.AgentOutput);
                 bool hasFollowUps = !String.IsNullOrEmpty(followUps);
-                if (verdict == JudgeVerdict.NeedsRevision || hasFollowUps)
+                if (!heldRevisionForChecks && (verdict == JudgeVerdict.NeedsRevision || hasFollowUps))
                 {
                     await CaptureJudgeFollowUpAsync(mission, verdict, followUps, token).ConfigureAwait(false);
                 }

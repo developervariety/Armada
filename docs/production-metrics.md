@@ -171,7 +171,8 @@ none of these facts:
 - `ReviewDenied`
 - `Restarted`
 - `Retried`, except a Judge re-run that only waited for Checks
-  (`judge_check_wait`)
+  (`judge_check_wait`, or `judge_revision_check_wait` for a revision asked for
+  before the Checks finished)
 - any fact with `IsRescue`
 - a repeated `AttemptStarted` that no `Retried` fact explains
 
