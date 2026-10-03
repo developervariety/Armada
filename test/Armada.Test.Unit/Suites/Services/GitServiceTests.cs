@@ -221,6 +221,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("SearchTrackedContentOnRevisionAsync samples a term found in a minified file whose line exceeds the output limit", async () =>
+            {
+                GitService git = CreateService();
+                string root = Path.Combine(Path.GetTempPath(), "armada-long-line-search-" + Guid.NewGuid().ToString("N"));
+                string work = Path.Combine(root, "work");
+                Directory.CreateDirectory(work);
+                try
+                {
+                    await RunGitAsync(work, "init", "-b", "main");
+                    await RunGitAsync(work, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(work, "config", "user.email", "armada-tests@example.com");
+                    File.WriteAllText(Path.Combine(work, "vendor.min.js"), new string('x', 1200000) + " Extend " + new string('y', 1000));
+                    File.WriteAllText(Path.Combine(work, "Study.cs"), "class Study\n{\n    void Extend() { }\n}\n");
+                    await RunGitAsync(work, "add", ".");
+                    await RunGitAsync(work, "commit", "-m", "Base");
+
+                    GitAnchorPriorArt found = await git.SearchTrackedContentOnRevisionAsync(work, "HEAD", "Extend", 3);
+
+                    AssertTrue(found.Found, "The term is found");
+                    AssertEqual(2, found.MatchingFileCount, "Both files match");
+                    AssertTrue(found.SampleLocations.Contains("Study.cs:3"), "The sample cites the path and line: " + String.Join(", ", found.SampleLocations));
+                    AssertTrue(found.SampleLocations.Contains("vendor.min.js:1"), "A match on a megabyte-long line still yields a sample");
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+
+            await RunTest("IsExpectedGitFailure treats an is-ancestor no as an answer and a missing ref as a failure", () =>
+            {
+                AssertTrue(GitService.IsExpectedGitFailure(new[] { "merge-base", "--is-ancestor", "a", "b" }, 1, ""), "Exit 1 with no error text is git answering no");
+                AssertFalse(GitService.IsExpectedGitFailure(new[] { "merge-base", "--is-ancestor", "a", "b" }, 128, "fatal: Not a valid object name a"), "A missing ref is still a failure");
+                AssertFalse(GitService.IsExpectedGitFailure(new[] { "push", "origin", "main" }, 1, ""), "Another command's exit 1 is still a failure");
+                AssertTrue(GitService.IsExpectedGitFailure(new[] { "worktree", "remove", "x" }, 128, "fatal: 'x' is not a working tree"), "Cleanup not-found stays expected");
+                return Task.CompletedTask;
+            });
+
             await RunTest("ReadChangedPathsBetweenCommitsAsync lists only the paths changed between two commits and reports a bad commit as unavailable", async () =>
             {
                 GitService git = CreateService();
@@ -383,8 +421,11 @@ namespace Armada.Test.Unit.Suites.Services
                         service.ResolveAnchorPathOnRevisionAsync(directory, largeRevision, "same.txt"));
                     await AssertThrowsAsync<InvalidOperationException>(() =>
                         service.SearchTrackedContentOnRevisionAsync(directory, largeRevision, "SecretPathNeedle", 3));
-                    await AssertThrowsAsync<InvalidOperationException>(() =>
-                        service.SearchTrackedContentOnRevisionAsync(directory, largeRevision, "LargeNeedle", 3));
+                    // A match on an oversized line is found and sampled from the match alone; reading that
+                    // file is still refused rather than returned partial.
+                    GitAnchorPriorArt large = await service.SearchTrackedContentOnRevisionAsync(directory, largeRevision, "LargeNeedle", 3);
+                    AssertTrue(large.Found && large.SampleLocations.Contains("large.txt:1"), "A match on an oversized line is sampled");
+                    AssertNull(await service.ReadFileExcerptOnRevisionAsync(directory, largeRevision, "large.txt", 1, 5), "An oversized file is refused, not returned partial");
                     using (CancellationTokenSource cancellation = new CancellationTokenSource())
                     {
                         cancellation.Cancel();

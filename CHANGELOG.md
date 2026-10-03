@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Quieter git log, working prior-art samples:** `merge-base --is-ancestor`
+  answering "no" (exit 1, no error text) is logged at Debug, not as a failed git
+  command; a missing ref still warns. The prior-art sample pass prints only the
+  matched text, so a common term found on a minified file's megabyte-long line
+  returns its path and line instead of failing the output limit.
 - **Code search and prior art say when they could not look:** a mission code
   search on an unindexed or failed index returns a `Readiness` remedy naming
   `armada_index_update` and records `code_index.search_unavailable` once an

@@ -2067,14 +2067,7 @@ namespace Armada.Core.Services
                     : trimmedStdOut;
                 string errorMessage = command + " failed (exit " + exitCode + "): " + detail;
 
-                // Demote expected "not found" messages during cleanup to Debug level
-                bool isExpectedFailure =
-                    stderr.Contains("not a working tree", StringComparison.OrdinalIgnoreCase) ||
-                    stderr.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-                    GitRemoteRefRule.IsRemoteRefAbsent(stderr) ||
-                    stderr.Contains("is not a git repository", StringComparison.OrdinalIgnoreCase);
-
-                if (isExpectedFailure)
+                if (IsExpectedGitFailure(args, exitCode, stderr))
                     _Logging.Debug(_Header + errorMessage);
                 else
                     _Logging.Warn(_Header + errorMessage);
@@ -2083,6 +2076,32 @@ namespace Armada.Core.Services
             }
 
             return stdout;
+        }
+
+        /// <summary>
+        /// Whether a non-zero git exit is an expected answer rather than a failure worth a warning: a
+        /// "not found" during cleanup, or <c>merge-base --is-ancestor</c> answering "no" (exit 1 with no
+        /// error text). A missing ref makes that command exit 128 with an error, which stays a warning.
+        /// Logging every "no" as a failure buried real warnings under hundreds of empty ones a day.
+        /// </summary>
+        /// <param name="args">Git arguments.</param>
+        /// <param name="exitCode">Exit code.</param>
+        /// <param name="stderr">Standard error.</param>
+        /// <returns>True when the exit is expected.</returns>
+        internal static bool IsExpectedGitFailure(string[] args, int exitCode, string stderr)
+        {
+            string error = stderr ?? String.Empty;
+            if (exitCode == 1
+                && String.IsNullOrWhiteSpace(error)
+                && args != null && args.Length > 0
+                && String.Equals(args[0], "merge-base", StringComparison.Ordinal)
+                && Array.IndexOf(args, "--is-ancestor") >= 0)
+                return true;
+
+            return error.Contains("not a working tree", StringComparison.OrdinalIgnoreCase)
+                || error.Contains("not found", StringComparison.OrdinalIgnoreCase)
+                || GitRemoteRefRule.IsRemoteRefAbsent(error)
+                || error.Contains("is not a git repository", StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion

@@ -83,8 +83,10 @@ namespace Armada.Core.Services
             if (!result.Found || maxSamples == 0) return result;
             // Both passes address the same immutable commit. Any second-pass failure is an error,
             // not a verified empty sample set.
+            // Only the matched text is printed: a sample needs the path and line, and printing whole lines
+            // overflowed the output limit on a minified file, which failed the search for any common word.
             output = await RunAnchorGitAsync(worktreePath, token, "grep", "-z", "--line-number", "-I",
-                "--fixed-strings", "--max-count=1", "-e", term, commit, "--").ConfigureAwait(false);
+                "--fixed-strings", "--max-count=1", "--only-matching", "-e", term, commit, "--").ConfigureAwait(false);
             int offset = 0;
             while (offset < output.Length && result.SampleLocations.Count < Math.Min(maxSamples, 3))
             {
