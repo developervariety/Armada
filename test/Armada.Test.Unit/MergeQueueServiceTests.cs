@@ -588,6 +588,69 @@ namespace Armada.Test.Unit
             // A post-merge test failure is surfaced to the operator, never routed to a rebase captain: the
             // test context the queue records carries no git exit code, so it classifies as a surfaced test
             // failure.
+            // The landing sweep must not repeat a step the entry's own processing pass is taking: a second
+            // test run of an entry in Testing outlives the landing and then fails the landed entry.
+            await RunTest("ReconcileLandingStateMachine_SkipsAnEntryWhoseVesselAProcessingPassHolds", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_sweep_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string runs = Path.Combine(rootDir, "test-runs.txt");
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mq-sweep-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "echo run >> '" + runs + "'; sleep 3; echo tests-done";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        Task<MergeEntry?> processing = service.ProcessSingleAsync(entry.Id);
+
+                        DateTime deadline = DateTime.UtcNow.AddSeconds(60);
+                        while (!File.Exists(runs))
+                        {
+                            AssertTrue(DateTime.UtcNow < deadline, "the processing pass never started its test run");
+                            await Task.Delay(50).ConfigureAwait(false);
+                        }
+
+                        Task<int> sweep = service.ReconcileLandingStateMachineAsync();
+                        MergeEntry? landed = await processing.ConfigureAwait(false);
+                        Task sweepDone = await Task.WhenAny(sweep, Task.Delay(TimeSpan.FromSeconds(60))).ConfigureAwait(false);
+                        AssertTrue(ReferenceEquals(sweepDone, sweep), "the sweep finishes");
+
+                        AssertEqual(MergeStatusEnum.Landed, landed!.Status, "the processing pass lands the entry");
+                        AssertEqual(1, File.ReadAllLines(runs).Length, "the sweep does not start a second test run of the entry");
+                        MergeEntry? after = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(MergeStatusEnum.Landed, after!.Status, "the landed entry stays landed");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("ProcessSingle_PostMergeTestFailure_IsSurfacedNeverRoutedToARebaseCaptain", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;

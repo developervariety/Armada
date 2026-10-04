@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **The landing sweep no longer repeats a step beside a processing pass:** the
+  periodic merge-queue landing sweep takes the vessel's repository slot that
+  entry processing holds, skips a vessel another pass holds, and re-reads the
+  entry once it holds the slot. Before, a sweep could start a second test run of
+  an entry already in Testing; that run outlived the landing, held the host
+  build slot, and then marked the landed entry failed.
 - **Two vessels that declare each other as siblings no longer deadlock their docks:**
   dock provisioning releases the vessel's own repository lock once its worktree
   exists, before it provisions sibling repositories. Holding it across sibling

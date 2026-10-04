@@ -727,16 +727,35 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                try
+                // Entry processing advances the same state machine while it holds the vessel's slot. A sweep
+                // step taken beside it repeats that step, for example a second test run of an entry in
+                // Testing that outlives the landing, holds the host build slot and then fails the landed
+                // entry. So the sweep takes the vessel's slot too, skips a vessel another pass holds, and
+                // re-reads the entry once it holds the slot.
+                IDisposable? vesselSlot = VesselRepositoryLock.TryAcquire(entry.VesselId);
+                if (vesselSlot == null)
                 {
-                    bool didAdvance = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
-                    if (didAdvance) advanced++;
+                    _Logging.Debug(_Header + "landing sweep skipped " + entry.Id + ": another pass holds vessel " + (entry.VesselId ?? "unknown"));
+                    continue;
                 }
-                catch (Exception ex)
+
+                using (vesselSlot)
                 {
-                    _Logging.Warn(_Header + "landing state-machine error for " + entry.Id + ": " + ex.Message);
-                    await TransitionEntryToFailureAsync(entry, "Landing state-machine error: " + ex.Message, token).ConfigureAwait(false);
-                    advanced++;
+                    MergeEntry? current = await _Database.MergeEntries.ReadAsync(entry.Id, token).ConfigureAwait(false);
+                    if (current == null || !IsLandingState(current.Status)) continue;
+                    entry = current;
+
+                    try
+                    {
+                        bool didAdvance = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
+                        if (didAdvance) advanced++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "landing state-machine error for " + entry.Id + ": " + ex.Message);
+                        await TransitionEntryToFailureAsync(entry, "Landing state-machine error: " + ex.Message, token).ConfigureAwait(false);
+                        advanced++;
+                    }
                 }
             }
 
