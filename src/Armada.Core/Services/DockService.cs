@@ -374,6 +374,13 @@ namespace Armada.Core.Services
                 }
                 dock = await _Database.Docks.CreateAsync(dock, token).ConfigureAwait(false);
 
+                // The repository lock guards this vessel's bare repository and its own worktree, which
+                // now exist. Sibling provisioning takes each sibling repository's lock, so holding this
+                // one across it deadlocks two vessels that declare each other as siblings and provision
+                // at the same time: each holds its own lock and waits for the other's.
+                repoLock.Release();
+                repoLockAcquired = false;
+
                 // Provision declared sibling repositories alongside this dock so consumer repos
                 // that resolve cross-repo sources via parent-probe paths can build inside the dock.
                 // No-op for vessels that declare no siblings (single-repo vessels are unaffected).

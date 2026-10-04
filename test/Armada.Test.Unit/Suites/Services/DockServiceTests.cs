@@ -436,6 +436,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Two vessels that declare each other as siblings, provisioned at the same moment, used to
+            // deadlock: each held its own repository lock while waiting for the other's.
+            await RunTest("ProvisionAsync of two vessels that declare each other as siblings does not deadlock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    Vessel first = new Vessel("mutual-sibling-first", "https://github.com/test/first.git");
+                    first.LocalPath = Path.Combine(settings.ReposDirectory, first.Name + ".git");
+                    first = await testDb.Driver.Vessels.CreateAsync(first).ConfigureAwait(false);
+                    Vessel second = new Vessel("mutual-sibling-second", "https://github.com/test/second.git");
+                    second.LocalPath = Path.Combine(settings.ReposDirectory, second.Name + ".git");
+                    second = await testDb.Driver.Vessels.CreateAsync(second).ConfigureAwait(false);
+
+                    first.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = second.Id, RelativePath = "../Second", BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly, DefaultBranch = "main" }
+                    });
+                    second.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = first.Id, RelativePath = "../First", BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly, DefaultBranch = "main" }
+                    });
+                    first = await testDb.Driver.Vessels.UpdateAsync(first).ConfigureAwait(false);
+                    second = await testDb.Driver.Vessels.UpdateAsync(second).ConfigureAwait(false);
+
+                    // Both provisions wait inside their own repository step until both are there, so each
+                    // holds its own repository while the other asks for it.
+                    BarrierGitService git = new BarrierGitService(new[] { first.LocalPath!, second.LocalPath! });
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+                    Captain firstCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("mutual-first-captain")).ConfigureAwait(false);
+                    Captain secondCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("mutual-second-captain")).ConfigureAwait(false);
+
+                    Task<Dock?> firstDock = service.ProvisionAsync(first, firstCaptain, "armada/mutual/msn_first", "msn_both_one");
+                    Task<Dock?> secondDock = service.ProvisionAsync(second, secondCaptain, "armada/mutual/msn_second", "msn_both_two");
+                    Task both = Task.WhenAll(firstDock, secondDock);
+                    Task done = await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+
+                    AssertTrue(git.BothArrived, "Fixture: both provisions held their own repository at the same time");
+                    AssertTrue(ReferenceEquals(done, both), "Both provisions finish instead of waiting on each other's repository");
+                    AssertNotNull(await firstDock.ConfigureAwait(false), "The first dock is provisioned");
+                    AssertNotNull(await secondDock.ConfigureAwait(false), "The second dock is provisioned");
+                }
+            });
+
             await RunTest("ProvisionAsync provisions a dock beside a sibling with a blank relative path", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2623,6 +2674,42 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Directory.CreateDirectory(Path.Combine(worktreePath, ".git", "info"));
                 return Task.CompletedTask;
+            }
+        }
+
+        /// <summary>
+        /// Holds each listed repository's own worktree creation until every listed repository has reached it.
+        /// </summary>
+        private sealed class BarrierGitService : GitInfoGitService
+        {
+            private readonly HashSet<string> _Waiting;
+            private readonly TaskCompletionSource<bool> _AllArrived = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _Arrived;
+            private readonly int _Expected;
+
+            public BarrierGitService(IEnumerable<string> repoPaths)
+            {
+                _Waiting = new HashSet<string>(repoPaths.Select(p => Path.GetFullPath(p)), StringComparer.OrdinalIgnoreCase);
+                _Expected = _Waiting.Count;
+            }
+
+            public bool BothArrived => _AllArrived.Task.IsCompletedSuccessfully;
+
+            public override async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
+            {
+                bool wait;
+                lock (_Waiting)
+                {
+                    wait = _Waiting.Remove(Path.GetFullPath(repoPath));
+                }
+
+                if (wait)
+                {
+                    if (Interlocked.Increment(ref _Arrived) == _Expected) _AllArrived.TrySetResult(true);
+                    await Task.WhenAny(_AllArrived.Task, Task.Delay(TimeSpan.FromSeconds(10), token)).ConfigureAwait(false);
+                }
+
+                await base.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token).ConfigureAwait(false);
             }
         }
 

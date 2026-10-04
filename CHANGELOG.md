@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Two vessels that declare each other as siblings no longer deadlock their docks:**
+  dock provisioning releases the vessel's own repository lock once its worktree
+  exists, before it provisions sibling repositories. Holding it across sibling
+  provisioning made two such docks, provisioned at the same moment, wait on each
+  other's repository forever, so both missions stayed in provisioning.
 - **A Judge revision asked for before its Checks finished waits for them:** a
   NEEDS_REVISION given while the independent Checks at the reviewed commit are
   unresolved is held, and once they resolve (or the wait budget ends) the Judge
