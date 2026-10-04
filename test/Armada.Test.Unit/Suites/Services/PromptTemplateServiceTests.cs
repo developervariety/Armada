@@ -377,6 +377,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Unfinished in-scope work is not an owner question. A row that still carries the first blocked-path
+            // wording, which left a captain with unfinished work only BLOCKED or a false COMPLETE, gets the
+            // current wording in its place.
+            await RunTest("An edited working-persona row with the earlier blocked-path wording gets the current wording once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    string earlier =
+                        "\n## When You Cannot Finish\n" +
+                        "If you cannot achieve the mission's goal -- missing context, a false premise, or a question " +
+                        "only the owner can answer -- end your final response with a standalone `[ARMADA:RESULT] BLOCKED` " +
+                        "line followed by the specific blocker or question, instead of `[ARMADA:RESULT] COMPLETE`. Use " +
+                        "`[ARMADA:RESULT] REFUSED` only when the request is unsafe or disallowed. Never report COMPLETE " +
+                        "for work you did not finish.\n";
+                    PromptTemplate workerEdit = new PromptTemplate("persona.worker", "You are a worker. OPERATOR CUSTOM.\n" + earlier);
+                    workerEdit.Category = "persona";
+                    workerEdit.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(workerEdit).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? worker = await service.ResolveAsync("persona.worker").ConfigureAwait(false);
+                    AssertStartsWith("You are a worker. OPERATOR CUSTOM.", worker!.Content, "the operator edit is kept");
+                    AssertContains("Remaining work:", worker.Content, "unfinished in-scope work is committed and listed, not BLOCKED");
+                    AssertContains("BLOCKED stops the voyage until the owner answers", worker.Content);
+                    AssertFalse(worker.Content.Contains("Never report COMPLETE for work you did not finish", StringComparison.Ordinal), "the earlier wording is replaced");
+                    AssertEqual(1, worker.Content.Split(new[] { "## When You Cannot Finish" }, StringSplitOptions.None).Length - 1, "the section appears once");
+                }
+            });
+
             await RunTest("The Linter duplication check reaches seeded and existing rows once, keeps operator edits and the finding headings", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

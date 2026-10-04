@@ -84,11 +84,30 @@ namespace Armada.Core.Services
         private const string _BlockedPathMarker = "## When You Cannot Finish";
 
         /// <summary>
-        /// The D20 blocked path added to every working persona: a mission a captain cannot achieve ends
-        /// with `[ARMADA:RESULT] BLOCKED` and the blocker, not a false COMPLETE. Added once, so a row
-        /// carrying the marker is left as it is and an operator edit is kept.
+        /// The D20 blocked path added to every working persona: a mission blocked by something the captain
+        /// cannot resolve itself ends with `[ARMADA:RESULT] BLOCKED` and the blocker, not a false COMPLETE,
+        /// while in-scope work the captain could still do is committed and listed as remaining work, so it
+        /// continues instead of stopping the voyage for the owner. Added once, so a row carrying the marker
+        /// is left as it is and an operator edit is kept.
         /// </summary>
         private const string _BlockedPathGuidance =
+            "\n" +
+            _BlockedPathMarker + "\n" +
+            "If you cannot achieve the mission's goal because of something you cannot resolve yourself -- " +
+            "missing context, a false premise, or a question only the owner can answer -- end your final " +
+            "response with a standalone `[ARMADA:RESULT] BLOCKED` line followed by the specific blocker or " +
+            "question, instead of `[ARMADA:RESULT] COMPLETE`. BLOCKED stops the voyage until the owner answers. " +
+            "Work you could still do yourself is not a blocker: when in-scope work remains as you stop (more " +
+            "tests, more coverage, the rest of a large change), commit what you finished and end with " +
+            "`[ARMADA:RESULT] COMPLETE` followed by a `Remaining work:` list of exactly what is left, so the " +
+            "next stage and the reviewers continue it. Use `[ARMADA:RESULT] REFUSED` only when the request is " +
+            "unsafe or disallowed. Never claim unfinished work is done.\n";
+
+        /// <summary>
+        /// The blocked-path guidance as it was first added. A row that still carries it word for word is
+        /// given the current guidance in its place, so an operator edit elsewhere in the row is kept.
+        /// </summary>
+        private const string _PreviousBlockedPathGuidance =
             "\n" +
             _BlockedPathMarker + "\n" +
             "If you cannot achieve the mission's goal -- missing context, a false premise, or a question " +
@@ -459,6 +478,15 @@ namespace Armada.Core.Services
             {
                 if (!template.IsBuiltIn) continue;
                 if (!TakesBlockedPathGuidance(template.Name, template.Category)) continue;
+                if (!String.IsNullOrEmpty(template.Content) && template.Content.Contains(_PreviousBlockedPathGuidance, StringComparison.Ordinal))
+                {
+                    template.Content = template.Content.Replace(_PreviousBlockedPathGuidance, _BlockedPathGuidance, StringComparison.Ordinal);
+                    template.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "replaced the earlier blocked-path guidance in built-in template '" + template.Name + "'");
+                    continue;
+                }
+
                 if (!String.IsNullOrEmpty(template.Content) && template.Content.Contains(_BlockedPathMarker, StringComparison.Ordinal)) continue;
 
                 template.Content = (template.Content ?? String.Empty) + _BlockedPathGuidance;

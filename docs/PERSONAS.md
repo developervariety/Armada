@@ -213,8 +213,12 @@ COMPLETE` and `[ARMADA:VERDICT] PASS`, `FAIL` or `NEEDS_REVISION`, exactly.
 ### A stage that ends `[ARMADA:RESULT] BLOCKED` waits for the owner
 
 Every persona's template tells the captain to end with a standalone
-`[ARMADA:RESULT] BLOCKED` line and the question when only the owner can answer,
-instead of claiming COMPLETE. Every stage and mode reads that result through one
+`[ARMADA:RESULT] BLOCKED` line and the blocker when it cannot resolve the block
+itself (missing context, a false premise, or a question only the owner can
+answer), instead of claiming COMPLETE. In-scope work the captain could still do
+is not a blocker: the captain commits what it finished and ends COMPLETE with a
+`Remaining work:` list, and the next stage and the reviewers continue it. Every
+stage and mode reads that result through one
 rule: the stage is blocked when its final outcome marker, the last
 `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` that starts a line, is
 `[ARMADA:RESULT] BLOCKED`. A BLOCKED marker followed by a later COMPLETE or

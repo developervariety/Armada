@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Unfinished in-scope work no longer reads as an owner question:** the
+  working personas' blocked-path guidance keeps `[ARMADA:RESULT] BLOCKED` for
+  what a captain cannot resolve itself (missing context, a false premise, a
+  question only the owner can answer) and asks it to commit finished work and
+  end COMPLETE with a `Remaining work:` list when in-scope work remains, so the
+  next stage continues it instead of the voyage stopping for the owner. Rows
+  that still carry the first wording get the current one; operator edits stay.
 - **A voyage is judged against the objective it was dispatched for:** the
   handoff-outcome decision, its partial-handoff note and the linked-objective
   reads resolve a voyage's objective by the objective named in its brief, and
