@@ -3946,11 +3946,7 @@ namespace Armada.Core.Services
 
             try
             {
-                List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
-                return objectives.FirstOrDefault(o =>
-                    o != null
-                    && o.VoyageIds != null
-                    && o.VoyageIds.Contains(mission.VoyageId));
+                return await VoyageObjectiveResolver.ResolveAsync(_Database, mission.VoyageId, token).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -6437,9 +6433,7 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrEmpty(completedMission.VoyageId)) return new List<string>();
 
-            List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
-            Objective? objective = objectives.FirstOrDefault(item =>
-                item?.VoyageIds != null && item.VoyageIds.Contains(completedMission.VoyageId!, StringComparer.Ordinal));
+            Objective? objective = await VoyageObjectiveResolver.ResolveAsync(_Database, completedMission.VoyageId, token).ConfigureAwait(false);
             if (objective?.AcceptanceCriteria == null) return new List<string>();
             return objective.AcceptanceCriteria.Where(item => !String.IsNullOrWhiteSpace(item)).ToList();
         }
@@ -6825,9 +6819,7 @@ namespace Armada.Core.Services
         private async Task<string> ReadObjectiveSymptomAsync(Mission mission, CancellationToken token)
         {
             if (String.IsNullOrEmpty(mission.VoyageId)) return String.Empty;
-            List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
-            Objective? objective = objectives.FirstOrDefault(item =>
-                item?.VoyageIds != null && item.VoyageIds.Contains(mission.VoyageId!, StringComparer.Ordinal));
+            Objective? objective = await VoyageObjectiveResolver.ResolveAsync(_Database, mission.VoyageId, token).ConfigureAwait(false);
             if (objective == null) return String.Empty;
 
             string text = !String.IsNullOrWhiteSpace(objective.Description) ? objective.Description! : (objective.Title ?? String.Empty);

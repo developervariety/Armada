@@ -83,6 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A voyage is judged against the objective it was dispatched for:** the
+  handoff-outcome decision, its partial-handoff note and the linked-objective
+  reads resolve a voyage's objective by the objective named in its brief, and
+  otherwise prefer the most specific objective over an umbrella that lists the
+  same voyage. Taking the first listing objective could pick the umbrella, so a
+  child step was checked, and its later stages briefed, against the umbrella's
+  acceptance criteria.
 - **The landing sweep no longer repeats a step beside a processing pass:** the
   periodic merge-queue landing sweep takes the vessel's repository slot that
   entry processing holds, skips a vessel another pass holds, and re-reads the
